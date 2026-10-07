@@ -1,0 +1,11 @@
+id,region,product,qty,price,discount,ok
+15,central,prod_20,91,146.0700,0.2700,false
+8,central,prod_33,17,65.7900,,false
+10,coastal,prod_24,55,197.4300,0.1700,true
+18,coastal,prod_33,88,190.9300,0.1400,true
+13,coastal,prod_28,13,187.3400,,true
+14,coastal,prod_20,54,45.4700,0.2800,false
+2,inland,prod_40,97,446.7000,0.1700,false
+5,inland,prod_47,33,416.9400,0.2400,false
+3,inland,prod_17,47,409.6800,,true
+1,inland,prod_61,78,333.3700,,true
