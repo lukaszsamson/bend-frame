@@ -967,3 +967,59 @@ M8 publish readiness [haiku]
 | p20_type_law/ | a law over a Type-kinded `Column`, proven |
 | p21_design_sigs | every type and signature of this document (41 stubs) |
 | p22_scatter_run | the group_by scatter kernel |
+
+## 14. Implementation deviations
+
+Notes recorded by the implementers. All type definitions of sections 4.1-4.4
+match `probes/p21_design_sigs.bend` verbatim; the items below are the only
+differences, or conventions that other modules must follow.
+
+### M1 (dtype, err, kernels, column, fmt.show)
+
+1. **`src/fmt.bend` `Fmt.describe`** — old: `law Fmt.describe` (open claim);
+   new: a `def` stub answering `(f, Fail{InvalidOperation{"Fmt.describe: not
+   implemented yet (TODO)"}})`. Why: an open `law` in an imported file makes
+   `bend` refuse to RUN any program that imports it ("1 TODO found"), so a
+   law stub in `src/fmt.bend` would block every later test. Same signature.
+   General rule: law stubs are for `--check-only` probes only, never in `src/`.
+2. **Module prefixes.** An import `import ./x.bend as X` prefixes every name,
+   constructors and types included, and the def names keep their own dots:
+   `K.Kernel.map(~..)`, `D.DType.show`, `C.Column.cell`, `C.AllValid{}`,
+   `C.CU32{..}`, `C.Named{..}`, `C.Frame{..}` (a bare `AllValid{}` is refused:
+   `expected : a declared constructor`). Patterns too: `case D.SBool{b}`.
+   Conventional aliases: `D` dtype, `E` err, `K` kernels, `C` column, `F` fmt.
+3. **Kernel extras beyond 4.3**: `Kernel.iota_from(n, d, off)` (`out[i] = off +
+   i`; `iota` is `iota_from(.., 0)`), `Kernel.compact_keep(~T, n, d, a, mask, z)
+   -> Array<T> & Array<U32>` (like `compact` but hands the MASK back instead of
+   the count, so one mask can filter several buffers/columns). `Kernel.
+   all_eq(~T, ~eq, n, a, b) -> Bool` (both arrays consumed); `Kernel.
+   popcount(n, mask) -> Array<U32> & U32`; `mask_and/or(n, d, a, b)`,
+   `mask_not(n, d, a)`; `to_list(~T, n, a) -> Array<T> & List<&2, T>`.
+   `Kernel.compact` writes the non-kept rows into slot `k` before overwriting:
+   slots at or past `kept` hold garbage (unspecified, as DESIGN.md says).
+4. **`Fmt.show` details the spec left open**: a column's width is
+   `max(3, name, dtype, cells)` (3 = the `---` row); the elided row prints one
+   `...` cell per column; a frame with no columns prints only
+   `shape: (h, 0)`; booleans print `true/false`, floats with `F32.show`
+   (`2.0` shows as `2`). `Scalar.show` prints booleans as `true/false`.
+5. **`I32.read` is range checked** (`-2147483648..2147483647`, else `None`),
+   beyond the "optional `-` then `U32.read`" of 4.1. Extra I32 defs:
+   `I32.abs`, `I32.mag` (magnitude as U32; `abs(MIN) = MIN`).
+6. **Column/Frame API additions** (all in `src/column.bend`): `Column.depth`,
+   `Column.take_valid(c) -> Column & Valid` (leaves `AllValid` behind),
+   `Column.set_valid(c, v)`, `Column.mk_w(t, len, depth, valid, data)` (a
+   Bool/U32/I32 column over a word buffer from a `DType` tag), `Column.scalars
+   (c, off, n)` (cells `off..off+n-1`), `Column.slice`, `Column.rename(Named,
+   name) -> Named`, `Valid.get/clone/count/gather/compact/materialize`,
+   `Frame.empty()`, `Frame.info(f) -> Frame & FInfo` (`FInfo{h, names}` Data).
+   `Frame.get_cloned` clones IN PLACE (column order preserved), not "take,
+   clone, put back" as 4.4 sketches, because put-back would move the column to
+   the end. `Frame.put` onto a frame with no columns adopts the column's length
+   as the height. `Frame.filter_mask(f, mask, kept) -> Frame` consumes the
+   mask; `Column.compact(c, mask, kept) -> Column & Array<U32>` hands it back.
+   `Column.gather(c, perm, n)` answers `(new column, perm)` (the source column
+   is consumed). Output depth of gather/compact/from_scalars is
+   `Kernel.depth_for(rows)`.
+7. **Limits not implemented in v1 M1**: the `depth <= 23` cap of risk 7
+   (`Kernel.depth_for` is uncapped, no `too many rows` error yet).
+8. **`Fmt.fixed`** (4.12) is NOT implemented in M1; the CSV milestone owns it.
