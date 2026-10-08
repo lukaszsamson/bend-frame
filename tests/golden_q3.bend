@@ -1,5 +1,7 @@
 # M5 golden q3: bench/queries.py q3 (group_by + agg + sort) over bench/fixtures/tiny.csv, collected and
-# printed with Csv.render(.., Some{4}); the `#|` lines are bench/golden/q3.csv byte for byte.
+# printed with Csv.render(.., Some{4}); the `#|` lines are bench/golden/q3.csv byte for byte. That
+# golden is the f32 reference of DESIGN.md 15.5.3 (bench/golden.py q3_reference: exact sum of the
+# f32 inputs rounded once to f32), not Polars' f32 accumulation (inland: Polars 96373.4141).
 # Run from the repo root (make test does): the paths are relative.
 import Base
 import ./../src/err.bend as E
@@ -40,7 +42,7 @@ def main() -> IO(Unit):
 #|region,revenue_sum,price_mean,count,qty_max
 #|central,10821.8604,105.9300,2,91
 #|coastal,27665.5547,155.2925,4,88
-#|inland,96373.4141,314.0467,6,97
+#|inland,96373.4062,314.0467,6,97
 #|island,17405.3223,211.1400,2,87
 #|north,10436.5801,421.6800,1,33
 #|south,32920.0742,269.1667,3,77

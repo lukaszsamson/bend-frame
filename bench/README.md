@@ -58,9 +58,10 @@ Note q6 includes the `describe()` computation (eager) inside the timed call.
 - Correctness (`scripts/bench.sh`, `bench/check.py`): Bend's results (floats at 4 decimals) are diffed against Polars on the same CSV.
   n=1000 goldens are tracked in `golden/n1000/`; n=100k (and 1M with `CHECK_MAX=1000000`) are regenerated into `build/`.
   q1, q2, q4, q5 are byte-identical at 1k, 100k and 1M; q6 at 1k identical, at 100k/1M one float cell differs in the last digit
-  (rel 5e-8); **q3 `revenue_sum` differs in float summation**: 1k rel 4e-7, 100k 3.7e-6, 1M up to 1.3e-5. Against an exact f64 sum at
-  1M Polars is within 3e-7 and Bend within 1.3e-5 (`group_by` sums f32 with a plain sequential add, `Grp.nsum` in
-  `src/groupby.bend`; the compensated `Grp.kahan` is only used by `mean`).
+  (rel 5e-8). **q3 is checked against the f32 reference of DESIGN.md 15.5.3**, not Polars (`bench/golden.py`
+  `q3_reference`: the exact sum of each group's f32 values rounded once to f32): Bend's Neumaier group sums are identical to it at
+  1k and 100k, while Polars' f32 accumulation is 1-2 ulp away in 5 of 8 groups at 1k. (Before M1, Bend summed groups with a plain
+  sequential add: 1M up to 1.3e-5 relative error.)
 
 ### Results
 
