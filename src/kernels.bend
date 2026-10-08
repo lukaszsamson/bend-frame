@@ -211,3 +211,78 @@ def Kernel.all_eq(~T: Data, ~eq: T -> T -> Bool, +n: U32, a: Array<T>, b: Array<
 # the M7 knob: levels of ANode splitting for forked kernels (0 = flat loops)
 def Kernel.fork_depth() -> Nat:
   0n
+
+# ---- M2 extras (eval) -----------------------------------------------------------
+
+# in place: a[i] := z where m[i] = 0, for i < n (null slots back to the dtype
+# default); answers (a, m)
+def Kernel.mask_data.go(~T: Data, n: Nat, +i: U32, +z: T, ra: Array<T> & T, rm: Array<U32> & U32) -> Array<T> & Array<U32>:
+  match n:
+    case 0n:
+      (a, x) = ra
+      (m, w) = rm
+      (a, m)
+    case 1n+p:
+      (a, x) = ra
+      (m, w) = rm
+      +j = U32.inc(i)
+      Kernel.mask_data.go(~T, p, j, z, Array.get(T, Array.set(T, a, i, Bool.pick(T, U32.is_ne(w, 0), x, z)), j), Array.get(U32, m, j))
+
+def Kernel.mask_data(~T: Data, +n: U32, a: Array<T>, m: Array<U32>, +z: T) -> Array<T> & Array<U32>:
+  Kernel.mask_data.go(~T, U32.to_nat(n), 0, z, Array.get(T, a, 0), Array.get(U32, m, 0))
+
+# in place into a: a[i] := m[i] ? a[i] : b[i] for i < n (b consumed);
+# answers (m, a)
+def Kernel.choose.go(~T: Data, n: Nat, +i: U32, ra: Array<T> & T, rb: Array<T> & T, rm: Array<U32> & U32) -> Array<U32> & Array<T>:
+  match n:
+    case 0n:
+      (a, x) = ra
+      (b, y) = rb
+      (m, w) = rm
+      (m, a)
+    case 1n+p:
+      (a, x) = ra
+      (b, y) = rb
+      (m, w) = rm
+      +j = U32.inc(i)
+      Kernel.choose.go(~T, p, j, Array.get(T, Array.set(T, a, i, Bool.pick(T, U32.is_ne(w, 0), x, y)), j), Array.get(T, b, j), Array.get(U32, m, j))
+
+def Kernel.choose(~T: Data, +n: U32, m: Array<U32>, a: Array<T>, b: Array<T>) -> Array<U32> & Array<T>:
+  Kernel.choose.go(~T, U32.to_nat(n), 0, Array.get(T, a, 0), Array.get(T, b, 0), Array.get(U32, m, 0))
+
+# compensated (Kahan) F32 sum of cv(a[i]) over i < n; a is consumed
+def Kernel.fsum.go(~T: Data, ~cv: T -> F32, n: Nat, +i: U32, +s: F32, c: F32, r: Array<T> & T) -> F32:
+  match n:
+    case 0n:
+      s
+    case 1n+p:
+      (a, x) = r
+      +y = F32.sub(cv(x), c)
+      +t = F32.add(s, y)
+      +j = U32.inc(i)
+      Kernel.fsum.go(~T, ~cv, p, j, t, F32.sub(F32.sub(t, s), y), Array.get(T, a, j))
+
+def Kernel.fsum(~T: Data, ~cv: T -> F32, +n: U32, a: Array<T>) -> F32:
+  Kernel.fsum.go(~T, ~cv, U32.to_nat(n), 0, 0.0, 0.0, Array.get(T, a, 0))
+
+# out[i] = v and ok[i] = 1 where f(a[i]) = Some{v}, else z and 0; one pass
+# over a (consumed); answers (out, ok), both of 2^d slots
+def Kernel.map_maybe.put(~U: Data, +i: U32, +z: U, out: Array<U>, ok: Array<U32>, m: Maybe<&2, U>) -> Array<U> & Array<U32>:
+  match m:
+    case Some{v}:
+      (Array.set(U, out, i, v), Array.set(U32, ok, i, 1))
+    case None{}:
+      (Array.set(U, out, i, z), Array.set(U32, ok, i, 0))
+
+def Kernel.map_maybe.go(~T: Data, ~U: Data, ~f: T -> Maybe<&2, U>, n: Nat, +i: U32, +z: U, oo: Array<U> & Array<U32>, r: Array<T> & T) -> Array<U> & Array<U32>:
+  match n:
+    case 0n:
+      oo
+    case 1n+p:
+      (out, ok) = oo
+      (a, x) = r
+      +j = U32.inc(i)
+      Kernel.map_maybe.go(~T, ~U, ~f, p, j, z, Kernel.map_maybe.put(~U, i, z, out, ok, f(x)), Array.get(T, a, j))
+
+def Kernel.map_maybe(~T: Data, ~U: Data, ~f: T -> Maybe<&2, U>, +n: U32, +d: Nat, a: Array<T>, +z: U) -> Array<U> & Array<U32>:
+  Kernel.map_maybe.go(~T, ~U, ~f, U32.to_nat(n), 0, z, (Array.new(U, d, z), Array.new(U32, d, 0)), Array.get(T, a, 0))

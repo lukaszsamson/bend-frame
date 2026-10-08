@@ -1029,3 +1029,102 @@ differences, or conventions that other modules must follow.
 - `Csv.infer` returns `List<CsvField{name, dtype}>` (csv.bend does not import schema.bend); map to `Field` in glue.
 - `Fmt.fixed` is exact round-half-even via F32 bit decomposition, not `floor(x*10^p+0.5)` (f32 loses bits); byte-identical to Python `f"{x:.4f}"` on all goldens.
 - Blank lines skipped for multi-column CSVs; empty strings render unquoted (read back as null).
+
+### M2 (schema, expr, eval)
+
+All types and the signatures of 4.5-4.7 are as in `p21` (`Field`, `UnOp`,
+`BinOp`, `AggOp`, `Expr`; `Schema.find/project/with`, `Frame.schema`,
+`Expr.name/type/refs/is_agg`, `Eval.expr/scalar`). Differences and the
+conventions later modules must follow:
+
+1. **Eval is a compiled stack machine.** `Eval.compile(e, [])` turns an
+   `Expr` into postfix `Instr` code (Data); `Eval.run` threads `EvSt{frame,
+   ResT(stack)}` through one tail-recursive loop. Why: a recursive
+   `Eval.go(f, e)` must thread the Type-kinded frame through both subtrees,
+   which needs a helper below it (R2) or a destructured call result (R3).
+   Every instruction is a whole-column op (one dtype dispatch + one flat
+   template kernel). Internal types: `SKind` (`Kind` is a keyword), `Slot`,
+   `Instr`, `EvSt`, `Out`, `SelSt`.
+2. **Broadcasting** (Polars-like; 4.7 said only "literals broadcast"): each
+   stack slot has a kind, `KFull` (frame height), `KLit` (1 row, literals
+   only) or `KAgg` (1 row, aggregated). A binary op broadcasts a 1-row side to
+   the other's length, so `col a > lit 3`, `col a - mean(col a)` (Full) and
+   `sum(col a) + lit 1` (1 row) all work. `Eval.expr`: a `KLit` result is
+   broadcast to the height, a `KAgg` result stays 1 row. `Eval.full(f, e)`
+   (new) broadcasts both. An aggregation over a literal aggregates the
+   literal broadcast to the height (`Agg{Len, lit 1}` = height as 4.7 wants,
+   but `sum(lit 2)` = 2*height where Polars says 2). `Eval.kind(e)` gives
+   the kind statically.
+3. **Eager ops added to eval.bend** (what `frame.bend`/`Exec` call):
+   `Eval.select(f, es)`, `Eval.with_columns(f, es)`, `Eval.filter(f, pred)`,
+   all `-> ResT(Frame)` consuming `f`. Each type checks EVERY expression
+   against `Frame.schema(f)` before evaluating anything (first error in list
+   order). `select`: output height = h if any expr is `KFull`, else 1 if any
+   is `KAgg` (agg-select), else h (literal-only; Polars gives 1 row); 1-row
+   outputs are broadcast; names `Expr.name`; `DuplicateColumn` /
+   `ShapeMismatch` from `Frame.from_columns`. `with_columns`: every expr sees
+   the INPUT frame (Polars), 1-row results broadcast to h, then
+   `Frame.replace` in order; repeated output names are `DuplicateColumn`
+   (Polars), checked after type errors. `filter`: `TypeMismatch{"filter",
+   "bool", got}`; a null predicate row is dropped; a 1-row predicate
+   broadcasts.
+4. **Null semantics choices** (section 5 applied literally): `And/Or` are
+   NOT Kleene (`false & null = null`; Polars says `false`); `First/Last`
+   skip nulls (first/last VALID value, null if none; Polars returns the
+   first/last row even when null); `NUnique` counts distinct VALID values
+   (Polars counts null as one value). `Count` = valid rows, `Len` = rows.
+   Empty or all-null input: `Sum 0`, `Count 0`, `Len` rows, `NUnique 0`,
+   others null. Every op result over a `Mask` column has its null slots reset
+   to `DType.default` (`Eval.fix`, a pass only when a mask exists), so the
+   4.4 slot invariant holds for every eval result.
+5. **Numerics.** U32 `+ - *` and `Sum` wrap mod 2^32; I32 wraps two's
+   complement (`MIN / -1 = MIN`, `abs(MIN) = MIN`); `U32/I32` `/` by 0 is
+   0, `%` by 0 is the dividend (Base); F32 is IEEE (`x/0 = inf`, `-x/0 =
+   -inf`, `0/0 = nan`). `Sum/Mean` over F32 (and `Mean` over U32/I32, via
+   F32) use a compensated (Kahan) F32 sum (`Kernel.fsum`): risk 8 mitigated,
+   ten `0.1` sum to exactly `1`. `Min/Max` on Str by `String.is_le`, on Bool
+   false < true.
+6. **Cast details.** `Str -> U32/I32/F32/Bool` parses the TRIMMED text;
+   Bool accepts `true/false/True/False` (CSV inference set); a failed parse
+   is null and an all-parsed result is `AllValid`. `F32 -> U32` is
+   `F32.to_u32` (negatives 0), `F32 -> I32` truncates toward zero (out of
+   range: whatever `F32.to_u32` answers). `U32 <-> I32` and `Bool ->
+   U32/I32` only retag the word buffer (no pass). `Cast{Lit{SNull}, t}` is
+   the typed null literal: `Expr.type` answers `t`, eval builds a null
+   column. Cast mismatch message: `TypeMismatch{"cast", "castable to <to>",
+   <from>}`.
+7. **Expr.type error conventions** (op = lowercase name, `BinOp.name` etc.):
+   arithmetic with a non-numeric left side `{op, "numeric", left}`, else
+   unequal sides `{op, left, right}`; `mod` needs `"u32 or i32"`;
+   comparisons `{op, left, right}`; `and/or` `{op, "bool", side}`;
+   `neg/abs` `"i32 or f32"`, `not` `"bool"`, `sqrt` `"f32"`;
+   `fill_null {fill_null, e, v}`; `sum/mean` `"numeric"`. Subexpression
+   errors win over the node's own, left before right.
+8. **Additions.** expr.bend: `Expr.show` (Polars-like text, for
+   `DF.explain`), `Expr.split_agg(e) -> Maybe<&2, AggSplit{op, e}>` (an Agg
+   at the root under at most Aliases: group_by's input form),
+   `Expr.is_null_lit`, `UnOp/BinOp/AggOp.name`, `BinOp.symbol`,
+   `DType.is_num/is_int/is_bool`, `Cast.ok(from, to)` (the cast table).
+   `Expr.is_agg` also looks under `FillNull`. schema.bend: `Schema.show
+   ("a:u32, b:f32")`, `Schema.eq`, `Schema.has`, `Schema.names`,
+   `Field.show/eq`. `Schema.project` reports the first missing name in
+   request order, THEN `DuplicateColumn` on a repeated name (so the
+   `select_cols_is_project` law needs Plan.schema's Select to check types
+   first, duplicates second). eval.bend helpers for later modules:
+   `Eval.agg(op, c) -> ResT(Column)` (1 row, consumes c), `Eval.dropnull(c)`,
+   `Eval.unit(s, t)`, `Eval.const_col(s, t, n)`, `Eval.bcast(c, n)`,
+   `Eval.fix(c)`, `Eval.cast(to, c)`, `Eval.bin(op, a, b)`, `Eval.fill(a,
+   b)`, `Eval.un(op, c)` (column-level, no type check). kernels.bend:
+   `Kernel.mask_data` (in place: invalid slots := z), `Kernel.choose` (in
+   place `a[i] := m[i] ? a[i] : b[i]`), `Kernel.fsum` (Kahan), `Kernel.
+   map_maybe` (one pass to values + 0/1 ok mask).
+9. **Bug fix in M1 code**: `Column.compact` now allocates
+   `depth_for(kept + 1)` slots. `Kernel.compact/compact_keep` write every
+   dropped row into slot `k`; with exactly `kept = 2^d` slots a dropped row
+   after the last kept one wrapped into slot 0 and clobbered row 0 (a filter
+   keeping 2 of [k, k, drop] rows returned a wrong first row). Callers of the
+   raw kernels must give the output more than `kept` slots.
+10. **Depth/mask slots.** A binary result has its LEFT operand's depth; an
+    `AllValid AND Mask{m}` reuses `m` as is, so a mask may have a different
+    (always >= len) slot count than `2^depth`. Kernels only touch slots
+    `< len`; do not rely on "the mask has exactly 2^depth slots".

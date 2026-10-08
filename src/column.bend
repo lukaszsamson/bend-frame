@@ -570,11 +570,14 @@ def Column.compact.b(+n: U32, +kept: U32, +d: Nat, mask: Array<U32>, r: Column &
 
 def Column.compact.a(+kept: U32, mask: Array<U32>, r: Column & U32) -> Column & Array<U32>:
   (c, +n) = r
-  Column.compact.b(n, kept, K.Kernel.depth_for(kept), mask, Column.take_valid(c))
+  Column.compact.b(n, kept, K.Kernel.depth_for(U32.add(kept, 1)), mask, Column.take_valid(c))
 
 # the rows where mask = 1 (0/1 words; `kept` = their count) with validity
-# compacted too; the result has depth_for(kept); mask comes back so one mask
-# can filter every column
+# compacted too; the result has depth_for(kept + 1): Kernel.compact_keep
+# writes every dropped row into slot `kept` (overwritten later or left as
+# garbage), so the output needs MORE than `kept` slots, else a dropped row
+# after the last kept one wraps around into slot 0 (M2 fix). Mask comes back
+# so one mask can filter every column
 def Column.compact(c: Column, mask: Array<U32>, +kept: U32) -> Column & Array<U32>:
   Column.compact.a(kept, mask, Column.len(c))
 

@@ -73,3 +73,53 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
 - `F32.bits(x)` is the IEEE-754 bit pattern; `U32.shrn/shln(x, n: Nat)` shift by a Nat.
 - Tests that read `bench/...` use repo-relative paths and rely on `scripts/test.sh` cd'ing to the
   root; `tests/csv_file.bend` writes `/tmp/bend_frame_test.csv`.
+
+## M2 (schema, expr, eval)
+
+- **Tree evaluation with a Type-kinded state**: compile the tree to postfix
+  Data code first (`Eval.compile(e, acc)`: plain structural recursion with
+  the recursive calls in argument position), then run ONE loop over the code
+  with the state `EvSt{frame, ResT(stack)}` (`Eval.run`). No mutual
+  recursion, no destructured call results, errors short-circuit as `Fail`.
+  Reuse this shape for any interpreter over `Plan`/`Expr` that threads a
+  frame.
+- **Keywords you cannot use as names**: `Kind` (type name) and `is`
+  (parameter name). Error: `expected : a name (got the keyword ..)`.
+- **Multi-scrutinee `match a b` must follow parameter order**; otherwise
+  `'d' can't be matched in this position`. Swap the parameters.
+- `match f():` on a call is refused even in tests (`match base():`): add a
+  `k(.., r)` helper. `(f, m) = r` followed by `match m:` is fine.
+- Nested patterns work: `case Some{D.I32{x}}`, `case Lit{D.SNull{}}`,
+  `case Slot{kb, b} <> Slot{ka, a} <> rest`, overlapping rows like
+  `case D.TBool{} D.TBool{}` then `case D.TBool{} _`; `case other:` as the
+  last catch-all binder.
+- `List.map` is `List<&1>` only (`expected List<&1, Field> / observed
+  List<&2, Field>`): write the 3-line recursion for `List<&2, _>`.
+- Template lambdas may call defs with `+` params: `~(a => b =>
+  Eval.i32_min(a, b))` where `i32_min(+a, +b)`; passing the def itself
+  (`~Eval.i32_min`) is refused (R5). A template lambda that uses its
+  argument twice (`~(x => pick(is_gt(x, 0.0), f(x), ..))`) is inlined into
+  the kernel and fails there as `x (consumed more than once)` with a
+  `Location: Kernel.map_maybe.go~0`: move the body into a def with `+x`.
+- **`Kernel.compact`/`compact_keep` need an output with MORE than `kept`
+  slots** (`depth_for(kept + 1)`): dropped rows are written into slot `k`,
+  which wraps to slot 0 when `kept = 2^d`. `Column.compact` does this now.
+- **Validity**: binary ops AND masks, reusing the other side's mask when one
+  side is `AllValid` (no pass); `Eval.fix(c)` resets null slots to the
+  default (one in-place pass, `Kernel.mask_data`) only when a mask exists.
+  Rely on the invariant (null slot = default) but aggregations still skip
+  nulls explicitly (`Eval.dropnull` compacts valid rows, then the dense
+  kernels run).
+- **Aggregating**: `Eval.agg(op, column)` is column-level (no typing), 1-row
+  result. For group_by: `X.Expr.split_agg(e)` gives `AggSplit{op, inner}`,
+  evaluate `inner` with `V.Eval.full(f, inner)` (literals broadcast to the
+  height, so `Agg{Len, lit 1}` scatters height ones), name =
+  `X.Expr.name(e)`, dtype = `X.Expr.type(e, schema)`.
+- **Measured natively at 1M rows** (12 threads): column clone ~0-3 ms,
+  `u32 + lit` 4 ms, `f32 * lit` 2 ms, q2's revenue expression 6-10 ms,
+  `bool & (u32 > lit)` 4 ms, masked `f32 + f32` 4 ms, `sum f32` (Kahan)
+  5 ms, masked `mean` 6 ms, `filter` 12 ms, `cast u32 -> str` 37 ms, but
+  `str == lit` / `str < lit` ~100 ms (~95 ns per row: cons-list strings).
+- Test helpers used by all eval tests: `cs(c)` prints `dtype=[cells]`,
+  `fs(f)` prints `h=N name:dtype=[..] | ..` (see `tests/eval_arith.bend`);
+  much easier to reason about than `Fmt.show` tables.
