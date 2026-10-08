@@ -7,7 +7,7 @@
 import Base
 import ./../../src/kernels.bend as K
 import ./../../LAWS.bend as Laws
-import ./../../PROOF.bend as Pf
+import ./../../PROOF_kernels.bend as Pf
 
 # the correct statement, proven by the same term
 law mask_not_slots_copy:
