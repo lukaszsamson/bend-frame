@@ -175,3 +175,103 @@ def iota_go_slots(fuel: Nat, +i: U32, +off: U32, out: Array<U32>, +k: U32, hk: {
 
 def Laws.iota_slots(n, d, off):
   iota_go_slots(U32.to_nat(n), 0, off, Array.new(U32, d, 0), U32.shln(1, d), new_slots(U32, d, 0))
+
+# =====================================================================================
+# 9. P0 well-formedness (LAWS.bend section 9)
+# =====================================================================================
+
+# min(n, a) <= b from a <= b: c1 = cmp(n, a), c2 = cmp(a, b) as parameters
+def min_le_k(+x: Word(32n), +y: Word(32n), +w: Word(32n), c1: Cmp, c2: Cmp, e1: {Word.cmp(32n, x, y) == c1 : Cmp}, e2: {Word.cmp(32n, y, w) == c2 : Cmp}, h: {Cmp.is_le(c2) == True{} : Bool})
+  -> {U32.is_le(Bool.pick(U32, Cmp.is_lt(c1), U32{x}, U32{y}), U32{w}) == True{} : Bool}:
+  match c1 c2:
+    case LT{} LT{}:
+      %Equal.sym(Cmp, Word.cmp(32n, x, w), LT{}, L.word_lt_trans(32n, x, y, w, e1, e2)) : {Cmp.is_le(_) == True{} : Bool}
+      {==}
+    case LT{} EQ{}:
+      %L.word_cmp_eq(32n, y, w, e2) : {U32.is_le(U32{x}, U32{_}) == True{} : Bool}
+      %Equal.sym(Cmp, Word.cmp(32n, x, y), LT{}, e1) : {Cmp.is_le(_) == True{} : Bool}
+      {==}
+    case LT{} GT{}:
+      Empty.absurd({U32.is_le(U32{x}, U32{w}) == True{} : Bool}, L.false_true(h))
+    case EQ{} _:
+      %Equal.sym(Cmp, Word.cmp(32n, y, w), c2, e2) : {Cmp.is_le(_) == True{} : Bool}
+      h
+    case GT{} _:
+      %Equal.sym(Cmp, Word.cmp(32n, y, w), c2, e2) : {Cmp.is_le(_) == True{} : Bool}
+      h
+
+def Laws.u32_min_le(n, a, b, h):
+  match n a b:
+    case U32{+x} U32{+y} U32{+w}:
+      min_le_k(x, y, w, Word.cmp(32n, x, y), Word.cmp(32n, y, w), {==}, {==}, h)
+
+def Laws.wf_new(T, d, z):
+  match d:
+    case 0n:
+      Unit{}
+    case 1n++p:
+      (Laws.wf_new(T, p, z), Laws.wf_new(T, p, z))
+
+def Laws.wf_new_words(bits, d, w, hw):
+  match bits d:
+    case True{} 0n:
+      hw
+    case False{} 0n:
+      Unit{}
+    case True{} 1n++p:
+      (Laws.wf_new_words(True{}, p, w, hw), Laws.wf_new_words(True{}, p, w, hw))
+    case False{} 1n++p:
+      (Laws.wf_new_words(False{}, p, w, hw), Laws.wf_new_words(False{}, p, w, hw))
+
+def Laws.wf_frame_empty():
+  Unit{}
+
+def Laws.wf_column_head(c, n, wf):
+  match c:
+    case C.CBool{+len, +depth, valid, data}:
+      (hl, hv) = wf
+      (Laws.u32_min_le(n, len, U32.shln(1, depth), hl), hv)
+    case C.CU32{+len, +depth, valid, data}:
+      (hl, hv) = wf
+      (Laws.u32_min_le(n, len, U32.shln(1, depth), hl), hv)
+    case C.CI32{+len, +depth, valid, data}:
+      (hl, hv) = wf
+      (Laws.u32_min_le(n, len, U32.shln(1, depth), hl), hv)
+    case C.CF32{+len, +depth, valid, data}:
+      (hl, hv) = wf
+      (Laws.u32_min_le(n, len, U32.shln(1, depth), hl), hv)
+    case C.CStr{+len, +depth, valid, data}:
+      (hl, hv) = wf
+      (Laws.u32_min_le(n, len, U32.shln(1, depth), hl), hv)
+
+# a column of height h stays a column of height min(n, h) under head
+def wf_colh_head(+h: U32, c: C.Column, +n: U32, hc: Laws.WFColumnH(h, c)) -> Laws.WFColumnH(U32.min(n, h), C.Column.head(c, n)):
+  match c:
+    case C.CBool{+len, depth, valid, data}:
+      (hl, hw) = hc
+      ((%Equal.sym(U32, len, h, hl) : {U32.min(n, _) == U32.min(n, h) : U32}; {==}), Laws.wf_column_head(C.CBool{len, depth, valid, data}, n, hw))
+    case C.CU32{+len, depth, valid, data}:
+      (hl, hw) = hc
+      ((%Equal.sym(U32, len, h, hl) : {U32.min(n, _) == U32.min(n, h) : U32}; {==}), Laws.wf_column_head(C.CU32{len, depth, valid, data}, n, hw))
+    case C.CI32{+len, depth, valid, data}:
+      (hl, hw) = hc
+      ((%Equal.sym(U32, len, h, hl) : {U32.min(n, _) == U32.min(n, h) : U32}; {==}), Laws.wf_column_head(C.CI32{len, depth, valid, data}, n, hw))
+    case C.CF32{+len, depth, valid, data}:
+      (hl, hw) = hc
+      ((%Equal.sym(U32, len, h, hl) : {U32.min(n, _) == U32.min(n, h) : U32}; {==}), Laws.wf_column_head(C.CF32{len, depth, valid, data}, n, hw))
+    case C.CStr{+len, depth, valid, data}:
+      (hl, hw) = hc
+      ((%Equal.sym(U32, len, h, hl) : {U32.min(n, _) == U32.min(n, h) : U32}; {==}), Laws.wf_column_head(C.CStr{len, depth, valid, data}, n, hw))
+
+def wf_cols_head(+h: U32, cols: List<&1, C.Named>, +seen: List<&2, String>, +n: U32, wf: Laws.WFCols(h, cols, seen)) -> Laws.WFCols(U32.min(n, h), C.Cols.head(cols, n), seen):
+  match cols:
+    case Nil{}:
+      Unit{}
+    case C.Named{+nm, c} <> rest:
+      (hn, hc, hrest) = wf
+      (hn, wf_colh_head(h, c, n, hc), wf_cols_head(h, rest, nm <> seen, n, hrest))
+
+def Laws.wf_frame_head(f, n, wf):
+  match f:
+    case C.Frame{+h, cols}:
+      wf_cols_head(h, cols, Nil{}, n, wf)

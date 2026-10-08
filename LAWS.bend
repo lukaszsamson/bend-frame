@@ -756,3 +756,170 @@ law release_merge_only_obs:
   for ok: {P.Plan.schema(p) == Done{s} : E.Res(List<&2, S.Field>)}
   for +mo: {merge_only(p) == True{} : Bool}
   {DP.Dump.result(Q.Exec.run_pure(P.Optimize.release(p), env)) == DP.Dump.result(Q.Exec.run_pure(p, env)) : String}
+
+# =====================================================================================
+# 9. P0 well-formedness (plan M_01 section 6 P0): the invariants every kernel assumes
+# =====================================================================================
+#
+# Type-valued predicates over the production representations (src/column.bend): a
+# proof of WFColumn(c) is evidence that c obeys them. Bend has no module privacy, so
+# the constructors CBool{..} .. CStr{..}, Frame{..} and the Array constructors can be
+# written by anyone; building a column or frame directly is UNSUPPORTED (DESIGN.md
+# section 14, M2). The supported constructors (Column.from_scalars, Csv.read,
+# Frame.from_columns, the verbs) are the ones whose outputs these predicates are
+# meant to describe; the smart-constructor lemmas below cover the buffer allocators
+# and the head verb; every other verb is M5 work (P1).
+
+# a perfect tree of depth d: exactly 2^d slots, the shape Array.get / Array.set index
+def WFArray(-T: Type, d: Nat, a: Array<T>) -> Type:
+  match d a:
+    case 0n ALeaf{x}:
+      Unit
+    case 1n+p ANode{xs, ys}:
+      WFArray(T, p, xs) & WFArray(T, p, ys)
+    case _ _:
+      Empty
+
+# a word is 0 or 1 when the buffer holds bools (or a validity mask)
+def Bits01(bits: Bool, +x: U32) -> Type:
+  match bits:
+    case True{}:
+      {U32.is_le(x, 1) == True{} : Bool}
+    case False{}:
+      Unit
+
+# a word buffer of depth d; with bits, every word is 0 or 1
+def WFWords(+bits: Bool, d: Nat, a: Array<U32>) -> Type:
+  match d a:
+    case 0n ALeaf{x}:
+      Bits01(bits, x)
+    case 1n+p ANode{xs, ys}:
+      WFWords(bits, p, xs) & WFWords(bits, p, ys)
+    case _ _:
+      Empty
+
+# a null slot (mask word 0) holds the dtype default
+def NullDef(-T: Data, +z: T, +w: U32, x: T) -> Type:
+  {Bool.pick(T, U32.is_zero(w), x, z) == z : T}
+
+# mask and word data of depth d: mask words 0/1, data words 0/1 when bits, nulls hold 0
+def WFMaskedW(+bits: Bool, d: Nat, m: Array<U32>, a: Array<U32>) -> Type:
+  match d m a:
+    case 0n ALeaf{+w} ALeaf{+x}:
+      {U32.is_le(w, 1) == True{} : Bool} & Bits01(bits, x) & NullDef(U32, 0, w, x)
+    case 1n+p ANode{ms, mt} ANode{xs, ys}:
+      WFMaskedW(bits, p, ms, xs) & WFMaskedW(bits, p, mt, ys)
+    case _ _ _:
+      Empty
+
+# mask and data of depth d for a Data cell type with default z
+def WFMaskedT(-T: Data, +z: T, d: Nat, m: Array<U32>, a: Array<T>) -> Type:
+  match d m a:
+    case 0n ALeaf{+w} ALeaf{x}:
+      {U32.is_le(w, 1) == True{} : Bool} & NullDef(T, z, w, x)
+    case 1n+p ANode{ms, mt} ANode{xs, ys}:
+      WFMaskedT(T, z, p, ms, xs) & WFMaskedT(T, z, p, mt, ys)
+    case _ _ _:
+      Empty
+
+# validity against a word buffer: AllValid needs only the buffer's shape
+def WFValidW(+bits: Bool, d: Nat, v: C.Valid, a: Array<U32>) -> Type:
+  match v:
+    case C.AllValid{}:
+      WFWords(bits, d, a)
+    case C.Mask{m}:
+      WFMaskedW(bits, d, m, a)
+
+def WFValidT(-T: Data, +z: T, d: Nat, v: C.Valid, a: Array<T>) -> Type:
+  match v:
+    case C.AllValid{}:
+      WFArray(T, d, a)
+    case C.Mask{m}:
+      WFMaskedT(T, z, d, m, a)
+
+# a well-formed column: len <= 2^depth, buffers of that depth, mask words 0/1,
+# bool words 0/1, null slots holding the default (0, 0.0, ""); the dtype is the
+# constructor, so dtype/storage agreement is by construction
+def WFColumn(c: C.Column) -> Type:
+  match c:
+    case C.CBool{len, +depth, valid, data}:
+      {U32.is_le(len, U32.shln(1, depth)) == True{} : Bool} & WFValidW(True{}, depth, valid, data)
+    case C.CU32{len, +depth, valid, data}:
+      {U32.is_le(len, U32.shln(1, depth)) == True{} : Bool} & WFValidW(False{}, depth, valid, data)
+    case C.CI32{len, +depth, valid, data}:
+      {U32.is_le(len, U32.shln(1, depth)) == True{} : Bool} & WFValidW(False{}, depth, valid, data)
+    case C.CF32{len, +depth, valid, data}:
+      {U32.is_le(len, U32.shln(1, depth)) == True{} : Bool} & WFValidT(F32, 0.0, depth, valid, data)
+    case C.CStr{len, +depth, valid, data}:
+      {U32.is_le(len, U32.shln(1, depth)) == True{} : Bool} & WFValidT(String, "", depth, valid, data)
+
+# a well-formed column of exactly h rows
+def WFColumnH(+h: U32, c: C.Column) -> Type:
+  match c:
+    case C.CBool{+len, depth, valid, data}:
+      {len == h : U32} & WFColumn(C.CBool{len, depth, valid, data})
+    case C.CU32{+len, depth, valid, data}:
+      {len == h : U32} & WFColumn(C.CU32{len, depth, valid, data})
+    case C.CI32{+len, depth, valid, data}:
+      {len == h : U32} & WFColumn(C.CI32{len, depth, valid, data})
+    case C.CF32{+len, depth, valid, data}:
+      {len == h : U32} & WFColumn(C.CF32{len, depth, valid, data})
+    case C.CStr{+len, depth, valid, data}:
+      {len == h : U32} & WFColumn(C.CStr{len, depth, valid, data})
+
+# columns of height h with names not among `seen` and pairwise distinct
+def WFCols(+h: U32, cols: List<&1, C.Named>, +seen: List<&2, String>) -> Type:
+  match cols:
+    case Nil{}:
+      Unit
+    case C.Named{+n, c} <> rest:
+      {C.Names.has(seen, n) == False{} : Bool} & WFColumnH(h, c) & WFCols(h, rest, n <> seen)
+
+# a well-formed frame: every column has the frame's height and a unique name; a
+# frame with no columns has any height (the zero-column convention)
+def WFFrame(f: C.Frame) -> Type:
+  match f:
+    case C.Frame{h, cols}:
+      WFCols(h, cols, Nil{})
+
+# LAW: a head of a bounded length stays bounded (what Column.head needs)
+law u32_min_le:
+  for +n: U32
+  for +a: U32
+  for +b: U32
+  for h: {U32.is_le(a, b) == True{} : Bool}
+  {U32.is_le(U32.min(n, a), b) == True{} : Bool}
+
+# LAW (smart constructor): Array.new / Kernel.const allocate a well-formed buffer of depth d
+law wf_new:
+  for -T: Data
+  for d: Nat
+  for +z: T
+  WFArray(T, d, Array.new(T, d, z))
+
+# LAW (smart constructor): a word buffer filled with a 0/1 word is well formed for any
+# bits flag (Kernel.const(0) data, Valid.materialize's all-ones mask, Kernel.map's zero fill)
+law wf_new_words:
+  for +bits: Bool
+  for d: Nat
+  for +w: U32
+  for +hw: {U32.is_le(w, 1) == True{} : Bool}
+  WFWords(bits, d, Array.new(U32, d, w))
+
+# LAW (smart constructor): the empty frame is well formed
+law wf_frame_empty:
+  WFFrame(C.Frame.empty())
+
+# LAW (preservation): Column.head keeps a column well formed
+law wf_column_head:
+  for c: C.Column
+  for +n: U32
+  for wf: WFColumn(c)
+  WFColumn(C.Column.head(c, n))
+
+# LAW (preservation): Frame.head keeps a frame well formed
+law wf_frame_head:
+  for f: C.Frame
+  for +n: U32
+  for wf: WFFrame(f)
+  WFFrame(C.Frame.head(f, n))
