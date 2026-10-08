@@ -432,6 +432,19 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
 - `sed '/start/,/end/d'` with an `end` pattern that never matches deletes to the end of the file; a
   stale `mv` of a pending test is recoverable with `git show HEAD:<path>`.
 
+## M1 B02 review (CSV)
+
+- **Re-reading an element is not structural recursion**: a decoder that must "push the byte back"
+  (U+FFFD for a broken sequence, then read the same byte afresh) cannot recurse on the unconsumed list.
+  Do both in one step instead: `+n = Bool.pick(U32, bad, 0, need)` and push up to two chars
+  (`push(emit(b, n), cp(b, n, ..), push(bad, 65533, acc))`), with every next-state value computed from `n`.
+- **`match` cannot follow a bind inside `do`** ("a match heads a def body, not a term"): hand the bound
+  value to a helper def that matches it (as `Csv.read.opened` does).
+- The runtime's `File.read` decoder (`io_str` in bend2/comp.ts) is WHATWG-style: leads C2..F4, narrowed
+  second-byte ranges after E0/ED/F0/F4, U+FFFD + reprocess on a break, U+FFFD for a truncated tail;
+  Python's `bytes.decode('utf-8', 'replace')` gives the same code points, handy for expected outputs.
+- A per-cell `needs_q` walk over numeric cell texts on write cost nothing measurable (F32.show dominates).
+
 ## M1 B03 (numerics)
 
 - **Base number readers**: `U32.read` refuses `"+5"`, `" 2"`, `""`, `"-0"` and overflow

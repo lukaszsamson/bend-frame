@@ -1549,6 +1549,32 @@ Join.run makes first). Differences:
   median 295 ms before, 327 ms after (+11%): an extra `CsvCell` / `CsvRec` node per field / record, the
   per-record `lines` list, the per-column `has_value` trim.
 
+### M1 B02 review (CSV diff review: scan prefix, prefix decoder, writer quoting)
+
+- scan prefix (15.6.4): the prefix counts only line ends outside quotes that END A NON-BLANK LINE
+  (a line holding a byte other than CR / LF); the contract text says "line ends outside quotes".
+  Counting blank lines left fewer than `infer_rows` data records in the prefix (the reader skips blank
+  lines for k > 1 columns), so `scan_csv` froze another schema than `read_csv` infers (G4): for
+  `a,b / 1,2 / blank x3 / x,y` and `infer_rows = 2` the scan froze u32 and collect failed with a
+  ParseError on a file `read_csv` reads as str. A 1-column file (blank line = null record) now reads a
+  little further than needed; the inference still takes the first `infer_rows` records, as the read does.
+- The prefix decoder (`Csv.u8`) now follows the runtime's `File.read` decoder (`io_str`) byte for byte:
+  a byte that breaks a sequence makes U+FFFD and is read again (it used to be swallowed, so in a
+  Latin-1 file `caf\xe9,1` lost its `,` and the scan reported a ragged row the read does not see);
+  leads are C2..F4 with the narrowed second-byte ranges after E0 / ED / F0 / F4 (overlongs and
+  surrogates are U+FFFD, they used to decode); a sequence cut by the end of the text is U+FFFD.
+  `tests/csv_scan_edge.bend` compares both decoders on a malformed-UTF-8 fixture.
+- Writer (15.6.1 / 15.6.2 / 15.6.5): a number or bool cell that holds the separator is quoted like a
+  str cell (`sep = '.'` writes `"1.5"`, `'-'` writes `"-4"`, `'e'` writes `"true"`); it used to be bare,
+  so such a frame did not read back, against the 15.6.5 round-trip claim. Polars 2.0.0 writes these
+  bare (and cannot read them back either); text equality with Polars is not part of the contract.
+  No cost measurable on the 100k-row sales render (about 1.15 s both ways, native).
+- Not changed (notes): a (0, 0) frame writes `"\n"` (Polars too), which reads back as one column named
+  `""` with 0 rows; a leading blank line before the header makes a 1-column header `[""]` (Polars skips
+  leading blank lines); `CsvOpts.sep` is not validated (`'"'`, CR or LF as separator give unreadable
+  output); a lone CR at the very end of the input is dropped as a line end (elsewhere a lone CR is
+  content); `read_csv_schema` of an empty file is `(0, 0)` without the dtype-count check.
+
 ### M1 B03 (numerics: 15.5, rows B03-a..q)
 
 1. **NaN cells dump as `0x7fc00000`** (`Dump.fbits`), whatever their sign and payload. 15.1
@@ -2121,7 +2147,8 @@ Polars' write_csv is NOT part of the contract (Polars writes `1.0`, `-0.0`, `NaN
 #### 15.6.4 scan_csv: bounded prefix inference, one read at collect
 
 `Lazy.scan_csv(path, opts)`: open; read 64 KiB (`File.read_at`, offset 0); while the
-chunk holds fewer than `infer_rows + 1` line ends outside quotes and the file is not
+chunk holds fewer than `infer_rows + 1` non-blank line ends outside quotes (amended M1:
+blank lines are skipped by the reader, so they do not count) and the file is not
 exhausted, read the next 64 KiB; cut the text at the last line end outside quotes;
 `Csv.infer` on that prefix (records that are complete within it); close. It never
 reads the whole file (unless the file is smaller than the prefix) and never builds

@@ -582,11 +582,15 @@ def Csv.infer(text: String, opts: CsvOpts) -> E.Res(List<&2, CsvField>):
 
 # ---- scan_csv: the bounded prefix (DESIGN.md 15.6.4) ------------------------------------------------
 # Reads 64 KiB chunks with File.read_at (bytes) until the text holds infer_rows + 1 line
-# ends outside quotes (every line end for infer_rows = 0), cuts it at the last of them and
-# infers on that. A chunk is cut at its last LF (never inside a UTF-8 sequence) and the
-# bytes after it are read again with the next chunk; a line longer than the chunk doubles
-# the chunk. The quote state is tracked on the bytes: a quote toggles it, a doubled quote
-# toggles it twice. Only the prefix is decoded and parsed; no column is built.
+# ends outside quotes that end a non-blank line (every line end for infer_rows = 0), cuts it
+# at the last of them and infers on that. Blank lines are not counted: with k > 1 columns
+# the reader skips them, so counting them would leave fewer than infer_rows records in the
+# prefix and freeze another schema than Csv.read infers (a 1-column file, where a blank line
+# is a null record, only reads a little further; the inference takes the first infer_rows).
+# A chunk is cut at its last LF (never inside a UTF-8 sequence) and the bytes after it are
+# read again with the next chunk; a line longer than the chunk doubles the chunk. The quote
+# state is tracked on the bytes: a quote toggles it, a doubled quote toggles it twice. Only
+# the prefix is decoded and parsed; no column is built.
 
 # bytes of a chunk, and 1 + the index of its last LF (0: none)
 type Ln is Data:
@@ -609,8 +613,14 @@ type Sc is Data:
 def Csv.sc.inq(+act: Bool, +b: U32, +inq: Bool) -> Bool:
   Bool.pick(Bool, Bool.and(act, U32.is_eq(b, 34)), Bool.not(inq), inq)
 
-def Csv.sc.out(+act: Bool, +b: U32, +inq: Bool) -> Bool:
-  Bool.and(act, Bool.and(U32.is_eq(b, 10), Bool.not(inq)))
+# seen: the line so far holds a byte other than CR and LF (a line of CRs is blank to the reader
+# too, but for "\r\r\n", a field "\r", the count is only conservative: the scan reads further)
+def Csv.sc.out(+act: Bool, +b: U32, +inq: Bool, +seen: Bool) -> Bool:
+  Bool.and(Bool.and(act, seen), Bool.and(U32.is_eq(b, 10), Bool.not(inq)))
+
+# an LF outside quotes starts a new line; inside quotes the line is not blank (it holds the quote)
+def Csv.sc.seen(+act: Bool, +b: U32, +inq: Bool, +seen: Bool) -> Bool:
+  Bool.pick(Bool, act, Bool.pick(Bool, Bool.and(U32.is_eq(b, 10), Bool.not(inq)), False{}, Bool.or(seen, Bool.not(Bool.or(U32.is_eq(b, 10), U32.is_eq(b, 13))))), seen)
 
 def Csv.sc.cnt(+out: Bool, +cnt: U32) -> U32:
   Bool.pick(U32, out, U32.add(cnt, 1), cnt)
@@ -625,40 +635,68 @@ def Csv.sc.i(+act: Bool, +i: U32) -> U32:
 def Csv.sc.left(+act: Bool, +out: Bool, +cnt: U32, +need: U32, +m: U32) -> U32:
   Bool.pick(U32, Bool.and(act, Bool.not(Bool.and(out, U32.is_ge(U32.add(cnt, 1), need)))), U32.sub(m, 1), 0)
 
-# the walk is over the whole chunk (a stopped walk only skips the rest)
-def Csv.sc(bs: List<&2, U32>, +m: U32, +i: U32, +inq: Bool, +cnt: U32, +lastq: U32, +need: U32) -> Sc:
+# the walk is over the whole chunk (a stopped walk only skips the rest). A chunk starts after
+# an LF, so the line is blank so far unless that LF was inside quotes: seen starts as inq.
+def Csv.sc(bs: List<&2, U32>, +m: U32, +i: U32, +inq: Bool, +cnt: U32, +lastq: U32, +need: U32, +seen: Bool) -> Sc:
   match bs:
     case Nil{}:
       Sc{inq, cnt, lastq, i}
     case +b <> t:
       +act = U32.is_gt(m, 0)
-      +out = Csv.sc.out(act, b, inq)
-      Csv.sc(t, Csv.sc.left(act, out, cnt, need, m), Csv.sc.i(act, i), Csv.sc.inq(act, b, inq), Csv.sc.cnt(out, cnt), Csv.sc.lq(out, i, lastq), need)
+      +out = Csv.sc.out(act, b, inq, seen)
+      Csv.sc(t, Csv.sc.left(act, out, cnt, need, m), Csv.sc.i(act, i), Csv.sc.inq(act, b, inq), Csv.sc.cnt(out, cnt), Csv.sc.lq(out, i, lastq), need, Csv.sc.seen(act, b, inq, seen))
 
-# UTF-8 decoding of the first m bytes (a chunk is cut after an LF, so no sequence is split;
-# a stray or truncated byte becomes U+FFFD). need: continuation bytes still due; cp: the code point so far.
-def Csv.u8.cont(+b: U32) -> Bool:
-  U32.is_eq(U32.and(b, 192), 128)
+# UTF-8 decoding of the first m bytes, byte for byte the rules of the runtime's own decoder
+# (`io_str`, which `File.read` uses, so the prefix decodes as `Csv.read` decodes the file):
+# a lead byte C2..F4 announces 1..3 continuation bytes in the range [lo, hi] (80..BF, but
+# A0..BF after E0, 80..9F after ED, 90..BF after F0, 80..8F after F4); any other byte >= 80
+# outside a sequence is U+FFFD; a byte that breaks a sequence makes U+FFFD and is then read
+# afresh (it is never swallowed: a ',', '"' or LF after a Latin-1 byte stays one); a
+# sequence cut by the end is U+FFFD. A chunk is cut after an LF, where no sequence is open.
+# need: continuation bytes still due; cp: the code point so far.
+def Csv.u8.in(+b: U32, +lo: U32, +hi: U32) -> Bool:
+  Bool.and(U32.is_ge(b, lo), U32.is_le(b, hi))
 
-# continuation bytes a lead byte announces (0: ASCII or invalid)
+# the byte breaks an open sequence
+def Csv.u8.bad(+b: U32, +need: U32, +lo: U32, +hi: U32) -> Bool:
+  Bool.and(U32.is_gt(need, 0), Bool.not(Csv.u8.in(b, lo, hi)))
+
+# a lead byte of a 2..4 byte sequence
+def Csv.u8.start(+b: U32) -> Bool:
+  Csv.u8.in(b, 194, 244)
+
+# continuation bytes a lead byte announces
 def Csv.u8.lead(+b: U32) -> U32:
-  Bool.pick(U32, U32.is_lt(b, 192), 0, Bool.pick(U32, U32.is_lt(b, 224), 1, Bool.pick(U32, U32.is_lt(b, 240), 2, Bool.pick(U32, U32.is_lt(b, 248), 3, 0))))
+  Bool.pick(U32, U32.is_lt(b, 224), 1, Bool.pick(U32, U32.is_lt(b, 240), 2, 3))
 
-# the payload bits of a lead byte
+# the payload bits of a lead byte (b & (3F >> need))
 def Csv.u8.lcp(+b: U32) -> U32:
   Bool.pick(U32, U32.is_lt(b, 224), U32.and(b, 31), Bool.pick(U32, U32.is_lt(b, 240), U32.and(b, 15), U32.and(b, 7)))
 
-def Csv.u8.emit(+b: U32, +need: U32) -> Bool:
-  Bool.pick(Bool, U32.is_eq(need, 0), U32.is_eq(Csv.u8.lead(b), 0), Bool.or(Bool.not(Csv.u8.cont(b)), U32.is_eq(need, 1)))
+def Csv.u8.lo(+b: U32) -> U32:
+  Bool.pick(U32, U32.is_eq(b, 224), 160, Bool.pick(U32, U32.is_eq(b, 240), 144, 128))
 
-def Csv.u8.cp(+b: U32, +need: U32, +cp: U32) -> U32:
-  Bool.pick(U32, U32.is_eq(need, 0), Bool.pick(U32, U32.is_lt(b, 128), b, 65533), Bool.pick(U32, Csv.u8.cont(b), U32.add(U32.mul(cp, 64), U32.and(b, 63)), 65533))
+def Csv.u8.hi(+b: U32) -> U32:
+  Bool.pick(U32, U32.is_eq(b, 237), 159, Bool.pick(U32, U32.is_eq(b, 244), 143, 191))
 
-def Csv.u8.need(+b: U32, +need: U32) -> U32:
-  Bool.pick(U32, U32.is_eq(need, 0), Csv.u8.lead(b), Bool.pick(U32, Csv.u8.cont(b), U32.sub(need, 1), 0))
+# the step after the break check: n is the open sequence's need (0 after a break)
+def Csv.u8.emit(+b: U32, +n: U32) -> Bool:
+  Bool.pick(Bool, U32.is_gt(n, 0), U32.is_eq(n, 1), Bool.not(Csv.u8.start(b)))
 
-def Csv.u8.nxcp(+b: U32, +need: U32, +cp: U32) -> U32:
-  Bool.pick(U32, U32.is_eq(need, 0), Csv.u8.lcp(b), Bool.pick(U32, Csv.u8.cont(b), U32.add(U32.mul(cp, 64), U32.and(b, 63)), 0))
+def Csv.u8.cp(+b: U32, +n: U32, +cp: U32) -> U32:
+  Bool.pick(U32, U32.is_gt(n, 0), U32.add(U32.mul(cp, 64), U32.and(b, 63)), Bool.pick(U32, U32.is_lt(b, 128), b, 65533))
+
+def Csv.u8.need(+b: U32, +n: U32) -> U32:
+  Bool.pick(U32, U32.is_gt(n, 0), U32.sub(n, 1), Bool.pick(U32, Csv.u8.start(b), Csv.u8.lead(b), 0))
+
+def Csv.u8.nxcp(+b: U32, +n: U32, +cp: U32) -> U32:
+  Bool.pick(U32, U32.is_gt(n, 0), U32.add(U32.mul(cp, 64), U32.and(b, 63)), Bool.pick(U32, Csv.u8.start(b), Csv.u8.lcp(b), 0))
+
+def Csv.u8.nlo(+b: U32, +n: U32) -> U32:
+  Bool.pick(U32, U32.is_gt(n, 0), 128, Csv.u8.lo(b))
+
+def Csv.u8.nhi(+b: U32, +n: U32) -> U32:
+  Bool.pick(U32, U32.is_gt(n, 0), 191, Csv.u8.hi(b))
 
 # acc: the decoded text so far, newest char first
 def Csv.u8.push(emit: Bool, +x: U32, acc: String) -> String:
@@ -668,16 +706,28 @@ def Csv.u8.push(emit: Bool, +x: U32, acc: String) -> String:
     case False{}:
       acc
 
-def Csv.u8(m: Nat, bs: List<&2, U32>, +need: U32, +cp: U32, acc: String) -> String:
+# the end: a sequence still open is U+FFFD
+def Csv.u8.end(+need: U32, acc: String) -> String:
+  String.reverse(Csv.u8.push(U32.is_gt(need, 0), 65533, acc))
+
+# one byte: a break pushes U+FFFD first, then the byte is read with need n (0 after a break)
+def Csv.u8.step(+b: U32, +bad: Bool, +need: U32, +cp: U32, acc: String) -> String:
+  Csv.u8.push(Csv.u8.emit(b, Bool.pick(U32, bad, 0, need)), Csv.u8.cp(b, Bool.pick(U32, bad, 0, need), cp), Csv.u8.push(bad, 65533, acc))
+
+def Csv.u8.go(m: Nat, bs: List<&2, U32>, +need: U32, +cp: U32, +lo: U32, +hi: U32, acc: String) -> String:
   match m:
     case 0n:
-      String.reverse(acc)
+      Csv.u8.end(need, acc)
     case 1n+p:
       match bs:
         case Nil{}:
-          String.reverse(acc)
+          Csv.u8.end(need, acc)
         case +b <> t:
-          Csv.u8(p, t, Csv.u8.need(b, need), Csv.u8.nxcp(b, need, cp), Csv.u8.push(Csv.u8.emit(b, need), Csv.u8.cp(b, need, cp), acc))
+          +n = Bool.pick(U32, Csv.u8.bad(b, need, lo, hi), 0, need)
+          Csv.u8.go(p, t, Csv.u8.need(b, n), Csv.u8.nxcp(b, n, cp), Csv.u8.nlo(b, n), Csv.u8.nhi(b, n), Csv.u8.step(b, Csv.u8.bad(b, need, lo, hi), need, cp, acc))
+
+def Csv.u8(m: Nat, bs: List<&2, U32>) -> String:
+  Csv.u8.go(m, bs, 0, 0, 128, 191, SNil{})
 
 def Csv.drop_bytes(m: Nat, bs: List<&2, U32>) -> List<&2, U32>:
   match m:
@@ -710,16 +760,16 @@ def Csv.pre.text(xs: List<&2, String>) -> String:
 def Csv.pre.rest.k(more: Bool, +len: U32, +lq: U32, bs: List<&2, U32>) -> List<&2, String>:
   match more:
     case True{}:
-      Csv.u8(U32.to_nat(len), Csv.drop_bytes(U32.to_nat(lq), bs), 0, 0, SNil{}) <> Nil{}
+      Csv.u8(U32.to_nat(len), Csv.drop_bytes(U32.to_nat(lq), bs)) <> Nil{}
     case False{}:
       Nil{}
 
 def Csv.pre.split.k(has: Bool, +lq: U32, +c: U32, +bs: List<&2, U32>, done: List<&2, String>, pend: List<&2, String>) -> List<&2, String> & List<&2, String>:
   match has:
     case True{}:
-      (Csv.u8(U32.to_nat(lq), bs, 0, 0, SNil{}) <> List.append(&2, String, pend, done), Csv.pre.rest.k(U32.is_lt(lq, c), U32.sub(c, lq), lq, bs))
+      (Csv.u8(U32.to_nat(lq), bs) <> List.append(&2, String, pend, done), Csv.pre.rest.k(U32.is_lt(lq, c), U32.sub(c, lq), lq, bs))
     case False{}:
-      (done, Csv.u8(U32.to_nat(c), bs, 0, 0, SNil{}) <> pend)
+      (done, Csv.u8(U32.to_nat(c), bs) <> pend)
 
 def Csv.pre.split(+lq: U32, +c: U32, +bs: List<&2, U32>, done: List<&2, String>, pend: List<&2, String>) -> List<&2, String> & List<&2, String>:
   Csv.pre.split.k(U32.is_gt(lq, 0), lq, c, bs, done, pend)
@@ -760,7 +810,7 @@ def Csv.pre.c2b(f: File, empty: Bool, stuck: Bool, +bs: List<&2, U32>, +c: U32, 
         case True{}:
           IO.pure(PSt, PRun{f, off, U32.mul(chunk, 2), need, inq, cnt, done, pend})
         case False{}:
-          Csv.pre.c3(f, Csv.sc(bs, c, 0, inq, cnt, 0, need), bs, eof, off, chunk, need, done, pend)
+          Csv.pre.c3(f, Csv.sc(bs, c, 0, inq, cnt, 0, need, inq), bs, eof, off, chunk, need, done, pend)
 
 def Csv.pre.c2(f: File, ln: Ln, +bs: List<&2, U32>, +off: U32, +chunk: U32, +need: U32, +inq: Bool, +cnt: U32, done: List<&2, String>, pend: List<&2, String>) -> IO(PSt):
   match ln:
@@ -904,17 +954,23 @@ def Csv.f32(x: F32, prec: Maybe<&2, U32>) -> String:
     case Some{p}:
       F.Fmt.fixed(x, p)
 
+# a number or bool is never empty and holds no quote, CR or LF, but it can hold the
+# separator ('.', '-', 'e', a digit, a letter of true/false/nan/inf): then it is quoted,
+# so every dtype round-trips under any separator (DESIGN.md 15.6.5)
+def Csv.quote_val(+s: String, +sep: U32) -> String:
+  Csv.quote.k(Csv.needs_q(s, sep, False{}), s)
+
 # null: empty; bool: true/false; floats: shortest digits, or `prec` decimals
-def Csv.cell(sc: D.Scalar, prec: Maybe<&2, U32>, sep: U32) -> String:
+def Csv.cell(sc: D.Scalar, prec: Maybe<&2, U32>, +sep: U32) -> String:
   match sc:
     case D.SNull{}:
       ""
     case D.SF32{x}:
-      Csv.f32(x, prec)
+      Csv.quote_val(Csv.f32(x, prec), sep)
     case D.SStr{s}:
       Csv.quote(s, sep)
     case other:
-      D.Scalar.show(other)
+      Csv.quote_val(D.Scalar.show(other), sep)
 
 def Csv.cells(xs: List<&2, D.Scalar>, +prec: Maybe<&2, U32>, +sep: U32) -> List<&2, String>:
   match xs:
