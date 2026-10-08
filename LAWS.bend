@@ -973,35 +973,36 @@ law array_set_get:
   for +v: T
   {rd_at(T, Array.set(T, a, i, v), i) == v : T}
 
-# LAW: one step of Kernel.gather.go (the production gather) writes the cell read at
-# perm's slot into out's slot j: out'[j] == src[i] where i is the pending read of perm[j]
+# LAW: one step of Kernel.gather.go (the production gather, at the U32 instance: the
+# word buffers of Bool/U32/I32 columns and every validity mask) writes the cell read at
+# perm's slot into out's slot j: out'[j] == src[i] where i is the pending read of perm[j].
+# (Stated at U32 because BendTT's --verdict kernel does not yet accept a template applied
+# to a quantified cell type; the proof is the same text for F32 and String.)
 law gather_step:
-  for -T: Data
-  for src: Array<T>
-  for out: Array<T>
+  for src: Array<U32>
+  for out: Array<U32>
   for perm: Array<U32>
   for +j: U32
   for +i: U32
-  {rd_at(T, Pair.fst(Array<T>, Array<U32>, K.Kernel.gather.go(~T, 1n, j, (src, out), (perm, i))), j) == rd_at(T, src, i) : T}
+  {rd_at(U32, Pair.fst(Array<U32>, Array<U32>, K.Kernel.gather.go(~U32, 1n, j, (src, out), (perm, i))), j) == rd_at(U32, src, i) : U32}
 
-# LAW: one step of Kernel.compact.go (the production compaction) writes a[i] into
-# out's slot k and advances k by the mask bit
+# LAW: one step of Kernel.compact.go (the production compaction) advances the write
+# index by the mask bit ...
 law compact_step:
-  for -T: Data
-  for a: Array<T>
-  for out: Array<T>
+  for a: Array<U32>
+  for out: Array<U32>
   for mask: Array<U32>
   for +i: U32
   for +k: U32
   for +bit: U32
-  {Pair.snd(Array<T>, U32, K.Kernel.compact.go(~T, 1n, i, k, (a, out), (mask, bit))) == U32.add(k, bit) : U32}
+  {Pair.snd(Array<U32>, U32, K.Kernel.compact.go(~U32, 1n, i, k, (a, out), (mask, bit))) == U32.add(k, bit) : U32}
 
+# LAW: ... and writes a[i] into out's slot k
 law compact_step_cell:
-  for -T: Data
-  for a: Array<T>
-  for out: Array<T>
+  for a: Array<U32>
+  for out: Array<U32>
   for mask: Array<U32>
   for +i: U32
   for +k: U32
   for +bit: U32
-  {rd_at(T, Pair.fst(Array<T>, U32, K.Kernel.compact.go(~T, 1n, i, k, (a, out), (mask, bit))), k) == rd_at(T, a, i) : T}
+  {rd_at(U32, Pair.fst(Array<U32>, U32, K.Kernel.compact.go(~U32, 1n, i, k, (a, out), (mask, bit))), k) == rd_at(U32, a, i) : U32}

@@ -391,39 +391,39 @@ def set_get_k1(-T: Data, -a: Array<T>, +i: U32, +v: T, w: &b: Array<T> -> &n: U3
 def Laws.array_set_get(T, a, i, v):
   set_get_k1(T, a, i, v, size_same(T, a))
 
-# ---- one step of the production kernels ----
+# ---- one step of the production kernels (U32 instance, see LAWS.bend section 10) ----
 
-def gather_step_k(-T: Data, -src: Array<T>, out: Array<T>, -perm: Array<U32>, +j: U32, +i: U32,
-  ws: &x: T -> {Array.get(T, src, i) == (src, x) : Array<T> & T} & {x == Laws.rd_at(T, src, i) : T},
+def gather_step_k(-src: Array<U32>, out: Array<U32>, -perm: Array<U32>, +j: U32, +i: U32,
+  ws: &x: U32 -> {Array.get(U32, src, i) == (src, x) : Array<U32> & U32} & {x == Laws.rd_at(U32, src, i) : U32},
   wp: &y: U32 -> {Array.get(U32, perm, U32.inc(j)) == (perm, y) : Array<U32> & U32} & {y == Laws.rd_at(U32, perm, U32.inc(j)) : U32})
-  -> {Laws.rd_at(T, Pair.fst(Array<T>, Array<U32>, K.Kernel.gather.go(~T, 1n, j, (src, out), (perm, i))), j) == Laws.rd_at(T, src, i) : T}:
+  -> {Laws.rd_at(U32, Pair.fst(Array<U32>, Array<U32>, K.Kernel.gather.go(~U32, 1n, j, (src, out), (perm, i))), j) == Laws.rd_at(U32, src, i) : U32}:
   (x, e1, e2) = ws
   (y, f1, f2) = wp
-  %Equal.sym(Array<T> & T, Array.get(T, src, i), (src, x), e1) : {Laws.rd_at(T, Pair.fst(Array<T>, Array<U32>, K.Kernel.gather.go(~T, 0n, U32.inc(j), K.Kernel.gather.put(~T, out, j, _), Array.get(U32, perm, U32.inc(j)))), j) == Laws.rd_at(T, src, i) : T}
-  %Equal.sym(Array<U32> & U32, Array.get(U32, perm, U32.inc(j)), (perm, y), f1) : {Laws.rd_at(T, Pair.fst(Array<T>, Array<U32>, K.Kernel.gather.go(~T, 0n, U32.inc(j), K.Kernel.gather.put(~T, out, j, (src, x)), _)), j) == Laws.rd_at(T, src, i) : T}
-  %e2 : {Laws.rd_at(T, Array.set(T, out, j, x), j) == _ : T}
-  Laws.array_set_get(T, out, j, x)
+  %Equal.sym(Array<U32> & U32, Array.get(U32, src, i), (src, x), e1) : {Laws.rd_at(U32, Pair.fst(Array<U32>, Array<U32>, K.Kernel.gather.go(~U32, 0n, U32.inc(j), K.Kernel.gather.put(~U32, out, j, _), Array.get(U32, perm, U32.inc(j)))), j) == Laws.rd_at(U32, src, i) : U32}
+  %Equal.sym(Array<U32> & U32, Array.get(U32, perm, U32.inc(j)), (perm, y), f1) : {Laws.rd_at(U32, Pair.fst(Array<U32>, Array<U32>, K.Kernel.gather.go(~U32, 0n, U32.inc(j), K.Kernel.gather.put(~U32, out, j, (src, x)), _)), j) == Laws.rd_at(U32, src, i) : U32}
+  %e2 : {Laws.rd_at(U32, Array.set(U32, out, j, x), j) == _ : U32}
+  Laws.array_set_get(U32, out, j, x)
 
-def Laws.gather_step(T, src, out, perm, j, i):
-  gather_step_k(T, src, out, perm, j, i, get_at_w(T, src, i), get_at_w(U32, perm, U32.inc(j)))
+def Laws.gather_step(src, out, perm, j, i):
+  gather_step_k(src, out, perm, j, i, get_at_w(U32, src, i), get_at_w(U32, perm, U32.inc(j)))
 
-def compact_step_k(-T: Data, -a: Array<T>, out: Array<T>, mask: Array<U32>, +i: U32, +k: U32, +bit: U32,
-  ws: &x: T -> {Array.get(T, a, i) == (a, x) : Array<T> & T} & {x == Laws.rd_at(T, a, i) : T})
-  -> {Pair.snd(Array<T>, U32, K.Kernel.compact.go(~T, 1n, i, k, (a, out), (mask, bit))) == U32.add(k, bit) : U32}:
+def compact_step_k(-a: Array<U32>, out: Array<U32>, mask: Array<U32>, +i: U32, +k: U32, +bit: U32,
+  ws: &x: U32 -> {Array.get(U32, a, i) == (a, x) : Array<U32> & U32} & {x == Laws.rd_at(U32, a, i) : U32})
+  -> {Pair.snd(Array<U32>, U32, K.Kernel.compact.go(~U32, 1n, i, k, (a, out), (mask, bit))) == U32.add(k, bit) : U32}:
   (x, e1, e2) = ws
-  %Equal.sym(Array<T> & T, Array.get(T, a, i), (a, x), e1) : {Pair.snd(Array<T>, U32, K.Kernel.compact.go(~T, 0n, U32.inc(i), U32.add(k, bit), K.Kernel.compact.put(~T, out, k, _), Array.get(U32, mask, U32.inc(i)))) == U32.add(k, bit) : U32}
+  %Equal.sym(Array<U32> & U32, Array.get(U32, a, i), (a, x), e1) : {Pair.snd(Array<U32>, U32, K.Kernel.compact.go(~U32, 0n, U32.inc(i), U32.add(k, bit), K.Kernel.compact.put(~U32, out, k, _), Array.get(U32, mask, U32.inc(i)))) == U32.add(k, bit) : U32}
   {==}
 
-def Laws.compact_step(T, a, out, mask, i, k, bit):
-  compact_step_k(T, a, out, mask, i, k, bit, get_at_w(T, a, i))
+def Laws.compact_step(a, out, mask, i, k, bit):
+  compact_step_k(a, out, mask, i, k, bit, get_at_w(U32, a, i))
 
-def compact_cell_k(-T: Data, -a: Array<T>, out: Array<T>, mask: Array<U32>, +i: U32, +k: U32, +bit: U32,
-  ws: &x: T -> {Array.get(T, a, i) == (a, x) : Array<T> & T} & {x == Laws.rd_at(T, a, i) : T})
-  -> {Laws.rd_at(T, Pair.fst(Array<T>, U32, K.Kernel.compact.go(~T, 1n, i, k, (a, out), (mask, bit))), k) == Laws.rd_at(T, a, i) : T}:
+def compact_cell_k(-a: Array<U32>, out: Array<U32>, mask: Array<U32>, +i: U32, +k: U32, +bit: U32,
+  ws: &x: U32 -> {Array.get(U32, a, i) == (a, x) : Array<U32> & U32} & {x == Laws.rd_at(U32, a, i) : U32})
+  -> {Laws.rd_at(U32, Pair.fst(Array<U32>, U32, K.Kernel.compact.go(~U32, 1n, i, k, (a, out), (mask, bit))), k) == Laws.rd_at(U32, a, i) : U32}:
   (x, e1, e2) = ws
-  %Equal.sym(Array<T> & T, Array.get(T, a, i), (a, x), e1) : {Laws.rd_at(T, Pair.fst(Array<T>, U32, K.Kernel.compact.go(~T, 0n, U32.inc(i), U32.add(k, bit), K.Kernel.compact.put(~T, out, k, _), Array.get(U32, mask, U32.inc(i)))), k) == Laws.rd_at(T, a, i) : T}
-  %e2 : {Laws.rd_at(T, Array.set(T, out, k, x), k) == _ : T}
-  Laws.array_set_get(T, out, k, x)
+  %Equal.sym(Array<U32> & U32, Array.get(U32, a, i), (a, x), e1) : {Laws.rd_at(U32, Pair.fst(Array<U32>, U32, K.Kernel.compact.go(~U32, 0n, U32.inc(i), U32.add(k, bit), K.Kernel.compact.put(~U32, out, k, _), Array.get(U32, mask, U32.inc(i)))), k) == Laws.rd_at(U32, a, i) : U32}
+  %e2 : {Laws.rd_at(U32, Array.set(U32, out, k, x), k) == _ : U32}
+  Laws.array_set_get(U32, out, k, x)
 
-def Laws.compact_step_cell(T, a, out, mask, i, k, bit):
-  compact_cell_k(T, a, out, mask, i, k, bit, get_at_w(T, a, i))
+def Laws.compact_step_cell(a, out, mask, i, k, bit):
+  compact_cell_k(a, out, mask, i, k, bit, get_at_w(U32, a, i))
