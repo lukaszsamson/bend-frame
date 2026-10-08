@@ -1023,3 +1023,9 @@ differences, or conventions that other modules must follow.
 7. **Limits not implemented in v1 M1**: the `depth <= 23` cap of risk 7
    (`Kernel.depth_for` is uncapped, no `too many rows` error yet).
 8. **`Fmt.fixed`** (4.12) is NOT implemented in M1; the CSV milestone owns it.
+
+### M3 (csv)
+- Added `Csv.parse_with` / `Csv.read_with` (strict explicit schema, `List<DType>` by position; empty list = infer). Wrong dtype count is `InvalidOperation`.
+- `Csv.infer` returns `List<CsvField{name, dtype}>` (csv.bend does not import schema.bend); map to `Field` in glue.
+- `Fmt.fixed` is exact round-half-even via F32 bit decomposition, not `floor(x*10^p+0.5)` (f32 loses bits); byte-identical to Python `f"{x:.4f}"` on all goldens.
+- Blank lines skipped for multi-column CSVs; empty strings render unquoted (read back as null).

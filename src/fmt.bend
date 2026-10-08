@@ -187,3 +187,169 @@ def Fmt.show(f: C.Frame) -> C.Frame & String:
 # is a def that answers an error value until the describe milestone fills it.
 def Fmt.describe(f: C.Frame) -> C.Frame & E.ResT(C.Frame):
   (f, Fail{E.InvalidOperation{"Fmt.describe: not implemented yet (TODO)"}})
+
+# ---- Fmt.fixed: F32 with a fixed number of decimals ---------------------------------
+# Exact: matches Python/Rust `{x:.Np}` on the f32 value (decimal expansion of the
+# binary value, round half to even on exact ties). An f32 is M * 2^e with a 24-bit M;
+# the fractional part is M' / 2^s (s <= 149), held as seven 24-bit limbs (LSB first)
+# and multiplied by 10 digit by digit; values >= 2^23 are integers, expanded exactly
+# in base 10^7 by repeated doubling.
+# Precision is capped at 9 decimals.
+
+# the fraction after a multiply by 10: limbs (LSB first) and the digit that fell out
+type Fm is Data:
+  Fm{ls: List<&2, U32>, carry: U32}
+
+# p digits read as a number, the remaining fraction, and the NEXT digit (for rounding)
+type Fx is Data:
+  Fx{ls: List<&2, U32>, acc: U32, d: U32}
+
+# integer part and fraction digits after rounding
+type Ip is Data:
+  Ip{i: U32, f: U32}
+
+def Fmt.fx.nz(ls: List<&2, U32>, acc: Bool) -> Bool:
+  match ls:
+    case Nil{}:
+      acc
+    case h <> tl:
+      Fmt.fx.nz(tl, Bool.or(acc, Bool.not(U32.is_zero(h))))
+
+def Fmt.fx.m10.k(low: U32, r: Fm) -> Fm:
+  match r:
+    case Fm{ls, carry}:
+      Fm{low <> ls, carry}
+
+# multiply the LSB-first limb list by 10, carrying upward
+def Fmt.fx.m10(ls: List<&2, U32>, +c: U32) -> Fm:
+  match ls:
+    case Nil{}:
+      Fm{Nil{}, c}
+    case h <> tl:
+      +v = U32.add(U32.mul(h, 10), c)
+      Fmt.fx.m10.k(U32.and(v, 16777215), Fmt.fx.m10(tl, U32.shrn(v, 24n)))
+
+# k more digits; `r` is the multiply just done (its carry is the next digit to take)
+def Fmt.fx.dig(k: Nat, acc: U32, r: Fm) -> Fx:
+  match k:
+    case 0n:
+      match r:
+        case Fm{ls, c}:
+          Fx{ls, acc, c}
+    case 1n+p:
+      match r:
+        case Fm{ls, +c}:
+          Fmt.fx.dig(p, U32.add(U32.mul(acc, 10), c), Fmt.fx.m10(ls, 0))
+
+def Fmt.fx.limb(+j: U32, +q: U32, +lo: U32, +hi: U32) -> U32:
+  Bool.pick(U32, U32.is_eq(j, q), lo, Bool.pick(U32, U32.is_eq(j, U32.add(q, 1)), hi, 0))
+
+# N * 2^(168-s) as 7 limbs of 24 bits, LSB first (N < 2^s, N < 2^24, 1 <= s <= 149)
+def Fmt.fx.limbs(+q: U32, +lo: U32, +hi: U32) -> List<&2, U32>:
+  Fmt.fx.limb(0, q, lo, hi) <> Fmt.fx.limb(1, q, lo, hi) <> Fmt.fx.limb(2, q, lo, hi) <> Fmt.fx.limb(3, q, lo, hi) <> Fmt.fx.limb(4, q, lo, hi) <> Fmt.fx.limb(5, q, lo, hi) <> Fmt.fx.limb(6, q, lo, hi) <> Nil{}
+
+def Fmt.fx.limbs.r(+n: U32, +q: U32, +r: U32) -> List<&2, U32>:
+  Fmt.fx.limbs(q, U32.and(U32.shln(n, U32.to_nat(r)), 16777215), U32.shrn(n, U32.to_nat(U32.sub(24, r))))
+
+def Fmt.fx.limbs.t(+n: U32, +t: U32) -> List<&2, U32>:
+  Fmt.fx.limbs.r(n, U32.div(t, 24), U32.mod(t, 24))
+
+# round up? next digit d, nonzero remainder, odd last digit (half to even)
+def Fmt.fx.up(+d: U32, nz: Bool, odd: Bool) -> Bool:
+  Bool.or(U32.is_gt(d, 5), Bool.and(U32.is_eq(d, 5), Bool.or(nz, odd)))
+
+def Fmt.fx.bump.k(+i: U32, +f1: U32, +p10: U32) -> Ip:
+  Ip{U32.add(i, Bool.to_u32(U32.is_eq(f1, p10))), Bool.pick(U32, U32.is_eq(f1, p10), 0, f1)}
+
+def Fmt.fx.bump(i: U32, +f: U32, p10: U32, up: Bool) -> Ip:
+  Fmt.fx.bump.k(i, U32.add(f, Bool.to_u32(up)), p10)
+
+# the last printed digit decides ties: the integer part's when there are no decimals
+def Fmt.fx.round(+i: U32, +p: U32, dg: Fx) -> Ip:
+  match dg:
+    case Fx{ls, +acc, +d}:
+      Fmt.fx.bump(i, acc, U32.pow(10, U32.to_nat(p)), Fmt.fx.up(d, Fmt.fx.nz(ls, False{}), Bool.pick(Bool, U32.is_eq(p, 0), Bool.not(U32.is_even(i)), Bool.not(U32.is_even(acc)))))
+
+# `i` is the integer part, `n`/`s` the fraction n / 2^s
+def Fmt.fx.frac(+i: U32, +n: U32, +s: U32, +p: U32) -> Ip:
+  Fmt.fx.round(i, p, Fmt.fx.dig(U32.to_nat(p), 0, Fmt.fx.m10(Fmt.fx.limbs.t(n, U32.sub(168, s)), 0)))
+
+def Fmt.fx.pad(f: U32, +p: U32) -> String:
+  +s = U32.show(f)
+  String.repeat("0", Nat.sub(U32.to_nat(p), String.length(s))) ++ s
+
+def Fmt.fx.fpart(f: U32, +p: U32) -> String:
+  Bool.pick(String, U32.is_eq(p, 0), "", "." ++ Fmt.fx.pad(f, p))
+
+def Fmt.fx.out(neg: Bool, +p: U32, r: Ip) -> String:
+  match r:
+    case Ip{i, f}:
+      Bool.pick(String, neg, "-", "") ++ U32.show(i) ++ Fmt.fx.fpart(f, p)
+
+# value = m / 2^s, s in 1..149: integer part m >> s, fraction (m mod 2^s) / 2^s
+def Fmt.fx.small(neg: Bool, +m: U32, +s: U32, +p: U32) -> String:
+  +sc = U32.min(s, 31)
+  Fmt.fx.out(neg, p, Fmt.fx.frac(U32.shrn(m, U32.to_nat(sc)), U32.and(m, U32.sub(U32.shln(1, U32.to_nat(sc)), 1)), s, p))
+
+# base 10^7 limbs (LSB first) times k (k <= 256), carry c < 256
+def Fmt.fx.mulb(ls: List<&2, U32>, +c: U32, +k: U32) -> List<&2, U32>:
+  match ls:
+    case Nil{}:
+      Bool.pick(List<&2, U32>, U32.is_zero(c), Nil{}, c <> Nil{})
+    case h <> tl:
+      +v = U32.add(U32.mul(h, k), c)
+      U32.mod(v, 10000000) <> Fmt.fx.mulb(tl, U32.div(v, 10000000), k)
+
+def Fmt.fx.shl8(k: Nat, ls: List<&2, U32>) -> List<&2, U32>:
+  match k:
+    case 0n:
+      ls
+    case 1n+p:
+      Fmt.fx.shl8(p, Fmt.fx.mulb(ls, 0, 256))
+
+# m * 2^sh in base 10^7, LSB first
+def Fmt.fx.shl(+m: U32, +sh: U32) -> List<&2, U32>:
+  Fmt.fx.mulb(Fmt.fx.shl8(U32.to_nat(U32.div(sh, 8)), Fmt.fx.mulb(m <> Nil{}, 0, 1)), 0, U32.shln(1, U32.to_nat(U32.mod(sh, 8))))
+
+def Fmt.fx.dec.rest(ls: List<&2, U32>) -> String:
+  match ls:
+    case Nil{}:
+      ""
+    case h <> tl:
+      Fmt.fx.pad(h, 7) ++ Fmt.fx.dec.rest(tl)
+
+# most significant limb first
+def Fmt.fx.dec(ls: List<&2, U32>) -> String:
+  match ls:
+    case Nil{}:
+      "0"
+    case h <> tl:
+      U32.show(h) ++ Fmt.fx.dec.rest(tl)
+
+# value = m * 2^sh, sh >= 0: an exact integer (decimal expansion by repeated doubling)
+def Fmt.fx.large(neg: Bool, +m: U32, +sh: U32, +p: U32) -> String:
+  Bool.pick(String, neg, "-", "") ++ Fmt.fx.dec(List.reverse(&2, U32, Fmt.fx.shl(m, sh))) ++ Fmt.fx.fpart(0, p)
+
+# e: biased exponent field (1..254), value = m * 2^(e - 150)
+def Fmt.fx.finite(lt: Bool, neg: Bool, +m: U32, +e: U32, +p: U32) -> String:
+  match lt:
+    case True{}:
+      Fmt.fx.small(neg, m, U32.sub(150, e), p)
+    case False{}:
+      Fmt.fx.large(neg, m, U32.sub(e, 150), p)
+
+def Fmt.fx.num.k(special: Bool, +x: F32, neg: Bool, +m: U32, +e: U32, +p: U32) -> String:
+  match special:
+    case True{}:
+      F32.show(x)
+    case False{}:
+      Fmt.fx.finite(U32.is_lt(e, 150), neg, m, e, p)
+
+def Fmt.fx.num(+bits: U32, x: F32, +p: U32) -> String:
+  +e = U32.and(U32.shrn(bits, 23n), 255)
+  +man = U32.and(bits, 8388607)
+  Fmt.fx.num.k(U32.is_eq(e, 255), x, U32.is_ne(U32.shrn(bits, 31n), 0), Bool.pick(U32, U32.is_eq(e, 0), man, U32.or(man, 8388608)), U32.max(e, 1), p)
+
+# x with `prec` decimals (at most 9), as Python's f"{x:.{prec}f}" prints the f32 value
+def Fmt.fixed(+x: F32, prec: U32) -> String:
+  Fmt.fx.num(F32.bits(x), x, U32.min(prec, 9))
