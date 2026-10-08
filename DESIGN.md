@@ -1841,6 +1841,55 @@ Join.run makes first). Differences:
    imports `PROOF_kernels.bend` for its lemmas; the new
    `tests/proof_negative/head_rule_outer_wins.bend` is the T5 mutation of the head rule.
 
+### M3 expressions (when, is_in, clip, is_between, strings, std / var / median)
+
+1. **Node shapes as frozen in 15.2.6**: `When{c, a, b}`, `IsIn{e, vals}`, `Clip{e, lo, hi}`,
+   `StrPred{op, e, pat}` (`StrPredOp = Contains | StartsWith | EndsWith`), `Un{LenChars, e}`,
+   `AggOp` `Std | Var | Median`, and `X.Closed = Both | Left | Right | Neither` for
+   `DF.is_between_closed`. `DF.is_between(e, lo, hi)` / `is_between_closed` take EXPRESSION
+   bounds (the contract left the bound type open; `DF.lit_u32(2)` etc. give the literal case) and
+   build `And{Ge|Gt(e, lo), Le|Lt(e, hi)}`, so typing errors are the comparisons' (`"ge"`, `"gt"`,
+   `"le"`, `"lt"`) and the explain line shows the two comparisons.
+2. **Analysis (15.3.2)**: every new node is total (`When`, `IsIn`, `Clip`, `StrPred`, `LenChars`,
+   and the reducers, which answer null on too few rows); kind and locality come from the operands
+   (`When` joins its three), so the release optimizer sinks a Head below a Select of them
+   (tests/plan_m3_exprs.bend) and treats `std/var/median` as reductions (KRed, not local: a
+   barrier, B01-f). `Expr.analyse` uses first-order helpers per node (`Ana.when/isin/clip/strpred`),
+   no closures, for the P2 proof.
+3. **Evaluation**: `When` is a ternary stack instruction (`IWhen`; a 1-row side broadcasts like a
+   binary op); both branches are evaluated over every row, so a strict `cast` that fails in the
+   branch a row does not choose still fails (Polars evaluates both branches too). The literal
+   parameters of is_in / clip / the string predicates ride as a Data parameter of one new template
+   kernel, `K.Kernel.map_p` (kernels.bend; a template lambda cannot capture a value). is_in compares
+   words: u32 / i32 bits, bool 0/1, f32 `Kernel.fword` (15.5.2), strings by `String.eq`.
+4. **std / var / median share one kernel set** in eval.bend: `Eval.ssd` (fsum mean, then the fsum
+   of `Eval.sqdev`), `Eval.var_of`, `Eval.med.at` (middle cell / `lo*0.5 + hi*0.5` of a sorted run).
+   `Fmt.describe`'s std now IS `Eval.agg Std` (bit-identical to the old formula: same mean, same
+   f32 squares, same Neumaier sum). Integers convert to f32 per cell first (`Eval.wf32`). The
+   eager median sorts the valid values with one `Radix.sort` of their 15.5.2 order words (so
+   eval.bend now imports sort.bend). Grouped: std / var are two scatter passes (the group mean by
+   `Grp.nm`, then the squared deviations from the gathered group mean, also by `Grp.nm`), so every
+   group sees exactly the eager arithmetic in row order; the grouped median is one stable radix
+   sort of the rows by order word, then by `group * 2 + null flag`, after which each group's valid
+   values are a sorted run starting at the exclusive prefix sum of the group sizes, read by
+   `Eval.med.at`. tests/agg_std_var_median.bend and `make diff-reduce` (grp paths) check grouped
+   equals eager equals the step model.
+5. **Overflow in std / var follows the algorithm**: `[3e38, 3e38]` has an infinite f32 sum, so the
+   mean is inf and var / std are `inf` (and `[-3e38, 3e38]` squares to inf); Polars (f64) answers
+   finite values. Within 15.5.4 ("the algorithm is the contract"); the T2.3 reference classes
+   `overflow` cover it.
+6. **Facade**: besides the 15.2.6 builders, `DF.abs`, `DF.sqrt` (nodes existed, no facade def; the
+   bench/diff DX shims are gone and tests/diff d0003/4/5/8 call `DF.abs` / `DF.sqrt`), the
+   15.2.1 dtype / scalar builders `DF.t_bool .. DF.t_str` and `DF.s_null / s_bool / s_u32 / s_i32 /
+   s_f32 / s_str` (needed by try_cast, is_in and clip without a src/ import; `DF.s_i32` takes a
+   `D.I32`, i.e. `DF.i32(v)`'s value). Not added here: `DF.column`, `DF.schema`, `DF.height`,
+   `DF.collect_show` (15.2.1; not in this group).
+7. **Expr.show**: an is_in list shows each literal with `Expr.show.lit` (`nan`, `0`, `"a"`); a
+   string pattern is shown raw inside the quotes (no escaping, as `lit("..")`).
+8. **bench/diff**: the EXPRS rows and oracle functions existed from M0; `model.t_is_in` now reports
+   the first offending literal in list order (null or dtype), as `Expr.type` does, and the
+   generator injects a null literal into is_in / clip in invalid cases.
+
 ## 15. v0.1 contract (frozen)
 
 The exact semantics every M1-M6 agent codes and tests against. Tables over prose;
