@@ -11,6 +11,7 @@ uv run python diff/run.py --seed 1 --n 1000              # interpreter only: ~10
 uv run python diff/run.py --seed 1 --n 1000 --backend both   # + native compile (5 programs, ~3 min), T2.4 interp vs native
 uv run python diff/run.py --seed 7 --n 10000 --features deep # up to 300 rows, plans up to 6 verbs
 uv run python diff/run.py --features noreductions,noselfjoin # mask B04-a / B04-b (see below)
+uv run python diff/run.py --seed 1 --n 1000 --dict          # M4: every str input column Dictionary-encoded (make diff DIFF_ARGS=--dict)
 uv run python diff/gen.py --seed 1 --n 5 --show          # look at generated cases
 uv run python diff/gen.py --seed 1 --n 20 --out /tmp/c   # write dNNNN.bend files + cases.json
 uv run python diff/shrink.py FAILURES.json d0010 --write # minimise one failure, write tests/diff/dNNNN.bend

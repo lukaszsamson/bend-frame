@@ -23,6 +23,7 @@ import argparse
 import collections
 import json
 import multiprocessing as mp
+import os
 import sys
 import time
 from pathlib import Path
@@ -72,7 +73,10 @@ def main(argv=None):
     ap.add_argument("--strict", action="store_true", help="exit 1 on any failure (default: only on failures no classify.py rule explains)")
     ap.add_argument("--shrink-secs", type=float, default=90.0, help="time budget per failure group for the minimiser")
     ap.add_argument("--keep", action="store_true", help="keep the scratch programs")
+    ap.add_argument("--dict", action="store_true", help="M4: every str input column in the Dictionary storage (BEND_DIFF_DICT=1)")
     a = ap.parse_args(argv)
+    if a.dict:
+        os.environ["BEND_DIFF_DICT"] = "1"
     features = {f for f in a.features.split(",") if f}
     scratch = Path(a.scratch) if a.scratch else M.ROOT / f"build/diff/seed{a.seed}"
     import shutil

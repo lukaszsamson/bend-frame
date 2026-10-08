@@ -7,8 +7,17 @@ facade (DF.*) and the adapter tests/diff/lib/dx.bend (DX.*) are used.
 """
 from __future__ import annotations
 
+import os
+
 from model import *  # noqa: F401,F403
 import model as M
+
+# M4: BEND_DIFF_DICT=1 (run.py --dict) builds every str input column in the Dictionary storage
+# (DX.cstrd: C.Column.encode), so every case runs the Dictionary code paths; the expected dumps
+# are unchanged (a storage never shows in a dump). An environment variable, not a module flag:
+# run.py's worker pools may spawn fresh interpreters.
+def dict_mode() -> bool:
+    return os.environ.get("BEND_DIFF_DICT", "") not in ("", "0")
 
 
 def bs(s: str) -> str:
@@ -161,7 +170,8 @@ VERB_DECLS = {
 def frame_def(pfx: str, name: str, f: Frame) -> str:
     cols = []
     for c in f.cols:
-        cols.append(f"DX.c{c.dtype}({bs(c.name)}, [" + ", ".join(scalar(c.dtype, v) for v in c.vals) + "])")
+        ctor = "cstrd" if c.dtype == "str" and dict_mode() else f"c{c.dtype}"
+        cols.append(f"DX.{ctor}({bs(c.name)}, [" + ", ".join(scalar(c.dtype, v) for v in c.vals) + "])")
     return f"def {pfx}f_{name}() -> DF.ResT(DF.Frame()):\n  DX.frame([" + ", ".join(cols) + "])\n"
 
 
