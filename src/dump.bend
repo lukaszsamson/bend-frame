@@ -170,7 +170,8 @@ def Dump.count(xs: List<&2, String>, acc: U32) -> U32:
 # ---- rows ---------------------------------------------------------------------
 
 # the next row: its cells, each preceded by a TAB, and every column minus its head
-# (a column that ran out contributes "?": a column shorter than the height)
+# (a column that ran out contributes "?": a column shorter than the height; "?" is not a
+# cell, so bench/check.py rejects the dump)
 def Dump.step.k(cell: String, rest: List<&2, String>, r: String & List<&2, List<&2, String>>) -> String & List<&2, List<&2, String>>:
   (line, tails) = r
   ("\t" ++ cell ++ line, rest <> tails)
@@ -206,11 +207,25 @@ def Dump.rev(xs: List<&2, String>, acc: List<&2, String>) -> List<&2, String>:
     case h <> t:
       Dump.rev(t, h <> acc)
 
+# after the last row: nothing when every column is used up, else the line "excess" (a column
+# longer than the height; not in the grammar, so bench/check.py rejects the dump and a
+# correct expectation never shows it -- without it the extra cells would vanish from the dump)
+def Dump.excess(cols: List<&2, List<&2, String>>) -> String:
+  match cols:
+    case Nil{}:
+      SNil{}
+    case h <> t:
+      match h:
+        case Nil{}:
+          Dump.excess(t)
+        case c <> rest:
+          "excess\n"
+
 def Dump.rows(n: Nat, st: List<&2, String> & List<&2, List<&2, String>>) -> String:
   match n:
     case 0n:
       (acc, cols) = st
-      String.concat(Dump.rev(acc, Nil{}))
+      String.concat(Dump.rev(acc, Nil{})) ++ Dump.excess(cols)
     case 1n+p:
       Dump.rows(p, Dump.rows.next(st))
 

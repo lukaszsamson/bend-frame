@@ -5,6 +5,7 @@
 # Usage: scripts/test.sh [filter ...]    a file runs if its path contains any filter
 #        BEND=/path/to/bend scripts/test.sh
 #        TEST_JOBS=8 scripts/test.sh     run files in parallel (default 1); output stays in file order
+#        TEST_DIR=dir TEST_TIMEOUT=s      another test tree / per-file limit (scripts/test_runner_check.sh)
 #
 # Expected failures: a test with a line `#! xfail <ID>` (e.g. `#! xfail B01`) pins a known defect.
 #  - it must FAIL its check: reported as `XFAIL <file> (<ID>)` and not counted as a failure;
@@ -29,7 +30,8 @@
 #    its output, as gates does. Exception: a test expecting "SOME PROOFS FAIL" or
 #    "Error:" (gates' failing-test form) ignores the exit code, since bend exits 1 there.
 #    The spec did not mention this exception.
-#  - a file with no `#|` lines must exit 0 (PASS (no expect)).
+#  - a file with no `#|` lines must exit 0 (PASS (no expect)); `#|` lines that are all blank are a
+#    FAIL (empty expectation), since they would accept a program that prints nothing.
 #  - stdin is /dev/null, so a stray read cannot hang the run (gates has no stdin
 #    handling; this is added).
 #  - 120 s per file (the spec value; gates uses 5 s per program on its cluster).
@@ -38,7 +40,8 @@ set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
 BEND_BIN="${BEND:-$HOME/.bend/bin/bend}"
-LIMIT=120
+LIMIT="${TEST_TIMEOUT:-120}"
+TEST_DIR="${TEST_DIR:-tests}"
 JOBS="${TEST_JOBS:-1}"
 case "$JOBS" in
   ''|*[!0-9]*|0) echo "TEST_JOBS must be a positive integer, got: $JOBS" >&2; exit 2 ;;
@@ -46,6 +49,22 @@ esac
 
 # gates' tidy(): strip trailing whitespace per line, then trim the whole text
 norm() { perl -0777 -pe 's/[ \t]+$//mg; s/\A\s+//; s/\s+\z//'; }
+
+# limited SECS CMD...: runs CMD in its own process group; after SECS the whole group is killed and
+# the status is 142 (what a bare SIGALRM gives). A plain `alarm; exec` killed only CMD itself: a
+# child it spawned kept the output pipe open and the $(...) around it waited for that child.
+limited() {
+  perl -e '
+    my $t = shift;
+    my $pid = fork; defined $pid or die "fork: $!";
+    if (!$pid) { setpgrp(0, 0); exec @ARGV or exit 127 }
+    setpgrp($pid, $pid);
+    $SIG{ALRM} = sub { kill "KILL", -$pid; waitpid($pid, 0); exit 142 };
+    alarm $t;
+    waitpid($pid, 0);
+    exit($? & 127 ? 128 + ($? & 127) : $? >> 8);
+  ' "$@"
+}
 
 # xfail_id FILE: the ID of the file's `#! xfail <ID>` line, or nothing
 xfail_id() { perl -ne 'if (/^#! xfail\s+(\S+)/) { print $1; last }' "$1"; }
@@ -56,7 +75,7 @@ check_one() {
   local f=$1 out=$2 id run rc exp act errexp=0 ok=0 suffix="" body="" status
   id=$(xfail_id "$f")
   if ! grep -q '^#|' "$f"; then
-    run=$(perl -e 'alarm shift; exec @ARGV' "$LIMIT" "$BEND_BIN" "$f" </dev/null 2>&1)
+    run=$(limited "$LIMIT" "$BEND_BIN" "$f" </dev/null 2>&1)
     rc=$?
     if [ "$rc" -eq 0 ]; then
       ok=1
@@ -70,15 +89,20 @@ check_one() {
     case "$exp" in
       "SOME PROOFS FAIL"*|"Error:"*) errexp=1 ;;
     esac
-    run=$(perl -e 'alarm shift; exec @ARGV' "$LIMIT" "$BEND_BIN" "$f" </dev/null 2>&1)
+    run=$(limited "$LIMIT" "$BEND_BIN" "$f" </dev/null 2>&1)
     rc=$?
     if [ "$rc" -eq 142 ]; then
       run="$run"$'\n'"timeout"
+      suffix=" (timeout)"
     elif [ "$rc" -ne 0 ] && [ "$errexp" -eq 0 ]; then
       run="$run"$'\n'"exit $rc"
+      suffix=" (exit $rc)"
     fi
     act=$(printf '%s\n' "$run" | norm)
-    if [ "$exp" = "$act" ]; then
+    if [ -z "$exp" ]; then
+      # `#|` lines that are all blank would accept a program that prints nothing
+      suffix=" (empty expectation: blank \`#|\` lines)"
+    elif [ "$exp" = "$act" ]; then
       ok=1
     else
       printf '%s\n' "$exp" > "$out.expected"
@@ -93,7 +117,7 @@ check_one() {
       printf 'XPASS %s (%s)\n  the defect is fixed: delete its `#! xfail` line\n' "$f" "$id"
     else
       status=XFAIL
-      printf 'XFAIL %s (%s)\n' "$f" "$id"
+      printf 'XFAIL %s (%s)%s\n' "$f" "$id" "$suffix"
     fi
   elif [ "$ok" -eq 1 ]; then
     status=PASS
@@ -124,7 +148,7 @@ while IFS= read -r f; do
   fi
   printf '%s\0%s\0' "$n" "$f" >> "$list"
   n=$((n + 1))
-done <<< "$(find tests -name '*.bend' -type f | LC_ALL=C sort)"
+done <<< "$(find "$TEST_DIR" -name '*.bend' -type f -not -path '*/lib/*' | LC_ALL=C sort)"
 
 if [ "$n" -eq 0 ]; then
   echo "no tests matched: $*" >&2
@@ -133,7 +157,7 @@ fi
 
 # Run them (JOBS at a time). Each worker writes its report to $tmp/r<i>.log and its verdict to
 # $tmp/r<i>.status; the report below reads them back in file order.
-export -f norm xfail_id check_one
+export -f norm xfail_id limited check_one
 export BEND_BIN LIMIT tmp
 xargs -0 -n 2 -P "$JOBS" bash -c 'check_one "$1" "$tmp/r$0" > "$tmp/r$0.log"' < "$list" || true
 

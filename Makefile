@@ -2,17 +2,28 @@ BEND ?= $(HOME)/.bend/bin/bend
 SOURCES := $(shell find src tests -name '*.bend' -type f 2>/dev/null | LC_ALL=C sort)
 EXAMPLES := frame.bend $(wildcard examples/*.bend) $(wildcard bench/*.bend)
 
-.PHONY: ci test check proofs verdict bench bench-check toolchain-check clean
+.PHONY: ci test runner-check check proofs verdict bench bench-check toolchain-check clean
 
 # The full gate, in CI order. Needs the pinned toolchain (TOOLCHAIN): `make toolchain-check` first.
-ci: toolchain-check check test proofs verdict bench-check
+ci: toolchain-check check runner-check test proofs verdict bench-check
 	@echo "ci: all gates passed"
 
 test:
 	scripts/test.sh
 
+# scripts/test.sh itself, over throwaway fixtures with a fake bend (xfail/XPASS/timeouts/order)
+runner-check:
+	@scripts/test_runner_check.sh
+
+# A file whose expectation is a failure (first `#|` text starts with "SOME PROOFS FAIL" or "Error:",
+# scripts/test.sh's rule; e.g. tests/proof_negative/) cannot pass --check-only: test.sh runs it.
 check:
-	@for f in $(SOURCES) $(EXAMPLES); do $(BEND) "$$f" --check-only || exit 1; done
+	@for f in $(SOURCES) $(EXAMPLES); do \
+	  case "$$(sed -n 's/^#|[[:space:]]*//p' "$$f" | sed -n '/./{p;q;}')" in \
+	    "SOME PROOFS FAIL"*|"Error:"*) echo "skip $$f (expects a failure; scripts/test.sh checks it)"; continue ;; \
+	  esac; \
+	  $(BEND) "$$f" --check-only || exit 1; \
+	done
 
 proofs:
 	@if [ -f PROOF.bend ]; then $(BEND) PROOF.bend; else echo "no PROOF.bend"; fi

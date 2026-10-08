@@ -51,14 +51,16 @@ batch_for() { # n query
 # script, after every query has been tried so that one run lists all the failures.
 if [ -z "${SKIP_CHECK:-}" ]; then
   echo "== comparator self-test (bench/tests/test_check.py) =="
-  $PY bench/tests/test_check.py | tail -1
+  $PY bench/tests/test_check.py | grep -v '^PASS '   # FAIL lines and the summary; exits 1 on a failure
   echo "== correctness vs Polars (build/q<k>_<n>.csv vs golden) =="
   failed=0
+  checked=0
   # group_by's f32 sums are plain sequential adds (Polars sums with far less error): ~1e-5 rel at 1M rows
   for n in $(echo "$SIZES" | tr ' ' '\n' | awk -v m="${CHECK_MAX:-100000}" '$1 <= m'); do
     if [ "$n" = 1000 ]; then gold=bench/golden/n$n; else gold=build/golden_$n; fi
     (cd bench && $PY golden.py --input data/sales_$n.csv --out "$ROOT/$gold" >/dev/null)
     for q in $QUERIES; do
+      checked=$((checked + 1))
       out=build/${q}_$n.csv
       rm -f "$out"
       if ! line=$(./build/bench bench/data/sales_$n.csv $q 1 1 default "$out" | tail -1); then
@@ -83,7 +85,14 @@ if [ -z "${SKIP_CHECK:-}" ]; then
   fi
 fi
 
-if [ "$BENCH_MODE" = check ]; then exit 0; fi
+# a correctness-only run that compared nothing (SKIP_CHECK, or SIZES all above CHECK_MAX) is not a pass
+if [ "$BENCH_MODE" = check ]; then
+  if [ "${checked:-0}" -eq 0 ]; then
+    echo "bench-check: no result was compared (SKIP_CHECK=${SKIP_CHECK:-}, SIZES=$SIZES, CHECK_MAX=${CHECK_MAX:-100000})" >&2
+    exit 1
+  fi
+  exit 0
+fi
 
 # ---- timing -----------------------------------------------------------------------------------
 : > build/bend.jsonl

@@ -76,9 +76,14 @@ jobs:
           else
             echo "$sha  $archive" | shasum -a 256 -c -
           fi
-          # the archive holds bin/bend beside bend2/ and guide/: unpack it where install.sh puts bend
-          mkdir -p "$HOME/.bend"
-          tar -xzf "$archive" -C "$HOME/.bend"
+          # the archive holds bin/bend beside bend2/ and guide/, at its root or under one top-level
+          # directory (flake.nix's stdenv unpack implies the latter; not verified here): copy the
+          # directory that holds bin/bend to where install.sh puts bend
+          x="$RUNNER_TEMP/bend-x"; rm -rf "$x"; mkdir -p "$x" "$HOME/.bend"
+          tar -xzf "$archive" -C "$x"
+          bin=$(find "$x" -path '*/bin/bend' -type f | head -1)
+          test -n "$bin" || { echo "no bin/bend in $archive" >&2; exit 1; }
+          cp -R "$(dirname "$(dirname "$bin")")"/. "$HOME/.bend/"
           test "$("$HOME/.bend/bin/bend" version)" = "bend $BEND_VERSION"
           echo "$HOME/.bend/bin" >> "$GITHUB_PATH"
 

@@ -172,6 +172,18 @@ def test_diff_report_is_capped_and_located():
     assert diffs[0].startswith("line 2, column 'n' (int): '0' vs '1'")
 
 
+def test_int_cells_are_ascii_text_exact():
+    # review of M0: INT_RE used `$` (matches before a trailing newline) and `\d` (any script's
+    # digits), so a quoted "5\n" cell or Arabic-Indic digits passed as 5; ints compare as text
+    assert csv_diffs([["n"], ["5\n"]], [["n"], ["5"]])
+    assert csv_diffs([["n"], ["\u0665"]], [["n"], ["5"]])
+    assert csv_diffs([["n"], ["007"]], [["n"], ["7"]])
+    assert csv_diffs([["n"], ["+7"]], [["n"], ["7"]])
+    assert csv_diffs([["x"], ["1.5\n"]], [["x"], ["1.5"]])
+    assert csv_diffs([["x"], [" 1.5"]], [["x"], ["1.5"]])      # no whitespace stripping
+    assert csv_diffs([["x"], ["nan "]], [["x"], ["nan"]])
+
+
 # ---- dump mode ----------------------------------------------------------------------------
 
 BASE_COLS = [("u32", '"id"'), ("f32", '"x"'), ("str", '"s"')]
@@ -243,6 +255,58 @@ def test_dump_ulp_and_signed_zero_options():
     ia = frame_dump([("u32", '"n"')], [["100000"]])
     ib = frame_dump([("u32", '"n"')], [["100001"]])
     assert dump_diffs(ia, ib, ulp=10)
+
+
+def test_dump_ulp_never_reaches_infinity():
+    # review of M0: FLT_MAX (0x7f7fffff) is 1 ulp from +inf (0x7f800000) in the ordered key
+    for big, inf in (("0x7f7fffff", "0x7f800000"), ("0xff7fffff", "0xff800000")):
+        a = frame_dump([("f32", '"f"')], [[big]])
+        b = frame_dump([("f32", '"f"')], [[inf]])
+        assert dump_diffs(a, b, ulp=1) and dump_diffs(b, a, ulp=1000)
+    assert not check.bits_equal(0x7F800000, 0x7F7FFFFF, ulp=10)
+    assert check.bits_equal(0x7F800000, 0x7F800000, ulp=10)
+
+
+def test_dump_rejects_non_canonical_text():
+    # review of M0: two different dump texts must not compare equal (15.1: byte-exact but NaN)
+    one = frame_dump([("u32", '"n"'), ("i32", '"i"'), ("str", '"s"')], [["7", "-3", '"A\\x01"']])
+    variants = [
+        one.replace("row\t7", "row\t007"),                 # padded u32
+        one.replace("row\t7", "row\t-7"),                  # signed u32 (was accepted)
+        one.replace("row\t7", "row\t4294967296"),          # u32 out of range
+        one.replace("\t-3\t", "\t-03\t"),                  # padded i32
+        one.replace("\t-3\t", "\t2147483648\t"),           # i32 out of range
+        one.replace('"A\\x01"', '"\\x41\\x01"'),           # \x for a printable char
+        one.replace('"A\\x01"', '"A\x01"'),                 # raw control character
+        one.replace('"A\\x01"', '"A\\x09"'),                # \x09 instead of \t
+        one.replace("height\t1", "height\t01"),
+        one.replace("height\t1", "height\t1_0"),           # int() accepts underscores
+    ]
+    assert check.parse_dump(one)
+    for v in variants:
+        assert v != one
+        try:
+            diffs = check.compare_dumps(one, v)
+        except check.DumpError:
+            continue
+        raise AssertionError(f"accepted {v!r} as equal-or-comparable: {diffs}")
+    # a column's dtype is checked even with no rows
+    try:
+        check.parse_dump(frame_dump([("u64", '"n"')], []))
+    except check.DumpError:
+        pass
+    else:
+        raise AssertionError("accepted dtype u64")
+
+
+def test_dump_marks_inconsistent_heights():
+    # tests/dump_malformed.bend: Bend's dump of a column longer / shorter than the height
+    longer = "frame\nheight\t1\nwidth\t1\ncol\tu32\t\"a\"\nrow\t1\nexcess\n"
+    shorter = "frame\nheight\t3\nwidth\t1\ncol\tu32\t\"a\"\nrow\t1\nrow\t2\nrow\t?\n"
+    valid = "frame\nheight\t1\nwidth\t1\ncol\tu32\t\"a\"\nrow\t1\n"
+    for bad in (longer, shorter):
+        with tempfile.TemporaryDirectory() as d:
+            assert run_cli(["--dump", write_tmp(d, "a", bad), write_tmp(d, "b", valid)])[0] == 2
 
 
 def test_dump_errors_and_shapes():

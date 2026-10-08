@@ -27,7 +27,10 @@ Two modes; both exit 0 = match, 1 = mismatch (a diff report on stdout), 2 = unus
    equal whatever their payload (15.1 rule 3). f32 cells are the stored bits; --ulp N
    allows a distance of N in the ordered bit representation; -0.0 vs 0.0 differ unless
    --signed-zero ignore. Trailing blank lines are ignored (IO.print adds one). `-` as a
-   path reads stdin.
+   path reads stdin. Each dump must be canonical (decimal u32/i32 without padding or sign
+   tricks and in range, known dtypes, `\\xHH` only where 15.1 requires it, no raw control
+   characters), so two different texts never parse to equal frames; anything else exits 2.
+   An integer CSV cell must match its golden text exactly, and no cell is whitespace-stripped.
 
 The comparison functions (compare_csv_rows, compare_dumps, ...) are importable; the tests
 are in tests/test_check.py.
@@ -39,23 +42,30 @@ import re
 import struct
 import sys
 
-INT_RE = re.compile(r"^[+-]?\d+$")
+# ASCII digits only, matched with fullmatch: `\d` takes other scripts' digits and `$` matches
+# before a trailing newline, so "5\n" (a quoted CSV cell) would have passed as the integer 5
+INT_RE = re.compile(r"[+-]?[0-9]+")
 BOOL = ("true", "false")
 SPECIAL = {"nan": math.nan, "+nan": math.nan, "-nan": math.nan,
            "inf": math.inf, "+inf": math.inf, "-inf": -math.inf,
            "infinity": math.inf, "+infinity": math.inf, "-infinity": -math.inf}
-FLOAT_RE = re.compile(r"^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$")
+FLOAT_RE = re.compile(r"[+-]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][+-]?[0-9]+)?")
+# canonical dump integers (15.1: U32.show / I32.show: no sign on u32, no "+", no padding, no "-0")
+U32_RE = re.compile(r"0|[1-9][0-9]*")
+I32_RE = re.compile(r"0|-?[1-9][0-9]*")
+DTYPE_NAMES = ("bool", "u32", "i32", "f32", "str")
 MAX_DIFFS = 20
 
 
 # ---- floats -------------------------------------------------------------------------------
 
 def parse_float(tok):
-    """A float token (decimal, exponent, nan, inf) as a Python float, or None."""
-    t = tok.strip().lower()
+    """A float token (decimal, exponent, nan, inf) as a Python float, or None. Surrounding
+    whitespace is not stripped: " 1.5" is not a number."""
+    t = tok.lower()
     if t in SPECIAL:
         return SPECIAL[t]
-    if FLOAT_RE.match(t):
+    if FLOAT_RE.fullmatch(t):
         return float(t)
     return None
 
@@ -78,11 +88,17 @@ def is_nan_bits(bits):
     return (bits & 0x7F800000) == 0x7F800000 and (bits & 0x007FFFFF) != 0
 
 
+def is_inf_bits(bits):
+    return (bits & 0x7FFFFFFF) == 0x7F800000
+
+
 def bits_equal(a, b, ulp=0, signed_zero="strict"):
     """Compare two f32 bit patterns. NaN == NaN (any payload) and nothing else."""
     na, nb = is_nan_bits(a), is_nan_bits(b)
     if na or nb:
         return na and nb
+    if is_inf_bits(a) or is_inf_bits(b):  # FLT_MAX is 1 ulp from inf: no tolerance here
+        return a == b
     if (a & 0x7FFFFFFF) == 0 and (b & 0x7FFFFFFF) == 0:
         return a == b or signed_zero == "ignore"
     return abs(ulp_key(a) - ulp_key(b)) <= ulp
@@ -119,11 +135,11 @@ def column_kind(cells):
     vals = [c for c in cells if c != ""]
     if not vals:
         return "empty"
-    if all(INT_RE.match(v) for v in vals):
+    if all(INT_RE.fullmatch(v) for v in vals):
         return "int"
     if all(v in BOOL for v in vals):
         return "bool"
-    if all(INT_RE.match(v) or parse_float(v) is not None for v in vals):
+    if all(INT_RE.fullmatch(v) or parse_float(v) is not None for v in vals):
         return "float"
     return "str"
 
@@ -133,9 +149,9 @@ def cell_diff(kind, got, want, ulp=0, rtol=None, signed_zero="strict"):
     if got == "" or want == "":
         return None if got == want else "null vs value"
     if kind == "int":
-        if not INT_RE.match(got):
+        if not INT_RE.fullmatch(got):
             return "not an integer"
-        return None if int(got) == int(want) else "ints differ"
+        return None if got == want else "ints differ"   # exact text: "007" is not "7"
     if kind == "bool":
         return None if got == want else "bools differ"
     if kind == "float":
@@ -202,6 +218,8 @@ def unquote(tok):
         c = s[i]
         if c == '"':
             raise DumpError(f"unescaped quote in {tok!r}")
+        if ord(c) < 0x20 or ord(c) == 0x7F:
+            raise DumpError(f"unescaped control character in {tok!r}")
         if c != "\\":
             out.append(c)
             i += 1
@@ -213,7 +231,11 @@ def unquote(tok):
             out.append(ESC[s[i]])
             i += 1
         elif s[i] == "x" and i + 2 < len(s) and re.fullmatch(r"[0-9a-f]{2}", s[i + 1:i + 3]):
-            out.append(chr(int(s[i + 1:i + 3], 16)))
+            # only for the C0 controls and U+007F without a short escape: one text per string
+            ch = chr(int(s[i + 1:i + 3], 16))
+            if not (ord(ch) < 0x20 or ord(ch) == 0x7F) or ch in "\n\r\t":
+                raise DumpError(f"non-canonical escape \\x{s[i + 1:i + 3]} in {tok!r}")
+            out.append(ch)
             i += 3
         else:
             raise DumpError(f"bad escape \\{s[i]} in {tok!r}")
@@ -228,7 +250,8 @@ def parse_cell(dtype, tok):
             raise DumpError(f"bad bool cell {tok!r}")
         return tok == "true"
     if dtype in ("u32", "i32"):
-        if not INT_RE.match(tok) or tok.startswith("+"):
+        lo, hi = (0, 2**32 - 1) if dtype == "u32" else (-2**31, 2**31 - 1)
+        if not (U32_RE if dtype == "u32" else I32_RE).fullmatch(tok) or not lo <= int(tok) <= hi:
             raise DumpError(f"bad {dtype} cell {tok!r}")
         return int(tok)
     if dtype == "f32":
@@ -258,14 +281,15 @@ def parse_dump(text):
         w = lines[2].split("\t")
     except IndexError:
         raise DumpError("truncated header")
-    if h[0] != "height" or len(h) != 2 or w[0] != "width" or len(w) != 2:
+    if h[0] != "height" or len(h) != 2 or w[0] != "width" or len(w) != 2 \
+            or not U32_RE.fullmatch(h[1]) or not U32_RE.fullmatch(w[1]):
         raise DumpError("bad height/width lines")
     height, width = int(h[1]), int(w[1])
     cols, rows = [], []
     for ln in lines[3:]:
         f = ln.split("\t")
         if f[0] == "col" and not rows:
-            if len(f) != 3:
+            if len(f) != 3 or f[1] not in DTYPE_NAMES:
                 raise DumpError(f"bad col line {ln!r}")
             cols.append((f[1], unquote(f[2])))
         elif f[0] == "row":

@@ -2116,3 +2116,7 @@ contain a newline only through that data; the dump's `error` line is still the w
 Rows marked M0 are fixed in M0 itself (harness and tests); every other row gets an
 `#! xfail <ID>` regression in M0 (eager, raw-lazy and optimised-lazy where
 applicable) and loses the marker when fixed.
+
+### M0 review (dump location)
+- The §15.1 oracle lives in `src/dump.bend` (`Dump.frame`, `Dump.frame_k` which hands the frame back, `Dump.result`), not `Fmt.dump` in `src/fmt.bend`; `DF.dump(r: ResT(Frame))` and `DF.dump_frame(f)` (consumes `f`). A frame whose columns are longer than its height dumps an extra `excess` line; shorter columns print `?` cells. Both are outside the §15.1 grammar, so `bench/check.py --dump` rejects them.
+- `scripts/test.sh` skips `tests/**/lib/*.bend` (helper modules imported by tests).
