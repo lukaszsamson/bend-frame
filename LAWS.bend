@@ -580,3 +580,39 @@ law i32_add_comm:
 law i32_bits_roundtrip:
   for a: D.I32
   {D.I32.from_u32(D.I32.to_u32(a)) == a : D.I32}
+
+# =====================================================================================
+# 7. Names and numbers (Base: U32 is Word(32n); String.eq is String.order through Char.cmp)
+# =====================================================================================
+
+# LAW: U32.min is commutative
+law u32_min_comm:
+  for a: U32
+  for b: U32
+  {U32.min(a, b) == U32.min(b, a) : U32}
+
+# LAW: U32.min is associative (what two Heads in a row compute)
+law u32_min_assoc:
+  for a: U32
+  for b: U32
+  for c: U32
+  {U32.min(a, U32.min(b, c)) == U32.min(U32.min(a, b), c) : U32}
+
+# LAW: the runtime name equality is reflexive (the name-equality spike of plan
+# M_01 section 6 P0: String.eq itself is provable, no local Str.eq is needed)
+law str_eq_refl:
+  for +s: String
+  {String.eq(s, s) == True{} : Bool}
+
+# LAW: the runtime name equality is sound: equal names are the same string
+law str_eq_sound:
+  for a: String
+  for b: String
+  for h: {String.eq(a, b) == True{} : Bool}
+  {a == b : String}
+
+# LAW: a name is found in a list that starts with it
+law names_has_head:
+  for ns: List<&2, String>
+  for +n: String
+  {C.Names.has(n <> ns, n) == True{} : Bool}
