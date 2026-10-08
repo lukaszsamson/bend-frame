@@ -327,12 +327,13 @@ def t_when(ts, p):
 
 
 def t_is_in(ts, p):
+    """15.3.1: the first offending literal, in list order (an SNull is "null"); [] is fine."""
     dt, vals = p
-    if ts[0] != dt:
-        raise mismatch("is_in", ts[0], dt)
     for v in vals:
         if v is None:
             raise mismatch("is_in", ts[0], "null")
+        if ts[0] != dt:
+            raise mismatch("is_in", ts[0], dt)
     return "bool"
 
 

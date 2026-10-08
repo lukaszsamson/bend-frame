@@ -21,7 +21,8 @@
 # well-formed frame never answers Fail whatever the data. It is syntactic and
 # conservative: only `Cast` of a fallible pair (X.Cast.total is False) is non-total;
 # the typed null literal `Cast{Lit{SNull}, t}`, TryCast (nulls instead of failing),
-# FloorDiv / Mod (null on a zero divisor) and IEEE Div are total.
+# FloorDiv / Mod (null on a zero divisor), IEEE Div, When, IsIn, Clip, LenChars, the
+# string predicates and Std / Var / Median (null on too few rows) are total.
 #
 # Locality (field `local`, an addition to the 15.3.2 record, DESIGN.md 14 "M1
 # B01/B04"): `local = True{}` means no reduction occurs anywhere in e, so row i
@@ -186,6 +187,64 @@ def Ana.agg(+op: X.AggOp, +e: X.Expr, r: E.Res(Ana)) -> E.Res(Ana):
     case Done{a}:
       Ana.agg.a(op, e, a)
 
+# when(c).then(a).otherwise(b) (DESIGN.md 15.3.2): the kinds joined, total and local when all
+# three are; refs left to right (c, a, b)
+def Ana.when.k(c: Ana, a: Ana, b: Ana) -> E.Res(Ana):
+  match c a b:
+    case Ana{tc, rc, kc, xc, lc} Ana{ta, ra, ka, xa, la} Ana{tb, rb, kb, xb, lb}:
+      Ana.mk(X.Expr.type.when.ok(tc, ta, tb), List.append(&2, String, rc, List.append(&2, String, ra, rb)), AKind.join(kc, AKind.join(ka, kb)), Bool.and(xc, Bool.and(xa, xb)), Bool.and(lc, Bool.and(la, lb)))
+
+# the first operand error, left to right
+def Ana.when(rc: E.Res(Ana), ra: E.Res(Ana), rb: E.Res(Ana)) -> E.Res(Ana):
+  match rc ra rb:
+    case Fail{e} _ _:
+      Fail{e}
+    case Done{c} Fail{e} _:
+      Fail{e}
+    case Done{c} Done{a} Fail{e}:
+      Fail{e}
+    case Done{c} Done{a} Done{b}:
+      Ana.when.k(c, a, b)
+
+# is_in / clip / the string predicates: a node over one operand whose other arguments are
+# literals (no refs); kind, totality and locality are the operand's (15.3.2), the dtype is
+# the node's rule (X.Expr.type.isin.ok / clip.ok / strpred.ok) over the operand's dtype
+def Ana.isin.k(vs: List<&2, D.Scalar>, a: Ana) -> E.Res(Ana):
+  match a:
+    case Ana{t, rs, k, tot, loc}:
+      Ana.mk(X.Expr.type.isin.ok(vs, t), rs, k, tot, loc)
+
+def Ana.isin(vs: List<&2, D.Scalar>, r: E.Res(Ana)) -> E.Res(Ana):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{a}:
+      Ana.isin.k(vs, a)
+
+def Ana.clip.k(lo: D.Scalar, hi: D.Scalar, a: Ana) -> E.Res(Ana):
+  match a:
+    case Ana{t, rs, k, tot, loc}:
+      Ana.mk(X.Expr.type.clip.ok(lo, hi, t), rs, k, tot, loc)
+
+def Ana.clip(lo: D.Scalar, hi: D.Scalar, r: E.Res(Ana)) -> E.Res(Ana):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{a}:
+      Ana.clip.k(lo, hi, a)
+
+def Ana.strpred.k(op: X.StrPredOp, a: Ana) -> E.Res(Ana):
+  match a:
+    case Ana{t, rs, k, tot, loc}:
+      Ana.mk(X.Expr.type.strpred.ok(op, t), rs, k, tot, loc)
+
+def Ana.strpred(op: X.StrPredOp, r: E.Res(Ana)) -> E.Res(Ana):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{a}:
+      Ana.strpred.k(op, a)
+
 # ---- the analysis ---------------------------------------------------------------------
 
 # the dtype / refs / kind / totality / locality of e over schema s, or the first
@@ -210,6 +269,14 @@ def Expr.analyse(e: X.Expr, +s: List<&2, S.Field>) -> E.Res(Ana):
       Ana.fill(Expr.analyse(e2, s), Expr.analyse(v, s))
     case X.Agg{+op, +e2}:
       Ana.agg(op, e2, Expr.analyse(e2, s))
+    case X.When{c, a, b}:
+      Ana.when(Expr.analyse(c, s), Expr.analyse(a, s), Expr.analyse(b, s))
+    case X.IsIn{e2, vs}:
+      Ana.isin(vs, Expr.analyse(e2, s))
+    case X.Clip{e2, lo, hi}:
+      Ana.clip(lo, hi, Expr.analyse(e2, s))
+    case X.StrPred{op, e2, p}:
+      Ana.strpred(op, Expr.analyse(e2, s))
 
 # ---- projections ------------------------------------------------------------------------
 

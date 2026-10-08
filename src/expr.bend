@@ -15,6 +15,7 @@ type UnOp is Data:
   IsNotNull{}
   Abs{}
   Sqrt{}
+  LenChars{}
 
 type BinOp is Data:
   Add{}
@@ -42,6 +43,22 @@ type AggOp is Data:
   First{}
   Last{}
   NUnique{}
+  Std{}
+  Var{}
+  Median{}
+
+# the literal string predicates (DESIGN.md 15.2.6): case-sensitive, code-point equality
+type StrPredOp is Data:
+  Contains{}
+  StartsWith{}
+  EndsWith{}
+
+# which bounds of is_between are inclusive (DF.is_between_closed; sugar, no Expr node)
+type Closed is Data:
+  Both{}
+  Left{}
+  Right{}
+  Neither{}
 
 type Expr is Data:
   Col{name: String}
@@ -53,6 +70,10 @@ type Expr is Data:
   Bin{op: BinOp, a: Expr, b: Expr}
   FillNull{e: Expr, v: Expr}
   Agg{op: AggOp, e: Expr}
+  When{c: Expr, a: Expr, b: Expr}
+  IsIn{e: Expr, vals: List<&2, D.Scalar>}
+  Clip{e: Expr, lo: D.Scalar, hi: D.Scalar}
+  StrPred{op: StrPredOp, e: Expr, pat: String}
 
 # an aggregation at the root of an expression, under at most aliases
 type AggSplit is Data:
@@ -74,6 +95,8 @@ def UnOp.name(op: UnOp) -> String:
       "abs"
     case Sqrt{}:
       "sqrt"
+    case LenChars{}:
+      "len_chars"
 
 def BinOp.name(op: BinOp) -> String:
   match op:
@@ -157,6 +180,21 @@ def AggOp.name(op: AggOp) -> String:
       "last"
     case NUnique{}:
       "n_unique"
+    case Std{}:
+      "std"
+    case Var{}:
+      "var"
+    case Median{}:
+      "median"
+
+def StrPredOp.name(op: StrPredOp) -> String:
+  match op:
+    case Contains{}:
+      "contains_literal"
+    case StartsWith{}:
+      "starts_with"
+    case EndsWith{}:
+      "ends_with"
 
 # ---- Expr.name / refs / is_agg -----------------------------------------------------
 
@@ -180,6 +218,14 @@ def Expr.lname(e: Expr) -> Maybe<&2, String>:
     case FillNull{e2, v}:
       Maybe.or(&2, String, Expr.lname(e2), Expr.lname(v))
     case Agg{op, e2}:
+      Expr.lname(e2)
+    case When{c, a, b}:
+      Expr.lname(a)
+    case IsIn{e2, vs}:
+      Expr.lname(e2)
+    case Clip{e2, lo, hi}:
+      Expr.lname(e2)
+    case StrPred{op, e2, p}:
       Expr.lname(e2)
 
 # the output column name: the Alias name, else the leftmost Col, else "literal"
@@ -206,12 +252,20 @@ def Expr.refs.go(e: Expr, acc: List<&2, String>) -> List<&2, String>:
       Expr.refs.go(e2, Expr.refs.go(v, acc))
     case Agg{op, e2}:
       Expr.refs.go(e2, acc)
+    case When{c, a, b}:
+      Expr.refs.go(c, Expr.refs.go(a, Expr.refs.go(b, acc)))
+    case IsIn{e2, vs}:
+      Expr.refs.go(e2, acc)
+    case Clip{e2, lo, hi}:
+      Expr.refs.go(e2, acc)
+    case StrPred{op, e2, p}:
+      Expr.refs.go(e2, acc)
 
 # the column names an expression reads, left to right, with duplicates
 def Expr.refs(e: Expr) -> List<&2, String>:
   Expr.refs.go(e, Nil{})
 
-# does an aggregation occur at the root or under Alias/Cast/Un/Bin/FillNull?
+# does an aggregation occur anywhere in the expression?
 def Expr.is_agg(e: Expr) -> Bool:
   match e:
     case Col{n}:
@@ -232,6 +286,14 @@ def Expr.is_agg(e: Expr) -> Bool:
       Bool.or(Expr.is_agg(e2), Expr.is_agg(v))
     case Agg{op, e2}:
       True{}
+    case When{c, a, b}:
+      Bool.or(Expr.is_agg(c), Bool.or(Expr.is_agg(a), Expr.is_agg(b)))
+    case IsIn{e2, vs}:
+      Expr.is_agg(e2)
+    case Clip{e2, lo, hi}:
+      Expr.is_agg(e2)
+    case StrPred{op, e2, p}:
+      Expr.is_agg(e2)
 
 # `Agg{op, e}` at the root, possibly under Alias nodes (group_by's input form);
 # None for anything else. The output name is still Expr.name of the whole.
@@ -382,6 +444,8 @@ def Expr.type.un.ok(op: UnOp, +t: D.DType) -> E.Res(D.DType):
       Expr.chk(Bool.or(D.DType.eq(t, D.TI32{}), D.DType.eq(t, D.TF32{})), E.TypeMismatch{"abs", "i32 or f32", D.DType.show(t)}, Done{t})
     case Sqrt{}:
       Expr.chk(D.DType.eq(t, D.TF32{}), E.TypeMismatch{"sqrt", "f32", D.DType.show(t)}, Done{t})
+    case LenChars{}:
+      Expr.chk(D.DType.eq(t, D.TStr{}), E.TypeMismatch{"len_chars", "str", D.DType.show(t)}, Done{D.TU32{}})
 
 def Expr.type.un(op: UnOp, r: E.Res(D.DType)) -> E.Res(D.DType):
   match r:
@@ -454,6 +518,12 @@ def Expr.type.agg.ok(op: AggOp, +t: D.DType) -> E.Res(D.DType):
       Done{t}
     case Last{}:
       Done{t}
+    case Std{}:
+      Expr.chk(DType.is_num(t), E.TypeMismatch{"std", "numeric", D.DType.show(t)}, Done{D.TF32{}})
+    case Var{}:
+      Expr.chk(DType.is_num(t), E.TypeMismatch{"var", "numeric", D.DType.show(t)}, Done{D.TF32{}})
+    case Median{}:
+      Expr.chk(DType.is_num(t), E.TypeMismatch{"median", "numeric", D.DType.show(t)}, Done{D.TF32{}})
 
 def Expr.type.agg(op: AggOp, r: E.Res(D.DType)) -> E.Res(D.DType):
   match r:
@@ -461,6 +531,78 @@ def Expr.type.agg(op: AggOp, r: E.Res(D.DType)) -> E.Res(D.DType):
       Fail{e}
     case Done{t}:
       Expr.type.agg.ok(op, t)
+
+# when(c).then(a).otherwise(b): c bool, a and b the same dtype (DESIGN.md 15.3.1)
+def Expr.type.when.ok(+c: D.DType, +a: D.DType, +b: D.DType) -> E.Res(D.DType):
+  Expr.chk(DType.is_bool(c), E.TypeMismatch{"when", "bool", D.DType.show(c)}, Expr.chk(D.DType.eq(a, b), E.TypeMismatch{"when", D.DType.show(a), D.DType.show(b)}, Done{a}))
+
+# the first operand error, left to right (c, then a, then b)
+def Expr.type.when(rc: E.Res(D.DType), ra: E.Res(D.DType), rb: E.Res(D.DType)) -> E.Res(D.DType):
+  match rc ra rb:
+    case Fail{e} _ _:
+      Fail{e}
+    case Done{c} Fail{e} _:
+      Fail{e}
+    case Done{c} Done{a} Fail{e}:
+      Fail{e}
+    case Done{c} Done{a} Done{b}:
+      Expr.type.when.ok(c, a, b)
+
+# a literal of dtype t: None when it is, else the TypeMismatch{op, <t>, <its dtype or "null">}
+def Expr.lit_of.k(+op: String, +t: D.DType, m: Maybe<&2, D.DType>) -> Maybe<&2, E.Err>:
+  match m:
+    case None{}:
+      Some{E.TypeMismatch{op, D.DType.show(t), "null"}}
+    case Some{+u}:
+      Bool.pick(Maybe<&2, E.Err>, D.DType.eq(t, u), None{}, Some{E.TypeMismatch{op, D.DType.show(t), D.DType.show(u)}})
+
+def Expr.lit_of(+op: String, +t: D.DType, v: D.Scalar) -> Maybe<&2, E.Err>:
+  Expr.lit_of.k(op, t, D.Scalar.dtype(v))
+
+def Expr.or_done(m: Maybe<&2, E.Err>, r: E.Res(D.DType)) -> E.Res(D.DType):
+  match m:
+    case Some{e}:
+      Fail{e}
+    case None{}:
+      r
+
+# is_in: every scalar of the list has the operand's dtype (the first offending one is
+# reported; an SNull is refused as "null"); the result is bool
+def Expr.type.isin.ok(vs: List<&2, D.Scalar>, +t: D.DType) -> E.Res(D.DType):
+  match vs:
+    case Nil{}:
+      Done{D.TBool{}}
+    case v <> rest:
+      Expr.or_done(Expr.lit_of("is_in", t, v), Expr.type.isin.ok(rest, t))
+
+def Expr.type.isin(vs: List<&2, D.Scalar>, r: E.Res(D.DType)) -> E.Res(D.DType):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{t}:
+      Expr.type.isin.ok(vs, t)
+
+# clip: a numeric operand, then lo, then hi of its dtype; the result keeps the dtype
+def Expr.type.clip.ok(lo: D.Scalar, hi: D.Scalar, +t: D.DType) -> E.Res(D.DType):
+  Expr.chk(DType.is_num(t), E.TypeMismatch{"clip", "numeric", D.DType.show(t)}, Expr.or_done(Expr.lit_of("clip", t, lo), Expr.or_done(Expr.lit_of("clip", t, hi), Done{t})))
+
+def Expr.type.clip(lo: D.Scalar, hi: D.Scalar, r: E.Res(D.DType)) -> E.Res(D.DType):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{t}:
+      Expr.type.clip.ok(lo, hi, t)
+
+# contains_literal / starts_with / ends_with: str -> bool
+def Expr.type.strpred.ok(op: StrPredOp, +t: D.DType) -> E.Res(D.DType):
+  Expr.chk(D.DType.eq(t, D.TStr{}), E.TypeMismatch{StrPredOp.name(op), "str", D.DType.show(t)}, Done{D.TBool{}})
+
+def Expr.type.strpred(op: StrPredOp, r: E.Res(D.DType)) -> E.Res(D.DType):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{t}:
+      Expr.type.strpred.ok(op, t)
 
 # the dtype of an expression over a schema, or the first violated rule
 # (TypeMismatch{op, want, got} / ColumnNotFound), left to right
@@ -484,6 +626,14 @@ def Expr.type(e: Expr, +s: List<&2, S.Field>) -> E.Res(D.DType):
       Expr.type.fill(Expr.type(e2, s), Expr.type(v, s))
     case Agg{op, e2}:
       Expr.type.agg(op, Expr.type(e2, s))
+    case When{c, a, b}:
+      Expr.type.when(Expr.type(c, s), Expr.type(a, s), Expr.type(b, s))
+    case IsIn{e2, vs}:
+      Expr.type.isin(vs, Expr.type(e2, s))
+    case Clip{e2, lo, hi}:
+      Expr.type.clip(lo, hi, Expr.type(e2, s))
+    case StrPred{op, e2, p}:
+      Expr.type.strpred(op, Expr.type(e2, s))
 
 # ---- Expr.show (Polars-like, for explain and tests) ------------------------------------
 
@@ -493,6 +643,16 @@ def Expr.show.lit(v: D.Scalar) -> String:
       "\"" ++ s ++ "\""
     case other:
       D.Scalar.show(other)
+
+# literals separated by ", " (is_in's list)
+def Expr.show.lits(vs: List<&2, D.Scalar>) -> String:
+  match vs:
+    case Nil{}:
+      ""
+    case v <> Nil{}:
+      Expr.show.lit(v)
+    case v <> rest:
+      Expr.show.lit(v) ++ ", " ++ Expr.show.lits(rest)
 
 def Expr.show(e: Expr) -> String:
   match e:
@@ -507,6 +667,8 @@ def Expr.show(e: Expr) -> String:
     case TryCast{e2, t}:
       Expr.show(e2) ++ ".try_cast(" ++ D.DType.show(t) ++ ")"
 
+    case Un{LenChars{}, e2}:
+      Expr.show(e2) ++ ".str.len_chars()"
     case Un{op, e2}:
       Expr.show(e2) ++ "." ++ UnOp.name(op) ++ "()"
     case Bin{op, a, b}:
@@ -515,3 +677,11 @@ def Expr.show(e: Expr) -> String:
       Expr.show(e2) ++ ".fill_null(" ++ Expr.show(v) ++ ")"
     case Agg{op, e2}:
       Expr.show(e2) ++ "." ++ AggOp.name(op) ++ "()"
+    case When{c, a, b}:
+      "when(" ++ Expr.show(c) ++ ").then(" ++ Expr.show(a) ++ ").otherwise(" ++ Expr.show(b) ++ ")"
+    case IsIn{e2, vs}:
+      Expr.show(e2) ++ ".is_in([" ++ Expr.show.lits(vs) ++ "])"
+    case Clip{e2, lo, hi}:
+      Expr.show(e2) ++ ".clip(" ++ Expr.show.lit(lo) ++ ", " ++ Expr.show.lit(hi) ++ ")"
+    case StrPred{op, e2, p}:
+      Expr.show(e2) ++ ".str." ++ StrPredOp.name(op) ++ "(\"" ++ p ++ "\")"

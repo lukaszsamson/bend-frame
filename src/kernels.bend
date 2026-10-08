@@ -419,3 +419,19 @@ def Kernel.copy_into(~T: Data, +n: U32, +off: U32, out: Array<T>, a: Array<T>) -
 # are consumed
 def Kernel.append(~T: Data, +na: U32, +nb: U32, +d: Nat, a: Array<T>, b: Array<T>, +z: T) -> Array<T>:
   Kernel.copy_into(~T, nb, na, Kernel.copy_into(~T, na, 0, Array.new(T, d, z), a), b)
+
+# ---- M3 (expressions): a map with a Data parameter ---------------------------------------
+
+# out[i] = f(p, a[i]) for i < n, consuming a. `p` is a Data value every step sees: what a
+# template lambda cannot capture (is_in's literal list, clip's bounds, a string pattern).
+def Kernel.map_p.go(~T: Data, ~P: Data, ~U: Data, ~f: P -> T -> U, n: Nat, +i: U32, +p: P, out: Array<U>, r: Array<T> & T) -> Array<U>:
+  match n:
+    case 0n:
+      out
+    case 1n+q:
+      (a, x) = r
+      +j = U32.inc(i)
+      Kernel.map_p.go(~T, ~P, ~U, ~f, q, j, p, Array.set(U, out, i, f(p, x)), Array.get(T, a, j))
+
+def Kernel.map_p(~T: Data, ~P: Data, ~U: Data, ~f: P -> T -> U, +n: U32, +d: Nat, a: Array<T>, +p: P, +z: U) -> Array<U>:
+  Kernel.map_p.go(~T, ~P, ~U, ~f, U32.to_nat(n), 0, p, Array.new(U, d, z), Array.get(T, a, 0))

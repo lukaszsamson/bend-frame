@@ -192,9 +192,15 @@ class Gen:
             p = (at, tuple(self.value(at) for _ in range(r.randint(0, 4))))
             if at == "f32":
                 p = (at, tuple(self.pick(F32_SPECIAL + [1.0, 0.5]) if r.random() < 0.6 else self.value(at) for _ in p[1]))
+            if self.err and p[1] and r.random() < self.err:      # invalid: a null literal (15.3.1)
+                vals = list(p[1])
+                vals[r.randrange(len(vals))] = None
+                p = (at, tuple(vals))
         elif n == "clip":
             at = sig[0]
             p = (at, self.value(at), self.value(at))
+            if self.err and r.random() < self.err:                 # invalid: a null bound
+                p = (at, None, p[2]) if r.random() < 0.5 else (at, p[1], None)
         elif n in ("contains_literal", "starts_with", "ends_with"):
             p = (self.pick(["", "a", "b", "ab", " ", "a\tb"]),)
         return Ex(n, args, p)

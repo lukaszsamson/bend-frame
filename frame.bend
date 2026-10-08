@@ -135,6 +135,41 @@ def cast_f32(e: X.Expr) -> X.Expr:
 def cast_u32(e: X.Expr) -> X.Expr:
   X.Cast{e, D.TU32{}}
 
+# dtypes (for cast / try_cast / lit_null) and scalars (for is_in / clip) without a src/ import
+def t_bool() -> D.DType:
+  D.TBool{}
+
+def t_u32() -> D.DType:
+  D.TU32{}
+
+def t_i32() -> D.DType:
+  D.TI32{}
+
+def t_f32() -> D.DType:
+  D.TF32{}
+
+def t_str() -> D.DType:
+  D.TStr{}
+
+def s_null() -> D.Scalar:
+  D.SNull{}
+
+def s_bool(b: Bool) -> D.Scalar:
+  D.SBool{b}
+
+def s_u32(v: U32) -> D.Scalar:
+  D.SU32{v}
+
+# an i32 scalar from a checked value (DF.i32 / DF.i32_neg)
+def s_i32(i: D.I32) -> D.Scalar:
+  D.SI32{i}
+
+def s_f32(x: F32) -> D.Scalar:
+  D.SF32{x}
+
+def s_str(s: String) -> D.Scalar:
+  D.SStr{s}
+
 # ---- operators ----------------------------------------------------------------------------
 
 def add(a: X.Expr, b: X.Expr) -> X.Expr:
@@ -200,6 +235,87 @@ def is_not_null(e: X.Expr) -> X.Expr:
 def fill_null(e: X.Expr, v: X.Expr) -> X.Expr:
   X.FillNull{e, v}
 
+# i32 or f32 (abs(MIN) = MIN)
+def abs(e: X.Expr) -> X.Expr:
+  X.Un{X.Abs{}, e}
+
+# f32 (sqrt(x < 0) = NaN)
+def sqrt(e: X.Expr) -> X.Expr:
+  X.Un{X.Sqrt{}, e}
+
+# when(cond).then(a).otherwise(b): a where cond is true, else b (a null cond picks b); a and b
+# have one dtype; the output is named after `a`
+def when(cond: X.Expr, a: X.Expr, b: X.Expr) -> X.Expr:
+  X.When{cond, a, b}
+
+# true iff the cell equals one of the literals (same dtype as e, no nulls; f32 by the
+# DESIGN.md 15.5.2 relation: NaN equals NaN, -0.0 equals 0.0); a null cell gives null
+def is_in(e: X.Expr, vals: List<&2, D.Scalar>) -> X.Expr:
+  X.IsIn{e, vals}
+
+# lo if x < lo, else hi if x > hi, else x (numeric e, lo and hi of its dtype; f32 uses IEEE
+# < and >, so NaN passes through)
+def clip(e: X.Expr, lo: D.Scalar, hi: D.Scalar) -> X.Expr:
+  X.Clip{e, lo, hi}
+
+# which bounds is_between_closed includes
+def closed_both() -> X.Closed:
+  X.Both{}
+
+def closed_left() -> X.Closed:
+  X.Left{}
+
+def closed_right() -> X.Closed:
+  X.Right{}
+
+def closed_neither() -> X.Closed:
+  X.Neither{}
+
+def is_between.lo(c: X.Closed) -> X.BinOp:
+  match c:
+    case X.Both{}:
+      X.Ge{}
+    case X.Left{}:
+      X.Ge{}
+    case X.Right{}:
+      X.Gt{}
+    case X.Neither{}:
+      X.Gt{}
+
+def is_between.hi(c: X.Closed) -> X.BinOp:
+  match c:
+    case X.Both{}:
+      X.Le{}
+    case X.Left{}:
+      X.Lt{}
+    case X.Right{}:
+      X.Le{}
+    case X.Neither{}:
+      X.Lt{}
+
+# lo <= e <= hi, or with open ends: sugar for `(e >= lo) & (e <= hi)` (Gt / Lt for an open
+# end); no node of its own, so typing, nulls (Kleene) and errors are the comparisons'
+def is_between_closed(+e: X.Expr, lo: X.Expr, hi: X.Expr, +c: X.Closed) -> X.Expr:
+  X.Bin{X.And{}, X.Bin{is_between.lo(c), e, lo}, X.Bin{is_between.hi(c), e, hi}}
+
+def is_between(+e: X.Expr, lo: X.Expr, hi: X.Expr) -> X.Expr:
+  is_between_closed(e, lo, hi, X.Both{})
+
+# ---- strings (str only; literal patterns, case-sensitive, code points) ------------------
+
+# the number of code points
+def len_chars(e: X.Expr) -> X.Expr:
+  X.Un{X.LenChars{}, e}
+
+def contains_literal(e: X.Expr, pat: String) -> X.Expr:
+  X.StrPred{X.Contains{}, e, pat}
+
+def starts_with(e: X.Expr, pat: String) -> X.Expr:
+  X.StrPred{X.StartsWith{}, e, pat}
+
+def ends_with(e: X.Expr, pat: String) -> X.Expr:
+  X.StrPred{X.EndsWith{}, e, pat}
+
 # ---- aggregations: group_by aggs, and global reductions anywhere in select /
 # with_columns / filter, eager and lazy (DESIGN.md 15.2.5, 15.4) ------------------------
 
@@ -231,6 +347,17 @@ def last(e: X.Expr) -> X.Expr:
 
 def n_unique(e: X.Expr) -> X.Expr:
   X.Agg{X.NUnique{}, e}
+
+# sample standard deviation / variance (ddof = 1; f32; null below two valid values)
+def std(e: X.Expr) -> X.Expr:
+  X.Agg{X.Std{}, e}
+
+def var(e: X.Expr) -> X.Expr:
+  X.Agg{X.Var{}, e}
+
+# the middle value (the mean of the two middle values for an even count; f32; NaN sorts last)
+def median(e: X.Expr) -> X.Expr:
+  X.Agg{X.Median{}, e}
 
 # ---- sort keys -------------------------------------------------------------------------
 

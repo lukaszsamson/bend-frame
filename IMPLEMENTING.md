@@ -676,3 +676,35 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
   lambda may capture a frame it uses once.
 - The diff generator's old `e_concat_vertical` (go -> step -> go) was mutual recursion and never
   compiled; a loop def with a non-recursive step helper (`step(st, h, i, s0)`) is the shape.
+
+## M3 expressions (when, is_in, clip, strings, std / var / median)
+
+- **A literal parameter in a per-row kernel**: a template lambda cannot capture a value (is_in's
+  list, clip's bounds, a pattern). Pass it as a Data argument every step sees:
+  `K.Kernel.map_p(~T, ~P, ~U, ~(p => x => f(p, x)), n, d, a, +param, z)`; bundle two bounds in a
+  small Data record (`W2{lo, hi}`, `F2{lo, hi}`). A template argument may be a type expression
+  (`~List<&2, U32>`).
+- A lambda that uses its argument twice (`~(g => v => g + g - v)`) fails inside the kernel as
+  `x (consumed more than once)`: put the body in a def with `+g` (`Grp.med.key`).
+- `Eval.snd(~T, ~A, r)` needs `A: Data`; for an `Array & Array` pair write a small def that
+  destructures it (`Eval.msnd`).
+- **A let inside `do`** (`+d0 = DF.dump(r)` between binds) is refused ("expected a pattern");
+  compute it in a helper def's argument list (`R.agree.txt`).
+- A def used before its definition fails as "an unfilled law" even across sections:
+  `Eval.when` could not call `Eval.pred` (defined in the filter section, below); copy the
+  4-line rule (`Eval.when.c`) rather than move shared code.
+- Two passes over one array: `K.Kernel.fold` hands the array back, so the first pass's state can
+  seed the second (`Eval.ssd`: the Neumaier state of the sum, then a `VS{m, s, c}` record carrying
+  the mean through the second fold). Grouped two-pass: scatter, map the accumulators to the
+  per-group value, `K.Kernel.gather` it back to rows by the group ids, scatter again.
+- **A per-group sort without per-group work**: two stable radix passes, the value's order word
+  first, then `group * 2 + null flag`, give every group a sorted run of its valid values followed
+  by its nulls; `Radix.pre.go` (exclusive prefix sums in place) over the group sizes gives each
+  run's start. `Radix.sort(n, d, (words, perm))` carries any permutation, so the second pass
+  sorts the gathered keys with the first pass's permutation.
+- An example module can be imported by a test (`import ./../examples/x.bend as S1`, `S1.main()`):
+  the example's own `./../frame.bend` import resolves from the example's directory. Running
+  `bend f | head` reports "a short write on a standard stream"; harmless.
+- Checking expectations: the f32 bits for std / var / median came from
+  `bench/diff/oracle.reduce_` (`cd bench && uv run python`), the contract's algorithm in numpy
+  float32; the sales table from Polars 2.0.0 directly.
