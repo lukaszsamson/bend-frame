@@ -123,3 +123,127 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
 - Test helpers used by all eval tests: `cs(c)` prints `dtype=[cells]`,
   `fs(f)` prints `h=N name:dtype=[..] | ..` (see `tests/eval_arith.bend`);
   much easier to reason about than `Fmt.show` tables.
+
+## M4 (plan, exec)
+
+- **Interpreters over a tree that thread a Type value** (Exec over `Plan`,
+  threading `Env` + a stack of frames): compile to postfix `Instr` code
+  (`Exec.compile(p, acc)`, recursive calls in argument position; a Join is
+  `compile(l, compile(r, IJoin <> acc))`), then ONE loop. The loop may be IO:
+  `do IO<St>: st2 : St <- Exec.step(i, st); Exec.loop(t, st2)` passes the
+  termination check (the recursive call sits inside the bind's lambda).
+- **Optimizer passes that sink something down a tree** use a "pending"
+  parameter instead of re-matching a rebuilt node (which would not be
+  structural): `Opt.push(p, ps)` carries the conjuncts to apply on top of
+  `p`, `Opt.head(p, n)` the row limit, `Opt.proj(p, need, top)` the needed
+  names. Each is plain structural recursion on `p`; leftovers are re-wrapped
+  (`Opt.wrap`, `Opt.hwrap`) where they stop.
+- `Plan.optimize` guards on `Plan.schema(p)`: an ill-typed plan comes back
+  unchanged, so rewrites only ever see well-typed plans (sound pushdown needs
+  "every Filter predicate is bool, no aggregation outside GroupBy").
+- **Reuse the eager checks for schema rules** so lazy and eager agree:
+  `Plan.schema` calls `J.Join.schema` (join.bend) and `G.Grp.validate`
+  (groupby.bend), and `S.Schema.project.chk` for DuplicateColumn.
+- `as` is a keyword (a test helper `def as(..)` fails as `expected : a
+  defined name / observed : as`); BSD `sed` has no `\b`, use `perl -pi -e`.
+- A Bend file reached through a SYMLINK resolves its relative imports from
+  the link's target directory: a scratch copy of `src/` must copy the file
+  under test, not link it.
+- Projection pushdown inserts `Select{[Col ..]}` over a Source/ScanCsv in
+  source column order; Exec runs a plain-`Col` Select as
+  `Frame.select_names` (moves columns, no clone), so the inserted projection
+  costs nothing and makes every later Filter/compaction touch fewer columns.
+
+## M5 sort/groupby
+
+- **Radix beats `List.sort` by 30-50x** natively: a stable LSD counting sort
+  over `(word, row)` `Array<U32>` pairs is ~10 ms per 16-bit pass at 1M rows;
+  `List.sort` of Data records is ~0.9 s at 1M. Map every key to an
+  order-preserving U32 word (`Sort.words`) and sort words, never values.
+- **Strings are the cost**: one pass that only walks 1M short strings
+  (hashing) is ~120-150 ms; `String.eq` per row ~250 ms; a Map lookup per row
+  ~350 ms sequential (~210 ms in 8 parallel blocks). `Array.get` copying the
+  string is NOT the bottleneck (swap-out instead of get saves ~15%). So: code
+  each string column once, then work on U32 codes. Hash-then-verify is not
+  cheaper than the Map (the verification is another full string pass).
+- `Map.to_list` is sorted in `String.order` (crit-bit trie, lo before hi):
+  list position = rank, no string sort needed.
+- **Destructuring order follows parameter order too**: `(a, s) = r` then
+  `(out, cs) = st` is refused when `st` is a parameter declared before `r`
+  ("can't be matched in this position"); destructure in parameter order.
+- A tuple state with a `+` field in the middle/end (`(t, g, f, +next) =
+  st`) failed with "an annotated term (cannot infer)"; putting the Data
+  scalar first (`(+next, t, g, f) = st`) works.
+- A 1-slot array (`Array.new(U32, 0n, 1)`) reads the same slot for every
+  index (indices wrap): a free "all ones" mask / constant input for a
+  scatter. `C.Valid.materialize(v, 0n)` gives exactly that for `AllValid`.
+- `Kernel.compact`-style "write slot `next`, advance by a 0/1 flag" records
+  each new group's first row without a branch (`Grp.dens.put`); the output
+  needs more than n_groups slots.
+- Parallel let over an `ANode{xs, ys}` split (`l r = f(xs) g(ys)`): the
+  left block holds rows `[0, 2^(d-1))`; the right block's logical length is
+  `n - min(n, 2^(d-1))` (may be 0). Rebuild with `ANode{..}`.
+- Native timings (12 threads, `bench/m5_sort.bend`, `bench/m5_groupby.bend`
+  over sales_*.csv; each job includes nothing but the op):
+  | op | 100k | 1M |
+  |----|------|----|
+  | sort u32 (random) | 4 ms | 22 ms |
+  | sort f32 (random) | 3 ms | 13 ms |
+  | sort region, price desc, id (q4, 7 cols gathered) | 17 ms | ~220 ms |
+  | sort id desc (7 cols gathered) | 5 ms | ~105 ms |
+  | group_by region, 4 aggs (q3-style) | 17 ms | ~190 ms |
+  | group_by product (64 groups) | 31 ms | ~260 ms |
+  | group_by region, product (512 groups) | 33 ms | ~320 ms |
+  | group_by id (all distinct) | 4 ms | ~60 ms |
+  | n_unique/first/min over a str column | 69 ms | ~650 ms |
+  The 1M string-keyed numbers are dominated by string coding and by
+  gathering string columns.
+- Polars reference checks used `bench/.venv` (polars 2.0): every expectation
+  of tests/sort_*.bend and tests/groupby_*.bend was produced by Bend and
+  compared with Polars (`maintain_order=True`); a 1M-row 4-key sort and a
+  16-group, 14-aggregation group_by over sales_1000000.csv matched Polars
+  (floats to f32 rounding).
+
+## M5 join
+
+- **Hash tables without Base `Map`**: open addressing over flat arrays, 2^b
+  slots at load <= 1/2, slot = `U32.div(h * 2654435769, 2^(32-b))` (top bits;
+  `U32.div`/`shrn` are as cheap as `and` natively). A probe loop whose exit
+  depends on an array read: a non-recursive `look` helper destructures the
+  read(s) and answers a Type record with a `Bool` field (`PK{ka, kb, ids,
+  more}`), and the loop matches it beside the fuel: `match n pk: case 0n
+  PK{..} / case _ PK{.., False{}} / case 1n+p PK{.., True{}}` (Base's `Map`
+  uses the same idea with `Tuple{key, False{}}` on a pair). Flat `U32` arrays
+  beat an `Array<Record>` (no heap cell per slot); a 1M-row pair-table probe
+  is ~10 ms.
+- **String keys**: FNV-1a over `Chr{c}` (`Str.hash`, tail recursive) and an
+  own `Str.eq` (Base `String.eq` goes through `String.cmp`, which rebuilds
+  both strings). Dictionary-encode the small side once, probe the big side
+  per row; a miss/null is the code `DEAD = 2^32-1`.
+- **Walking strings is memory bound.** On parsed 1M-row data, one hash walk
+  per row is most of a join's time (~70 ms of q5's ~100 ms, the equality walk
+  ~25 ms). Forking the probe over `ANode` halves (`Probe.fork`, 16 blocks,
+  each with its own table copy passed as a `DD{a, b}` PARAMETER: a recursive
+  def cannot destructure a computed clone pair, and a helper that does would
+  be mutual recursion) gives ~1.5x (160 -> 100 ms). Deep-copying the table
+  per lane (no shared refcounts) changed nothing measurable.
+- **Benchmarking pitfalls (native)**: (1) the first touch of a frame right
+  after `Csv.read` is slow (summing a parsed u32 column: ~400 ms, then 1 ms):
+  walk every buffer once, untimed, before the clock (`force` in
+  `bench/join_bench.bend`); (2) dropping is NOT free for big trees: freeing a
+  1M-row frame with string columns costs ~300 ms (a `Frame.take` that drops
+  the rest, or a result dropped inside the timed region, dominates the
+  measurement) - keep results alive until after `IO.now`; (3) repeated
+  parses/clones in one process drift (heap growth): one measurement per
+  process. Clones made by `Array.clone(String, ..)` share the string cells
+  (refcounts) and time differently from the original.
+- **Gather wrap trick**: DEAD indices wrap to the last slot of a `2^d > g`
+  array; counts/starts arrays get that slot zeroed, so a dead left row finds
+  0 matches with no branch. Left-join misses gather right row 0 and are then
+  nulled with `Join.fix` (validity AND valid_r, `Kernel.mask_data`), keeping
+  the "null slot = default" invariant.
+- Errors seen: `'r' can't be matched in this position` when a pair param is
+  destructured after a later param was matched (`match st` then `(c, x) = r`
+  needs `st` BEFORE `r` in the parameter list); `a template applied to closed
+  ~ arguments (rs is a variable here)`: a `~(u => ..)` timing lambda cannot
+  capture a do-bound variable - time inline with `IO.now` steps instead.

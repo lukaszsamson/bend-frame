@@ -1139,3 +1139,190 @@ conventions later modules must follow:
     `AllValid AND Mask{m}` reuses `m` as is, so a mask may have a different
     (always >= len) slot count than `2^depth`. Kernels only touch slots
     `< len`; do not rely on "the mask has exactly 2^depth slots".
+
+### M4 (plan, exec)
+
+Types and signatures of 4.13/4.14 are as in `p21` (`Plan`, `Env`,
+`Named.Frame`/`NF`, `Plan.schema`, `Plan.optimize`, `Exec.run(p, env)`).
+Differences and decisions:
+
+1. **Aggregations outside GroupBy are refused by `Plan.schema`** (as 4.13
+   says): `InvalidOperation{"aggregation in select|with_columns|filter (v1:
+   use group_by)"}`, checked per expression after its type. Eager `Eval`
+   broadcasts aggregations (M2 note 2); the lazy layer deliberately does not,
+   so every non-GroupBy operator is row-wise and predicate/Head pushdown are
+   sound with no side conditions. Consequence for the laws:
+   `filter_keeps_schema` needs the extra hypothesis
+   `{X.Expr.is_agg(e) == False{} : Bool}`.
+2. **Error order mirrors eager Eval** (M2 note 3): Select/WithColumns type or
+   aggregation errors in list order, then `DuplicateColumn`
+   (`Schema.project.chk`, so a Select of plain Cols reduces to
+   `Schema.project`: `select_cols_is_project` is an induction showing
+   `Plan.fields(map Col names, msg, s) == Schema.project.go(names, s)`).
+   Filter: the predicate's type error, then `TypeMismatch{"filter", "bool",
+   got}`, then the aggregation refusal. Sort: `ColumnNotFound` for the first
+   missing key. GroupBy: `G.Grp.validate` (groupby.bend, same checks and
+   messages as `GroupBy.run`), then `DuplicateColumn`. Join: `J.Join.schema`
+   (join.bend, the function `Join.run` checks): `InvalidOperation{"join: no
+   key columns"}`, `{"join: left_on and right_on must have the same
+   length"}`, `ColumnNotFound`, `TypeMismatch{"join", l, r}`, right non-key
+   fields whose name clashes with ANY left name get `_right`,
+   `DuplicateColumn`. So `plan.bend` imports `sort`, `groupby`, `join`
+   (types and checks), not only `exec.bend`.
+3. **`ScanCsv.schema` is the file's full schema, fixed at plan-build time.**
+   `Lazy.scan_csv(path, opts) -> IO(Res(Plan))` (in plan.bend) reads the file
+   once and runs `Csv.infer` (header + first `infer_rows` rows); a user may
+   also build `ScanCsv{path, opts, schema}` by hand. Exec reads with
+   `Csv.read_with(path, opts, dtypes of schema)` (strict: a later row that
+   does not parse is a `ParseError`) and then requires the file's names and
+   dtypes to equal the plan's (`InvalidOperation{"scan_csv <path>: data
+   schema [..] differs from the plan's [..]"}`); a Source's frame is checked
+   the same way. Projection pushdown never narrows `ScanCsv.schema`; it
+   inserts `Select{[Col ..]}` above the scan (4.13 rule 3's first option), so
+   the CSV is still parsed whole (v2: a column subset in `Csv.read_with`).
+   `Lazy.scan_csv` therefore parses the text twice per collect cycle (infer
+   at build, read at run).
+4. **Optimizer rules as implemented** (`Opt.merge`, `Opt.push`, `Opt.head`,
+   `Opt.proj`, run in that order, each a separate structural pass; only on a
+   plan whose schema resolves — an ill-typed plan comes back unchanged, so
+   `Plan.schema(optimize(p)) == Plan.schema(p)` holds trivially on errors):
+   predicates are split into `&` conjuncts and each sinks independently
+   (unmovable ones stay, re-joined left to right); through `Select` when
+   every column read is a plain `Col`/`Alias{Col}` output (renamed back,
+   simultaneously); through `WithColumns` when it reads no produced name;
+   through `Sort`; never through `Head`, `GroupBy`, `Join` (v1: no
+   key-predicate pushdown into GroupBy, no side pushdown into Join). `Head`
+   merges (`min`) and sinks below `Select/WithColumns`. Projection: the names
+   needed above each node; at a Join the left side keeps its keys and every
+   column a right non-key column clashes with (so `_right` names do not
+   change), the right side keeps its keys and the columns whose OUTPUT name
+   is needed; a leaf gets `Select{[Col ..]}` in source order when that drops
+   a column, unless the nearest ancestor above any Heads is already a
+   plain-Col Select; at least one column is kept (height). Not idempotent in
+   general (an inserted projection is a new Select); run once.
+5. **Additions.** plan.bend: `Plan.explain(p) -> String` (one node per line,
+   children indented two spaces: `SOURCE n [schema]`, `SCAN CSV path
+   [schema]`, `SELECT [exprs]`, `WITH_COLUMNS [..]`, `FILTER e`, `SORT BY
+   [col("a") desc nulls_last, ..]`, `GROUP_BY [..] AGG [..] MAINTAIN_ORDER`,
+   `INNER|LEFT JOIN ON [l = r, ..]` with left then right child, `HEAD n`;
+   expressions via `Expr.show`), `Env.empty()`, `Env.add(env, name, f) ->
+   Env & Plan` (prepends; answers the Source with the frame's schema),
+   `Lazy.source(name, f) -> Env & Plan`, `Env.take(env, name) -> Env &
+   Maybe<&1, Frame>`, `Lazy.scan_csv`. exec.bend: `Lazy.collect(p, env) =
+   Exec.run(Plan.optimize(p), env)`; `Exec.compile` (postfix `Instr` code)
+   and the `St{env, ResT(stack)}` IO loop. A plain-`Col` Select runs as
+   `Frame.select_names` (no clone).
+6. **Exec errors**: a Source whose name is not in the Env, or already taken
+   (a self join), is `InvalidOperation{"source not in env (or used twice):
+   <name>"}`; Env names are meant to be unique (`Env.take` drops an older
+   frame of the same name when a newer one hits).
+
+### M5 (sort, groupby)
+
+Types and signatures of 4.8/4.9 are as in `p21` (`SortKey`, `Sort.argsort`,
+`Sort.frame`, `GroupBy.run(f, keys, aggs, +maintain_order)`). Exec calls
+`SO.Sort.frame(f, keys) -> ResT(Frame)` and `G.GroupBy.run(f, keys, aggs,
+maintain_order) -> ResT(Frame)` (both consume the frame). Differences:
+
+1. **Sort is a radix argsort, not a `List.sort` chain.** Every key column
+   becomes an `Array<U32>` of order-preserving words (u32 as is, i32 `xor
+   2^31`, bool 0/1, f32 bits mapped to a total order, str = rank among the
+   column's distinct strings), `descending` xors the word with `2^32-1`, and
+   keys are processed last to first with a stable LSD radix sort (2 passes of
+   16 bits, a pass whose digit never varies is skipped) over `(word, row)`
+   pairs; a key with a mask gets one more stable 1-bit pass on its null flag.
+   Same contract (stable, lexicographic, nulls first by default and
+   independent of `descending`), 30-50x faster than `List.sort` (1M u32/f32
+   rows ~20-25 ms). Polars parity checked: NaN is the largest f32 (first when
+   descending), `-0.0` ties with `0.0`, strings in code-point order (Polars:
+   UTF-8 byte order, the same order). `Sort.frame(f, [])` is `Done{f}`; an
+   unknown key is `ColumnNotFound`. `Sort.argsort` answers a permutation of
+   `2^depth_for(h)` slots (first `h` meaningful).
+2. **String ranks come from the Map's order.** `Map.to_list` walks Base's
+   crit-bit trie in `String.order` (a shorter prefix first, then code points
+   MSB first), so the list position of a key is its rank; no string sort.
+   `Sort.str_codes_par` codes long columns (2^16+ rows) in 8 blocks in a
+   parallel let and merges the blocks' Maps in first-appearance order: the
+   codes are identical to the sequential ones (tests/sort_strcodes.bend).
+3. **GroupBy does not build per-row key strings** (4.9 step 1-2). Each key
+   column is dictionary-encoded once to dense codes (null = code 0): bool
+   directly, u32/i32/f32 sort words by direct offset when their range is
+   < 2^20 else by rank after a radix sort, str by the Map of point 2. Codes
+   of several keys combine as `g * k_c + c` (re-densified through a direct
+   table) while the cardinality product is <= 2^22, else by radix-ranking
+   the pairs. A final densify pass numbers the groups in first-appearance
+   order and records each group's first row.
+4. **Output order is first appearance for both values of `maintain_order`**
+   (4.9 allowed Map order for `False{}`; v1 ignores the flag). Tests must
+   still not rely on the order when it is `False{}`.
+5. **Aggregations are scatters** over the rows into an `n_groups` array
+   and equal `Eval.agg` on each group's rows in input order: Kahan sums
+   (`Sum` f32, `Mean`), wrapping u32/i32 `Sum`, `(seen, value)` `Min/Max`
+   with Eval's fold order (`F32.min/max`, `String.is_le`, i32 signed),
+   `Count` valid rows, `Len` rows, `First/Last` = the group's first/last ROW
+   (null included, Polars), `NUnique` counts distinct values with null as one
+   value (Polars). `NUnique` over f32 counts every NaN as ONE value and
+   `-0.0 = 0.0` (Polars; top-level `Eval.agg` NUnique counts NaNs apart).
+   Polars' `mean` of ints is f64; ours is f32 (no F64 in v1).
+6. **Agg shapes accepted**: `Agg{op, e}` under at most `Alias`es, `e` with no
+   aggregation inside (else `InvalidOperation{"agg expects an aggregation:
+   <expr>"}` / `{"nested aggregation in agg: <expr>"}`). `Agg{Len, _}` is the
+   group size (`pl.len()`); any other op over a literal-only `e` aggregates
+   the literal once and repeats it per group (`sum(lit 2)` = 2, Polars).
+   Keys may be any non-aggregate expression (named `Expr.name`); no keys is
+   `InvalidOperation{"group_by needs at least one key"}`, an aggregated key
+   `{"group_by key is an aggregation: <expr>"}`. Type errors (keys first,
+   then aggs) come before these shape errors. Output names clash →
+   `DuplicateColumn` (from `Frame.from_columns`).
+7. **No new kernels/column helpers**: the loops live in sort.bend (`Sort.xmap`,
+   `Sort.words`, `Sort.str_codes(_par)`, `Radix.sort/pass/flag`) and
+   groupby.bend (`Grp.*`); groupby imports sort.bend.
+
+### M5 (join)
+
+Types and signatures of 4.10 are as in `p21` (`JoinHow{Inner, Left}`,
+`Join.run(+how, left, right, left_on, right_on) -> ResT(Frame)`, consuming
+both frames). Exec calls `J.Join.run(how, l, r, lo, ro)`; Plan.schema calls
+`J.Join.schema(ls, rs, lo, ro) -> Res(List<&2, Field>)` (the same checks
+Join.run makes first). Differences:
+
+1. **No `Map` and no per-row key strings** (4.10 sketched a `Map<&2,
+   List<&2, U32>>` over group_by-style key strings). Each key pair is encoded
+   to `U32` codes: bool/u32/i32 the data word, f32 its bits (`0.0 == -0.0`,
+   every NaN one key: Polars), str a dense id from an open-addressing string
+   table built over the RIGHT column and probed by the left (forked over 16
+   blocks when the left has >= 65536 rows and the table <= 4096 slots). More
+   keys are folded into one dense id per row through a pair table
+   `(id so far, code) -> id`. Right rows are grouped by id in CSR form
+   (counts, prefix sums, rows in right order); left rows are sized, then
+   `perm_l / perm_r / valid_r` written as flat arrays (not lists +
+   `Kernel.from_list`). When every left row yields exactly one row (lookup
+   joins: q5), `perm_l` is the identity and the left columns are not gathered.
+2. **Order**: always left row order, the matches of a left row in right row
+   order, for inner AND left (= Polars `maintain_order="left_right"`, as 7
+   says). Polars 2.0's default inner order differs (it is unspecified there);
+   `JoinHow` has no `maintain_order` field, none is needed.
+3. **Output columns** as Polars with the default `coalesce`: every left
+   column (keys included), then the right columns minus `right_on` (also when
+   the key names differ), a right name equal to any left name gets `_right`;
+   a clash that remains (e.g. the left already has `x_right`) is
+   `DuplicateColumn`. Left-join misses (and an empty right side) give null
+   right columns whose slots hold the dtype default.
+4. **Errors, in this order** (`Join.schema`): `InvalidOperation{"join: no key
+   columns"}`, `InvalidOperation{"join: left_on and right_on must have the
+   same length"}`, then per key pair in order `ColumnNotFound` (left name
+   first) and `TypeMismatch{"join", <left dtype>, <right dtype>}`, then
+   `DuplicateColumn`. Strict typing: Polars silently casts u32 vs i32 keys to
+   a supertype; bend-frame refuses. Null keys never match (Polars
+   `nulls_equal=False`); `nulls_equal=True`, `validate`, `suffix` other than
+   `_right`, outer/semi/anti/cross joins are not implemented.
+5. **Additions** (join.bend only; no kernel/column changes): `JoinHow.show`,
+   `JoinHow.is_left`, `Join.schema`, `Join.keys` (checked `KeySpec{l, r, t}`
+   list), `Str.hash` (FNV-1a), `Str.eq`, `Str.copy`. Native timings (M-series,
+   12 threads, parsed and forced frames, result kept alive): q5's join
+   (sales x 64 products on `product`) 100k rows 11-13 ms, 1M rows 95-110 ms
+   (inner and left alike; Polars 2.0: ~1.5 / ~12 ms); a u32 join 1M x 100k
+   (`id`, 100k matches) ~280-360 ms, most of it freeing the 900k unmatched
+   left rows' string cells during the gather. `bench/join_bench.bend`
+   reproduces these.
+
