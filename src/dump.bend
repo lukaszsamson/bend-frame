@@ -135,12 +135,17 @@ def Dump.cell(s: D.Scalar) -> String:
     case D.SStr{t}:
       Dump.quote(t)
 
-def Dump.cell_list(xs: List<&2, D.Scalar>) -> List<&2, String>:
+# the cell texts in reverse order (tail recursive: the interpreter's JS lane overflows the
+# host stack on a non-tail recursion ~2^15 deep, cons-guarded or not)
+def Dump.cell_rev(xs: List<&2, D.Scalar>, acc: List<&2, String>) -> List<&2, String>:
   match xs:
     case Nil{}:
-      Nil{}
+      acc
     case h <> t:
-      Dump.cell(h) <> Dump.cell_list(t)
+      Dump.cell_rev(t, Dump.cell(h) <> acc)
+
+def Dump.cell_list(xs: List<&2, D.Scalar>) -> List<&2, String>:
+  List.reverse(&2, String, Dump.cell_rev(xs, Nil{}))
 
 # ---- columns ------------------------------------------------------------------
 
@@ -211,12 +216,16 @@ def Dump.rows.next(st: List<&2, String> & List<&2, List<&2, String>>) -> List<&2
   (acc, cols) = st
   Dump.rows.next.k(acc, Dump.step(cols))
 
-def Dump.rev(xs: List<&2, String>, acc: List<&2, String>) -> List<&2, String>:
+# the lines (newest first) joined oldest first in front of `acc`: each step copies one short
+# line (String.append copies its left operand only), and the loop is a tail call. Base
+# String.concat recurses once per line (not a tail call), which overflowed the interpreter's
+# stack past ~2^15 rows.
+def Dump.cat(xs: List<&2, String>, acc: String) -> String:
   match xs:
     case Nil{}:
       acc
     case h <> t:
-      Dump.rev(t, h <> acc)
+      Dump.cat(t, h ++ acc)
 
 # after the last row: nothing when every column is used up, else the line "excess" (a column
 # longer than the height; not in the grammar, so bench/check.py rejects the dump and a
@@ -236,7 +245,7 @@ def Dump.rows(n: Nat, st: List<&2, String> & List<&2, List<&2, String>>) -> Stri
   match n:
     case 0n:
       (acc, cols) = st
-      String.concat(Dump.rev(acc, Nil{})) ++ Dump.excess(cols)
+      Dump.cat(acc, Dump.excess(cols))
     case 1n+p:
       Dump.rows(p, Dump.rows.next(st))
 

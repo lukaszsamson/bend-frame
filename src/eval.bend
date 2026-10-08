@@ -1402,6 +1402,22 @@ def Eval.names(es: List<&2, X.Expr>) -> List<&2, String>:
     case e <> t:
       X.Expr.name(e) <> Eval.names(t)
 
+# the static checks of select / with_columns, in Plan.schema's order (DESIGN.md 15.9): the
+# first error of the shared analysis (list order), then DuplicateColumn on the first repeated
+# output name. Both run before any data is evaluated, so a data error (a failing strict cast)
+# never shadows a static one (eager = lazy, NEW-1).
+def Eval.dup(chk: Maybe<&2, E.Err>, d: Maybe<&2, String>) -> Maybe<&2, E.Err>:
+  match chk d:
+    case Some{e} _:
+      Some{e}
+    case None{} Some{n}:
+      Some{E.DuplicateColumn{n}}
+    case None{} None{}:
+      None{}
+
+def Eval.static(+es: List<&2, X.Expr>, +s: List<&2, S.Field>) -> Maybe<&2, E.Err>:
+  Eval.dup(Eval.acheck(es, s), C.Names.dup(Eval.names(es), Nil{}, None{}))
+
 # select's height (DESIGN.md 15.4): h if some output is KRow (the shared
 # analysis, A.Ana.rows), else 1: literals only and reductions only give one row,
 # also on a zero-row input
@@ -1475,14 +1491,14 @@ def Eval.select.b(chk: Maybe<&2, E.Err>, f: C.Frame, +es: List<&2, X.Expr>, row:
 
 def Eval.select.a(+es: List<&2, X.Expr>, r: C.Frame & List<&2, S.Field>) -> E.ResT(C.Frame):
   (f, +s) = r
-  Eval.select.b(Eval.acheck(es, s), f, es, A.Ana.rows(es, s))
+  Eval.select.b(Eval.static(es, s), f, es, A.Ana.rows(es, s))
 
 # a new frame of the expressions' columns, in order, named by Expr.name.
 # Every expression is type checked before anything runs. Mixing real columns
 # with 1-row results broadcasts the latter; literal-only and reduction-only
 # selects give one row (also on a zero-row input); select([]) is (0, 0)
-# (DESIGN.md 15.4). DuplicateColumn on repeated output names, ShapeMismatch on
-# unequal lengths. The input frame is consumed.
+# (DESIGN.md 15.4). Type errors, then DuplicateColumn on repeated output names,
+# both before any column is evaluated (Eval.static). The input frame is consumed.
 def Eval.select(f: C.Frame, +es: List<&2, X.Expr>) -> E.ResT(C.Frame):
   Eval.select.a(es, S.Frame.schema(f))
 
@@ -1520,18 +1536,9 @@ def Eval.wc.b(chk: Maybe<&2, E.Err>, f: C.Frame, +es: List<&2, X.Expr>) -> E.Res
     case None{}:
       Eval.wc.c(Eval.many(es, SelSt{f, Done{Nil{}}}))
 
-def Eval.wc.dup(chk: Maybe<&2, E.Err>, d: Maybe<&2, String>) -> Maybe<&2, E.Err>:
-  match chk d:
-    case Some{e} _:
-      Some{e}
-    case None{} Some{n}:
-      Some{E.DuplicateColumn{n}}
-    case None{} None{}:
-      None{}
-
 def Eval.wc.a(+es: List<&2, X.Expr>, r: C.Frame & List<&2, S.Field>) -> E.ResT(C.Frame):
   (f, s) = r
-  Eval.wc.b(Eval.wc.dup(Eval.acheck(es, s), C.Names.dup(Eval.names(es), Nil{}, None{})), f, es)
+  Eval.wc.b(Eval.static(es, s), f, es)
 
 # Polars with_columns: every expression sees the INPUT frame; results replace
 # a column of the same name in place or append in expression order; 1-row

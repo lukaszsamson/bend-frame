@@ -34,8 +34,8 @@ oracle again (same defect). Classes: `T2.2 eager`, `T2.1 eager!=raw`, `T2.1 raw!
 eager verbs run one by one: a runtime error (a failing `cast`) in an inner verb is reported
 before a static error (unknown column) in an outer one, while lazy reports the static one.
 The oracle computes both answers; where they differ the program is "inadmissible" for the
-eager-vs-lazy comparison and is counted apart (`inadmissible_for_T2.1`). This is a hole in the
-contract's G2, not a defect of the code.
+eager-vs-lazy comparison and is counted apart (`inadmissible_for_T2.1`). DESIGN.md 15.9
+("admissible programs") states this rule; it is not a defect of the code.
 
 ## Files
 

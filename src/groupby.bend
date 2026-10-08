@@ -641,6 +641,20 @@ def Grp.chk.empty(ks: List<&2, X.Expr>) -> Maybe<&2, E.Err>:
 def Grp.validate(+keys: List<&2, X.Expr>, +aggs: List<&2, X.Expr>, +s: List<&2, S.Field>) -> Maybe<&2, E.Err>:
   Maybe.or(&2, E.Err, V.Eval.check(keys, s), Maybe.or(&2, E.Err, V.Eval.check(aggs, s), Maybe.or(&2, E.Err, Grp.chk.empty(keys), Maybe.or(&2, E.Err, Grp.chk.keys(keys), Grp.chk.aggs(aggs)))))
 
+# DuplicateColumn on the first repeated output name (keys, then aggs: Plan.schema.gb's check)
+def Grp.dup(d: Maybe<&2, String>) -> Maybe<&2, E.Err>:
+  match d:
+    case Some{n}:
+      Some{E.DuplicateColumn{n}}
+    case None{}:
+      None{}
+
+# every static check of GroupBy.run, in Plan.schema.gb's order: Grp.validate, then
+# DuplicateColumn; all before any key or aggregation is evaluated, so a data error (a failing
+# strict cast) never shadows a static one (eager = lazy, NEW-1)
+def Grp.static(+keys: List<&2, X.Expr>, +aggs: List<&2, X.Expr>, +s: List<&2, S.Field>) -> Maybe<&2, E.Err>:
+  Maybe.or(&2, E.Err, Grp.validate(keys, aggs, s), Grp.dup(C.Names.dup(V.Eval.names(List.append(&2, X.Expr, keys, aggs)), Nil{}, None{})))
+
 # ---- keys ------------------------------------------------------------------------------------------
 
 def Grp.key.add(+name: String, acc: List<&1, C.Named>, r: C.Frame & E.ResT(C.Column)) -> GSt:
@@ -825,7 +839,7 @@ def GroupBy.run.h(err: Maybe<&2, E.Err>, +keys: List<&2, X.Expr>, +aggs: List<&2
 
 def GroupBy.run.a(+keys: List<&2, X.Expr>, +aggs: List<&2, X.Expr>, r: C.Frame & List<&2, S.Field>) -> E.ResT(C.Frame):
   (f, +s) = r
-  GroupBy.run.h(Grp.validate(keys, aggs, s), keys, aggs, C.Frame.height(f))
+  GroupBy.run.h(Grp.static(keys, aggs, s), keys, aggs, C.Frame.height(f))
 
 # group the frame by the key expressions and aggregate: output = one row per
 # distinct key tuple (null keys form one group), key columns (named

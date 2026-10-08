@@ -878,6 +878,62 @@ def _():
             + one("B02-m blank-only-schema-count", "eager", count(1)))
 
 
+# =====================================================================================
+# Defects found by the differential generator (bench/diff; DESIGN.md 15.10 NEW-*)
+# =====================================================================================
+
+# NEW-1: every eager verb makes all its static checks before it evaluates data (DESIGN.md 15.9
+# order of errors); the 15.9 admissibility rule: a later verb's static error vs an earlier
+# verb's data error differ between eager (verb by verb) and lazy (the whole plan typed first).
+@spec("NEW_1_static_checks_first")
+def _():
+    bad = cast_err("str", "f32", 0, quote("caf\u00e9"))
+    dup = lambda n: err(f"DuplicateColumn: {n}")
+    return (three("NEW-1 select-dup-after-cast", dup("x"))
+            + three("NEW-1 select-cast-is-the-dup", dup("a"))
+            + three("NEW-1 group-by-agg-dup", dup("b"))
+            + three("NEW-1 group-by-key-cast-dup", dup("k"))
+            + three("NEW-1 group-by-dup-before-cap", dup("k"))
+            + three("NEW-1 sort-first-missing-key", err("ColumnNotFound: p"))
+            + three("NEW-1 with-columns-dup-after-cast", dup("x"))
+            + three("NEW-1 filter-type-before-cast", err("TypeMismatch in filter: expected bool, got f32"))
+            + three("NEW-1 join-clash-before-cap", dup("v_right"))
+            + one("NEW-1 15.9-inadmissible", "eager", bad)
+            + lazy2("NEW-1 15.9-inadmissible", err("ColumnNotFound: p")))
+
+
+def summary(text: str) -> str:
+    """what tests/regress/NEW_2_*.bend prints for a dump: chars, lines, FNV-1a over code points"""
+    h = 2166136261
+    for ch in text:
+        h = ((h ^ ord(ch)) * 16777619) & 0xFFFFFFFF
+    return f"chars {len(text)} lines {text.count(chr(10))} fnv {h}"
+
+
+# NEW-2: results of >= 2^15 rows in the interpreter. Built here with plain Python (the join is
+# left rows in order, each with its matches in right order; DESIGN.md 15.2.4).
+@spec("NEW_2_interp_large_results")
+def _():
+    n = 780
+    t = [(i % 3, f"s{i}", np.float32(i) / np.float32(4.0)) for i in range(n)]
+    j = [(k, s, x, s2, x2) for (k, s, x) in t for (k2, s2, x2) in t if k2 == k]
+    assert len(j) == 3 * 260 ** 2 == 202800
+    jcols = [("u32", "k"), ("str", "s"), ("f32", "x"), ("str", "s_right"), ("f32", "x_right")]
+    jsum = summary(frame(jcols, j))
+    vs = [None if i % 7 == 3 else i for i in range(70000)]
+    groups = []
+    for k in (0, 1, 2):  # first appearance: left row 0 has k = 0
+        g = [r for r in j if r[0] == k]
+        groups.append([k, len(g), neumaier([r[2] for r in g]), len({r[3] for r in g}), max(r[1] for r in g)])
+    gb = frame([("u32", "k"), ("u32", "n"), ("f32", "sx"), ("u32", "u"), ("str", "ms")], groups)
+    top = sorted(j, key=lambda r: r[3])          # stable: s_right ascending, then x descending
+    top = sorted(top, key=lambda r: -r[2])[:3]
+    return ([("-- NEW-2 from-scalars-70000 eager", summary(frame([("u32", "v")], [[v] for v in vs])))]
+            + three("NEW-2 self-join-202800", jsum)
+            + three("NEW-2 self-join-group-by", gb)
+            + three("NEW-2 self-join-sort-head", frame(jcols, top)))
+
+
 def main(argv) -> int:
     write = "--write" in argv
     pats = [a for a in argv if not a.startswith("--")]
