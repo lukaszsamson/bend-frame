@@ -492,6 +492,14 @@ def Opt.rename(e: X.Expr, +rs: List<&2, Ren>) -> X.Expr:
       X.FillNull{Opt.rename(e2, rs), Opt.rename(v, rs)}
     case X.Agg{op, e2}:
       X.Agg{op, Opt.rename(e2, rs)}
+    case X.When{c, a, b}:
+      X.When{Opt.rename(c, rs), Opt.rename(a, rs), Opt.rename(b, rs)}
+    case X.IsIn{e2, vs}:
+      X.IsIn{Opt.rename(e2, rs), vs}
+    case X.Clip{e2, lo, hi}:
+      X.Clip{Opt.rename(e2, rs), lo, hi}
+    case X.StrPred{op, e2, p}:
+      X.StrPred{op, Opt.rename(e2, rs), p}
 
 def Opt.keep.k(moves: Bool, p: X.Expr, rest: List<&2, X.Expr>) -> List<&2, X.Expr>:
   match moves:

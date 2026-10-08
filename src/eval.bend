@@ -36,6 +36,7 @@ import ./strs.bend as ST
 import ./schema.bend as S
 import ./expr.bend as X
 import ./analysis.bend as A
+import ./sort.bend as O
 
 type SKind is Data:
   KFull{}
@@ -56,6 +57,21 @@ type Instr is Data:
   ITry{to: D.DType}
   IFill{}
   IAgg{op: X.AggOp}
+  IWhen{}
+  IIsIn{vals: List<&2, D.Scalar>}
+  IClip{lo: D.Scalar, hi: D.Scalar}
+  IStr{op: X.StrPredOp, pat: String}
+
+# clip bounds as one Data parameter of a map (words / f32)
+type W2 is Data:
+  W2{lo: U32, hi: U32}
+
+type F2 is Data:
+  F2{lo: F32, hi: F32}
+
+# the second pass of std / var: the mean m and the Neumaier state of the squared deviations
+type VS is Data:
+  VS{m: F32, s: F32, c: F32}
 
 type EvSt is Type:
   EvSt{f: C.Frame, r: E.ResT(List<&1, Slot>)}
@@ -342,6 +358,14 @@ def Eval.un.f(op: X.UnOp, +n: U32, +d: Nat, v: C.Valid, x: Array<F32>) -> E.ResT
     case _:
       Fail{Eval.bug("unary op on f32")}
 
+# len_chars: the number of code points (String.length); a null row holds "" -> 0, the default
+def Eval.un.s(op: X.UnOp, +n: U32, +d: Nat, v: C.Valid, x: Array<String>) -> E.ResT(C.Column):
+  match op:
+    case X.LenChars{}:
+      Done{C.CU32{n, d, v, K.Kernel.map(~String, ~U32, ~(w => U32.from_nat(String.length(w))), n, d, x, 0)}}
+    case _:
+      Fail{Eval.bug("unary op on str")}
+
 def Eval.un.v(op: X.UnOp, c: C.Column) -> E.ResT(C.Column):
   match c:
     case C.CBool{n, d, v, x}:
@@ -350,6 +374,8 @@ def Eval.un.v(op: X.UnOp, c: C.Column) -> E.ResT(C.Column):
       Eval.un.i(op, n, d, v, x)
     case C.CF32{n, d, v, x}:
       Eval.un.f(op, n, d, v, x)
+    case C.CStr{n, d, v, x}:
+      Eval.un.s(op, n, d, v, x)
     case _:
       Fail{Eval.bug("unary op")}
 
@@ -773,6 +799,199 @@ def Eval.fill(a: C.Column, b: C.Column) -> E.ResT(C.Column):
     case _ _:
       Fail{Eval.bug("operand dtypes in fill_null")}
 
+# ---- when / is_in / clip / string predicates (DESIGN.md 15.2.6) ---------------------------
+
+# the second array of a pair (the chosen mask)
+def Eval.msnd(r: Array<U32> & Array<U32>) -> Array<U32>:
+  (a, b) = r
+  b
+
+# the AND of two choices of validity: row i takes a's validity where m[i] is set, else b's;
+# AllValid when both are (one pass otherwise, AllValid again when every row is valid)
+def Eval.when.valid(+n: U32, +d: Nat, va: C.Valid, vb: C.Valid, m: Array<U32>) -> C.Valid:
+  match va vb:
+    case C.AllValid{} C.AllValid{}:
+      C.AllValid{}
+    case C.AllValid{} C.Mask{mb}:
+      Eval.cast.allv(n, K.Kernel.popcount(n, Eval.msnd(K.Kernel.choose(~U32, n, m, C.Valid.materialize(C.AllValid{}, d), mb))))
+    case C.Mask{ma} C.AllValid{}:
+      Eval.cast.allv(n, K.Kernel.popcount(n, Eval.msnd(K.Kernel.choose(~U32, n, m, ma, C.Valid.materialize(C.AllValid{}, d)))))
+    case C.Mask{ma} C.Mask{mb}:
+      Eval.cast.allv(n, K.Kernel.popcount(n, Eval.msnd(K.Kernel.choose(~U32, n, m, ma, mb))))
+
+def Eval.when.w(t: D.DType, +n: U32, +d: Nat, va: C.Valid, vb: C.Valid, r: Array<U32> & Array<U32>) -> E.ResT(C.Column):
+  (m, x) = r
+  Done{C.Column.mk_w(t, n, d, Eval.when.valid(n, d, va, vb, m), x)}
+
+def Eval.when.f(+n: U32, +d: Nat, va: C.Valid, vb: C.Valid, r: Array<U32> & Array<F32>) -> E.ResT(C.Column):
+  (m, x) = r
+  Done{C.CF32{n, d, Eval.when.valid(n, d, va, vb, m), x}}
+
+def Eval.when.s(+n: U32, +d: Nat, va: C.Valid, vb: C.Valid, r: Array<U32> & Array<String>) -> E.ResT(C.Column):
+  (m, x) = r
+  Done{C.CStr{n, d, Eval.when.valid(n, d, va, vb, m), x}}
+
+# row i = a[i] where m[i] (cond true and valid), else b[i]; each row keeps the chosen side's
+# validity, and a null slot already holds the default on both sides (no fix needed)
+def Eval.when.v(m: Array<U32>, a: C.Column, b: C.Column) -> E.ResT(C.Column):
+  match a b:
+    case C.CBool{+n, +d, va, xa} C.CBool{n2, d2, vb, xb}:
+      Eval.when.w(D.TBool{}, n, d, va, vb, K.Kernel.choose(~U32, n, m, xa, xb))
+    case C.CU32{+n, +d, va, xa} C.CU32{n2, d2, vb, xb}:
+      Eval.when.w(D.TU32{}, n, d, va, vb, K.Kernel.choose(~U32, n, m, xa, xb))
+    case C.CI32{+n, +d, va, xa} C.CI32{n2, d2, vb, xb}:
+      Eval.when.w(D.TI32{}, n, d, va, vb, K.Kernel.choose(~U32, n, m, xa, xb))
+    case C.CF32{+n, +d, va, xa} C.CF32{n2, d2, vb, xb}:
+      Eval.when.f(n, d, va, vb, K.Kernel.choose(~F32, n, m, xa, xb))
+    case C.CStr{+n, +d, va, xa} C.CStr{n2, d2, vb, xb}:
+      Eval.when.s(n, d, va, vb, K.Kernel.choose(~String, n, m, xa, xb))
+    case _ _:
+      Fail{Eval.bug("operand dtypes in when")}
+
+def Eval.when.m(a: C.Column, b: C.Column, r: Array<U32> & U32) -> E.ResT(C.Column):
+  (m, n) = r
+  Eval.when.v(m, a, b)
+
+# the condition as a 0/1 mask, "true and valid" (Eval.pred's rule; a non-bool column, which
+# typing excludes, selects nothing)
+def Eval.when.cv(+n: U32, +d: Nat, v: C.Valid, x: Array<U32>) -> Array<U32> & U32:
+  match v:
+    case C.AllValid{}:
+      (x, n)
+    case C.Mask{m}:
+      (K.Kernel.mask_and(n, d, x, m), n)
+
+def Eval.when.c(c: C.Column) -> Array<U32> & U32:
+  match c:
+    case C.CBool{n, d, v, x}:
+      Eval.when.cv(n, d, v, x)
+    case _:
+      (Array.new(U32, 0n, 0), 0)
+
+# when(c).then(a).otherwise(b) over three columns of one length: a null condition picks b
+# (the condition's mask is "true and valid", Eval.when.c)
+def Eval.when(c: C.Column, a: C.Column, b: C.Column) -> E.ResT(C.Column):
+  Eval.when.m(a, b, Eval.when.c(c))
+
+# is_in: w among the words ws (u32 / i32 / bool words, f32 order words)
+def Eval.wmem(+w: U32, ws: List<&2, U32>) -> Bool:
+  match ws:
+    case Nil{}:
+      False{}
+    case q <> t:
+      Bool.or(U32.is_eq(w, q), Eval.wmem(w, t))
+
+def Eval.smem(+s: String, ss: List<&2, String>) -> Bool:
+  match ss:
+    case Nil{}:
+      False{}
+    case q <> t:
+      Bool.or(String.eq(s, q), Eval.smem(s, t))
+
+# the literals as the words a cell is compared with: u32 as is, i32 bits, bool 0/1, f32 the
+# 15.5.2 order word (NaN = NaN, -0.0 = 0.0); str literals and nulls are skipped (typing)
+def Eval.isin.words(vs: List<&2, D.Scalar>) -> List<&2, U32>:
+  match vs:
+    case Nil{}:
+      Nil{}
+    case D.SBool{b} <> t:
+      Bool.to_u32(b) <> Eval.isin.words(t)
+    case D.SU32{v} <> t:
+      v <> Eval.isin.words(t)
+    case D.SI32{v} <> t:
+      D.I32.to_u32(v) <> Eval.isin.words(t)
+    case D.SF32{v} <> t:
+      K.Kernel.fword(v) <> Eval.isin.words(t)
+    case other <> t:
+      Eval.isin.words(t)
+
+def Eval.isin.strs(vs: List<&2, D.Scalar>) -> List<&2, String>:
+  match vs:
+    case Nil{}:
+      Nil{}
+    case D.SStr{v} <> t:
+      v <> Eval.isin.strs(t)
+    case other <> t:
+      Eval.isin.strs(t)
+
+# is_in (15.2.6): true iff some literal equals the cell under the 15.5 relation; a null
+# cell is null (its slot is reset to false)
+def Eval.isin(vs: List<&2, D.Scalar>, c: C.Column) -> E.ResT(C.Column):
+  match c:
+    case C.CBool{+n, +d, v, x}:
+      Eval.bin.w(D.TBool{}, n, d, v, K.Kernel.map_p(~U32, ~List<&2, U32>, ~U32, ~(p => w => Bool.to_u32(Eval.wmem(w, p))), n, d, x, Eval.isin.words(vs), 0))
+    case C.CU32{+n, +d, v, x}:
+      Eval.bin.w(D.TBool{}, n, d, v, K.Kernel.map_p(~U32, ~List<&2, U32>, ~U32, ~(p => w => Bool.to_u32(Eval.wmem(w, p))), n, d, x, Eval.isin.words(vs), 0))
+    case C.CI32{+n, +d, v, x}:
+      Eval.bin.w(D.TBool{}, n, d, v, K.Kernel.map_p(~U32, ~List<&2, U32>, ~U32, ~(p => w => Bool.to_u32(Eval.wmem(w, p))), n, d, x, Eval.isin.words(vs), 0))
+    case C.CF32{+n, +d, v, x}:
+      Eval.bin.w(D.TBool{}, n, d, v, K.Kernel.map_p(~F32, ~List<&2, U32>, ~U32, ~(p => w => Bool.to_u32(Eval.wmem(K.Kernel.fword(w), p))), n, d, x, Eval.isin.words(vs), 0))
+    case C.CStr{+n, +d, v, x}:
+      Eval.bin.w(D.TBool{}, n, d, v, K.Kernel.map_p(~String, ~List<&2, String>, ~U32, ~(p => w => Bool.to_u32(Eval.smem(w, p))), n, d, x, Eval.isin.strs(vs), 0))
+
+# a numeric literal's word (u32 as is, i32 bits) / f32 value; typing guarantees the dtype
+def Eval.sword(s: D.Scalar) -> U32:
+  match s:
+    case D.SU32{v}:
+      v
+    case D.SI32{v}:
+      D.I32.to_u32(v)
+    case _:
+      0
+
+def Eval.sf32(s: D.Scalar) -> F32:
+  match s:
+    case D.SF32{v}:
+      v
+    case _:
+      0.0
+
+# clip (15.2.6): lo if x < lo, else hi if x > hi, else x; f32 with IEEE < and > (NaN passes,
+# -0.0 is not clipped by 0.0); lo > hi gives lo below lo and hi otherwise
+def Eval.clip.u(p: W2, +x: U32) -> U32:
+  match p:
+    case W2{+lo, +hi}:
+      Bool.pick(U32, U32.is_lt(x, lo), lo, Bool.pick(U32, U32.is_gt(x, hi), hi, x))
+
+def Eval.clip.i(p: W2, +x: U32) -> U32:
+  match p:
+    case W2{+lo, +hi}:
+      Bool.pick(U32, Eval.i32_lt(x, lo), lo, Bool.pick(U32, Eval.i32_lt(hi, x), hi, x))
+
+def Eval.clip.f(p: F2, +x: F32) -> F32:
+  match p:
+    case F2{+lo, +hi}:
+      Bool.pick(F32, F32.is_lt(x, lo), lo, Bool.pick(F32, F32.is_gt(x, hi), hi, x))
+
+# a null row's slot may be clipped away from the default: Eval.fix resets it
+def Eval.clip(+lo: D.Scalar, +hi: D.Scalar, c: C.Column) -> E.ResT(C.Column):
+  match c:
+    case C.CU32{+n, +d, v, x}:
+      Done{Eval.fix(C.CU32{n, d, v, K.Kernel.map_p(~U32, ~W2, ~U32, ~(p => w => Eval.clip.u(p, w)), n, d, x, W2{Eval.sword(lo), Eval.sword(hi)}, 0)})}
+    case C.CI32{+n, +d, v, x}:
+      Done{Eval.fix(C.CI32{n, d, v, K.Kernel.map_p(~U32, ~W2, ~U32, ~(p => w => Eval.clip.i(p, w)), n, d, x, W2{Eval.sword(lo), Eval.sword(hi)}, 0)})}
+    case C.CF32{+n, +d, v, x}:
+      Done{Eval.fix(C.CF32{n, d, v, K.Kernel.map_p(~F32, ~F2, ~F32, ~(p => w => Eval.clip.f(p, w)), n, d, x, F2{Eval.sf32(lo), Eval.sf32(hi)}, 0.0)})}
+    case _:
+      Fail{Eval.bug("clip of a non-numeric column")}
+
+# the literal string predicates: case-sensitive, code-point equality, an empty pattern is true
+def Eval.strpred.k(op: X.StrPredOp, +n: U32, +d: Nat, x: Array<String>, +pat: String) -> Array<U32>:
+  match op:
+    case X.Contains{}:
+      K.Kernel.map_p(~String, ~String, ~U32, ~(p => w => Bool.to_u32(String.contains(w, p))), n, d, x, pat, 0)
+    case X.StartsWith{}:
+      K.Kernel.map_p(~String, ~String, ~U32, ~(p => w => Bool.to_u32(String.starts_with(w, p))), n, d, x, pat, 0)
+    case X.EndsWith{}:
+      K.Kernel.map_p(~String, ~String, ~U32, ~(p => w => Bool.to_u32(String.ends_with(w, p))), n, d, x, pat, 0)
+
+def Eval.strpred(op: X.StrPredOp, +pat: String, c: C.Column) -> E.ResT(C.Column):
+  match c:
+    case C.CStr{+n, +d, v, x}:
+      Eval.bin.w(D.TBool{}, n, d, v, Eval.strpred.k(op, n, d, x, pat))
+    case _:
+      Fail{Eval.bug("string predicate over a non-str column")}
+
 # ---- cast ---------------------------------------------------------------------------------
 
 def Eval.cast.err(t: D.DType, +to: D.DType) -> E.ResT(C.Column):
@@ -1023,6 +1242,116 @@ def Eval.nuniq.l(~T: Data, ~le: T -> T -> Bool, ~eq: T -> T -> Bool, r: Array<T>
 def Eval.nuniq(~T: Data, ~le: T -> T -> Bool, ~eq: T -> T -> Bool, +k: U32, a: Array<T>) -> U32:
   Eval.nuniq.l(~T, ~le, ~eq, K.Kernel.to_list(~T, k, a))
 
+# ---- std / var / median (DESIGN.md 15.5.4): shared by Eval.agg, GroupBy and describe -------
+
+# one term of the second pass: (x - m)^2, each step in f32
+def Eval.sqdev(+x: F32, +m: F32) -> F32:
+  +t = F32.sub(x, m)
+  F32.mul(t, t)
+
+def Eval.vs.k(+m: F32, r: K.NS) -> VS:
+  match r:
+    case K.NS{s, c}:
+      VS{m, s, c}
+
+def Eval.vs.step(acc: VS, +x: F32) -> VS:
+  match acc:
+    case VS{+m, +s, +c}:
+      Eval.vs.k(m, K.Kernel.nm.add(s, c, Eval.sqdev(x, m)))
+
+def Eval.vs.fin(acc: VS) -> F32:
+  match acc:
+    case VS{m, +s, +c}:
+      K.Kernel.nm.result(s, c)
+
+# the mean of the first pass: the 15.5.3 sum over k
+def Eval.mean_f(+k: U32, s: F32) -> F32:
+  F32.div(s, U32.to_f32(k))
+
+def Eval.ssd.b(+k: U32, r: Array<F32> & K.NS) -> F32:
+  (x, ns) = r
+  Eval.vs.fin(Eval.snd(~F32, ~VS, K.Kernel.fold(~F32, ~VS, ~(a => w => Eval.vs.step(a, w)), k, x, VS{Eval.mean_f(k, K.Kernel.nm.fin(ns)), 0.0, 0.0})))
+
+# the 15.5.3 sum of (x - m)^2 over a[0..k), m = fsum(a) / k (two passes, ascending order)
+def Eval.ssd(+k: U32, x: Array<F32>) -> F32:
+  Eval.ssd.b(k, K.Kernel.fold(~F32, ~K.NS, ~(a => w => K.Kernel.nm.step(a, w)), k, x, K.NS{0.0, 0.0}))
+
+# var = ssd / (k - 1); std = sqrt(var); null when k < 2 (ddof = 1)
+def Eval.var_of(+k: U32, ssd: F32) -> F32:
+  F32.div(ssd, U32.to_f32(U32.sub(k, 1)))
+
+def Eval.stat.v(std: Bool, +k: U32, ssd: F32) -> F32:
+  match std:
+    case True{}:
+      F32.sqrt(Eval.var_of(k, ssd))
+    case False{}:
+      Eval.var_of(k, ssd)
+
+def Eval.stat.s(std: Bool, +k: U32, ssd: F32) -> D.Scalar:
+  Bool.pick(D.Scalar, U32.is_lt(k, 2), D.SNull{}, D.SF32{Eval.stat.v(std, k, ssd)})
+
+# the median of a sorted run sorted[start .. start + k) (k >= 1): the middle cell for an odd k,
+# lo*0.5 + hi*0.5 of the two middle cells for an even one (no overflow); the array comes back
+def Eval.med.fin(+odd: Bool, +lo: F32, hi: F32) -> F32:
+  Bool.pick(F32, odd, lo, F32.add(F32.mul(lo, 0.5), F32.mul(hi, 0.5)))
+
+def Eval.med.hi(+k: U32, +lo: F32, r: Array<F32> & F32) -> Array<F32> & F32:
+  (a, hi) = r
+  (a, Eval.med.fin(U32.is_eq(U32.mod(k, 2), 1), lo, hi))
+
+def Eval.med.lo(+k: U32, +start: U32, r: Array<F32> & F32) -> Array<F32> & F32:
+  (a, lo) = r
+  Eval.med.hi(k, lo, Array.get(F32, a, U32.add(start, U32.div(k, 2))))
+
+def Eval.med.at(+k: U32, +start: U32, sorted: Array<F32>) -> Array<F32> & F32:
+  Eval.med.lo(k, start, Array.get(F32, sorted, U32.add(start, U32.div(U32.sub(k, 1), 2))))
+
+def Eval.med.h(+k: U32, r: Array<F32> & Array<U32>) -> F32:
+  (sorted, perm) = r
+  Eval.snd(~F32, ~F32, Eval.med.at(k, 0, sorted))
+
+def Eval.med.g(+k: U32, +d: Nat, x: Array<F32>, st: Array<U32> & Array<U32>) -> F32:
+  (ws, perm) = st
+  Eval.med.h(k, K.Kernel.gather(~F32, k, d, x, perm, 0.0))
+
+def Eval.med.a(+k: U32, +d: Nat, r: Array<F32> & Array<F32>) -> F32:
+  (x1, x2) = r
+  Eval.med.g(k, d, x2, O.Radix.sort(k, d, (K.Kernel.map(~F32, ~U32, ~(w => K.Kernel.fword(w)), k, d, x1, 0), K.Kernel.iota(k, d))))
+
+# the median of a[0..k) (k >= 1): a stable radix sort by the 15.5.2 order words (NaN greatest,
+# -0.0 = 0.0 keeping input order), then Eval.med.at
+def Eval.med(+k: U32, x: Array<F32>) -> F32:
+  Eval.med.a(k, K.Kernel.depth_for(k), Array.clone(F32, x))
+
+# std / var / median of k dense f32 values
+def Eval.agg.stat(op: X.AggOp, +k: U32, x: Array<F32>) -> D.Scalar:
+  match op:
+    case X.Std{}:
+      Eval.stat.s(True{}, k, Eval.ssd(k, x))
+    case X.Var{}:
+      Eval.stat.s(False{}, k, Eval.ssd(k, x))
+    case _:
+      Eval.nz(k, D.SF32{Eval.med(k, x)})
+
+# a word column's values as f32 (i32 signed, else unsigned): std / var / median of integers
+def Eval.wf32(t: D.DType, +k: U32, x: Array<U32>) -> Array<F32>:
+  match t:
+    case D.TI32{}:
+      K.Kernel.map(~U32, ~F32, ~(w => D.I32.to_f32(D.I32{w})), k, K.Kernel.depth_for(k), x, 0.0)
+    case _:
+      K.Kernel.map(~U32, ~F32, ~(w => U32.to_f32(w)), k, K.Kernel.depth_for(k), x, 0.0)
+
+def Eval.is_stat(op: X.AggOp) -> Bool:
+  match op:
+    case X.Std{}:
+      True{}
+    case X.Var{}:
+      True{}
+    case X.Median{}:
+      True{}
+    case _:
+      False{}
+
 # compensated F32 sum of a word column as numbers (I32 signed, else unsigned)
 def Eval.agg.wsum(t: D.DType, +k: U32, x: Array<U32>) -> F32:
   match t:
@@ -1062,6 +1391,12 @@ def Eval.agg.w(op: X.AggOp, +t: D.DType, +k: U32, x: Array<U32>) -> E.ResT(C.Col
       Done{Eval.unit(Eval.nz(k, C.Column.cell.word(t, Eval.at(~U32, x, U32.sub(k, 1)))), t)}
     case X.NUnique{}:
       Done{Eval.unit(D.SU32{Eval.nuniq(~U32, ~(a => b => U32.is_le(a, b)), ~(a => b => U32.is_eq(a, b)), k, x)}, D.TU32{})}
+    case X.Std{}:
+      Done{Eval.unit(Eval.agg.stat(X.Std{}, k, Eval.wf32(t, k, x)), D.TF32{})}
+    case X.Var{}:
+      Done{Eval.unit(Eval.agg.stat(X.Var{}, k, Eval.wf32(t, k, x)), D.TF32{})}
+    case X.Median{}:
+      Done{Eval.unit(Eval.agg.stat(X.Median{}, k, Eval.wf32(t, k, x)), D.TF32{})}
     case _:
       Done{Eval.unit(D.SU32{k}, D.TU32{})}
 
@@ -1081,6 +1416,12 @@ def Eval.agg.f(op: X.AggOp, +k: U32, x: Array<F32>) -> E.ResT(C.Column):
       Done{Eval.unit(Eval.nz(k, D.SF32{Eval.at(~F32, x, U32.sub(k, 1))}), D.TF32{})}
     case X.NUnique{}:
       Done{Eval.unit(D.SU32{Eval.nuniq(~U32, ~(a => b => U32.is_le(a, b)), ~(a => b => U32.is_eq(a, b)), k, K.Kernel.map(~F32, ~U32, ~(w => K.Kernel.fword(w)), k, K.Kernel.depth_for(k), x, 0))}, D.TU32{})}
+    case X.Std{}:
+      Done{Eval.unit(Eval.agg.stat(X.Std{}, k, x), D.TF32{})}
+    case X.Var{}:
+      Done{Eval.unit(Eval.agg.stat(X.Var{}, k, x), D.TF32{})}
+    case X.Median{}:
+      Done{Eval.unit(Eval.agg.stat(X.Median{}, k, x), D.TF32{})}
     case _:
       Done{Eval.unit(D.SU32{k}, D.TU32{})}
 
@@ -1100,6 +1441,12 @@ def Eval.agg.sr(op: X.AggOp, +k: U32, x: Array<String>) -> E.ResT(C.Column):
       Fail{Eval.bug("sum over str")}
     case X.Mean{}:
       Fail{Eval.bug("mean over str")}
+    case X.Std{}:
+      Fail{Eval.bug("std over str")}
+    case X.Var{}:
+      Fail{Eval.bug("var over str")}
+    case X.Median{}:
+      Fail{Eval.bug("median over str")}
     case _:
       Done{Eval.unit(D.SU32{k}, D.TU32{})}
 
@@ -1307,6 +1654,14 @@ def Eval.kind(e: X.Expr) -> SKind:
       SKind.comb(Eval.kind(e2), Eval.kind(v))
     case X.Agg{op, e2}:
       KAgg{}
+    case X.When{c, a, b}:
+      SKind.comb(Eval.kind(c), SKind.comb(Eval.kind(a), Eval.kind(b)))
+    case X.IsIn{e2, vs}:
+      Eval.kind(e2)
+    case X.Clip{e2, lo, hi}:
+      Eval.kind(e2)
+    case X.StrPred{op, e2, p}:
+      Eval.kind(e2)
 
 def Eval.compile.lit(+v: D.Scalar) -> Instr:
   IConst{v, Maybe.default(&2, D.DType, D.Scalar.dtype(v), D.TBool{})}
@@ -1339,6 +1694,14 @@ def Eval.compile(e: X.Expr, +acc: List<&2, Instr>) -> List<&2, Instr>:
       Eval.compile(e2, Eval.compile(v, IFill{} <> acc))
     case X.Agg{op, e2}:
       Eval.compile(e2, IAgg{op} <> acc)
+    case X.When{c, a, b}:
+      Eval.compile(c, Eval.compile(a, Eval.compile(b, IWhen{} <> acc)))
+    case X.IsIn{e2, vs}:
+      Eval.compile(e2, IIsIn{vs} <> acc)
+    case X.Clip{e2, lo, hi}:
+      Eval.compile(e2, IClip{lo, hi} <> acc)
+    case X.StrPred{op, e2, p}:
+      Eval.compile(e2, IStr{op, p} <> acc)
 
 # ---- the stack machine ---------------------------------------------------------------------
 
@@ -1392,6 +1755,12 @@ def Eval.do1(+h: U32, i: Instr, k: SKind, c: C.Column) -> E.ResT(Slot):
 
     case IAgg{+op}:
       Eval.wrap(KAgg{}, Eval.agg(op, Eval.fit_agg(op, k, c, h)))
+    case IIsIn{vs}:
+      Eval.wrap(k, Eval.isin(vs, c))
+    case IClip{lo, hi}:
+      Eval.wrap(k, Eval.clip(lo, hi, c))
+    case IStr{op, pat}:
+      Eval.wrap(k, Eval.strpred(op, pat, c))
     case _:
       Fail{Eval.bug("instruction")}
 
@@ -1437,6 +1806,35 @@ def Eval.do2.a(i: Instr, +ka: SKind, +kb: SKind, ra: C.Column & U32, rb: C.Colum
 def Eval.do2(i: Instr, ka: SKind, a: C.Column, kb: SKind, b: C.Column) -> E.ResT(Slot):
   Eval.do2.a(i, ka, kb, C.Column.len(a), C.Column.len(b))
 
+def Eval.do3.b(bad: Bool, k: SKind, +n: U32, c: C.Column, a: C.Column, b: C.Column) -> E.ResT(Slot):
+  match bad:
+    case True{}:
+      Fail{E.ShapeMismatch{n, n}}
+    case False{}:
+      Eval.wrap(k, Eval.when(c, a, b))
+
+# the three operands of when, a 1-row side broadcast to the full sides' length
+def Eval.do3.a(+kc: SKind, +ka: SKind, +kb: SKind, rc: C.Column & U32, ra: C.Column & U32, rb: C.Column & U32) -> E.ResT(Slot):
+  (c, +lc) = rc
+  (a, +la) = ra
+  (b, +lb) = rb
+  +fc = SKind.is_full(kc)
+  +fa = SKind.is_full(ka)
+  +fb = SKind.is_full(kb)
+  +n = Bool.pick(U32, fc, lc, Bool.pick(U32, fa, la, Bool.pick(U32, fb, lb, 1)))
+  +bad = Bool.or(Bool.and(fc, U32.is_ne(lc, n)), Bool.or(Bool.and(fa, U32.is_ne(la, n)), Bool.and(fb, U32.is_ne(lb, n))))
+  Eval.do3.b(bad, SKind.comb(kc, SKind.comb(ka, kb)), n, Eval.fit(kc, c, n), Eval.fit(ka, a, n), Eval.fit(kb, b, n))
+
+def Eval.do3(kc: SKind, c: C.Column, ka: SKind, a: C.Column, kb: SKind, b: C.Column) -> E.ResT(Slot):
+  Eval.do3.a(kc, ka, kb, C.Column.len(c), C.Column.len(a), C.Column.len(b))
+
+def Eval.app3(stk: List<&1, Slot>) -> E.ResT(List<&1, Slot>):
+  match stk:
+    case Slot{kb, b} <> Slot{ka, a} <> Slot{kc, c} <> rest:
+      Eval.push(rest, Eval.do3(kc, c, ka, a, kb, b))
+    case _:
+      Fail{Eval.bug("empty stack")}
+
 def Eval.app1(+h: U32, i: Instr, stk: List<&1, Slot>) -> E.ResT(List<&1, Slot>):
   match stk:
     case Nil{}:
@@ -1469,6 +1867,8 @@ def Eval.exec(+h: U32, i: Instr, f: C.Frame, stk: List<&1, Slot>) -> EvSt:
       EvSt{f, Eval.app2(IBin{op}, stk)}
     case IFill{}:
       EvSt{f, Eval.app2(IFill{}, stk)}
+    case IWhen{}:
+      EvSt{f, Eval.app3(stk)}
     case other:
       EvSt{f, Eval.app1(h, other, stk)}
 
