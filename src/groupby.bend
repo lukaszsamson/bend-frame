@@ -349,6 +349,13 @@ def Grp.kahan(acc: KS, +y0: F32, +v: U32) -> KS:
       +skip = U32.is_zero(v)
       KS{Bool.pick(F32, skip, s, t), Bool.pick(F32, skip, c, F32.sub(F32.sub(t, s), y)), U32.add(k, v)}
 
+# a plain sequential f32 add (Polars' group_by sum accumulates this way; Kahan
+# differs from it in the last bit, bench/golden/q3.csv); unchanged when v = 0
+def Grp.nsum(acc: KS, +y0: F32, +v: U32) -> KS:
+  match acc:
+    case KS{+s, c, k}:
+      KS{Bool.pick(F32, U32.is_zero(v), s, F32.add(s, y0)), c, U32.add(k, v)}
+
 def Grp.ks_s(a: KS) -> F32:
   match a:
     case KS{s, c, k}:
@@ -501,7 +508,7 @@ def Grp.agg.w(op: X.AggOp, +t: D.DType, +n: U32, +ng: U32, +dg: Nat, gids: Array
 def Grp.agg.f(op: X.AggOp, +n: U32, +ng: U32, +dg: Nat, gids: Array<U32>, first: Array<U32>, m: Array<U32>, x: Array<F32>) -> Groups & E.ResT(C.Column):
   match op:
     case X.Sum{}:
-      Grp.wrap.fsum(ng, dg, first, Grp.scat(~F32, ~KS, ~(a => w => v => Grp.kahan(a, w, v)), n, gids, x, m, Array.new(KS, dg, KS{0.0, 0.0, 0})))
+      Grp.wrap.fsum(ng, dg, first, Grp.scat(~F32, ~KS, ~(a => w => v => Grp.nsum(a, w, v)), n, gids, x, m, Array.new(KS, dg, KS{0.0, 0.0, 0})))
     case X.Mean{}:
       Grp.wrap.mean(ng, dg, first, Grp.scat(~F32, ~KS, ~(a => w => v => Grp.kahan(a, w, v)), n, gids, x, m, Array.new(KS, dg, KS{0.0, 0.0, 0})))
     case X.Min{}:

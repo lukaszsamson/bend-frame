@@ -1,10 +1,13 @@
-# src/fmt.bend -- Fmt.show (table printer) and the Fmt.describe stub.
+# src/fmt.bend -- Fmt.show (table printer), Fmt.describe and Fmt.fixed.
 # DESIGN.md 4.12. ASCII only. Idioms: helpers above callers; a match on a
 # parameter comes before any destructuring let; list loops thread pairs.
 import Base
 import ./dtype.bend as D
 import ./err.bend as E
 import ./column.bend as C
+import ./expr.bend as X
+import ./eval.bend as V
+import ./sort.bend as O
 
 # a column ready to print: name, dtype text, the DISPLAYED cells (all rows, or
 # first 5 + "..." + last 5 of a frame taller than 10 rows) and its width
@@ -180,13 +183,253 @@ def Fmt.show(f: C.Frame) -> C.Frame & String:
     case C.Frame{+h, cols}:
       Fmt.show.k(h, Fmt.fcols(cols, h))
 
-# TODO(later milestone): Polars-style describe (count null_count mean std min
-# 25% 50% 75% max; needs eval aggregations), DESIGN.md 4.12 and
-# bench/golden/q6.csv. A deliberate STUB: an open `law` would make `bend`
-# refuse to run every program that imports this file ("1 TODO found"), so it
-# is a def that answers an error value until the describe milestone fills it.
+# ---- Fmt.describe ---------------------------------------------------------------------
+# Polars' describe(): a `statistic` Str column (count null_count mean std min 25% 50% 75%
+# max) and one column per input column. Numeric (u32 i32 f32) inputs become F32 columns
+# (cast to f32, nulls dropped once: count = valid rows, null_count = the rest, mean = Kahan
+# mean, std = sample std over the Kahan sum of squared deviations (null when count < 2),
+# min/max/quantiles read from ONE stable radix sort of the valid values, quantiles
+# by NEAREST rank idx = round(p * (count - 1)), half away from zero; all null at count 0).
+# Str/Bool inputs become Str columns: count, null_count, min, max as text, null elsewhere.
+# The input frame comes back untouched (columns are cloned, clone = refcount bump).
+
+def Fmt.d.sc.c(r: C.Column & D.Scalar) -> D.Scalar:
+  (c, s) = r
+  s
+
+# row 0 of an aggregation result (null if it failed)
+def Fmt.d.sc(r: E.ResT(C.Column)) -> D.Scalar:
+  match r:
+    case Fail{e}:
+      D.SNull{}
+    case Done{c}:
+      Fmt.d.sc.c(C.Column.cell(c, 0))
+
+def Fmt.d.agg(op: X.AggOp, c: C.Column) -> D.Scalar:
+  Fmt.d.sc(V.Eval.agg(op, c))
+
+def Fmt.d.names() -> List<&2, D.Scalar>:
+  [D.SStr{"count"}, D.SStr{"null_count"}, D.SStr{"mean"}, D.SStr{"std"}, D.SStr{"min"}, D.SStr{"25%"}, D.SStr{"50%"}, D.SStr{"75%"}, D.SStr{"max"}]
+
+# sample std from the Kahan sum of squared deviations
+def Fmt.d.std.fin(+k: U32, ss: D.Scalar) -> D.Scalar:
+  match ss:
+    case D.SF32{s}:
+      D.SF32{F32.sqrt(F32.div(s, U32.to_f32(U32.sub(k, 1))))}
+    case other:
+      D.SNull{}
+
+def Fmt.d.std.sq(+k: U32, r: E.ResT(C.Column)) -> D.Scalar:
+  match r:
+    case Fail{e}:
+      D.SNull{}
+    case Done{sq}:
+      Fmt.d.std.fin(k, Fmt.d.agg(X.Sum{}, sq))
+
+def Fmt.d.std.mul(+k: U32, r: C.Column & C.Column) -> D.Scalar:
+  (a, b) = r
+  Fmt.d.std.sq(k, V.Eval.bin(X.Mul{}, a, b))
+
+def Fmt.d.std.dev(+k: U32, r: E.ResT(C.Column)) -> D.Scalar:
+  match r:
+    case Fail{e}:
+      D.SNull{}
+    case Done{dv}:
+      Fmt.d.std.mul(k, C.Column.clone(dv))
+
+def Fmt.d.std.m(+k: U32, mean: D.Scalar, d: C.Column) -> D.Scalar:
+  match mean:
+    case D.SF32{m}:
+      Fmt.d.std.dev(k, V.Eval.bin(X.Sub{}, d, V.Eval.const_col(D.SF32{m}, D.TF32{}, k)))
+    case other:
+      D.SNull{}
+
+def Fmt.d.std.b(small: Bool, +k: U32, mean: D.Scalar, d: C.Column) -> D.Scalar:
+  match small:
+    case True{}:
+      D.SNull{}
+    case False{}:
+      Fmt.d.std.m(k, mean, d)
+
+def Fmt.d.std(+k: U32, mean: D.Scalar, d: C.Column) -> D.Scalar:
+  Fmt.d.std.b(U32.is_lt(k, 2), k, mean, d)
+
+# the sorted rows to read: min, 25%, 50%, 75%, max (k >= 1)
+def Fmt.d.idx(+k: U32) -> List<&2, U32>:
+  +m = U32.sub(k, 1)
+  [0, U32.div(U32.add(m, 2), 4), U32.div(U32.add(m, 1), 2), U32.div(U32.add(U32.mul(3, m), 2), 4), m]
+
+def Fmt.d.cells.put(acc: List<&2, D.Scalar>, r: C.Column & D.Scalar) -> C.Column & List<&2, D.Scalar>:
+  (c, s) = r
+  (c, s <> acc)
+
+def Fmt.d.cells.step(+i: U32, st: C.Column & List<&2, D.Scalar>) -> C.Column & List<&2, D.Scalar>:
+  (c, acc) = st
+  Fmt.d.cells.put(acc, C.Column.cell(c, i))
+
+def Fmt.d.cells(idxs: List<&2, U32>, st: C.Column & List<&2, D.Scalar>) -> C.Column & List<&2, D.Scalar>:
+  match idxs:
+    case Nil{}:
+      st
+    case +i <> t:
+      Fmt.d.cells(t, Fmt.d.cells.step(i, st))
+
+def Fmt.d.cells.fin(r: C.Column & List<&2, D.Scalar>) -> List<&2, D.Scalar>:
+  (c, acc) = r
+  List.reverse(&2, D.Scalar, acc)
+
+def Fmt.d.sorted.a(+k: U32, r: E.ResT(C.Frame)) -> List<&2, D.Scalar>:
+  match r:
+    case Fail{e}:
+      Nil{}
+    case Done{C.Frame{h, C.Named{nm, c} <> Nil{}}}:
+      Fmt.d.cells.fin(Fmt.d.cells(Fmt.d.idx(k), (c, Nil{})))
+    case other:
+      Nil{}
+
+# [min, 25%, 50%, 75%, max] of the dense valid values (consumed)
+def Fmt.d.sorted(+k: U32, d: C.Column) -> List<&2, D.Scalar>:
+  Fmt.d.sorted.a(k, O.Sort.frame(C.Frame{k, C.Named{"x", d} <> Nil{}}, O.SortKey{"x", False{}, False{}} <> Nil{}))
+
+def Fmt.d.assemble(+k: U32, +nn: U32, mean: D.Scalar, std: D.Scalar, qs: List<&2, D.Scalar>) -> List<&2, D.Scalar>:
+  match qs:
+    case mn <> q1 <> q2 <> q3 <> mx <> Nil{}:
+      [D.SF32{U32.to_f32(k)}, D.SF32{U32.to_f32(nn)}, mean, std, mn, q1, q2, q3, mx]
+    case other:
+      Nil{}
+
+def Fmt.d.num.d(+k: U32, +nn: U32, mean: D.Scalar, std: D.Scalar, qs: List<&2, D.Scalar>) -> E.ResT(C.Column):
+  C.Column.from_scalars(Fmt.d.assemble(k, nn, mean, std, qs), D.TF32{})
+
+def Fmt.d.num.c(+k: U32, +nn: U32, d: C.Column, ds: C.Column, mean: D.Scalar) -> E.ResT(C.Column):
+  +m = mean
+  Fmt.d.num.d(k, nn, m, Fmt.d.std(k, m, ds), Fmt.d.sorted(k, d))
+
+def Fmt.d.num.b(+k: U32, +nn: U32, d: C.Column, r: C.Column & C.Column) -> E.ResT(C.Column):
+  (dm, ds) = r
+  Fmt.d.num.c(k, nn, d, ds, Fmt.d.agg(X.Mean{}, dm))
+
+def Fmt.d.num.a(+k: U32, +nn: U32, r: C.Column & C.Column) -> E.ResT(C.Column):
+  (d, dm) = r
+  Fmt.d.num.b(k, nn, d, C.Column.clone(dm))
+
+def Fmt.d.num.nulls(+nn: U32) -> E.ResT(C.Column):
+  C.Column.from_scalars([D.SF32{0.0}, D.SF32{U32.to_f32(nn)}, D.SNull{}, D.SNull{}, D.SNull{}, D.SNull{}, D.SNull{}, D.SNull{}, D.SNull{}], D.TF32{})
+
+def Fmt.d.num.z(none: Bool, +nn: U32, +k: U32, d: C.Column) -> E.ResT(C.Column):
+  match none:
+    case True{}:
+      Fmt.d.num.nulls(nn)
+    case False{}:
+      Fmt.d.num.a(k, U32.sub(nn, k), C.Column.clone(d))
+
+# n = rows, k = valid rows
+def Fmt.d.num.k(+n: U32, r: C.Column & U32) -> E.ResT(C.Column):
+  (d, +k) = r
+  Fmt.d.num.z(U32.is_zero(k), n, k, d)
+
+def Fmt.d.num.dn(+n: U32, d: C.Column) -> E.ResT(C.Column):
+  Fmt.d.num.k(n, C.Column.len(d))
+
+def Fmt.d.num.n(r: C.Column & U32) -> E.ResT(C.Column):
+  (x, +n) = r
+  Fmt.d.num.dn(n, V.Eval.dropnull(x))
+
+def Fmt.d.num.cast(r: E.ResT(C.Column)) -> E.ResT(C.Column):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{x}:
+      Fmt.d.num.n(C.Column.len(x))
+
+def Fmt.d.num(c: C.Column) -> E.ResT(C.Column):
+  Fmt.d.num.cast(V.Eval.cast(D.TF32{}, c))
+
+# Str / Bool columns
+def Fmt.d.txt.s(s: D.Scalar) -> D.Scalar:
+  match s:
+    case D.SNull{}:
+      D.SNull{}
+    case other:
+      D.SStr{D.Scalar.show(other)}
+
+def Fmt.d.txt.c(+n: U32, +nulls: U32, mn: D.Scalar, mx: D.Scalar) -> E.ResT(C.Column):
+  C.Column.from_scalars([D.SStr{U32.show(U32.sub(n, nulls))}, D.SStr{U32.show(nulls)}, D.SNull{}, D.SNull{}, Fmt.d.txt.s(mn), D.SNull{}, D.SNull{}, D.SNull{}, Fmt.d.txt.s(mx)], D.TStr{})
+
+def Fmt.d.txt.m(+n: U32, +nulls: U32, r: C.Column & C.Column) -> E.ResT(C.Column):
+  (c1, c2) = r
+  Fmt.d.txt.c(n, nulls, Fmt.d.agg(X.Min{}, c1), Fmt.d.agg(X.Max{}, c2))
+
+def Fmt.d.txt.a(+n: U32, r: C.Column & U32) -> E.ResT(C.Column):
+  (c, +nulls) = r
+  Fmt.d.txt.m(n, nulls, C.Column.clone(c))
+
+def Fmt.d.txt.n(r: C.Column & U32) -> E.ResT(C.Column):
+  (c, +n) = r
+  Fmt.d.txt.a(n, C.Column.null_count(c))
+
+def Fmt.d.col.t(r: C.Column & D.DType) -> E.ResT(C.Column):
+  (c, t) = r
+  match t:
+    case D.TStr{}:
+      Fmt.d.txt.n(C.Column.len(c))
+    case D.TBool{}:
+      Fmt.d.txt.n(C.Column.len(c))
+    case other:
+      Fmt.d.num(c)
+
+# the statistics of one column (consumed)
+def Fmt.d.col(c: C.Column) -> E.ResT(C.Column):
+  Fmt.d.col.t(C.Column.dtype(c))
+
+def Fmt.d.push(r: E.ResT(List<&1, C.Named>), nm: String, col: E.ResT(C.Column)) -> E.ResT(List<&1, C.Named>):
+  match r col:
+    case Fail{e} _:
+      Fail{e}
+    case Done{xs} Fail{e}:
+      Fail{e}
+    case Done{xs} Done{c}:
+      Done{C.Named{nm, c} <> xs}
+
+def Fmt.d.step.k(+nm: String, st: List<&1, C.Named> & E.ResT(List<&1, C.Named>), r: C.Column & C.Column) -> List<&1, C.Named> & E.ResT(List<&1, C.Named>):
+  (kept, out) = st
+  (c, c2) = r
+  (C.Named{nm, c} <> kept, Fmt.d.push(out, nm, Fmt.d.col(c2)))
+
+def Fmt.d.step(nc: C.Named, st: List<&1, C.Named> & E.ResT(List<&1, C.Named>)) -> List<&1, C.Named> & E.ResT(List<&1, C.Named>):
+  match nc:
+    case C.Named{nm, c}:
+      Fmt.d.step.k(nm, st, C.Column.clone(c))
+
+def Fmt.d.go(cols: List<&1, C.Named>, st: List<&1, C.Named> & E.ResT(List<&1, C.Named>)) -> List<&1, C.Named> & E.ResT(List<&1, C.Named>):
+  match cols:
+    case Nil{}:
+      st
+    case nc <> t:
+      Fmt.d.go(t, Fmt.d.step(nc, st))
+
+def Fmt.d.build.k(r: E.ResT(C.Column), xs: List<&1, C.Named>) -> E.ResT(C.Frame):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{s}:
+      C.Frame.from_columns(C.Named{"statistic", s} <> List.reverse(&1, C.Named, xs))
+
+def Fmt.d.build(out: E.ResT(List<&1, C.Named>)) -> E.ResT(C.Frame):
+  match out:
+    case Fail{e}:
+      Fail{e}
+    case Done{xs}:
+      Fmt.d.build.k(C.Column.from_scalars(Fmt.d.names(), D.TStr{}), xs)
+
+def Fmt.d.fin(+h: U32, r: List<&1, C.Named> & E.ResT(List<&1, C.Named>)) -> C.Frame & E.ResT(C.Frame):
+  (kept, out) = r
+  (C.Frame{h, List.reverse(&1, C.Named, kept)}, Fmt.d.build(out))
+
 def Fmt.describe(f: C.Frame) -> C.Frame & E.ResT(C.Frame):
-  (f, Fail{E.InvalidOperation{"Fmt.describe: not implemented yet (TODO)"}})
+  match f:
+    case C.Frame{+h, cols}:
+      Fmt.d.fin(h, Fmt.d.go(cols, (Nil{}, Done{Nil{}})))
 
 # ---- Fmt.fixed: F32 with a fixed number of decimals ---------------------------------
 # Exact: matches Python/Rust `{x:.Np}` on the f32 value (decimal expansion of the

@@ -247,3 +247,24 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
   needs `st` BEFORE `r` in the parameter list); `a template applied to closed
   ~ arguments (rs is a variable here)`: a `~(u => ..)` timing lambda cannot
   capture a do-bound variable - time inline with `IO.now` steps instead.
+
+## Goldens
+
+- **Module alias vs def prefix**: `bench/queries.bend` defines `Q.q1`; the tests alias
+  `exec.bend` as `Q`, so import the queries as `QS` and call `QS.Q.q1(a, b)`.
+- A golden test: `scan_csv` both fixtures (infer), `match s p: case Done{+a} Done{+b}` then
+  `Lazy.collect(QS.Q.qK(a, b), P.Env.empty())` and `Csv.render(f, Some{4})`; the `#|` block
+  was generated from the golden file with a script, never typed.
+- **Polars lazy vs eager differ in the last f32 bit of group sums**: the golden (lazy) has the
+  sequential-f32 result, `df.group_by().sum()` (eager) the correctly rounded one. Check an
+  oracle mismatch by recomputing with both numpy f32 sequential and Kahan before blaming the
+  value pipeline (q2's revenues were bit-identical; only the sum differed).
+- **describe is one Kahan mean + one Kahan sum of squares + one radix sort** per column; the
+  sort supplies min/max/quantiles. Pitfalls hit: a helper that calls a later-defined helper
+  ("expected a filled definition ... unfilled law") means the order is wrong, helpers go above
+  callers; a param used twice (`nm` in a tuple and in a call) needs `+nm`; match
+  `Done{C.Frame{h, C.Named{nm, c} <> Nil{}}}` nested patterns work.
+- Describe verification recipe: a random CSV with nulls (u32, i32, f32, str, bool) per size
+  n in 1..1001, `describe` in Bend vs `pl.read_csv(schema=..).describe()`, tolerance 1e-3
+  relative; Polars prints Bool min/max as 1.0/0.0, bend-frame as `true`/`false` (DESIGN 14).
+- Importing `eval`/`sort` into `fmt.bend` makes every `csv`-importing test compile those modules too (not measurable in `make test`).
