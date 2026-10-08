@@ -224,6 +224,12 @@ def counting_ok(op: X.AggOp, -t: D.DType, cnt: {Laws.is_counting(op) == True{} :
       Empty.absurd({X.Expr.type.agg.ok(X.First{}, t) == Done{D.TU32{}} : E.Res(D.DType)}, L.false_true(cnt))
     case X.Last{}:
       Empty.absurd({X.Expr.type.agg.ok(X.Last{}, t) == Done{D.TU32{}} : E.Res(D.DType)}, L.false_true(cnt))
+    case X.Std{}:
+      Empty.absurd({X.Expr.type.agg.ok(X.Std{}, t) == Done{D.TU32{}} : E.Res(D.DType)}, L.false_true(cnt))
+    case X.Var{}:
+      Empty.absurd({X.Expr.type.agg.ok(X.Var{}, t) == Done{D.TU32{}} : E.Res(D.DType)}, L.false_true(cnt))
+    case X.Median{}:
+      Empty.absurd({X.Expr.type.agg.ok(X.Median{}, t) == Done{D.TU32{}} : E.Res(D.DType)}, L.false_true(cnt))
 
 def Laws.counting_type(op, e, s, t, cnt, ta):
   %Equal.sym(E.Res(D.DType), X.Expr.type(e, s), Done{t}, ta) : {X.Expr.type.agg(op, _) == Done{D.TU32{}} : E.Res(D.DType)}
@@ -249,6 +255,12 @@ def keeping_ok(op: X.AggOp, -t: D.DType, kp: {Laws.keeps_dtype(op) == True{} : B
       Empty.absurd({X.Expr.type.agg.ok(X.Len{}, t) == Done{t} : E.Res(D.DType)}, L.false_true(kp))
     case X.NUnique{}:
       Empty.absurd({X.Expr.type.agg.ok(X.NUnique{}, t) == Done{t} : E.Res(D.DType)}, L.false_true(kp))
+    case X.Std{}:
+      Empty.absurd({X.Expr.type.agg.ok(X.Std{}, t) == Done{t} : E.Res(D.DType)}, L.false_true(kp))
+    case X.Var{}:
+      Empty.absurd({X.Expr.type.agg.ok(X.Var{}, t) == Done{t} : E.Res(D.DType)}, L.false_true(kp))
+    case X.Median{}:
+      Empty.absurd({X.Expr.type.agg.ok(X.Median{}, t) == Done{t} : E.Res(D.DType)}, L.false_true(kp))
 
 def Laws.keeping_agg_type(op, e, s, t, kp, ta):
   %Equal.sym(E.Res(D.DType), X.Expr.type(e, s), Done{t}, ta) : {X.Expr.type.agg(op, _) == Done{t} : E.Res(D.DType)}

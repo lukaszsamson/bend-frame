@@ -582,6 +582,140 @@ def Grp.agg.nu(+ng: U32, +dg: Nat, gids: Array<U32>, first: Array<U32>, r: C.Col
   (c, +n) = r
   Grp.agg.nu.b(n, ng, dg, first, c, Array.clone(U32, gids))
 
+# ---- std / var / median per group (DESIGN.md 15.5.4; the kernels of V.Eval.agg) --------------
+
+# a group's var / std from its second-pass state (s, c, k): null (slot 0.0) below 2 valid rows
+def Grp.ks_var(a: KS) -> F32:
+  match a:
+    case KS{+s, +c, +k}:
+      Bool.pick(F32, U32.is_lt(k, 2), 0.0, V.Eval.var_of(k, K.Kernel.nm.result(s, c)))
+
+def Grp.ks_std(a: KS) -> F32:
+  F32.sqrt(Grp.ks_var(a))
+
+def Grp.ks_ok2(a: KS) -> U32:
+  match a:
+    case KS{s, c, k}:
+      Bool.to_u32(U32.is_ge(k, 2))
+
+def Grp.sv.vals(std: Bool, +ng: U32, +dg: Nat, acc: Array<KS>) -> Array<F32>:
+  match std:
+    case True{}:
+      K.Kernel.map(~KS, ~F32, ~(a => Grp.ks_std(a)), ng, dg, acc, 0.0)
+    case False{}:
+      K.Kernel.map(~KS, ~F32, ~(a => Grp.ks_var(a)), ng, dg, acc, 0.0)
+
+def Grp.sv.wrap.b(std: Bool, +ng: U32, +dg: Nat, first: Array<U32>, gids: Array<U32>, aa: Array<KS> & Array<KS>) -> Groups & E.ResT(C.Column):
+  (a1, a2) = aa
+  (Groups{ng, gids, first}, Done{C.CF32{ng, dg, Grp.valid(ng, K.Kernel.map(~KS, ~U32, ~(a => Grp.ks_ok2(a)), ng, dg, a1, 0)), Grp.sv.vals(std, ng, dg, a2)}})
+
+def Grp.sv.wrap(std: Bool, +ng: U32, +dg: Nat, first: Array<U32>, r: Array<U32> & Array<KS>) -> Groups & E.ResT(C.Column):
+  (gids, acc) = r
+  Grp.sv.wrap.b(std, ng, dg, first, gids, Array.clone(KS, acc))
+
+# pass 2: the 15.5.3 sum of (x - m_g)^2 over each group's valid rows, in row order
+def Grp.sv.d(std: Bool, +n: U32, +ng: U32, +dg: Nat, first: Array<U32>, m: Array<U32>, x: Array<F32>, r: Array<F32> & Array<U32>) -> Groups & E.ResT(C.Column):
+  (mrow, gids) = r
+  Grp.sv.wrap(std, ng, dg, first, Grp.scat(~F32, ~KS, ~(a => w => v => Grp.nm(a, w, v)), n, gids, K.Kernel.zip(~F32, ~F32, ~F32, ~(a => b => V.Eval.sqdev(a, b)), n, K.Kernel.depth_for(n), x, mrow, 0.0), m, Array.new(KS, dg, KS{0.0, 0.0, 0})))
+
+# each row's group mean m_g = fsum / k (Grp.ks_mean, = V.Eval.mean_f of the group's rows)
+def Grp.sv.c(std: Bool, +n: U32, +ng: U32, +dg: Nat, first: Array<U32>, m: Array<U32>, x: Array<F32>, r: Array<U32> & Array<KS>) -> Groups & E.ResT(C.Column):
+  (gids, acc) = r
+  Grp.sv.d(std, n, ng, dg, first, m, x, K.Kernel.gather(~F32, n, K.Kernel.depth_for(n), K.Kernel.map(~KS, ~F32, ~(a => Grp.ks_mean(a)), ng, dg, acc, 0.0), gids, 0.0))
+
+def Grp.sv.b(std: Bool, +n: U32, +ng: U32, +dg: Nat, gids: Array<U32>, first: Array<U32>, mm: Array<U32> & Array<U32>, xx: Array<F32> & Array<F32>) -> Groups & E.ResT(C.Column):
+  (m1, m2) = mm
+  (x1, x2) = xx
+  Grp.sv.c(std, n, ng, dg, first, m2, x2, Grp.scat(~F32, ~KS, ~(a => w => v => Grp.nm(a, w, v)), n, gids, x1, m1, Array.new(KS, dg, KS{0.0, 0.0, 0})))
+
+# std / var (ddof = 1) per group, two passes as V.Eval.ssd: pass 1 is the group mean's sum
+def Grp.sv(std: Bool, +n: U32, +ng: U32, +dg: Nat, gids: Array<U32>, first: Array<U32>, m: Array<U32>, x: Array<F32>) -> Groups & E.ResT(C.Column):
+  Grp.sv.b(std, n, ng, dg, gids, first, Array.clone(U32, m), Array.clone(F32, x))
+
+# median: one row of the output per group, read from the group's sorted run
+def Grp.med.put(+k: U32, +g: U32, out: Array<F32>, ok: Array<U32>, r: Array<F32> & F32) -> Array<F32> & Array<F32> & Array<U32>:
+  (sorted, x) = r
+  +some = U32.is_ne(k, 0)
+  (sorted, Array.set(F32, out, g, Bool.pick(F32, some, x, 0.0)), Array.set(U32, ok, g, Bool.to_u32(some)))
+
+def Grp.med.go(n: Nat, +g: U32, st: Array<F32> & Array<F32> & Array<U32>, rs: Array<U32> & U32, rk: Array<U32> & U32) -> Array<F32> & Array<U32>:
+  match n:
+    case 0n:
+      (sorted, out, ok) = st
+      (out, ok)
+    case 1n+p:
+      (sorted, out, ok) = st
+      (starts, +start) = rs
+      (ks, +k) = rk
+      +j = U32.inc(g)
+      Grp.med.go(p, j, Grp.med.put(k, g, out, ok, V.Eval.med.at(U32.max(k, 1), start, sorted)), Array.get(U32, starts, j), Array.get(U32, ks, j))
+
+def Grp.med.fin(+ng: U32, +dg: Nat, gids: Array<U32>, first: Array<U32>, r: Array<F32> & Array<U32>) -> Groups & E.ResT(C.Column):
+  (out, ok) = r
+  (Groups{ng, gids, first}, Done{C.CF32{ng, dg, Grp.valid(ng, ok), out}})
+
+def Grp.med.e(+ng: U32, +dg: Nat, first: Array<U32>, sorted: Array<F32>, sz: Array<U32>, r: Array<U32> & Array<U32>) -> Groups & E.ResT(C.Column):
+  (gids, kc) = r
+  Grp.med.fin(ng, dg, gids, first, Grp.med.go(U32.to_nat(ng), 0, (sorted, Array.new(F32, dg, 0.0), Array.new(U32, dg, 0)), Array.get(U32, SO.Radix.pre.go(U32.to_nat(ng), 0, 0, Array.get(U32, sz, 0)), 0), Array.get(U32, kc, 0)))
+
+# rows per group (sz) and valid rows per group (kc)
+def Grp.med.d(+n: U32, +ng: U32, +dg: Nat, first: Array<U32>, m: Array<U32>, sorted: Array<F32>, r: Array<U32> & Array<U32>) -> Groups & E.ResT(C.Column):
+  (gids, sz) = r
+  Grp.med.e(ng, dg, first, sorted, sz, Grp.scat(~U32, ~U32, ~(a => w => v => U32.add(a, v)), n, gids, Array.new(U32, 0n, 0), m, Array.new(U32, dg, 0)))
+
+def Grp.med.c(+n: U32, +ng: U32, +dg: Nat, gids: Array<U32>, first: Array<U32>, m: Array<U32>, r: Array<F32> & Array<U32>) -> Groups & E.ResT(C.Column):
+  (sorted, perm) = r
+  Grp.med.d(n, ng, dg, first, m, sorted, Grp.scat(~U32, ~U32, ~(a => w => v => U32.add(a, v)), n, gids, Array.new(U32, 0n, 0), Array.new(U32, 0n, 1), Array.new(U32, dg, 0)))
+
+def Grp.med.b2(+n: U32, +d: Nat, +ng: U32, +dg: Nat, gids: Array<U32>, first: Array<U32>, m: Array<U32>, x: Array<F32>, r: Array<U32> & Array<U32>) -> Groups & E.ResT(C.Column):
+  (k2, perm) = r
+  Grp.med.c(n, ng, dg, gids, first, m, K.Kernel.gather(~F32, n, d, x, perm, 0.0))
+
+def Grp.med.b1(+n: U32, +d: Nat, +ng: U32, +dg: Nat, gids: Array<U32>, first: Array<U32>, m: Array<U32>, x: Array<F32>, r: Array<U32> & Array<U32>) -> Groups & E.ResT(C.Column):
+  (key2, perm1) = r
+  Grp.med.b2(n, d, ng, dg, gids, first, m, x, SO.Radix.sort(n, d, (key2, perm1)))
+
+# the second sort key: the group, then valid rows (0) before null rows (1)
+def Grp.med.key(+g: U32, v: U32) -> U32:
+  U32.add(U32.add(g, g), U32.sub(1, v))
+
+def Grp.med.b(+n: U32, +d: Nat, +ng: U32, +dg: Nat, first: Array<U32>, gg: Array<U32> & Array<U32>, mm: Array<U32> & Array<U32>, xx: Array<F32> & Array<F32>, st: Array<U32> & Array<U32>) -> Groups & E.ResT(C.Column):
+  (g1, g2) = gg
+  (m1, m2) = mm
+  (x1, x2) = xx
+  (ws, perm1) = st
+  Grp.med.b1(n, d, ng, dg, g1, first, m2, x2, K.Kernel.gather(~U32, n, d, K.Kernel.zip(~U32, ~U32, ~U32, ~(g => v => Grp.med.key(g, v)), n, d, g2, m1, 0), perm1, 0))
+
+def Grp.med.a(+n: U32, +d: Nat, +ng: U32, +dg: Nat, first: Array<U32>, gg: Array<U32> & Array<U32>, mm: Array<U32> & Array<U32>, xx: Array<F32> & Array<F32>) -> Groups & E.ResT(C.Column):
+  (x1, x2) = xx
+  Grp.med.b(n, d, ng, dg, first, gg, mm, Array.clone(F32, x2), SO.Radix.sort(n, d, (K.Kernel.map(~F32, ~U32, ~(w => K.Kernel.fword(w)), n, d, x1, 0), K.Kernel.iota(n, d))))
+
+# the median per group: one stable radix sort of the rows by the 15.5.2 order word, then by
+# (group * 2 + null flag), so each group's valid rows form a sorted run (in row order among
+# ties) followed by its null rows; a group's run starts at the exclusive prefix sum of the
+# group sizes and is read by V.Eval.med.at, exactly the eager median of the group's rows
+def Grp.med(+n: U32, +ng: U32, +dg: Nat, gids: Array<U32>, first: Array<U32>, m: Array<U32>, x: Array<F32>) -> Groups & E.ResT(C.Column):
+  Grp.med.a(n, K.Kernel.depth_for(n), ng, dg, first, Array.clone(U32, gids), Array.clone(U32, m), Array.clone(F32, x))
+
+def Grp.stat.f(op: X.AggOp, +n: U32, +ng: U32, +dg: Nat, gids: Array<U32>, first: Array<U32>, m: Array<U32>, x: Array<F32>) -> Groups & E.ResT(C.Column):
+  match op:
+    case X.Std{}:
+      Grp.sv(True{}, n, ng, dg, gids, first, m, x)
+    case X.Var{}:
+      Grp.sv(False{}, n, ng, dg, gids, first, m, x)
+    case _:
+      Grp.med(n, ng, dg, gids, first, m, x)
+
+# std / var / median over the column converted to f32 (u32 / i32 exactly as V.Eval.wf32)
+def Grp.agg.stat(op: X.AggOp, +ng: U32, +dg: Nat, gids: Array<U32>, first: Array<U32>, r: E.ResT(C.Column)) -> Groups & E.ResT(C.Column):
+  match r:
+    case Done{C.CF32{n, d, v, x}}:
+      Grp.stat.f(op, n, ng, dg, gids, first, C.Valid.materialize(v, d), x)
+    case Fail{e}:
+      Grp.wrap.err(ng, gids, first, e)
+    case Done{other}:
+      Grp.wrap.err(ng, gids, first, Grp.bug("std / var / median input"))
+
 # one aggregation of a full column per group; the groups come back
 def Grp.agg.op(op: X.AggOp, +ng: U32, +dg: Nat, gids: Array<U32>, first: Array<U32>, c: C.Column) -> Groups & E.ResT(C.Column):
   match op:
@@ -595,6 +729,12 @@ def Grp.agg.op(op: X.AggOp, +ng: U32, +dg: Nat, gids: Array<U32>, first: Array<U
       Grp.agg.last(ng, dg, gids, first, C.Column.len(c))
     case X.NUnique{}:
       Grp.agg.nu(ng, dg, gids, first, C.Column.len(c))
+    case X.Std{}:
+      Grp.agg.stat(X.Std{}, ng, dg, gids, first, V.Eval.try_cast(D.TF32{}, c))
+    case X.Var{}:
+      Grp.agg.stat(X.Var{}, ng, dg, gids, first, V.Eval.try_cast(D.TF32{}, c))
+    case X.Median{}:
+      Grp.agg.stat(X.Median{}, ng, dg, gids, first, V.Eval.try_cast(D.TF32{}, c))
     case other:
       Grp.agg.v(other, ng, dg, gids, first, c)
 
