@@ -433,12 +433,43 @@ def Sort.frame.a(r: C.Frame & E.ResT(Array<U32>)) -> E.ResT(C.Frame):
     case Done{perm}:
       Done{Sort.gather(f, perm)}
 
+def Sort.miss.k(has: Bool, n: String, rest: Maybe<&2, E.Err>) -> Maybe<&2, E.Err>:
+  match has:
+    case True{}:
+      rest
+    case False{}:
+      Some{E.ColumnNotFound{n}}
+
+# ColumnNotFound for the first key (list order) that is not a column: Plan.schema.sort's
+# check. Sort.argsort walks the keys last first, so without it a later missing key would be
+# reported before an earlier one (eager != lazy, NEW-1)
+def Sort.miss(ks: List<&2, SortKey>, +ns: List<&2, String>) -> Maybe<&2, E.Err>:
+  match ks:
+    case Nil{}:
+      None{}
+    case SortKey{+n, d, nl} <> t:
+      Sort.miss.k(C.Names.has(ns, n), n, Sort.miss(t, ns))
+
+def Sort.frame.c(m: Maybe<&2, E.Err>, f: C.Frame, keys: List<&2, SortKey>) -> E.ResT(C.Frame):
+  match m:
+    case Some{e}:
+      Fail{e}
+    case None{}:
+      Sort.frame.a(Sort.argsort(f, keys))
+
+def Sort.frame.b(+keys: List<&2, SortKey>, r: C.Frame & C.FInfo) -> E.ResT(C.Frame):
+  (f, i) = r
+  match i:
+    case C.FInfo{h, ns}:
+      Sort.frame.c(Sort.miss(keys, ns), f, keys)
+
 # the frame sorted by the keys: stable, multi-key, per-key descending and
 # nulls_last (nulls first by default, independent of descending; NaN is the
-# largest f32). No keys: the frame as is.
+# largest f32). No keys: the frame as is. Every key is checked before any work
+# (ColumnNotFound for the first missing one).
 def Sort.frame(f: C.Frame, keys: List<&2, SortKey>) -> E.ResT(C.Frame):
   match keys:
     case Nil{}:
       Done{f}
     case +k <> t:
-      Sort.frame.a(Sort.argsort(f, k <> t))
+      Sort.frame.b(k <> t, C.Frame.info(f))

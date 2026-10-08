@@ -142,8 +142,17 @@ def Kernel.fill.go(~T: Data, xs: List<&2, T>, +i: U32, a: Array<T>) -> Array<T>:
     case h <> t:
       Kernel.fill.go(~T, t, U32.inc(i), Array.set(T, a, i, h))
 
+# the length of a list plus n, as a tail call (Base List.length is not one: it overflows the
+# interpreter's stack on ~2^15 elements, NEW-2); wraps past 2^32 - 1 elements
+def Kernel.count(~T: Data, xs: List<&2, T>, +n: U32) -> U32:
+  match xs:
+    case Nil{}:
+      n
+    case h <> t:
+      Kernel.count(~T, t, U32.inc(n))
+
 def Kernel.from_list(~T: Data, +xs: List<&2, T>, +z: T) -> U32 & Array<T>:
-  +n = U32.from_nat(List.length(&2, T, xs))
+  +n = Kernel.count(~T, xs, 0)
   (n, Kernel.fill.go(~T, xs, 0, Array.new(T, Kernel.depth_for(U32.max(n, 1)), z)))
 
 # ---- extras (DESIGN.md 4.3 "Add:") ----------------------------------------------

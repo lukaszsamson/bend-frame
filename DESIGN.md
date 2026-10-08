@@ -1635,6 +1635,43 @@ Join.run makes first). Differences:
    `U32.from_nat(List.length ..)`, which could only wrap past 2^32 records (a file `File.read`
    cannot hold).
 
+### M1 diff fixes (NEW-1 static checks first, NEW-2 interpreter stack)
+
+1. **NEW-1: every eager verb checks statically before it evaluates** (15.9 "order of errors").
+   `Eval.static` (select and with_columns: the analysis, then the duplicate output name;
+   with_columns already did this, select found duplicates only in `Frame.from_columns` after
+   evaluating); `Grp.static` (group_by: `Grp.validate`, then `DuplicateColumn` over keys then aggs,
+   then the row cap, which used to come before the duplicate check); `Sort.miss` (sort: the first
+   missing key in list order; `Sort.argsort` walks the keys last first and used to report the last
+   missing one). `Grp.validate`, `Plan.sort.miss` and `Plan.schema` are unchanged (the proofs use
+   them); the eager checks are new defs with the same rules. Filter and join were already
+   static-first (`Join.run` calls `Join.schema` before any work, so a `_right` clash is
+   `DuplicateColumn` before the row cap); head has no static check.
+2. **15.9 admissibility rule** (new): eager-vs-lazy error agreement is required for single-verb
+   programs and for multi-verb programs whose eager run reaches the first statically invalid verb
+   without a data error; the rest are inadmissible for T2.1 (the generator already counted them
+   apart). This narrows G2 as written ("errors too") for multi-verb programs.
+3. **NEW-2: no per-row non-tail recursion on the result path.** The interpreter is the JS lane,
+   which runs every non-tail call on the host stack; ~2^15 nested calls overflow it ("memory fault
+   (machine stack overflow?)"), a cons-guarded recursion (`f(h) <> go(t)`) included, as do Base's
+   `List.length`, `String.concat`, `List.replicate` and `String.append` (`++`) over its LEFT operand.
+   Changed: `Dump.cell_list` (tail call into a reversed list, then `List.reverse`), the row lines
+   (`Dump.cat` joins the newest-first lines with `line ++ acc`, replacing `String.concat` plus a final
+   `++` whose left operand was the whole body), `Column.fs.words/f32s/strs/vwords` (reversed tail
+   calls), `K.Kernel.count` (a tail-recursive list length) in `Kernel.from_list` and
+   `Column.from_scalars.cap`. Checked in the interpreter: a 202,800-row x 5-column self join
+   (eager, raw and optimised lazy) dumps (8.46M chars) in ~1.5 s each; a 448 x 448 self join
+   (200,704 rows) dumps fully; `from_scalars` of 200,000 scalars; group_by, sort, filter, select,
+   with_columns and `Fmt.show` over the 202,800-row frame.
+4. **Still open (NEW-2 class, interpreter only)**: `Csv.read` of `bench/data/sales_100000.csv`
+   (already before this change) and `Csv.render` / `write_csv` of a ~2^15-row frame overflow in the
+   interpreter (`Csv.cells`, `Csv.zip`, `Csv.zip_pre`, `List.replicate`, `String.concat` in
+   `Csv.render.t`, `List.length` over records in `Csv.rows`, ...); native runs are fine.
+5. Tests: `tests/regress/NEW_1_static_checks_first.bend`, `tests/regress/NEW_2_interp_large_results.bend`
+   (specs of the same names in `bench/contract/regress_expect.py`; NEW-2's expected dump summaries
+   are computed there from a plain-Python join); `tests/diff/d0001.bend`, `d0002.bend` lost
+   `#! xfail NEW-1`.
+
 ### M1 B03 (numerics: 15.5, rows B03-a..q)
 
 1. **NaN cells dump as `0x7fc00000`** (`Dump.fbits`), whatever their sign and payload. 15.1
@@ -1732,7 +1769,7 @@ Rules:
 | 4 | Bool prints `true`/`false`; U32 and I32 print as `Scalar.show` does (decimal). |
 | 5 | `width 0` prints no `row` lines; the height is still `height h` (so eager `select([])` and a lazy `Select{[]}` are told apart by this line, B01-c). |
 | 6 | Row lines carry exactly `width` cells; a dump is parsed with `line.split("\t")` after stripping the trailing `\n`; the only TABs are separators, because TAB inside a string is escaped. |
-| 7 | `error` dumps carry `Err.show` text verbatim (it contains no newline: every `what` string is single-line by construction, 15.9). Eager/raw-lazy/optimised-lazy agreement (G2) is "equal dump text", for errors too. |
+| 7 | `error` dumps carry `Err.show` text verbatim (it contains no newline: every `what` string is single-line by construction, 15.9). Eager/raw-lazy/optimised-lazy agreement (G2) is "equal dump text", for errors too (eager vs lazy: for the admissible programs of 15.9). |
 | 8 | The comparator is itself tested with intentional mismatches (T1): a changed cell, a changed name, a changed dtype, a changed height, `""` vs `null`, `0x80000000` vs `0x00000000`, and two different NaN payloads (must compare equal). |
 
 Example (3 rows, u32/f32/str; second row has two nulls, third string holds a TAB):
@@ -2300,6 +2337,36 @@ Any text that embeds user data (`<show>`, `<cell>`, `<name>`, `<path>`, `<text>`
 contain a newline only through that data; the dump's `error` line is still the whole
 `Err.show` string, and comparisons are exact.
 
+**Order of errors within one verb (eager and lazy alike).** A verb makes ALL its static checks,
+in `Plan.schema`'s order, before it evaluates any data; data errors (a failing strict `cast`,
+`"i32 out of range"`, the row cap of 15.8, IO) come only after. Per verb:
+
+| verb | static checks, in order |
+|---|---|
+| `select`, `with_columns` | the shared analysis (15.3: typing, nested aggregation) per expression in list order; then `DuplicateColumn` on the first repeated output name (`Eval.static`) |
+| `filter` | the predicate's analysis error; then `TypeMismatch{"filter", "bool", got}` |
+| `sort` | `ColumnNotFound` for the first missing key in list order (`Sort.miss`) |
+| `group_by` | `Grp.validate` (types of the keys, then of the aggs; >= 1 key; no aggregation in a key; each agg's shape); then `DuplicateColumn` over keys then aggs (`Grp.static`); then the row cap |
+| `inner_join`, `left_join` | `Join.schema` (key-list errors, `ColumnNotFound` left first, `TypeMismatch{"join", ..}`, `DuplicateColumn` after the `_right` suffix); then the row cap |
+| `head` | none |
+
+`collect` = `Plan.schema` of the whole plan, then `validate_bindings` (15.7), then execution
+(whose verbs re-check the same rules and then evaluate).
+
+**Eager-vs-lazy error agreement: admissible programs (T2.1).** An eager program runs its verbs
+one at a time, each on the result of the verbs below it; `collect` types the whole plan first.
+So G2's "equal dump text, errors too" (15.1 rule 7) is required for:
+(a) every single-verb program (the table above makes eager and lazy agree), and
+(b) every multi-verb program that is admissible: no verb has a static error, or the eager run
+reaches the first statically invalid verb without a data error in a verb it ran before it (the
+verb's inputs, and for a join both inputs).
+A multi-verb program with a static error in a later verb and a data error in an earlier one
+(for instance `sort([p])` over `select([cast(b, f32)])` where `p` does not exist and `b` holds a
+non-number) is **inadmissible for T2.1**: eager reports the data error, lazy the static one, and
+both are contract-conformant. The differential generator computes both answers in its oracle and
+counts such programs apart (`inadmissible_for_T2.1`, bench/diff/README.md);
+`tests/regress/NEW_1_static_checks_first.bend` pins one (`15.9-inadmissible`).
+
 ### 15.10 Defect table (both reviews; one regression test per row, `#! xfail <ID>` until fixed)
 
 | ID | defect (one line) | contract row | milestone |
@@ -2358,6 +2425,8 @@ contain a newline only through that data; the dump's `error` line is still the w
 | B05-g | no test that eager, raw-lazy and optimised-lazy agree on the same data (both reviews) | plan T2.1, 15.1 rule 7 | M0 |
 | B05-h | the proof negative check (`2^(d+1)` slots) is not a kept test (Fable 6) | plan T5 | M0 |
 | B05-i | README overclaims: "byte-identical", "48 laws" without the schema/shape caveat (Fable 8, Astra 5) | plan G7 | M6 |
+| NEW-1 | eager `select` / `group_by` evaluated data (a failing strict cast) before their static `DuplicateColumn` check, which lazy reports first; eager `sort` reported the LAST missing key; eager `group_by` checked the row cap before `DuplicateColumn` (bench/diff seed 1: tests/diff/d0001, d0002) | 15.9 order of errors | M1 (fixed) |
+| NEW-2 | the interpreter (`bend file.bend`) overflowed the host stack on results of ~2^15 rows or more: `DF.dump` and `Column.from_scalars` recursed once per row (the native binary is fine) | 15.1, 15.8 | M1 (fixed for dump / from_scalars; CSV read / write still overflow, DESIGN.md 14) |
 
 Rows marked M0 are fixed in M0 itself (harness and tests); every other row gets an
 `#! xfail <ID>` regression in M0 (eager, raw-lazy and optimised-lazy where

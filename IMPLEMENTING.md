@@ -501,3 +501,27 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
 - Timing note: reading the 1M-row bench CSV before and after b4eda5e (5 alternating runs each,
   3.2-3.7 s both) shows no measurable cost from the added `U32.from_nat(List.length ..)` count and
   the `+rt` duplication in `Csv.lead`.
+
+## M1 diff fixes (NEW-1 static checks first, NEW-2 interpreter stack)
+
+- **The interpreter is the JS lane and recurses on the host stack**: about 2^15 nested non-tail calls
+  overflow it (`bend: memory fault (machine stack overflow?)`; Bun's RangeError mapped by
+  bend2/comp.ts). Measured: Base `List.length` of 20,000 elements is fine, 40,000 crashes. A
+  cons-guarded recursion (`f(h) <> go(t)`) counts too (no TRMC), and so do Base `String.concat`,
+  `List.replicate`, `List.length` and `String.append` over its LEFT operand (`body ++ "x"` with a long
+  body). Native binaries do not have the limit, so a test that only runs natively will not show it.
+- **Per-row loops on any path a result takes must be tail calls**: map into a reversed accumulator,
+  then `List.reverse` (tail recursive in Base); count with a tail-recursive `K.Kernel.count(~T, xs, 0)`;
+  join newest-first lines with `Dump.cat(lines, acc) = Dump.cat(t, h ++ acc)` (copies one short line
+  per step) instead of `String.concat(List.reverse(..))`. Recursion over columns, keys or the
+  characters of one cell is fine.
+- **Keep one big frame alive at a time in interpreter tests**: three 202,800-row results alive at once
+  (a helper taking eager + raw + opt results) made a test 4x slower (41 s, high sys time); printing
+  each summary before the next `collect` (do-block steps) brought it to ~9 s.
+- **Test a big result by a summary of its dump** (chars, lines, FNV-1a over the code points; a tail
+  loop over the string) and build the same dump text in Python for the expectation.
+- **Eager static checks mirror Plan.schema without touching it**: the proofs unfold `Grp.validate`,
+  `Plan.sort.miss` and `Plan.schema.*`, so new eager checks are separate defs with the same rules
+  (`Eval.static`, `Grp.static`, `Sort.miss`) placed in front of the evaluation, not edits of the
+  shared ones.
+- `(f, i) = r` then `match i:` on the destructured component is accepted (`Sort.frame.b`).

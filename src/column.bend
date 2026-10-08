@@ -384,33 +384,47 @@ def Column.fs.vword(s: D.Scalar) -> U32:
     case _:
       1
 
-def Column.fs.words(xs: List<&2, D.Scalar>) -> List<&2, U32>:
+# the per-row lists are built reversed by a tail call, then reversed: a non-tail recursion
+# over a list of ~2^15 or more rows overflows the interpreter's (JS lane) stack (NEW-2)
+def Column.fs.words.rev(xs: List<&2, D.Scalar>, acc: List<&2, U32>) -> List<&2, U32>:
   match xs:
     case Nil{}:
-      Nil{}
+      acc
     case h <> t:
-      Column.fs.word(h) <> Column.fs.words(t)
+      Column.fs.words.rev(t, Column.fs.word(h) <> acc)
+
+def Column.fs.words(xs: List<&2, D.Scalar>) -> List<&2, U32>:
+  List.reverse(&2, U32, Column.fs.words.rev(xs, Nil{}))
+
+def Column.fs.f32s.rev(xs: List<&2, D.Scalar>, acc: List<&2, F32>) -> List<&2, F32>:
+  match xs:
+    case Nil{}:
+      acc
+    case h <> t:
+      Column.fs.f32s.rev(t, Column.fs.f32(h) <> acc)
 
 def Column.fs.f32s(xs: List<&2, D.Scalar>) -> List<&2, F32>:
+  List.reverse(&2, F32, Column.fs.f32s.rev(xs, Nil{}))
+
+def Column.fs.strs.rev(xs: List<&2, D.Scalar>, acc: List<&2, String>) -> List<&2, String>:
   match xs:
     case Nil{}:
-      Nil{}
+      acc
     case h <> t:
-      Column.fs.f32(h) <> Column.fs.f32s(t)
+      Column.fs.strs.rev(t, Column.fs.str(h) <> acc)
 
 def Column.fs.strs(xs: List<&2, D.Scalar>) -> List<&2, String>:
+  List.reverse(&2, String, Column.fs.strs.rev(xs, Nil{}))
+
+def Column.fs.vwords.rev(xs: List<&2, D.Scalar>, acc: List<&2, U32>) -> List<&2, U32>:
   match xs:
     case Nil{}:
-      Nil{}
+      acc
     case h <> t:
-      Column.fs.str(h) <> Column.fs.strs(t)
+      Column.fs.vwords.rev(t, Column.fs.vword(h) <> acc)
 
 def Column.fs.vwords(xs: List<&2, D.Scalar>) -> List<&2, U32>:
-  match xs:
-    case Nil{}:
-      Nil{}
-    case h <> t:
-      Column.fs.vword(h) <> Column.fs.vwords(t)
+  List.reverse(&2, U32, Column.fs.vwords.rev(xs, Nil{}))
 
 def Column.fs.nulls(xs: List<&2, D.Scalar>, acc: U32) -> U32:
   match xs:
@@ -475,7 +489,7 @@ def Column.fs.cap(over: Maybe<&2, E.Err>, +xs: List<&2, D.Scalar>, +t: D.DType) 
 
 # from_scalars with the cap as a parameter (the entry the tests use with a lowered cap)
 def Column.from_scalars.cap(+cap: U32, +xs: List<&2, D.Scalar>, +t: D.DType) -> E.ResT(Column):
-  Column.fs.cap(K.Kernel.check_rows.cap(cap, U32.from_nat(List.length(&2, D.Scalar, xs))), xs, t)
+  Column.fs.cap(K.Kernel.check_rows.cap(cap, K.Kernel.count(~D.Scalar, xs, 0)), xs, t)
 
 # SNull becomes an invalid row (slot = the dtype default); a scalar of another
 # dtype is a TypeMismatch; more than K.Kernel.max_rows() scalars are an InvalidOperation
