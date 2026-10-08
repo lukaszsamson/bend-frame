@@ -662,7 +662,7 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
 - **New Plan constructors in the proofs are mechanical**: every proof that splits on `P.Plan` treats
   a barrier node exactly like `Sort` (unary) or `Join` (binary) as long as its schema rule has the shape
   `Plan.schema.<verb>(args.., Plan.schema(x))` with a Fail passing through (identity for slice / tail).
-  `build/scratch/proofgen.py`-style copying of the Sort / Join case blocks (renaming the constructor,
+  Copying the Sort / Join case blocks with a throwaway script (renaming the constructor,
   the instruction and the schema helper) checked first time, `--verdict` included. Compiling the unary
   verbs to one `ITable{op}` instruction keeps the Instr case splits at one new case.
 - **A template lambda cannot capture**: a mask for semi vs anti is two closed lambdas chosen by a
