@@ -378,3 +378,33 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
   `0x7fc00000`). x86-64 produces `0xffc00000` for invalid operations; if CI on Linux x86-64 runs the
   test suite, NaN-producing cases (B03-a/b/c/f/n, as dump_basic already) may need a NaN-canonicalising
   dump comparison.
+
+## M1 B02 (csvparse, scan prefix)
+
+- **Forking a hub module**: copy `core.bend` from `~/.bend/lib/<hash>/core.bend` into `src/`, keep its
+  license text (here MIT, copyright nohzafk, not the project author) in the header, and delete the
+  import. Constructors of its types are used through the importing alias (`H.CsvCell{..}`, `H.CsvRec{..}`).
+- **Extra state in a walk costs little**: two more `U32` arguments (line counter, record start line) and
+  a `CsvCell` / `CsvRec` node per field / record cost about +11% on `Csv.read` of a 7-column 100k-row
+  file. A per-record line list that is only read on the error path is built next to the columns.
+- **`File.read` mangles UTF-8 cut at the end of a chunk** (`a\xc3` + `\xa9` becomes a replacement
+  char): read chunks with `File.read_at` (bytes, `List<&2, U32>`), cut at the last LF byte (never inside
+  a sequence) and decode with an own decoder. A loop that adds a continuation byte by byte needs
+  `need` / `cp` state arguments; compute each next-state value in a small `Bool.pick` helper called in the
+  recursive call's argument list (no `match` after the `bs` match, no mutual recursion).
+- **A non-tail-recursive def over a 64K-element byte list overflowed the stack** in the interpreter
+  (`bend: memory fault (machine stack overflow?)`); build the string reversed in an accumulator and
+  `String.reverse` it. 100k-element non-tail recursions over records/cells (Csv.conv, Csv.tr) are fine.
+- **Termination of a counting loop that must stop early**: the structural argument has to come first
+  and be passed as `p` / `t` itself. For "stop after the n-th event" keep walking the list but freeze the
+  state with an `act` flag computed once (`+act = U32.is_gt(m, 0)`) and applied in each helper
+  (`Csv.sc`); do not replace the Nat by a computed value.
+- **An IO loop over chunks** (`Csv.pre.loop`): the loop def holds the bind and the recursive call; the
+  step is a separate def returning `IO(PSt)` (the Exec.loop shape); the state is a Type sum
+  `PRun{..} | PEnd{r}` and the loop stops on `PEnd`; the fuel is the file size + 2 (a `Nat` is a number
+  natively, so a 40M fuel is free); each step closes the file when it makes `PEnd`.
+- **`A & B` is a Type, not Data**: a pair parameter cannot be `+dp`; destructure it as the FIRST
+  parameter of a helper (`(done, pend) = dp` then `match eof`), or the matches on earlier parameters are
+  refused ("can't be matched in this position").
+- `sed '/start/,/end/d'` with an `end` pattern that never matches deletes to the end of the file; a
+  stale `mv` of a pending test is recoverable with `git show HEAD:<path>`.

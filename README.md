@@ -88,7 +88,7 @@ collect_schema: error: TypeMismatch in filter: expected bool, got u32
 collect: error: TypeMismatch in filter: expected bool, got u32
 ```
 
-`scan_csv` reads the header and a sample of the file up front; the rows are read at `collect`.
+`scan_csv` reads only a bounded prefix of the file up front (64 KiB chunks until `infer_rows + 1` line ends outside quotes, default 100 rows) to freeze the schema; no column is built there. `collect` reads the whole file once, strictly, with that frozen schema, so a bad value past the prefix is an error at `collect`, not at `scan_csv`.
 
 ## Features
 
@@ -97,7 +97,7 @@ collect: error: TypeMismatch in filter: expected bool, got u32
 - Eager (`Frame -> ResT(Frame)`, an error is a value): `select`, `with_columns`, `filter`, `sort` (multi-key, per-key `asc` / `desc` and nulls placement), `group_by` with `sum mean min max count len first last n_unique`, `inner_join` and `left_join` (multi-key), `head`, `describe`, `show`.
 - Lazy (`Plan`): `lazy_select`, `lazy_with_columns`, `lazy_filter`, `lazy_sort`, `lazy_group_by`, `lazy_head`, `lazy_inner_join`, `lazy_left_join`, with `source` / `empty_env` for in-memory frames and `scan_csv` for files.
 - Inspect and run: `collect_schema`, `schema_show`, `explain`, `optimize` (filter merge, predicate and projection pushdown, head merge), `collect`.
-- CSV: `read_csv` (types inferred per column), `scan_csv`, `write_csv` (F32 values in shortest form).
+- CSV: `read_csv` (types inferred per column), `read_csv_opts` / `read_csv_schema` (separator, header or not, inference rows, explicit dtypes), `scan_csv` / `scan_csv_opts` / `scan_csv_schema` (the last one is pure: no IO until `collect`), `write_csv` / `write_csv_opts` (separator, header or not, F32 shortest digits or fixed decimals). A quoted `""` is the empty string and an empty field is null, on read and on write.
 
 ### Expressions
 
@@ -127,6 +127,8 @@ collect: error: TypeMismatch in filter: expected bool, got u32
 - `group_by` answers in first-appearance order. `GroupBy` carries a `maintain_order` flag, but v1 ignores it and always orders by first appearance.
 - `group_by` `sum` over `F32` is a plain sequential add (about 1e-5 relative error against Polars at 1M rows, see `bench/README.md`). `mean` uses a compensated sum.
 - `describe` answers Polars' statistics for numeric columns as `F32` columns. For `Bool` and `Str` columns it reports only `count`, `null_count`, `min` and `max`, as text, with nulls elsewhere.
+- CSV reading (`DESIGN.md` 15.6): a blank line is a null row in a one-column file and is skipped when there are more columns (Polars: an all-null row); a short record is a `ParseError` (Polars fills nulls); an empty file is a `(0, 0)` frame (Polars: error); numeric, bool and empty-after-trim fields are trimmed before they are read, so `" 1 "` is the `u32` 1 (Polars infers `str`). Error line numbers are physical lines, counting blank lines and multi-line fields.
+- CSV inference is by content: there is no round-trip claim for numeric-looking strings. A `str` column holding `"007"` or `"1.0"` written by `write_csv` is read back by `read_csv` as a number unless an explicit schema (`read_csv_schema`) gives it `str`. With an explicit schema every dtype round-trips (NaN payloads excepted), and so do `""` and null.
 - Strings support equality and ordering only, with no string functions.
 - Aggregations are only available inside `group_by`. There are no window functions.
 
@@ -189,7 +191,8 @@ Layout:
 - `src/sort.bend`: order-preserving sort words, stable LSD radix argsort, `Sort.frame`.
 - `src/groupby.bend`: dictionary-encoded `group_by` and the aggregations.
 - `src/join.bend`: inner and left equi-joins.
-- `src/csv.bend`: CSV reading with type inference, scanning and writing.
+- `src/csvparse.bend`: the CSV parser (a fork of the hub package `bend-csv-parser`, MIT, kept notice in the file), cells carry quotedness and records their physical line.
+- `src/csv.bend`: CSV reading with type inference and explicit schemas, the scan prefix, rendering and writing.
 - `src/fmt.bend`: table rendering, `describe`, fixed-decimal formatting.
 - `src/plan.bend`: the lazy `Plan`, schema resolution, `explain`, `optimize`.
 - `src/exec.bend`: runs an optimized plan against an `Env`.

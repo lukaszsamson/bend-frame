@@ -19,8 +19,6 @@ if the defect is not fixed in the same change. Expected output (`#|` lines) come
 | `B04_d_validate_bindings.bend.txt` | B04-d | `DF.validate_bindings(p, env) -> Env & Res(Unit)` (15.2.2, 15.7) | M1 |
 | `B04_i_row_cap.bend.txt` | B04-i | `K.Kernel.max_rows()`, `K.Kernel.check_rows(n) -> Maybe<&2, E.Err>` (15.8), `DF.concat_vertical` (M3); the join case needs only the guard | M1 (+M3 concat) |
 | `B01_c_zero_column_m3.bend.txt` | B01-c (C22, C24) | `DF.drop / DF.lazy_drop`, `DF.unique / DF.lazy_unique`, `DF.concat_vertical / DF.lazy_concat_vertical` (15.2.3, 15.2.4) | M3 |
-| `B02_e_csv_opts.bend.txt` | B02-e | `DF.csv_opts`, `DF.read_csv_opts`, `DF.scan_csv_opts`, `DF.write_opts`, `DF.write_csv_opts`, `R.CsvWriteOpts` (15.2.7, 15.6.3) | M3 |
-| `B02_i_read_csv_schema.bend.txt` | B02-i | `DF.read_csv_schema(path, opts, dtypes)` (15.2.7) | M3 |
 | `B05_h_proof_negative.bend.txt` | B05-h | no API: a negative proof fixture (expects `SOME PROOFS FAIL`). It runs and passes under `scripts/test.sh` today, but `make check` runs `bend --check-only` on every `tests/**/*.bend` and fails on it. Activate once `make check` skips fixtures whose expectation is `SOME PROOFS FAIL` (or move it to `tests/proof_negative/` with that exclusion, plan T5). | M0 harness |
 
 Assumptions made where the contract names an entry but not its exact form (check them when

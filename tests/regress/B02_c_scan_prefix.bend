@@ -1,4 +1,3 @@
-#! xfail B02-c
 # B02-c (Astra G3, Fable 4): scan_csv reads and parses the whole file when the plan is
 # built (and again at collect). DESIGN.md 15.6.4: scan_csv reads a bounded prefix (64 KiB
 # chunks until infer_rows + 1 line ends, cut at the last line end) to infer the schema and

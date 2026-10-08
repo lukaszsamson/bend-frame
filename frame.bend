@@ -66,6 +66,12 @@ def Err() -> Data:
 def Schema() -> Data:
   List<&2, S.Field>
 
+def CsvOpts() -> Data:
+  R.CsvOpts
+
+def CsvWriteOpts() -> Data:
+  R.CsvWriteOpts
+
 # ---- columns and literals -------------------------------------------------------------
 
 def col(name: String) -> X.Expr:
@@ -212,8 +218,22 @@ def named(name: String, c: C.Column) -> C.Named:
 def from_columns(cols: List<&1, C.Named>) -> E.ResT(C.Frame):
   C.Frame.from_columns(cols)
 
+# CSV options: separator, has_header, rows that decide each column's dtype (0 = all)
+# (DESIGN.md 15.6.3). `read_csv` and `scan_csv` use (',', True, 100).
+def csv_opts(sep: Char, has_header: Bool, infer_rows: U32) -> R.CsvOpts:
+  R.CsvOpts{sep, has_header, infer_rows}
+
+# the whole file is read once; dtypes are inferred
 def read_csv(path: String) -> IO(E.ResT(C.Frame)):
   R.Csv.read(path, R.Csv.default())
+
+def read_csv_opts(path: String, opts: R.CsvOpts) -> IO(E.ResT(C.Frame)):
+  R.Csv.read(path, opts)
+
+# explicit dtypes by column position (the header gives the names); a cell that does not
+# parse is a ParseError, a wrong count an InvalidOperation; [] infers
+def read_csv_schema(path: String, opts: R.CsvOpts, dtypes: List<&2, D.DType>) -> IO(E.ResT(C.Frame)):
+  R.Csv.read_with(path, opts, dtypes)
 
 # helper: the table of a (frame & text) pair
 def show.s(x: C.Frame & String) -> String:
@@ -264,19 +284,28 @@ def write_csv.r(x: C.Frame & Result<&1, &1, U32 & String, Unit>) -> E.ResT(C.Fra
   (f, w) = x
   write_csv.res(f, w)
 
-def write_csv.io(f: C.Frame, path: String) -> IO(E.ResT(C.Frame)):
+def write_csv.io(f: C.Frame, path: String, w: R.CsvWriteOpts) -> IO(E.ResT(C.Frame)):
   do IO<E.ResT(C.Frame)>:
-    x : C.Frame & Result<&1, &1, U32 & String, Unit> <- R.Csv.write(f, path)
+    x : C.Frame & Result<&1, &1, U32 & String, Unit> <- R.Csv.write_with(f, path, w)
     return write_csv.r(x)
 
-# writes the frame as CSV (F32 shortest digits) and answers the same frame, or
-# the write's error; an error in r passes through
-def write_csv(r: E.ResT(C.Frame), path: String) -> IO(E.ResT(C.Frame)):
+# CSV write options: separator, header line or not, F32 decimals (None: shortest digits)
+def write_opts(sep: Char, include_header: Bool, float_precision: Maybe<&2, U32>) -> R.CsvWriteOpts:
+  R.CsvWriteOpts{sep, include_header, float_precision}
+
+# writes the frame as CSV with the options (DESIGN.md 15.6.3) and answers the same frame,
+# or the write's error; an error in r passes through
+def write_csv_opts(r: E.ResT(C.Frame), path: String, w: R.CsvWriteOpts) -> IO(E.ResT(C.Frame)):
   match r:
     case Fail{e}:
       IO.pure(E.ResT(C.Frame), Fail{e})
     case Done{f}:
-      write_csv.io(f, path)
+      write_csv.io(f, path, w)
+
+# writes the frame as CSV (',' separator, header, F32 shortest digits) and answers the
+# same frame, or the write's error; an error in r passes through
+def write_csv(r: E.ResT(C.Frame), path: String) -> IO(E.ResT(C.Frame)):
+  write_csv_opts(r, path, R.Csv.write_default())
 
 # ---- eager verbs (Frame -> ResT(Frame)) ----------------------------------------------
 
@@ -315,9 +344,18 @@ def empty_env() -> P.Env:
 def source(name: String, f: C.Frame) -> P.Env & P.Plan:
   P.Lazy.source(name, f)
 
-# reads the header and a sample of a CSV file now; the rows are read at collect
+# reads a bounded prefix of a CSV file now (header and the first infer_rows rows, 64 KiB
+# chunks) to freeze the schema; the whole file is read once, at collect (DESIGN.md 15.6.4)
 def scan_csv(path: String) -> IO(E.Res(P.Plan)):
   P.Lazy.scan_csv(path, R.Csv.default())
+
+def scan_csv_opts(path: String, opts: R.CsvOpts) -> IO(E.Res(P.Plan)):
+  P.Lazy.scan_csv(path, opts)
+
+# a scan with a given schema: pure, no inference and no IO until collect, which checks the
+# file's header against the schema's names and reads the cells strictly as its dtypes
+def scan_csv_schema(path: String, opts: R.CsvOpts, schema: List<&2, S.Field>) -> P.Plan:
+  P.ScanCsv{path, opts, schema}
 
 def lazy_select(p: P.Plan, exprs: List<&2, X.Expr>) -> P.Plan:
   P.Select{exprs, p}

@@ -1,4 +1,3 @@
-#! xfail B02-a
 # B02-a (Astra B): reading `"",x` gives null for the quoted empty string. DESIGN.md
 # 15.6.1: a quoted field of a str column is the valid content verbatim ("" is the empty
 # string); an unquoted empty field is null; numeric columns read both as null. Polars 2.0.0

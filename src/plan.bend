@@ -811,49 +811,11 @@ def Lazy.scan.plan(path: String, opts: V.CsvOpts, r: E.Res(List<&2, V.CsvField>)
     case Done{cs}:
       Done{ScanCsv{path, opts, Lazy.fields(cs)}}
 
-def Lazy.scan.fin(path: String, +opts: V.CsvOpts, f: File, res: Result<&1, &1, U32 & String, String>) -> IO(E.Res(Plan)):
-  match res:
-    case Done{text}:
-      do IO<E.Res(Plan)>:
-        File.close(f)
-        return Lazy.scan.plan(path, opts, V.Csv.infer(text, opts))
-    case Fail{(code, msg)}:
-      do IO<E.Res(Plan)>:
-        File.close(f)
-        return Fail{E.IoError{code, msg}}
-
-def Lazy.scan.got(path: String, opts: V.CsvOpts, r: File & Result<&1, &1, U32 & String, String>) -> IO(E.Res(Plan)):
-  (f, res) = r
-  Lazy.scan.fin(path, opts, f, res)
-
-def Lazy.scan.sized(path: String, opts: V.CsvOpts, f: File, res: Result<&1, &1, U32 & String, U32>) -> IO(E.Res(Plan)):
-  match res:
-    case Done{n}:
-      do IO<E.Res(Plan)>:
-        r : File & Result<&1, &1, U32 & String, String> <- File.read(f, n)
-        Lazy.scan.got(path, opts, r)
-    case Fail{(code, msg)}:
-      do IO<E.Res(Plan)>:
-        File.close(f)
-        return Fail{E.IoError{code, msg}}
-
-def Lazy.scan.size(path: String, opts: V.CsvOpts, r: File & Result<&1, &1, U32 & String, U32>) -> IO(E.Res(Plan)):
-  (f, res) = r
-  Lazy.scan.sized(path, opts, f, res)
-
-def Lazy.scan.opened(path: String, opts: V.CsvOpts, o: Result<&1, &1, U32 & String, File>) -> IO(E.Res(Plan)):
-  match o:
-    case Done{f}:
-      do IO<E.Res(Plan)>:
-        r : File & Result<&1, &1, U32 & String, U32> <- File.size(f)
-        Lazy.scan.size(path, opts, r)
-    case Fail{(code, msg)}:
-      IO.pure(E.Res(Plan), Fail{E.IoError{code, msg}})
-
-# Polars scan_csv: reads the file once to infer the schema (Csv.infer, header
-# + the first infer_rows rows); the data is read again by Exec. IoError and
-# ParseError are values.
-def Lazy.scan_csv(+path: String, opts: V.CsvOpts) -> IO(E.Res(Plan)):
+# Polars scan_csv: reads a bounded prefix of the file (Csv.scan_fields, DESIGN.md 15.6.4:
+# 64 KiB chunks until infer_rows + 1 line ends outside quotes) to infer the schema; no
+# column is built and the rest of the file is not read. The data is read at collect (Exec).
+# IoError and ParseError are values.
+def Lazy.scan_csv(+path: String, +opts: V.CsvOpts) -> IO(E.Res(Plan)):
   do IO<E.Res(Plan)>:
-    o : Result<&1, &1, U32 & String, File> <- File.open(path, "r")
-    Lazy.scan.opened(path, opts, o)
+    r : E.Res(List<&2, V.CsvField>) <- V.Csv.scan_fields(path, opts)
+    return Lazy.scan.plan(path, opts, r)
