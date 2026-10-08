@@ -152,12 +152,6 @@ def four(+tag: String, eager: E.ResT(C.Frame), +p: P.Plan, e1: P.Env, e2: P.Env,
 
 # ---- shims (facade defs missing from frame.bend) ----
 
-def abs(e: X.Expr) -> X.Expr:
-  X.Un{X.Abs{}, e}
-
-def sqrt(e: X.Expr) -> X.Expr:
-  X.Un{X.Sqrt{}, e}
-
 # ---- eager verb wrappers ----
 
 def e_select(r: E.ResT(C.Frame), es: List<&2, X.Expr>) -> E.ResT(C.Frame):

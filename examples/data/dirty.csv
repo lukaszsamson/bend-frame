@@ -1,0 +1,10 @@
+id,name,qty,price,status,email
+1,Alice,12,3.50,ok,alice@example.com
+2,Bob,7 units,4.25,OK,bob@example
+3,Carol,n/a,2.00,ok,carol@example.com
+4,Dan,5,abc,bad,dan.example.com
+5,Eve,,1.75,Ok,
+6,Frank,20,-1,ok,frank@example.com
+7,Grace,3,10.00,pending,grace@example.com
+8,Heidi,4294967296,5.00,ok,heidi@example.com
+9,Ivan,8,,ok,

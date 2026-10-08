@@ -20,10 +20,10 @@ def f_t() -> DF.ResT(DF.Frame()):
   DX.frame([DX.cf32("d", [DX.n(), DX.n()]), DX.cbool("a", [DX.b(False{}), DX.b(False{})])])
 
 def eager() -> DF.ResT(DF.Frame()):
-  DX.e_filter(DX.e_select(DX.e_group_by(DX.e_group_by(f_t(), [DF.col("d")], [DF.alias(DF.len(), "o1")]), [DF.try_cast(DF.col("o1"), DX.t_str())], [DF.alias(DF.len(), "x"), DF.alias(DF.n_unique(DF.mod(DF.col("o1"), DF.col("o1"))), "o2"), DF.alias(DF.min(DF.sub(DF.col("o1"), DF.col("o1"))), "w"), DF.alias(DF.min(DF.or(DF.lit_null(DX.t_bool()), DF.lit_bool(True{}))), "a")]), [DF.alias(DF.last(DF.col("o1")), "o2"), DF.alias(DF.cast(DF.col("o1"), DX.t_str()), "n")]), DF.is_not_null(DF.add(DX.abs(DF.cast(DF.col("n"), DX.t_f32())), DF.mean(DF.lit_u32(164)))))
+  DX.e_filter(DX.e_select(DX.e_group_by(DX.e_group_by(f_t(), [DF.col("d")], [DF.alias(DF.len(), "o1")]), [DF.try_cast(DF.col("o1"), DX.t_str())], [DF.alias(DF.len(), "x"), DF.alias(DF.n_unique(DF.mod(DF.col("o1"), DF.col("o1"))), "o2"), DF.alias(DF.min(DF.sub(DF.col("o1"), DF.col("o1"))), "w"), DF.alias(DF.min(DF.or(DF.lit_null(DX.t_bool()), DF.lit_bool(True{}))), "a")]), [DF.alias(DF.last(DF.col("o1")), "o2"), DF.alias(DF.cast(DF.col("o1"), DX.t_str()), "n")]), DF.is_not_null(DF.add(DF.abs(DF.cast(DF.col("n"), DX.t_f32())), DF.mean(DF.lit_u32(164)))))
 
 def plan() -> DF.Plan():
-  DF.lazy_filter(DF.lazy_select(DF.lazy_group_by(DF.lazy_group_by(DX.src("t", f_t()), [DF.col("d")], [DF.alias(DF.len(), "o1")]), [DF.try_cast(DF.col("o1"), DX.t_str())], [DF.alias(DF.len(), "x"), DF.alias(DF.n_unique(DF.mod(DF.col("o1"), DF.col("o1"))), "o2"), DF.alias(DF.min(DF.sub(DF.col("o1"), DF.col("o1"))), "w"), DF.alias(DF.min(DF.or(DF.lit_null(DX.t_bool()), DF.lit_bool(True{}))), "a")]), [DF.alias(DF.last(DF.col("o1")), "o2"), DF.alias(DF.cast(DF.col("o1"), DX.t_str()), "n")]), DF.is_not_null(DF.add(DX.abs(DF.cast(DF.col("n"), DX.t_f32())), DF.mean(DF.lit_u32(164)))))
+  DF.lazy_filter(DF.lazy_select(DF.lazy_group_by(DF.lazy_group_by(DX.src("t", f_t()), [DF.col("d")], [DF.alias(DF.len(), "o1")]), [DF.try_cast(DF.col("o1"), DX.t_str())], [DF.alias(DF.len(), "x"), DF.alias(DF.n_unique(DF.mod(DF.col("o1"), DF.col("o1"))), "o2"), DF.alias(DF.min(DF.sub(DF.col("o1"), DF.col("o1"))), "w"), DF.alias(DF.min(DF.or(DF.lit_null(DX.t_bool()), DF.lit_bool(True{}))), "a")]), [DF.alias(DF.last(DF.col("o1")), "o2"), DF.alias(DF.cast(DF.col("o1"), DX.t_str()), "n")]), DF.is_not_null(DF.add(DF.abs(DF.cast(DF.col("n"), DX.t_f32())), DF.mean(DF.lit_u32(164)))))
 
 def main() -> IO(Unit):
   do IO<Unit>:
