@@ -1,0 +1,57 @@
+# PENDING (M1 API: DF.validate_bindings(p, env) -> Env & Res(Unit), DF.add_source).
+# Rename to tests/regress/B04_d_validate_bindings.bend when the API lands.
+# B04-d: DESIGN.md 15.2.2, 15.7: validate_bindings checks every Source of p against env
+# (uniqueness over the whole env first, then presence and schema per Source in postfix
+# order) and hands env back untouched; the texts are those of collect.
+import Base
+import ./../../frame.bend as DF
+import ./../../src/dtype.bend as D
+import ./../../src/err.bend as E
+import ./../../src/column.bend as C
+import ./../../src/expr.bend as X
+import ./../../src/plan.bend as P
+import ./lib/rx.bend as R
+
+def ta() -> E.ResT(C.Frame):
+  R.frame([R.mk("a", [R.u(1), R.u(2)], D.TU32{})])
+
+def sh.k(x: P.Env & E.Res(Unit)) -> String:
+  (env, r) = x
+  match r:
+    case Fail{e}:
+      "error: " ++ E.Err.show(e)
+    case Done{u}:
+      "ok"
+
+def check(+tag: String, p: P.Plan, env: P.Env) -> String:
+  "-- " ++ tag ++ "\n" ++ sh.k(DF.validate_bindings(p, env)) ++ "\n"
+
+def twice() -> P.Env:
+  R.env_add(R.env1("t", ta()), "t", ta())
+
+def main() -> IO(Unit):
+  do IO<Unit>:
+    IO.print(check("B04-d ok", R.src("t", ta()), R.env1("t", ta())))
+    IO.print(check("B04-d missing", R.src("u", ta()), R.env1("t", ta())))
+    IO.print(check("B04-d duplicate", R.src("t", ta()), twice()))
+    IO.print(check("B04-d duplicate-before-missing", DF.lazy_inner_join(R.src("u", ta()), R.src("t", ta()), ["a"], ["a"]), twice()))
+    IO.print(check("B04-d schema", R.src("t", R.frame([R.mk("a", [R.s("x")], D.TStr{})])), R.env1("t", ta())))
+    IO.print(check("B04-d self-join-ok", DF.lazy_inner_join(R.src("t", ta()), R.src("t", ta()), ["a"], ["a"]), R.env1("t", ta())))
+#|-- B04-d ok
+#|ok
+#|
+#|-- B04-d missing
+#|error: InvalidOperation: source not in env: u
+#|
+#|-- B04-d duplicate
+#|error: InvalidOperation: source bound twice in env: t
+#|
+#|-- B04-d duplicate-before-missing
+#|error: InvalidOperation: source bound twice in env: t
+#|
+#|-- B04-d schema
+#|error: InvalidOperation: source t: data schema [a:u32] differs from the plan's [a:str]
+#|
+#|-- B04-d self-join-ok
+#|ok
+#|

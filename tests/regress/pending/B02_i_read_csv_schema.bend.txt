@@ -1,0 +1,59 @@
+# PENDING (M3 API: DF.read_csv_schema(path, opts, dtypes), DF.csv_opts). Rename to
+# tests/regress/B02_i_read_csv_schema.bend when the API lands.
+# B02-i: the explicit schema through the facade (DESIGN.md 15.2.7, 15.6.3); the src entry
+# Csv.read_with is checked today by tests/regress/B02_i_schema_count_src.bend.
+import Base
+import ./../../frame.bend as DF
+import ./../../src/dtype.bend as D
+import ./../../src/err.bend as E
+import ./../../src/column.bend as C
+import ./../../src/expr.bend as X
+import ./../../src/plan.bend as P
+import ./lib/rx.bend as R
+
+def rd(+tag: String, +path: String, +ts: List<&2, D.DType>) -> IO(Unit):
+  do IO<Unit>:
+    r : E.ResT(C.Frame) <- DF.read_csv_schema(path, DF.csv_opts(',', True{}, 100), ts)
+    IO.print(R.show(tag, "eager", r))
+
+def main() -> IO(Unit):
+  do IO<Unit>:
+    rd("B02-i count", "tests/regress/data/B02_h_crlf.csv", [D.TStr{}])
+    rd("B02-i explicit", "tests/regress/data/B02_h_crlf.csv", [D.TStr{}, D.TI32{}])
+    rd("B02-i bad-cell", "tests/regress/data/B02_h_crlf.csv", [D.TU32{}, D.TU32{}])
+    # "" stays the empty string under an explicit str schema; a numeric "" is null (B02-a)
+    rd("B02-i quoted-empty", "tests/regress/data/B02_a_numeric.csv", [D.TStr{}, D.TStr{}])
+    rd("B02-i quoted-empty-u32", "tests/regress/data/B02_a_numeric.csv", [D.TU32{}, D.TStr{}])
+#|-- B02-i count eager
+#|error	InvalidOperation: csv schema: 1 dtypes for 2 columns
+#|
+#|-- B02-i explicit eager
+#|frame
+#|height	2
+#|width	2
+#|col	str	"s"
+#|col	i32	"n"
+#|row	"a,b"	1
+#|row	"c"	2
+#|
+#|-- B02-i bad-cell eager
+#|error	ParseError at line 2: column s: cannot parse "a,b" as u32
+#|
+#|-- B02-i quoted-empty eager
+#|frame
+#|height	2
+#|width	2
+#|col	str	"n"
+#|col	str	"s"
+#|row	""	"a"
+#|row	"1"	"b"
+#|
+#|-- B02-i quoted-empty-u32 eager
+#|frame
+#|height	2
+#|width	2
+#|col	u32	"n"
+#|col	str	"s"
+#|row	null	"a"
+#|row	1	"b"
+#|

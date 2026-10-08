@@ -1,0 +1,74 @@
+# PENDING (M1 API: DF.add_source(env, name, f) -> Env & Plan). Rename to
+# tests/regress/B04_c_add_source.bend when the API lands.
+# B04-c (Astra G4): several named frames in one Env through the facade (DESIGN.md
+# 15.2.2); the Plan is Source{name, Frame.schema(f)}. A two-source join, eager vs lazy.
+import Base
+import ./../../frame.bend as DF
+import ./../../src/dtype.bend as D
+import ./../../src/err.bend as E
+import ./../../src/column.bend as C
+import ./../../src/expr.bend as X
+import ./../../src/plan.bend as P
+import ./lib/rx.bend as R
+
+def l() -> E.ResT(C.Frame):
+  R.frame([R.mk("id", [R.u(1), R.u(2), R.u(3)], D.TU32{}), R.mk("x", [R.s("a"), R.s("b"), R.s("c")], D.TStr{})])
+
+def r() -> E.ResT(C.Frame):
+  R.frame([R.mk("id", [R.u(3), R.u(1)], D.TU32{}), R.mk("y", [R.f(0.5), R.f(1.5)], D.TF32{})])
+
+def pk(x: P.Env & P.Plan) -> P.Env:
+  (env, p) = x
+  env
+
+# the env built only through the facade: empty_env, then add_source twice
+def env.r(e: P.Env, fr: E.ResT(C.Frame)) -> P.Env:
+  match fr:
+    case Fail{err}:
+      e
+    case Done{f}:
+      pk(DF.add_source(e, "r", f))
+
+def env.l(fl: E.ResT(C.Frame)) -> P.Env:
+  match fl:
+    case Fail{err}:
+      DF.empty_env()
+    case Done{f}:
+      env.r(pk(DF.add_source(DF.empty_env(), "l", f)), r())
+
+def env() -> P.Env:
+  env.l(l())
+
+def main() -> IO(Unit):
+  do IO<Unit>:
+    R.three("B04-c two-sources", R.e_inner(l(), r(), ["id"], ["id"]), DF.lazy_inner_join(R.src("l", l()), R.src("r", r()), ["id"], ["id"]), env(), env())
+#|-- B04-c two-sources eager
+#|frame
+#|height	2
+#|width	3
+#|col	u32	"id"
+#|col	str	"x"
+#|col	f32	"y"
+#|row	1	"a"	0x3fc00000
+#|row	3	"c"	0x3f000000
+#|
+#|-- B04-c two-sources raw
+#|frame
+#|height	2
+#|width	3
+#|col	u32	"id"
+#|col	str	"x"
+#|col	f32	"y"
+#|row	1	"a"	0x3fc00000
+#|row	3	"c"	0x3f000000
+#|
+#|-- B04-c two-sources opt
+#|frame
+#|height	2
+#|width	3
+#|col	u32	"id"
+#|col	str	"x"
+#|col	f32	"y"
+#|row	1	"a"	0x3fc00000
+#|row	3	"c"	0x3f000000
+#|

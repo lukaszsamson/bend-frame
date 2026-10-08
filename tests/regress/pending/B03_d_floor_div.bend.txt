@@ -1,0 +1,110 @@
+# PENDING (M1 API: DF.floor_div / X.Bin{X.FloorDiv{}, a, b}). Rename to
+# tests/regress/B03_d_floor_div.bend when the API lands (imports are written for that place).
+# B03-d / B03-f / B03-l: integer division. DESIGN.md 15.5.1, 15.2.6, 15.3.1: floor_div is
+# u32 x u32 -> u32 and i32 x i32 -> i32, floor toward -inf; null when either side is
+# null, when b = 0, and for i32 MIN // -1 (Polars answers MIN there: intended departure).
+# Typing: TypeMismatch{"floor_div", "u32 or i32", <left>} / {"floor_div", <left>, <right>}.
+# Polars 2.0.0 (contract snippet): [7,-7,7,-7,MIN,5,0] // [2,2,-2,-2,-1,0,0] =
+# [3,-4,-4,3,MIN,null,null]; u32 7 // 0 = null.
+import Base
+import ./../../frame.bend as DF
+import ./../../src/dtype.bend as D
+import ./../../src/err.bend as E
+import ./../../src/column.bend as C
+import ./../../src/expr.bend as X
+import ./../../src/plan.bend as P
+import ./lib/rx.bend as R
+
+def t() -> E.ResT(C.Frame):
+  R.frame([
+    R.mk("a", [R.u(7), R.u(7), R.null(), R.u(0), R.u(9), R.u(4294967295), R.u(1)], D.TU32{}),
+    R.mk("b", [R.u(2), R.u(0), R.u(0), R.u(0), R.u(3), R.u(2), R.null()], D.TU32{}),
+    R.mk("ai", [R.i(7), R.ineg(7), R.i(7), R.ineg(7), R.ineg(2147483648), R.i(5), R.i(0)], D.TI32{}),
+    R.mk("bi", [R.i(2), R.i(2), R.ineg(2), R.ineg(2), R.ineg(1), R.i(0), R.i(0)], D.TI32{}),
+    R.mk("x", [R.f(1.0), R.f(2.0), R.f(3.0), R.f(4.0), R.f(5.0), R.f(6.0), R.f(7.0)], D.TF32{})])
+
+def env() -> P.Env:
+  R.env1("t", t())
+
+def src() -> P.Plan:
+  R.src("t", t())
+
+def es() -> List<&2, X.Expr>:
+  [DF.alias(DF.floor_div(DF.col("a"), DF.col("b")), "q"), DF.alias(DF.floor_div(DF.col("ai"), DF.col("bi")), "qi")]
+
+def go(+tag: String, +e: X.Expr) -> IO(Unit):
+  do IO<Unit>:
+    R.three(tag, R.e_select(t(), [e]), DF.lazy_select(src(), [e]), env(), env())
+    IO.print(R.schema(tag, DF.lazy_select(src(), [e])))
+
+def main() -> IO(Unit):
+  do IO<Unit>:
+    R.three("B03-d floor-div", R.e_select(t(), es()), DF.lazy_select(src(), es()), env(), env())
+    go("B03-f floor-div-f32", DF.floor_div(DF.col("x"), DF.col("x")))
+    go("B03-f floor-div-mixed", DF.floor_div(DF.col("a"), DF.col("ai")))
+#|-- B03-d floor-div eager
+#|frame
+#|height	7
+#|width	2
+#|col	u32	"q"
+#|col	i32	"qi"
+#|row	3	3
+#|row	null	-4
+#|row	null	-4
+#|row	null	3
+#|row	3	null
+#|row	2147483647	null
+#|row	null	null
+#|
+#|-- B03-d floor-div raw
+#|frame
+#|height	7
+#|width	2
+#|col	u32	"q"
+#|col	i32	"qi"
+#|row	3	3
+#|row	null	-4
+#|row	null	-4
+#|row	null	3
+#|row	3	null
+#|row	2147483647	null
+#|row	null	null
+#|
+#|-- B03-d floor-div opt
+#|frame
+#|height	7
+#|width	2
+#|col	u32	"q"
+#|col	i32	"qi"
+#|row	3	3
+#|row	null	-4
+#|row	null	-4
+#|row	null	3
+#|row	3	null
+#|row	2147483647	null
+#|row	null	null
+#|
+#|-- B03-f floor-div-f32 eager
+#|error	TypeMismatch in floor_div: expected u32 or i32, got f32
+#|
+#|-- B03-f floor-div-f32 raw
+#|error	TypeMismatch in floor_div: expected u32 or i32, got f32
+#|
+#|-- B03-f floor-div-f32 opt
+#|error	TypeMismatch in floor_div: expected u32 or i32, got f32
+#|
+#|-- B03-f floor-div-f32 schema
+#|error: TypeMismatch in floor_div: expected u32 or i32, got f32
+#|
+#|-- B03-f floor-div-mixed eager
+#|error	TypeMismatch in floor_div: expected u32, got i32
+#|
+#|-- B03-f floor-div-mixed raw
+#|error	TypeMismatch in floor_div: expected u32, got i32
+#|
+#|-- B03-f floor-div-mixed opt
+#|error	TypeMismatch in floor_div: expected u32, got i32
+#|
+#|-- B03-f floor-div-mixed schema
+#|error: TypeMismatch in floor_div: expected u32, got i32
+#|

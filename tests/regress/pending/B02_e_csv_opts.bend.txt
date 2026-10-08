@@ -1,0 +1,74 @@
+# PENDING (M3 API: DF.csv_opts, DF.read_csv_opts, DF.scan_csv_opts, DF.write_opts,
+# DF.write_csv_opts). Rename to tests/regress/B02_e_csv_opts.bend when the API lands.
+# B02-e: separators other than ',' and write options through the facade (DESIGN.md
+# 15.2.7, 15.6.3). Read B02_e_semicolon.csv with sep ';' (a ',' inside a field is data);
+# write with sep ';', no header, 2 decimals (Fmt.fixed, round half even), then read the
+# file back with has_header False (names column_0, column_1). Polars 2.0.0
+# write_csv(separator=";", include_header=False, float_precision=2) writes the same text.
+import Base
+import ./../../frame.bend as DF
+import ./../../src/dtype.bend as D
+import ./../../src/err.bend as E
+import ./../../src/column.bend as C
+import ./../../src/expr.bend as X
+import ./../../src/plan.bend as P
+import ./lib/rx.bend as R
+
+def path() -> String:
+  "/tmp/bend_frame_regress_B02_e.csv"
+
+def t() -> E.ResT(C.Frame):
+  R.frame([R.mk("x", [R.f(1.0), R.f(2.345)], D.TF32{}), R.mk("s", [R.s("a;b"), R.s("c")], D.TStr{})])
+
+def scan.k(+tag: String, rp: E.Res(P.Plan)) -> IO(Unit):
+  match rp:
+    case Fail{e}:
+      IO.print(R.errs(tag, e))
+    case Done{p}:
+      R.lazy2(tag, p, DF.empty_env(), DF.empty_env())
+
+def main() -> IO(Unit):
+  do IO<Unit>:
+    r0 : E.ResT(C.Frame) <- DF.read_csv_opts("tests/regress/data/B02_e_semicolon.csv", DF.csv_opts(';', True{}, 100))
+    IO.print(R.show("B02-e semicolon", "eager", r0))
+    rp : E.Res(P.Plan) <- DF.scan_csv_opts("tests/regress/data/B02_e_semicolon.csv", DF.csv_opts(';', True{}, 100))
+    scan.k("B02-e semicolon", rp)
+    w : E.ResT(C.Frame) <- DF.write_csv_opts(t(), path(), DF.write_opts(';', False{}, Some{2}))
+    r1 : E.ResT(C.Frame) <- DF.read_csv_opts(path(), DF.csv_opts(';', False{}, 0))
+    IO.print(R.show("B02-e written", "eager", r1))
+#|-- B02-e semicolon eager
+#|frame
+#|height	2
+#|width	2
+#|col	u32	"a"
+#|col	str	"b"
+#|row	1	"x,y"
+#|row	2	"z"
+#|
+#|-- B02-e semicolon raw
+#|frame
+#|height	2
+#|width	2
+#|col	u32	"a"
+#|col	str	"b"
+#|row	1	"x,y"
+#|row	2	"z"
+#|
+#|-- B02-e semicolon opt
+#|frame
+#|height	2
+#|width	2
+#|col	u32	"a"
+#|col	str	"b"
+#|row	1	"x,y"
+#|row	2	"z"
+#|
+#|-- B02-e written eager
+#|frame
+#|height	2
+#|width	2
+#|col	f32	"column_0"
+#|col	str	"column_1"
+#|row	0x3f800000	"a;b"
+#|row	0x40166666	"c"
+#|

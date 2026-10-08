@@ -351,3 +351,30 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
   byte-identical to `bench/dump_polars.py` run on the same CSV with an explicit schema.
 - `IO.print(DF.dump(r))` prints the dump's trailing newline plus one more; the runner trims the
   whole text and `check.py --dump` ignores trailing blank lines.
+
+## M0 regressions (tests/regress, bench/contract)
+
+- **`case` is a keyword too** (`def case(..)` is refused like `as`, `is`, `Kind`).
+- **Regression shape**: build each input with a def (`t()`) and call it once per run: a frame is
+  consumed by the eager run and by each lazy env (`R.env1("t", t())`); the Source plan comes from
+  `R.src("t", t())` (Plan is Data, so `+p` reuses it). `R.three(tag, eager, plan, env, env)`.
+- **Expectation blocks are generated**, not typed: `bench/contract/regress_expect.py` has one spec per
+  file; `--write` replaces everything from the first `#|` line down. Python must open the .bend files
+  with `newline=""` (universal newlines turn a CR inside an expectation into LF). CSV text is printed
+  through `Dump.quote` so no raw CR/TAB ends up in a test file.
+- Every printed block must end in `\n` so `IO.print` leaves the blank separator line the generator
+  emits (`R.schema`, `R.render` add it).
+- **Pending tests can be type-checked** before their API exists: copy `src/` and `frame.bend` to a
+  scratch dir, append one-line stubs of the missing defs (`floor_div = Bin{Div}`, `try_cast = Cast`,
+  ...), copy the `.bend.txt` files to `<scratch>/tests/regress/*.bend` with `lib/`, and run
+  `bend --check-only`. All ten pending files pass that check.
+- A negative proof fixture (`SOME PROOFS FAIL`) passes `scripts/test.sh` but fails `make check`
+  (`--check-only` exits 1), and its expected text includes the source excerpt around the failing
+  line: keep a blank line after the def, or the excerpt quotes the `#|` block itself.
+- Polars 2.0.0 quirks met while deriving expectations: a header `"c""d"` reads back as `c""d`;
+  `"+5"` casts to u32 5 (the contract refuses it); f32 `sum([1e8, 1, -1e8])` is `0.0` eagerly while
+  Neumaier gives 1.0; `MIN // -1` is MIN; a quoted `""` makes an inferred column str.
+- NaN bits in expectations are the interpreter's on this machine (arm64: `0/0` and `inf - inf` give
+  `0x7fc00000`). x86-64 produces `0xffc00000` for invalid operations; if CI on Linux x86-64 runs the
+  test suite, NaN-producing cases (B03-a/b/c/f/n, as dump_basic already) may need a NaN-canonicalising
+  dump comparison.
