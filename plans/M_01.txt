@@ -1,0 +1,434 @@
+M_01: bend-frame v0.1 release plan (combined)
+2026-10-08. Merged from M_01_FABLE.txt and M_01_ASTRA.txt by Fable 5.1.
+Baseline: commit 59e7b83 (proofs pass --verdict; `make verdict` exists). Bend 2.0.36,
+Polars 2.0.0, Lean 4.34.0. Every runtime bug named below was reproduced on this machine.
+
+=====================================================================================
+0. Objective and permitted claims
+=====================================================================================
+Ship a small, bounded, Bend-native dataframe library for CSV ETL (load, clean,
+derive, combine, aggregate, sort, export) with five nullable dtypes, an explicit
+compatibility contract with Polars 2.0, and proofs that cover the code that runs.
+
+Release claim (the only one the README may make):
+  "A small Bend-native dataframe library with tested ETL operations, verified core
+   buffer operations and evaluator typing, and a result-preserving default optimizer
+   under documented input and runtime assumptions."
+Not claimed: Polars compatibility, a verified engine, verified sort/group/join
+partitioning, CSV completeness, floating-point accuracy, native runtime correctness.
+
+Gates (all must hold; details in section 8):
+  G1 no known wrong result in the shipped subset
+  G2 eager, raw-lazy and optimised-lazy agree on every admissible program, including
+     errors and row order; collect_schema predicts static errors and only those
+  G3 a typed differential suite (Bend vs Bend, Bend vs Polars, reductions vs a
+     high-precision reference) and CI that runs tests, proofs and --verdict
+  G4 the minimum API of section 2, eager and lazy, with one contract
+  G5 a string-representation experiment completed with a measured decision
+  G6 the default optimizer's result-equivalence theorem over the production runner
+     passes --verdict; buffer/column/evaluator value laws exist as scoped in section 6
+  G7 README, limits, benchmarks and the laws paragraph are truthful
+
+Out of scope (one README line each): F64/I64/U64, dates, lists, structs, Map,
+window/over, rolling/cumulative, explode/pivot, regex, full/cross/asof/non-equi
+joins, Parquet/IPC/SQL, streaming/out-of-core, GPU, automatic parallel scheduling,
+the Explorer API.
+
+=====================================================================================
+1. Where the two plans disagreed, and what this plan does
+=====================================================================================
+  Topic              Fable plan                 Astra plan                 Decision
+  -----------------  -------------------------  -------------------------  -------------------------------
+  Proof target       list-based reference      production runner via an   Astra. Theorems quantify over the
+                     model, bridge later       observer; no unproved      production Exec; a specification
+                                               model bridge               function is allowed only with a
+                                                                           proven refinement lemma per operator
+  Optimizer scope    keep 4 passes, prove       default = certified        Astra. `optimize` ships the certified
+                     what can be proven         fragment, identity         fragment; `optimize_full` is opt-in
+                                               elsewhere                  and excluded from the guarantee;
+                                                                           its cost is measured and reported
+  Integer division   div F32-only, floordiv     same, floor_div rounds     Astra's rounding (floor, like Polars
+                     truncating                 toward -inf, mod matches   `//`), null on zero and MIN/-1
+  Casts              lenient (null)             cast strict + try_cast     Both. cast errors, try_cast nulls;
+                                                                           fallibility analysis bars rewrites
+  F32 group sums     keep sequential add        shared compensated policy  Astra. Neumaier with a non-finite
+                     (matches Polars lazy)                                 guard everywhere; goldens checked
+                                                                           against an f64 reference with ULP
+                                                                           tolerance, not Polars bit parity
+  Strings            dictionary for all Str,    Raw + Dictionary variants, Astra's structure, both gates:
+                     gate 3x                    threshold, gate 1.5x       integrate at >=1.5x and no control
+                                                                           regression; 3x is the target
+  Full join, top-k   in v0.1                    deferred / optional        Deferred. semi/anti/concat stay in
+  String.eq lemma    prove, else parametrise,   prove or change the        Prove first (spike); else switch the
+                     else an open law file      runtime equality; no axiom runtime lookup to a provable local
+                                                                           equality. No axiom, no open law
+  Milestone shape    parallel tracks, agents    serial M0..M6, no agents   Serial spine M0 -> M1 -> M2 (proof
+                     per track                                             feasibility checkpoint), then API,
+                                                                           strings and proof closure in parallel
+                                                                           with a representation freeze; agent
+                                                                           allocation kept as guidance
+  Coverage metric    def-call coverage script   API coverage matrix        Both: matrix is the gate, script is
+                                                                           a report
+
+Both reviews' findings are inputs; both sets of optimizer traps become permanent
+tests. The earlier "keep the weaker sum for golden parity" decision is reversed.
+
+=====================================================================================
+2. Contract: minimum API and exact semantics (freeze before implementing)
+=====================================================================================
+2.1 Surface. Every table verb exists eagerly and lazily with the same data semantics.
+  Construction   checked nullable columns, dtype/scalar builders, typed null literal,
+                 clone, schema and height access, DF.then / DF.then_io (and_then on
+                 ResT), DF.show for a Plan
+  Sources        Env with several named frames; a name may be used more than once
+                 in a plan (self-join) -- Exec counts uses and clones all but the
+                 last; validate_bindings(plan, env) checks presence and schema
+  Selection      select, with_columns, filter, head, sort (existing); drop, rename
+                 (simultaneous, collisions are errors), slice(offset, len) with
+                 clamping and overflow-safe arithmetic, tail (from height and slice)
+  Combination    inner, left (existing); semi, anti (left columns only, each left
+                 row at most once, null keys never match); concat_vertical (identical
+                 ordered names and dtypes, input order kept; no diagonal/union)
+  Distinct       unique(subset, keep=first, stable); equality identical to group_by's
+  Aggregation    nine reducers (existing) plus std, var, median (already computed by
+                 describe); global reductions allowed in select / with_columns /
+                 filter, eager and lazy; grouped aggregations stay Alias*(Agg{op,
+                 row-wise e}); sum(x)/sum(y) is two named aggs then with_columns
+  Expressions    cast (strict: first invalid valid cell is an error) and try_cast
+                 (null); div F32-only; floor_div and mod on same-type integers;
+                 when(cond).then(a).otherwise(b); is_in(same-dtype literal list);
+                 is_between(lo, hi, closed); abs, sqrt (exist); clip(lo, hi)
+  Strings        len_chars (code points), contains_literal, starts_with, ends_with;
+                 case-sensitive, no regex, no normalisation
+  IO             read_csv / scan_csv / write_csv with explicit schema and options
+                 through the facade; quoted empty string preserved; scan reads a
+                 bounded prefix (64 KB + infer_rows) to infer, collect reads once
+  Introspection  collect_schema, explain, optimize / optimize_full, structured
+                 errors, documented limits
+
+2.2 Behavioural decisions.
+  a Names and dtypes: no implicit coercion; output order and duplicate-name errors
+    are deterministic. group_by, unique and joins answer in first-appearance /
+    left-row order; maintain_order=False is accepted and still returns that order.
+  b Cardinality: select([]) -> (0,0) in both APIs. select of only literals or only
+    global reductions -> one row, also on zero-row input (Polars). A selection with
+    a full column broadcasts scalars to the input height. with_columns keeps the
+    height. filter evaluates reductions over its full input before filtering. A
+    scalar predicate broadcasts. Row preservation is a proven analysis result
+    (section 6, P2), never inferred from "no Agg node".
+  c Integers: add/sub/mul wrap modulo 2^32 (documented). div requires F32 (cast
+    first). floor_div rounds toward -inf; mod has the sign of the divisor
+    (consistent with floor_div, Polars `//` and `%`); by zero -> null; I32
+    MIN floor_div -1 -> null, mod -> 0. F32 division keeps IEEE inf/NaN.
+  d Casts: cast checks every valid cell and reports the first failure as
+    InvalidOperation; try_cast nulls failing cells. Non-finite F32 -> integer
+    fails; finite floats truncate toward zero then range-check with bounds that
+    are exact in F32 near 2^31 and 2^32. Signed/unsigned range checked. No bit
+    reinterpretation under the name cast; lit_i32 takes a checked I32 built by
+    I32.checked(v) -> Result; an explicit I32.from_bits exists and is named so.
+  e Floats: one comparison relation shared by eq/ne/lt/le/gt/ge, sort, group_by,
+    unique, is_in and join keys: Polars total order (NaN greatest, NaN == NaN,
+    -0.0 == 0.0). Validity stays separate from NaN. One accumulation policy for
+    F32 sum/mean/std/var: Neumaier compensation while the partial sum is finite,
+    plain IEEE add once it is not; specified reduction order; integer means are
+    F32 and documented as such.
+  f Errors: collect_schema predicts static schema and type errors, not IO, data-
+    dependent cast failures or Env bindings; validate_bindings covers bindings.
+    README stops saying "collect refuses exactly what collect_schema refuses".
+  g Limits: a checked maximum of 2^23 rows per materialised frame, enforced at
+    every allocation path (parse, concat, join output, group_by output) with an
+    InvalidOperation; tested through the guard, not by allocating 8M rows.
+    Kernel.depth_for alone is not a guard.
+
+=====================================================================================
+3. Fixes before expansion (all are release blockers)
+=====================================================================================
+Commit failing regression tests first (tests/regress/*.bend, each run eager, raw
+lazy and optimised lazy where applicable), then fix by group:
+  B01 Cardinality: head(0) above a literal-only select (optimised result has a
+      row); lazy select([]) keeps the input height; constant predicate over a
+      literal projection; zero-row inputs; reductions and broadcast. Opt.head
+      sinks only below nodes the analysis (P2) certifies as height-preserving;
+      until P2 exists, only below Select/WithColumns whose list is non-empty and
+      reads at least one column.
+  B02 CSV: quoted empty string vs null on read and write (parser result must carry
+      quotedness: fork the hub parser into src/csvparse.bend); separators, escaped
+      quotes, multi-line fields, blank records, non-ASCII, explicit dtypes. No
+      inference round-trip claim for numeric-looking strings.
+  B03 Numerics: NaN comparisons (raw IEEE today) -> shared relation; mean of
+      [inf, 1] is NaN (Kahan inf - inf) -> guarded accumulation, both orders,
+      opposite infinities, all-null groups, cancellation; integer div/mod by
+      zero give 0 / the dividend -> null; F32 -> U32 of negatives, huge or NaN
+      gives 0 -> cast error / try_cast null; lit_i32 >= 2^31 silently negative.
+  B04 Sources and contracts: a Source used twice fails at collect although
+      collect_schema passes (self-join) -> use counting and cloning; two-source
+      environments; missing or duplicate bindings; frozen scan schema vs a changed
+      file (error text names the file); eager vs lazy aggregation acceptance -> the
+      2.2b contract in both.
+  B05 Verification harness: bench/check.py compares typed cells (ints, bools and
+      strings exact, floats with explicit NaN/inf handling and ULP tolerance), uses
+      the csv module, exits 1 on any mismatch; scripts/bench.sh loses every
+      `|| true` on the correctness path and fails on a missing output; comparator
+      regressions 100000 vs 100001 and NaN vs an integer are kept as tests; the
+      stale Kahan comments are corrected.
+Also in this group: README "Differences from Polars" gets the right-key drop in
+joins, u32 wrap-around, F32 integer means, the compensated-sum policy, the row
+cap, scan_csv's real IO behaviour.
+
+=====================================================================================
+4. Tests and CI
+=====================================================================================
+Build the test infrastructure before the API expansion.
+  T1 Typed oracle: DF.dump(frame) -> text with dtypes, ordered names, height,
+     validity, and cells; F32 as hex bits (NaN and -0.0 distinguishable), empty
+     string distinct from null. All differential tests compare dumps, not CSV.
+     The comparator is itself tested with intentional mismatches.
+  T2 Three comparisons, each with its own purpose and tolerance:
+     1 eager vs raw-lazy vs optimised-lazy: exact dump equality including errors
+       and row order, no float tolerance;
+     2 Bend vs pinned Polars 2.0.0: compatibility cases with explicit dtypes and
+       order options; intended departures (F32 means, division, wrap-around, API
+       limits) are applied by an independent oracle, never by blanket ignores;
+     3 F32 reductions vs an f64/decimal Python reference over the exact F32
+       inputs: calibrated ULP/absolute checks, specials and cancellation apart.
+  T3 Generator (bench/diff/gen.py, seeded): small typed frames (0..64 rows,
+     biased to 0, 1, 2^k-1, 2^k, 2^k+1 rows; null rates 0/10/50/100 %; NaN, -0.0,
+     inf, empty strings, duplicate keys, repeated names and aliases) and well-typed
+     expression/plan trees of bounded depth over the shipped surface; invalid
+     programs generated separately for error-path agreement. Emitted as
+     tests/diff/dNNNN.bend (facade only) with expectations from Polars or the
+     reference; failures shrink to a permanent minimal regression.
+     Budgets: per change, regressions + 1,000 generated cases incl. the native
+     backend; scheduled/release, 10,000+ cases over several seeds and deeper plans
+     plus join cardinality and Raw/Dictionary variants.
+  T4 Hand suites still missing: optimizer boundaries (both reviews' traps), non-
+     finite values through every comparison and reduction, CSV null-vs-"" round
+     trip, write_csv quoting, high-cardinality joins and group_by (10k keys),
+     repeated executions and peak RSS, the row-cap guard.
+  T5 Proof gates: `make proofs` and `make verdict` on pinned toolchains; negative
+     fixtures in tests/proof_negative/ expecting SOME PROOFS FAIL; mutation runs
+     on disposable copies of real code (wrong gathered index, flipped mask, wrong
+     head rule, bad dictionary remap): the associated value/optimizer theorem must
+     fail. Falsifying only a theorem's right-hand side tests the checker, not
+     that the theorem constrains production code.
+  T6 Public-API coverage matrix: every released operation has success, null,
+     empty, invalid-input and eager/lazy cases. A def-call coverage script over
+     src/ is reported, not gated.
+  T7 Makefile `make ci` = check (incl. frame.bend, examples, bench/*.bend) + test
+     + proofs + verdict + bench-check (1k and 100k correctness, under a minute).
+     .github/workflows/ci.yml on macOS and Linux with Bend 2.0.36, Lean 4.34.0
+     via elan (cached), uv with Polars 2.0.0, all pinned; drift fails the build.
+
+=====================================================================================
+5. Strings: a bounded experiment with an integration gate
+=====================================================================================
+Representation: one Str column abstraction with two storage variants.
+  Raw         logical length + validity + Array<String>              (today)
+  Dictionary  logical length + validity + Array<U32> codes + Dict{strs: Array<String>,
+              index: Map<String, U32>, tag: U32 identity}
+Dtype stays Str; codes are internal, never a categorical dtype, a lexical rank or a
+globally meaningful id. Invariants: every valid code in range; null is validity,
+never a dictionary entry; cell/clone/head/slice/gather/filter/concat/render decode
+to the same values as Raw.
+Operations: equality against a literal codes the literal once; equality between
+two columns compares codes only under the same tag, else re-codes the smaller
+dictionary into the larger; ordering (sort, min/max, lt) maps codes through a
+rank array computed by sorting the dictionary once; group_by on codes; joins build
+the hash table over the right dictionary and probe with the left dictionary, then
+join on remapped codes; string predicates run over dictionary entries and gather
+by code. Dictionary merging is explicit in concat and join output.
+Encoding decision: at parse time by measured cardinality (encode when distinct /
+rows is below a threshold found by measurement, not the benchmark's 8 regions);
+Raw remains the high-cardinality fallback; selection must not rescan the column.
+CSV: src/csvparse.bend parses line by line, codes Str cells as they are produced,
+parses numbers from the field, reads the file in 1 MB chunks (File.read_at) so no
+1M-row cons-list intermediate exists. Report honestly any transient full-string
+materialisation that remains.
+Measure, native, 1 and 12 threads, medians and spread over 5 processes: 1k/100k/1M
+rows; 8, 64, 1,000 and near-N distinct strings; short/long, shared prefixes,
+Unicode, nulls, empty strings; q1/q3/q4/q5 and isolated encode/gather/sort/group/
+join; CSV read and scan+collect end to end; render; input destruction; peak RSS
+and repeated-query memory; different code assignments for equal values on the
+two join sides.
+Gate: >= 1.5x median on representative low-cardinality workloads, no material
+memory regression, no > 15 % median slowdown on numeric or high-cardinality
+controls. Target: 3x on q1/q3/q5, 41 MB parse under 1.5 s. If the gate fails,
+ship Raw by default and Dictionary opt-in; the release is not blocked by a
+failed optimisation, only by an incorrect default. If Dictionary ships by default
+its decode-preserving kernel lemmas join the production proof chain (P1).
+Optional afterwards: sort+head gathers only the first k rows after a full argsort
+(not a new top-k algorithm), behind a proof before the default optimizer uses it.
+
+=====================================================================================
+6. Proofs: the production code, then the optimizer
+=====================================================================================
+Target theorem (schematic):
+  for an admissible plan p and well-formed, validated bindings e,
+  obs(Exec.run_pure(Optimize.release(p), e)) == obs(Exec.run_pure(p, e))
+where obs reads dtypes, ordered names, height, validity and cells (F32 as bits,
+with canonicalisation only where the API specifies it) and semantic errors.
+Affine arrays are handled with the Sigma-witness pattern already in PROOF.bend;
+bindings are observed through clones, never consumed twice.
+
+Rule for every theorem: it references production functions, or a specification
+function tied to one by a proven refinement lemma. No second engine whose
+agreement with Exec is only tested. Executable spec helpers (a list-based
+Ref.filter, Ref.head, ...) are permitted exactly as the right-hand side of such
+lemmas (e.g. obs(Eval.filter(f, e)) == Ref.filter(obs f, e)), and ref_agrees
+tests run them against Exec on the generated suite as a sanity check, not as
+the proof.
+
+P0 Foundations
+  - WellFormedArray(a, d): balanced at the expected depth; capacity in Nat or a
+    bounded conversion, never an unconstrained wrapping U32.
+  - WellFormedColumn: length <= capacity, mask capacity matches, mask entries in
+    {0,1}, null slots hold the default, valid dictionary codes, dtype/storage
+    agreement. WellFormedFrame: equal lengths, unique names, the zero-column
+    convention. Smart constructors establish these; every verb preserves them.
+    Raw constructors are documented as unsupported if Bend cannot hide them.
+  - Name equality: spike (1 day) a proof of String.eq reflexivity and soundness
+    through String.order / Char.is_eq / U32.is_eq with Base's Word lemmas. If it
+    closes, use it. If not, replace the runtime lookup (Names.has, Schema.find,
+    Opt.rename) with a local structural Str.eq over Chars that is provable and
+    prove it; the runtime and the proof use the same function. No axiom, no
+    open law, no proof-only equality.
+P1 Real buffer and column contents
+  - Kernel.map/zip: output slot i equals f of input slot(s) i for i < n, proven
+    with Array.get/set semantics (Base lemmas, or local structural ones).
+  - iota, gather: output[i] == input[index[i]] with indexes proven in range (no
+    reliance on Base's wrapping).
+  - compact/filter: the output is the order-preserving subsequence with mask 1
+    and the count is its length; data and mask stay aligned.
+  - Column.head/slice: dtype and the exact prefix/subrange of cells.
+  - Validity combinators, fill_null, when: exact cells and truth tables, incl.
+    nullable boolean filter masks.
+  - Dictionary encode/decode/remap preserve the decoded Str cells (if shipped).
+  - One substantive reduction: the production U32 fold is modulo-2^32 summation
+    of the valid cells; the grouped scatter accumulator's per-group invariant for
+    count and U32 sum given valid group ids (labelled as such: grouping's
+    partition correctness is not claimed until Grp.encode/first-occurrence are
+    connected).
+  Not v0.1 proof deliverables: floating error bounds, hash-join and radix-sort
+  correctness, CSV. These stay tested and are listed as such.
+P2 Expression analysis and the real executor
+  - One shared analysis for Plan and Eval: dtype, refs, row-wise vs scalar vs
+    reduction, and fallibility (strict cast, range checks). Prove the analysis
+    sound for what it authorises (conservative is fine). This replaces the
+    "no Agg node means row-wise" inference that B01 disproved.
+  - Typing soundness of the real evaluator: for a well-typed row-wise e over a
+    well-formed f, Column.dtype(Eval.full(f, e)) is the typed dtype and its
+    length is the height; by induction over the postfix code with a stack
+    invariant. Then scalar broadcasting and filtering via the P1 kernels.
+  - Factor Exec into IO source materialisation plus a pure physical runner
+    (Exec.run_pure); production collect calls that runner. Prove Exec.compile
+    plus the stack loop implement the certified plan fragment (stack shape and
+    order invariants, real operator calls). One runner, not two.
+  - Prove clone and source lookup preserve obs; bindings are validated before any
+    rewrite can remove a check.
+  IO boundary: quantify over snapshots after validated reads. Deterministic
+  capacity errors are part of obs; a rewrite must preserve them or be barred.
+P3 Certified rewrite rules, against the production runner
+  R1 adjacent Head merge (min, incl. 0 and empty inputs)
+  R2 adjacent Filter merge: total row-wise predicates, Kleene null-drop, stable
+     order; reductions and fallible predicates excluded
+  R3 Head through a proven height-preserving total row-wise Select/WithColumns;
+     literal-only, empty and reduction nodes are barriers
+  R4 predicate pushdown through plain Col/Alias projections and independent
+     row-wise WithColumns, under proven rename and totality conditions; constant
+     predicates and zero-row inputs covered. Sort commutation included only if
+     its stability lemma over the production sort closes; else a barrier
+  R5 column pruning through certified row-wise nodes, keeping dependencies,
+     names/order and a height carrier; a fallible unused expression is never
+     dropped
+  New hazard, enforced by the fallibility analysis: strict casts make merge and
+  head sinking unsound (a removed row or a row past the limit could now fail).
+  Both rewrites apply only to expressions the analysis marks total.
+  Composition: well-formedness and preconditions preserved between passes;
+  Optimize.release composes exactly the enabled order. Uncertified nodes
+  (sort movement, join and group_by projection pushdown, unique/concat/semi/
+  anti) are left unchanged by the default optimizer, no recursion inside them
+  assuming extensionality. optimize_full keeps today's four passes, opt-in,
+  excluded from the guarantee; the performance cost of the reduction is
+  measured and reported in bench/README.md.
+Housekeeping: split PROOF.bend into PROOF_schema/expr/plan/kernels/exec files
+with one PROOF.bend importing all; an assurance matrix in DESIGN 8 mapping
+theorem -> production function -> assumptions -> checker status.
+
+=====================================================================================
+7. Milestones
+=====================================================================================
+Spine: M0 -> M1 -> M2 (checkpoint). After M2, M3 (API) and M4 (strings) run in
+parallel with M5 (proof closure); the string representation is frozen before M5
+closes. M6 last. Agent guidance: fable for contract, analysis design and P2/P3;
+opus for cross-module semantic changes (B04, Exec factoring, joins, dictionary
+integration); sonnet for kernels, parser, generator, P1 lemmas; haiku for facade
+wrappers, docs, scaffolds. Every PR from a smaller model gets a diff review by the
+next model up (the head(0) and NaN bugs are the kind a second reader catches).
+
+M0 Contract, baseline, trustworthy runner           (~2 days)
+   Deliver: section 2 tables in DESIGN.md; failing regressions for B01-B05
+   (both reviews' probes imported); DF.dump and the typed comparator; pinned
+   Bend/Base/Lean/Polars; immutable bench inputs and a measured baseline incl.
+   peak RSS; `make ci` skeleton and the CI workflow.
+   Exit: tests expose every known defect; current passing behaviour recorded.
+M1 Correctness repair and shared analysis           (~4 days)
+   Deliver: B01-B05 fixed; row-cap guards; source reuse and Env facade;
+   cast/try_cast and the numeric policy (2.2c-e); the shared expression
+   analysis; unsafe rewrites disabled until certified (Opt.head restricted,
+   fallible expressions as barriers); README differences list.
+   Exit: all regressions green; first 1,000 generated comparisons pass (T2.1,
+   T2.2); bench-check fails on mismatch.
+M2 Proof feasibility and production foundation      (~4 days, checkpoint)
+   Deliver: P0 invariants; the name-equality decision executed; gather and
+   compact content proofs; Exec.run_pure factoring; R1 proven end to end
+   against the runner; one code mutation that breaks it; --verdict green.
+   Exit: a complete small chain real code -> optimizer theorem exists and is
+   witnessed. If this cannot be established, report it and revise the release
+   claim (G6) openly; do not add schema laws and call the optimizer proved.
+M3 Minimum API                                      (~5 days)
+   Deliver: section 2.1 in groups: facade sugar (then, drop, rename, slice,
+   tail); global reductions and when/is_in/is_between/clip; concat; unique,
+   semi, anti; string functions. Each new node: schema, analysis, compile,
+   eval, explain, barrier rule, eager+lazy tests, a generator production.
+   Exit: three end-to-end examples without src/ imports: sales summary;
+   dirty-CSV cleanup with try_cast and when; dedupe plus semi/anti join.
+M4 String experiment                                (~5 days)
+   Deliver: Raw/Dictionary columns behind an option; csvparse; decode-
+   equivalence tests; the section 5 measurement set; an integrate-or-defer
+   decision with numbers; representation frozen at the end.
+   Exit: documented measured outcome; default chosen by the gate.
+M5 Production proof closure                         (~6 days)
+   Deliver: P1 and P2 lemmas as scoped; R2-R5; the composition theorem for the
+   exact release optimizer; dictionary lemmas if shipped; proof file split;
+   assurance matrix; mutation fixtures.
+   Exit: both checkers green; targeted production mutations fail.
+M6 Release candidate                                (~2 days)
+   Deliver: 10,000-case differential run; 1k/100k/1M validation of q1-q6 plus
+   high-cardinality and repeated-query workloads; re-measured bench table;
+   README, examples, limits, CHANGELOG; clean-consumer test: publish to a
+   throwaway hub name from a clean clone, import it from another directory,
+   run the quickstart; then the exact artifact for bend-frame@0.1.0.0.
+   Exit: section 8 complete. Publication is a separate explicit action.
+
+Under scope pressure, cut in this order: top-k and parallel kernels; the
+Dictionary default (ship opt-in); optional API beyond 2.1. Never cut the typed
+oracle, the bug fixes, the production refinement links or the default-optimizer
+equivalence claim to keep a longer verb list.
+
+=====================================================================================
+8. Definition of done
+=====================================================================================
+  [ ] every defect from both reviews has a regression test and a disposition
+  [ ] section 2 API and semantics implemented, eager and lazy, documented
+  [ ] eager / raw-lazy / optimised-lazy agree on the full test matrix
+  [ ] correctness failures fail the build; the benchmark cannot hide a mismatch
+  [ ] the default optimizer's production result-equivalence theorem passes
+      --verdict, with non-trivial R1-R5 applications tested and witnessed
+  [ ] production map/zip/gather/compact/head/mask and reduction proofs exist as
+      scoped; the shipped string representation is covered
+  [ ] no theorem relies on an unproved runtime-to-model bridge, an assumed
+      conclusion, or an alternative implementation
+  [ ] string experiment completed; the default is justified by measurements
+  [ ] limits, F32 accuracy, parse behaviour, source ownership and benchmark
+      headlines are truthful in README and bench/README.md
+  [ ] clean consumer import, build and examples work on pinned toolchains

@@ -1,0 +1,516 @@
+BEND-FRAME — INDEPENDENT DELIVERY REVIEW
+8 October 2026
+Reviewed commit: 03add53955b4d1f1521d56bf1098aa75b5ca00c3 (M8: README)
+
+Verdict
+=======
+
+This is a working, substantial experimental dataframe engine. It is worth
+continuing as a small native Bend library and a formal-methods experiment.
+It is not close to a Polars or Explorer replacement, and I would fix the
+confirmed wrong-result bugs before publishing even an advertised usable alpha.
+
+The implementation is more credible than a demonstration assembled around six
+queries: it has actual column buffers, validity masks, expression evaluation,
+radix sorting, grouping, joining, a logical planner, and error handling. The
+tests and proofs are real. However, passing them substantially overstates the
+confidence one should have in general dataframe correctness. I reproduced
+several failures outside the supplied examples, including an optimizer bug
+that survives the existing optimizer proofs.
+
+The right public description would be "an experimental, deliberately limited
+Polars-inspired dataframe library for Bend, with selected machine-checked
+structural properties." Neither "Polars port" nor "verified dataframe engine"
+adequately communicates its present limitations.
+
+1. What I actually verified
+==========================
+
+I inspected the implementation, public facade, test runner, tests, laws and
+proofs, and benchmark machinery. Findings below are grounded in my own source
+inspection and local executions, not delegated review conclusions.
+
+Environment: Bend 2.0.36 (reported by its help), locally installed Polars 2.0.0.
+
+  Check                                      Result
+  -----------------------------------------  ----------------------------------
+  scripts/test.sh                            39 / 39 pass
+  make check                                 All 53 src/test files checked
+  bend frame.bend --check-only                Pass
+  bend examples/quickstart.bend               Runs; expected four-row table
+  bend PROOF.bend                             ALL PROOFS CHECK
+  bend PROOF.bend --verdict                   Blocked: Lean executable missing
+  Fresh Polars tiny goldens                   All six match tracked CSV files
+  Fresh native Bend build, six 1,000-row       q1/q2/q4/q5/q6 byte-identical;
+    queries against fresh Polars output       q3 has five differing sum cells
+  Adversarial correctness probes             Failures detailed below
+
+The 1,000-row q3 differences are consistent with the documented accumulation
+issue: for example, 1457693.2500 versus Polars' 1457693.6250. The table checks
+rendered CSV, whose floats have four decimal places, not bitwise equality of
+all internal values or equality of output dtypes.
+
+I did not rerun the full 100k/1M performance matrix, verify GPU execution,
+install Lean, publish a package, or test a clean hub installation. The 1M
+timings and error figures discussed later are delivered measurements, not
+freshly reproduced performance results. The native 1k smoke run uses single
+measurements with a millisecond clock and is not a new performance benchmark.
+
+2. Test coverage: useful breadth, insufficient combinations
+==========================================================
+
+There are 39 test PROGRAMS, all with expected output, comprising 4,698 lines.
+That is not merely 39 assertions: individual programs print many cases. The
+implementation under src/ is 8,184 lines, excluding the facade and 1,632 lines
+of laws/proofs. These are raw line counts, including comments and whitespace.
+
+Good coverage exists for:
+
+  - Column construction, lengths, names, masks, frame operations and kernels.
+  - Arithmetic, casts, null propagation, three-valued boolean logic, errors,
+    expression typing, and eager aggregation behavior.
+  - CSV quoting, escaped quotes, multiline fields, CRLF, ragged rows, explicit
+    types, inference, file IO, formatting and selected round trips.
+  - Multi-key/stable sorting; negative integers; nulls, NaNs, signed zero and
+    infinities in sorting; NaNs and signed zero in grouping/join keys.
+  - Grouping, nine reductions, all-null and empty cases, duplicate join keys,
+    unmatched rows, output collisions, and empty join sides.
+  - Schema errors, optimizer examples, execution versus optimized execution,
+    the public facade, and six end-to-end reference queries.
+
+In particular, tests/plan_optimize.bend compares both results and schemas for
+several plans. That is a good testing technique; it just needs far more cases.
+
+Missing or weak coverage:
+
+  - No measured line or branch coverage. A defensible coverage percentage
+    cannot be inferred from file counts or the fact every module has tests.
+  - No general randomized differential test suite against Polars, generated
+    expression/plan trees, systematic dtype/operator cross-product, or mutation
+    testing. Seeded benchmark data is not a substitute for those.
+  - Optimizer boundaries: literal-only and empty projections, head(0), empty
+    inputs, alias combinations, and multiple interacting passes.
+  - Consistency between eager, unoptimized lazy, and optimized lazy execution.
+  - Nonfinite values through comparisons and reductions, despite good tests
+    of those values in sort/group/join keys.
+  - Semantic CSV round trips that distinguish null from empty string.
+  - High-cardinality/adversarial joins and grouping, memory use and repeated
+    executions, rather than mostly the low-cardinality benchmark workload.
+  - An independent proof-kernel gate and automated CI. I found no checked-in
+    CI workflow. make check does not include the root facade or proofs target;
+    these should be explicit release checks.
+
+scripts/test.sh compares normalized text: trailing whitespace and outer
+whitespace are trimmed, stdout/stderr merged. This is reasonable for snapshots
+but is not a byte-exact oracle for CSV or string values. Most expected output
+is maintained alongside the code; only a small part is independently generated.
+
+The benchmark's correctness check has important false positives and ignores
+failure status; see finding F below. Its green output is not a release gate.
+
+3. Confirmed bugs and contract problems
+======================================
+
+A. High priority: head pushdown changes a query's result
+------------------------------------------------------
+Locations: src/plan.bend:502-511; src/eval.bend:1230-1233.
+
+Take a nonempty input t and the plan:
+
+  Head{0, Select{[Alias{Lit{SU32{1}}, "one"}], Source{t, schema}}}
+
+Unoptimized execution: h=0, one:u32=[]
+Optimized execution:   h=1, one:u32=[1]
+Polars equivalent:    zero rows.
+
+Opt.head pushes a limit below EVERY Select. A literal-only select creates a
+one-row result even from an empty input, so moving head(0) beneath it removes
+the limit on the newly created row. I reproduced this with both the ordinary
+Bend run and a freshly compiled native executable.
+
+Both schemas are one:u32. The existing head-pass schema theorem remains true!
+This is a concrete demonstration of the gap between schema preservation and
+query equivalence, not evidence that Bend's proof checker is unsound.
+
+Fix: make row cardinality part of optimizer reasoning. Only sink limits
+through expressions known to preserve the relevant row semantics, or retain
+the outer limit when necessary. Add literal-only/empty select and head(0)
+cases to optimized-versus-unoptimized tests before adding further rewrites.
+
+B. High priority: CSV loses the distinction between empty strings and nulls
+-------------------------------------------------------------------------
+Locations: src/csv.bend:151-163, 489-497, 506-516.
+
+Input, with a quoted empty string on the first data row:
+
+  a,b
+  "",x
+  ,z
+
+Bend produces a:str=[null, null]. Polars 2.0.0 produces ["", null]. Bend
+renders the first row back as ,x, losing the original distinction. Independently,
+Csv.cell sends SStr{""} through Csv.quote, which emits an unquoted empty field;
+SNull{} emits the identical representation. Fixing just reading or just writing
+will therefore not establish a round-trip guarantee.
+
+This can change counts, grouping, joins and filters after IO. Preserve quoted
+field information in parsing and quote valid empty strings on output. The Base
+CSV parser interface used here returns strings, so a parser/interface change
+may be needed to retain that information.
+
+C. Medium priority: group mean of [infinity, 1.0] is NaN
+------------------------------------------------------
+Locations: src/groupby.bend:344-350, 510-513.
+
+For one group g=1 with F32 values [+infinity, 1.0], Bend returns NaN; Polars
+2.0.0 returns +infinity. Confirmed in ordinary and native runs.
+
+The Kahan compensation computes infinity - infinity and becomes NaN; the next
+finite value contaminates the sum. Compensation alone is not an IEEE-special-
+value policy. Handle infinities/NaNs explicitly and test both row orders,
+opposite infinities, nulls and overflow. Audit the analogous eager reduction
+kernel too; the directly reproduced finding here is grouped mean.
+
+D. Medium priority: NaN comparisons disagree with Polars and key semantics
+------------------------------------------------------------------------
+Location: src/eval.bend:397-410; compare src/sort.bend:49-55.
+
+For F32 x=[NaN, 1.0]:
+
+  Expression     Bend            Polars 2.0.0
+  x == x         [false, true]   [true, true]
+  x > 0.0        [false, true]   [true, true]
+
+Confirmed in ordinary and native execution. Expression comparisons use raw
+IEEE predicates while sorting/grouping/join keys normalize NaNs and signed
+zeros into a total-order/key representation. This is an observable compatibility
+gap, not a floating-point rounding tolerance issue.
+
+Choose and document one contract. For Polars-like behavior, implement the
+appropriate NaN-aware comparison relation and test it across operators. Raw
+IEEE behavior can be intentional, but then compatibility claims must exclude it.
+
+E. Medium priority: empty projection differs between eager and lazy APIs
+----------------------------------------------------------------------
+Locations: src/exec.bend:116-131; src/column.bend:881-903;
+src/eval.bend:1254-1261.
+
+On the same valid six-row frame, eager select([]) returns height 0; lazy
+Select{[], source} returns height 6, with zero columns. Both unoptimized and
+optimized lazy execution exhibit this. Polars returns (0, 0) in both modes.
+
+The fast path considers the empty list to be "all plain columns" and invokes
+Frame.select_names, which retains the source height. Eval.select instead
+constructs an empty frame. Explicitly handle the empty selection or unify the
+two execution contracts. Test subsequent literals/with_columns as well, because
+a hidden height can become observable data later.
+
+F. Medium priority: benchmark validation can pass incorrect results
+-----------------------------------------------------------------
+Locations: bench/check.py:12-14, 32-44; scripts/bench.sh:55-59, 72-74.
+
+I ran these adversarial comparator cases:
+
+  Expected id 100001, actual id 100000 -> accepted at default tolerance.
+  Expected id 100001, actual nan       -> accepted, reported max rel diff 0.
+
+Every different parseable cell is treated as a float, including integers and
+numeric-looking strings. NaN makes the comparison rel > tolerance false. The
+CSV reader is split(',') rather than a CSV parser, so quoted commas/newlines
+also invalidate its interpretation. Its docstring promises exact integer/string
+comparison and still describes Kahan summation despite the changed grouped sum.
+
+Even a correctly reported mismatch is swallowed by "|| true" in bench.sh.
+Missing output and failed timing invocations are also allowed to continue.
+
+Fix: compare schemas and typed cells, enforce exact nonfloating equality,
+handle NaN/infinity explicitly, use a proper CSV parser or structured values,
+and make any missing output, mismatch or failed query fail the validation run.
+Keep exploratory timing collection separate from correctness gating.
+
+G. Documented/inferred behavior is inconsistent across APIs
+---------------------------------------------------------
+
+These are contract/coverage issues rather than all new runtime bugs:
+
+  - README says aggregations exist only inside group_by. Public eager select,
+    with_columns and filter call Eval directly (frame.bend:273-280), which
+    supports reductions and broadcasting. Lazy Plan.field/filter rejects
+    aggregation expressions (src/plan.bend:95-112, 153-163). Eager and lazy are
+    not interchangeable. The eager reduction implementation is also exercised
+    by tests/eval_agg.bend.
+  - Grouped aggregation expressions must split into a top-level reducer,
+    optionally aliased. Expressions such as sum(x)/sum(y), not just nested
+    reductions, are outside the accepted group_by surface
+    (src/groupby.bend:617-640). Nine reducer names do not mean the full Polars
+    aggregation expression API is implemented.
+  - README's scan_csv description implies a sample read. Actual plan creation
+    reads the whole file using File.size/File.read, then H.parse_sep parses it
+    before inference takes a prefix (src/plan.bend:814-835;
+    src/csv.bend:431-459). collect reads/parses it again. collect_schema itself
+    is pure once a plan exists; constructing that scan plan is not IO-free.
+  - Self-joins of the same in-memory Source fail because Env.take consumes it
+    once. This is explicit in src/exec.bend:12-15 and tested, but is a significant
+    usability constraint. The facade also offers only a limited environment-
+    construction interface; combining independently created sources is awkward.
+  - Integer division and remainder follow the local fixed-width/truncating
+    contract, and numeric casts include bit reinterpretation/unchecked
+    conversion behavior. They are not a general implementation of Polars'
+    strict cast and division semantics. See src/dtype.bend:160-179 and
+    src/eval.bend:613-648. Do not advertise equivalence from the function names.
+
+4. How much of the API is implemented?
+====================================
+
+A useful core slice, not most of either API.
+
+Implemented families: five nullable scalar dtypes; columns/literals/aliases;
+basic arithmetic/comparison/boolean/null expressions; projection, column
+addition, filtering, head, stable multikey sorting; grouping with nine reducers;
+inner/left equi-joins; describe/display; CSV IO; a small lazy plan language,
+schema inference, four optimizer passes and execution.
+
+The facade has 86 def declarations, but many are type aliases, literal builders,
+helpers, and eager/lazy wrappers over the same operation. Counting them as 86
+independent Polars features would be misleading.
+
+For scale, I introspected the installed Polars 2.0.0 public callable attributes:
+DataFrame 126, LazyFrame 82, Expr 212, Series 219, excluding underscore names.
+These counts exclude additional namespace methods and are NOT a compatibility
+denominator: one Bend wrapper may map to several options, and many Polars
+methods overlap. At the broad dataframe-operation level this resembles a
+roughly one-tenth-sized slice; that is an orientation estimate, not a measured
+completion percentage. There is no standalone comparable Series API here.
+
+Major absent families include 64-bit numbers and temporal/nested types;
+string/regex and datetime operations; selectors and conditional expressions;
+windows, rolling/cumulative computations; pivot/unpivot/explode; concatenation,
+deduplication and general slicing; richer joins; statistical reducers; Parquet,
+Arrow/IPC and other interoperability; streaming/out-of-core execution; and
+much of the optimizer/execution infrastructure. Some simple absent verbs can
+be expressed through select/filter; the absent execution/type families cannot.
+
+Explorer is itself a dataframe/series API backed by Polars. This repository
+does not port its Elixir API, backend protocol, or interchange ecosystem. It
+borrows the same dataframe model and implements a limited native Bend engine.
+Calling the original goal an experiment is accurate; calling it API parity
+would not be.
+
+5. Are the laws sane, substantive, or tautological?
+==================================================
+
+They are mostly sensible, genuinely checked claims about a narrow layer.
+They are not a proof of dataframe correctness.
+
+The 48 statements break down as follows:
+
+  5 schema operations; 20 expression/type/name properties; 9 plan-schema
+  properties; 7 optimizer schema/structural properties; 2 column-head metadata
+  properties; 3 kernel allocation-size properties; 2 I32 properties.
+
+Some are nearly definitional: alias_name, col_name, agg_is_agg, source_schema,
+and wrapping/unwrapping I32 bits. A reflexivity proof is appropriate when both
+sides reduce to the same term. These are low-information contracts, not fraud.
+They can detect accidental changes, but should not be counted as equivalent
+in assurance to a semantic optimizer theorem.
+
+Others involve real induction and connect to production functions rather than
+a disconnected model: successful schema projection preserves requested names
+and length; schema replacement/appending has the stated behavior; the merge
+pass removes adjacent filters and is idempotent; head/merge passes preserve
+schema under their stated conditions. For examples, see PROOF.bend:144, 172,
+576, 723, 771 and 843. The proof terms rewrite actual src definitions and use
+recursive hypotheses. They are not just testing 48 concrete examples.
+
+The successful-typing/projection hypotheses are legitimate preconditions,
+not obvious assumptions of the conclusion. Contradictory branches use
+constructor disjointness and Empty.absurd appropriately. I found no local
+@unsafe, sorry, or assumed conclusion bypass in the inspected proof/source
+files. That is not an audit of the entire Bend trusted implementation.
+
+The crucial missing claims are:
+
+  - Evaluating a well-typed expression actually produces the promised dtype,
+    cardinality, values and null mask, subject to explicit runtime errors.
+  - An optimized plan yields the same rows, order, values and errors as the
+    original, for valid environments and stable scan inputs.
+  - Filtering/gathering preserve the correct cells and masks; sorting is a
+    stable ordered permutation; grouping partitions rows correctly; joins
+    implement their matching/multiplicity/null contracts.
+  - CSV preserves the intended logical data; numeric reductions have a defined
+    accuracy and nonfinite-value contract.
+
+The discovered head(0) failure occurs in a pass whose schema theorem is already
+proved. It is therefore incorrect to suggest that completing the other two
+schema proofs would certify optimizer correctness.
+
+Kernel laws deserve particularly careful wording. They show the output retains
+the allocation-size measure Laws.slots, not that map/zip compute the right
+elements or that indexes are in bounds. slots doubles the left subtree's size,
+matching Base Array.size; it is not a general leaf count for arbitrary ragged
+Array trees. The equality uses U32.shln(1,d), not an unbounded natural-number
+cardinality, and has no depth bound. For normal balanced representable arrays
+the interpretation is useful, but "exactly 2^d slots" omits those assumptions.
+Likewise head_len proves the length metadata, not every returned cell.
+
+Proof trust: the ordinary checker accepted every law, but its output explicitly
+says to use --verdict for mathematical validity. I attempted that; Lean v4.34.0
+was unavailable. Thus the claimed independent kernel verification remains
+unperformed. Even a successful kernel run would validate these propositions,
+not the omitted semantics, benchmark results, native compiler correctness or
+the entire dataframe implementation.
+
+The String.eq lemma obstacle appears to be missing proof infrastructure, not
+an inherent impossibility of proving string-related properties. It can likely
+be addressed through Base lemmas or a suitably verified local equality layer.
+That work is lower priority than writing the right semantic specification.
+
+6. Engineering quality and performance
+======================================
+
+Strengths: coherent module boundaries; explicit Result-based errors; real
+algorithmic work rather than row-by-row toy wrappers; strict schema checking;
+documented ownership constraints and design deviations; stable ordering and
+careful null handling in several operators; runnable examples and substantial
+tests. Keeping the input alive during timed collection and documenting parse
+costs shows an effort to make benchmarks interpretable.
+
+Weaknesses: semantics are spread across Expr, Plan, Eval and optimized execution
+paths; duplicate handling of cardinality and validation has already drifted.
+Many tiny helpers are understandable given Bend's restrictions, but increase
+maintenance cost. Raw Column/Frame constructors carry invariants in comments
+(length, depth, buffer capacity, valid-mask values) rather than in checked
+construction or a proved invariant boundary. Public use currently requires
+knowledge of internal types more often than the simple facade suggests.
+
+This is good prototype engineering with incomplete correctness discipline.
+I would trust the covered workloads after checking their outputs; I would not
+trust arbitrary user queries merely because they type-check.
+
+The supplied 1M performance results show a substantial gap: about 13-100x for
+q1-q5 with all threads, 5.4x for describe; 9-48x for q1-q5 on one thread and
+3.7x for describe. At 1k the phrase "equal or faster" needs qualification:
+the supplied one-thread q3/q4/q5 are 1.8x/3.4x/2.0x slower.
+
+The benchmark is intentionally mostly warm in-memory collection; CSV parsing,
+retained input lifetime, and best-of timing must accompany any published
+headline. scan_csv end-to-end behavior can be worse still because it parses
+at construction and again at collection. No RSS/peak-memory measurements or
+high-cardinality scaling study justify a general performance claim.
+
+Strings are an important bottleneck, but replacing them will not automatically
+close the gap: the delivered numeric q2 is itself around 9-13x slower. The
+numeric kernels are sequential, often make multiple passes, and the validity
+mask uses a U32 per row rather than a bit-packed bitmap. Array allocation rounds
+capacity to powers of two. These are concrete storage/execution costs in
+addition to string representation.
+
+7. Are the shortcomings addressable?
+====================================
+
+Yes, but the work ranges from local fixes to substantial redesign:
+
+  Small, high-value: fix A/E, enforce comparator failures, correct docs, align
+  eager/lazy contracts, add the reproduced regressions, pin/test a toolchain,
+  and run the independent kernel in CI.
+
+  Moderate: preserve CSV empty/null distinctions; define unified nonfinite
+  numeric semantics; improve reductions; add semi/anti/full joins with explicit
+  schemas, order, null and multiplicity contracts; add semantic property tests.
+
+  Substantial: persistent dictionary/byte-buffer string columns, a streaming
+  CSV reader, scan-level projection, more complete expression/cardinality
+  analysis, reusable/shared sources, wider dtypes and interoperability.
+
+  Research/engineering: balanced parallel kernels, fused expressions, streaming
+  execution, and semantic proofs over actual values. These are not guaranteed
+  performance wins merely because Bend supports parallel calls.
+
+Dictionary codes need dictionaries to be reconciled across joins and must not
+be confused with lexical sort ranks. A top-k implementation must preserve stable
+ties, null placement and multikey ordering. Both are sensible investments, but
+need semantic tests before optimizer integration.
+
+For F32 sums, do not preserve a worse algorithm just to match the final printed
+digit on 20 rows. Choose a documented accuracy/reproducibility target, use
+compensated or pairwise accumulation as appropriate, handle nonfinite values,
+and compare against higher-precision reference sums with justified tolerances.
+One should not promise bit-for-bit equality with every Polars execution order.
+
+Ignoring maintain_order=False while returning stable first-appearance order
+is largely an optimization/API limitation: a caller not requesting stability
+can usually receive stable output. It is much less urgent than wrong rows or
+silent loss of values.
+
+8. Further investment and publishing recommendation
+===================================================
+
+Continue if the goal is a useful Bend-native experimental library, learning
+about Bend performance, or exploring verified relational computation. There is
+enough implemented substance to justify a focused next milestone.
+
+Do not continue under the assumption that broad Polars parity or competitive
+general-purpose performance is a small remaining task. The absent type, IO,
+expression and execution families represent much more work than the current
+"not finished" list suggests.
+
+Recommended order:
+
+  1. Correctness release: fix A-F and resolve/document G. Make the regression
+     cases permanent. Require matching eager/unoptimized/optimized semantics
+     wherever the API promises them.
+  2. Add typed differential and generated-plan testing, including empty inputs,
+     cardinalities, nulls, nonfinite values, aliases and collisions. Fail CI on
+     disagreement. Distinguish tests of intended departures from compatibility.
+  3. Upgrade assurance: first specify frame invariants, elementwise kernel
+     behavior and one optimizer rewrite's result equivalence. Run --verdict.
+     Prove fewer important claims before expanding the theorem count.
+  4. Profile representative real queries and peak memory; then choose one
+     storage/execution investment. Persistent string encoding or bounded sort
+     gathering is a better initial target than adding every missing verb.
+  5. Validate a clean consumer import with a declared Bend/Base version and
+     accurately scoped documentation, then publish an explicitly experimental
+     early version to the hub.
+
+Publishing a research preview can be reasonable after those correctness fixes;
+publishing it now as a reliable Polars-compatible engine would be premature.
+The existing MIT license, public facade, examples and limitations are a useful
+starting point. I did not publish anything or verify the proposed package name
+or hub installation. A dedicated compatibility matrix and small release test
+would help consumers more than another large design document.
+
+Evidence and reproduction notes
+===============================
+
+File references above are relative to /Users/lukaszsamson/claude_fun/bend-frame
+at the reviewed commit. No production implementation was changed for this review.
+
+Review-only probes remain in the ignored build directory:
+
+  ~/.bend/bin/bend build/review_optimizer.bend
+  ~/.bend/bin/bend build/review_numeric.bend
+  ~/.bend/bin/bend build/review_csv.bend
+  ~/.bend/bin/bend build/review_empty.bend
+
+Native optimizer/numeric probes were also compiled and executed. The generated
+1k inputs and independent CSV outputs are in /tmp/bend-review-data. These local
+artifacts are supplementary; the input/output cases and source locations in
+this report are the durable findings. They are not added to the project's
+permanent regression suite by this review.
+
+External references consulted:
+
+  Bend guide: https://github.com/bendlang/bend/blob/main/guide/GUIDE.md
+    Context for the current language, proof and execution model. Installed
+    Base definitions and actual checker output were inspected locally too.
+  Polars API: https://docs.pola.rs/api/python/stable/reference/index.html
+    Broad surface reference; exact version/counts and comparison results here
+    come from the installed Polars 2.0.0, not an assumption about latest docs.
+  Explorer API: https://explorer.hexdocs.pm/Explorer.DataFrame.html
+    Context for the much wider dataframe API and Polars-backed architecture.
+  Bend hub: https://hub.bend-lang.com/
+    Requested publication destination; no upload or package installation tested.
+
+The supplied https://pola.rs/posts/release-polars-2/ could not be retrieved by
+the web tool. I independently verified the local reference version rather than
+treating that retrieval failure as evidence for or against the release.

@@ -1,0 +1,411 @@
+M_01: plan for a bend-frame v0.1 release
+Author: Fable 5.1, 2026-10-08. Inputs: REVIEW_FABLE.txt, REVIEW_ASTRA.txt (cross-read;
+every runtime bug Astra reported was reproduced here before this plan was written),
+the code at 03add53, Bend 2.0.36, Polars 2.0.0, Lean 4.34.0 (--verdict now runs).
+
+=====================================================================================
+0. What v0.1 means
+=====================================================================================
+v0.1 is the first hub publish. Hub publishes are public and permanent, so the bar is:
+
+  R1  No known silent wrong answer in the implemented subset. Every verb either gives
+      the Polars answer or a documented, tested departure.
+  R2  Eager, lazy-unoptimised and lazy-optimised execution agree on every valid
+      program, and collect_schema accepts exactly what collect runs.
+  R3  A differential test suite against Polars 2.0 that a contributor can run in one
+      command, plus CI that runs tests, proofs and --verdict.
+  R4  A documented minimum API that covers a small ETL script end to end (section 4).
+  R5  String columns no longer dominate: CSV parse of 41 MB under 1.5 s, q1/q3/q5 at
+      1M rows at least 3x faster than today.
+  R6  Optimizer result-equivalence is PROVEN for the two passes that are proven today
+      at schema level (merge, head) against a reference semantics, and schema-level
+      for all four passes; typing soundness of the real evaluator is proven for
+      the row-wise expression subset.
+  R7  README claims match R1-R6 exactly. No "byte-identical", no bare "48 laws".
+
+Out of scope for v0.1 (say so in README): F64/I64, dates, lists, structs, Map,
+window functions, Parquet/IPC/SQL, streaming/out-of-core, GPU, Explorer API.
+
+Suggested order of milestones (dependencies in parentheses):
+  M9  bugs + contracts            (none)        ~2 days
+  M10 differential tests + CI     (M9)          ~2 days
+  M11 strings                     (M10 gates)   ~4 days
+  M12 API minimum                 (M10)         ~4 days, parallel with M11
+  M13 proofs: optimizer           (M9 fix A)    ~5 days, parallel with M11/M12
+  M14 proofs: real code           (M13 infra)   ~5 days
+  M15 release                     (all)         ~1 day
+
+=====================================================================================
+1. M9: bugs and contract fixes
+=====================================================================================
+Each item: fix, regression test (eager + lazy raw + lazy optimised where it applies),
+one line in README "Differences from Polars" if a departure remains.
+
+Wrong results (fix first):
+  A  Head pushdown through a literal-only Select (Astra A). head(0) over
+     select([lit 1]) gives 1 row after optimisation. Fix in Opt.head: sink a limit
+     below Select/WithColumns only when the expression list is non-empty AND at
+     least one expression reads a column (Opt.refs(es) != Nil). Otherwise wrap the
+     Head where it is. This is also the precondition the M13 proof needs.
+  E  Empty projection (Astra E). Exec's "all plain cols" fast path treats [] as
+     plain and keeps the height; eager gives height 0, Polars gives (0,0). Fix:
+     Exec.all_cols([]) = False, Eval.select([]) answers an empty frame of height 0;
+     Plan.schema.select([]) answers Done{Nil}. Decide and test what
+     with_columns over a 0-column frame does (Polars: height of the literal, 1).
+  B  CSV empty string vs null (Astra B). Reader maps "" and the quoted "" both to
+     null; writer emits null and "" identically. Fix: at parse, a quoted empty
+     field is SStr{""}, an unquoted empty field is null (Polars' rule); at render,
+     quote the empty string. The hub parser returns plain strings, so either fork
+     a copy into src/csvparse.bend that tags quoted fields, or pre-scan the raw
+     text for `""` tokens. Prefer the fork: it is also the place M11's parse
+     speedups land.
+  C  Kahan mean of [inf, 1.0] is NaN (Astra C). Grp.kahan does inf - inf. Fix:
+     Neumaier/Kahan only on finite partial sums; once the sum is non-finite, stop
+     compensating (plain add). Same guard in Eval's eager fsum kernel and in
+     describe's mean/std. Test: [inf,1], [1,inf], [inf,-inf] (NaN is right),
+     [nan,1], nulls between.
+  D  NaN comparisons (Astra D). Expression kernels use raw IEEE (NaN == NaN is
+     false, NaN > 0 false); sort/group/join keys use Polars' total order (NaN
+     largest, NaN == NaN). Decision: follow Polars everywhere, so eq/ne/lt/le/gt/ge
+     on F32 use the total-order comparison (F32.bits-based key, already in
+     sort.bend as Sort.words). Document it. Test every operator with NaN, -0.0,
+     inf, null on both sides.
+  B1 Integer div/mod by zero give 0 / the left operand. Fix: null (Polars `//`).
+  B2 Cast F32 -> U32/I32 out of range or NaN gives 0. Fix: null (Polars non-strict
+     cast) and add `strict` later if wanted. Same for Str -> number parse failures
+     (check: is it already null?). Cast Bool/U32 -> I32 of >= 2^31: null.
+  B3 `div` on integer dtypes truncates and keeps the dtype; Polars `/` is true
+     division to float. Decision: add `floordiv` (keeps dtype, null on zero),
+     make `div` require F32 operands (TypeMismatch otherwise, consistent with
+     "no implicit casts"). The typing-table law arith_type then excludes Div
+     for integers; update LAWS.
+  B8 A plan that names one Source twice (self-join) passes collect_schema and
+     fails at collect. Fix: Exec clones a Source frame when the plan uses the
+     name more than once (count uses in Exec.compile; Env.take becomes
+     Env.get_cloned for all but the last use). Then self-joins work and R2 holds.
+     Test: self inner join, and the same source under both sides of a join.
+
+Contract alignment:
+  G1 Aggregations: eager select/with_columns broadcast them, lazy refuses them.
+     Decision: lazy accepts them the way Polars does (broadcast to the height,
+     a Select of only aggregations has height 1). Plan.schema types them; the
+     optimizer treats a Select/WithColumns/Filter that contains an aggregation
+     as a barrier (no predicate pushdown through it, no head sinking below it).
+     Add X.Expr.is_rowwise and use it in Opt.push/Opt.head; this is the hypothesis
+     M13 proves under.
+  G2 group_by aggregation expressions: today only Alias*(Agg{op, rowwise e}).
+     v0.1 keeps that rule but states it in README and in the error text.
+  G3 scan_csv reads and parses the whole file to infer the schema, then collect
+     parses it again. For v0.1: infer from the first 64 KB + infer_rows rows
+     (one bounded File.read), document that collect reads the file once.
+  G4 README: list the linear-source rule (now fixed by B8), right-key drop in
+     joins, u32 wrap-around, f32 mean of integers, sequential f32 group sums.
+  G5 lit_i32(v) with v >= 2^31: error value or a `lit_i32_bits` name. Pick error.
+
+Benchmark validation (Astra F): bench/check.py compares typed cells (ints and
+strings exact, floats with rtol, NaN == NaN), uses the csv module, and exits 1 on
+any mismatch; scripts/bench.sh drops every `|| true` on the correctness path and
+fails the run on a mismatch. Add a `make bench-check` target that runs only the
+1k and 100k correctness comparisons (under a minute).
+
+Decision on f32 group sums (B5): keep sequential add in v0.1 (it is what Polars'
+streaming group_by does, which is why the goldens matched) but add Grp.sum_pairwise
+behind a flag if the 1M error (1.3e-5) matters to anyone. Document the 1M figure.
+
+Owner: sonnet for A, E, C, D, B1, B2, G3, check.py; opus for B (parser fork), B8,
+G1 (touches schema, optimizer, exec); haiku for README lines and test scaffolds.
+Acceptance: all regression tests in tests/regress_m9_*.bend; `make test` green;
+REVIEW bug lists fully closed or explicitly deferred with a README line.
+
+=====================================================================================
+2. M10: test coverage and CI
+=====================================================================================
+Goal: a generated differential suite, so correctness is checked by Polars rather
+than by hand-written expectations, and a CI gate that runs everything.
+
+  T1 bench/diff/gen.py: a seeded generator of (frame, program) pairs.
+     - frames: 0..50 rows, 1..6 columns over the 5 dtypes, null rate 0/10/50/100 %,
+       f32 specials (NaN, -0.0, inf) at a 5 % rate, duplicate keys, empty strings.
+     - programs: random trees over the implemented verbs and expressions (depth
+       <= 4), each emitted twice: as Bend (one tests/diff/dNNN.bend using the DF
+       facade, eager AND lazy-raw AND lazy-optimised) and as Polars; the Polars
+       result (write_csv float_precision=6, plus schema line) becomes the `#|`
+       expectation. Where bend-frame departs on purpose (f32 mean, right-key
+       drop) the generator applies the documented rule to the Polars side.
+     - the Bend program prints the three executions and a line "agree"/"DIFF".
+     Start with 300 programs; keep the generator seed in the file header so a
+     failure is reproducible.
+  T2 Targeted hand suites still missing: optimizer boundaries (head(0),
+     select([]), literal-only select, alias chains, passes interacting), non-finite
+     values through every comparison and reduction, CSV null-vs-"" round trip,
+     write_csv quoting of separators/newlines/quotes, join with high-cardinality
+     keys (10k distinct), group_by with 10k groups, a 2^23+1-row Str column (the
+     Array.new cap) expecting the InvalidOperation.
+  T3 tests/proof_negative/: a copy of 3 laws with a false claim each, expected
+     SOME PROOFS FAIL (runner already special-cases that string).
+  T4 Makefile: `make check` includes frame.bend, examples/, bench/*.bend;
+     `make proofs` runs `bend PROOF.bend --verdict`; `make ci` = check + test +
+     proofs + bench-check.
+  T5 .github/workflows/ci.yml: macOS and Linux runners, install bend by the
+     documented curl line pinned to 2.0.36, elan + lean 4.34.0 cached, uv for
+     Polars 2.0.0; runs `make ci`. If Bend cannot be pinned by version, record
+     the hash of the installer output and fail on drift.
+  T6 Coverage measure: Bend has no line coverage; approximate with a script that
+     lists every `def` in src/ and greps tests/ + bench/diff for a call. Report
+     the uncalled list in CI output (target: < 5 % uncalled, excluding helpers
+     only reachable through their caller).
+
+Owner: sonnet for T1 (generator + Polars side), haiku for T2 scaffolds/T4/T5,
+opus to review generator semantics (null rules, departures table).
+Acceptance: 300 generated programs pass on both sides; CI green on a clean clone.
+
+=====================================================================================
+3. M11: strings
+=====================================================================================
+Today a Str cell is a cons list of Char; every query re-codes 1M strings
+(~150 ms), String.eq is ~250 ms per pass, CSV parse is 5 s for 41 MB, and freeing
+a 1M-row frame costs ~300 ms. Both reviews put this first.
+
+Design: dictionary-encoded Str columns, persistent.
+  CStr{len, depth, valid, codes: Array<U32>, dict: Dict}
+  Dict = {n: U32, strs: Array<String>, by_str: Map<String, U32> or a sorted array}
+  - Built once at parse (one Map lookup per cell, ~350 ns, 0.35 s per 1M rows;
+    cheaper than today's 5 s because the strings are then dropped after coding).
+  - Equality with a literal: code the literal once (one Map lookup), then a U32
+    zip. Equality between two columns: if same dict identity (clone of one
+    column) compare codes; else re-code the smaller dict into the larger
+    (k lookups, k = dict size) then compare codes.
+  - Ordering (sort, min/max, lt): sort the dict once (k log k, k small) to get
+    rank[code]; sort keys are ranks. Keep Sort.words' contract: order-preserving
+    U32 word per row.
+  - group_by on Str: codes are already group ids after one pass of compaction
+    (densify codes present). Multi-key: pair-rank path unchanged.
+  - join on Str: build the hash table over the right dict (k entries, not n
+    rows), probe with the left dict (k entries), then join on codes with a
+    code->code map. The current string hash walk (70 ms of q5's 100) disappears.
+  - gather/compact/head: move codes; dict is shared by reference (clone is a
+    refcount bump on the dict and an O(n) U32 copy).
+  - Str literals in with_columns and cast U32 -> Str: build a new dict.
+  - fmt/csv render: look up strs[code] per cell.
+  - High-cardinality columns (ids as strings): dict ~ n; memory doubles vs
+    today's cons lists but it is still a win. No fallback path in v0.1.
+Pitfalls (Astra): a code is not a lexical rank; never sort by codes; two columns
+never share codes unless they share the dict identity. Dict identity: give each
+dict a U32 tag from a counter in Csv.read / Column.from_scalars; equal tags mean
+equal dicts. Dict merging in concat/join output.
+
+CSV parse: fork the hub parser into src/csvparse.bend, parse line by line into
+fields, code Str cells as they are produced (never materialise 1M cons lists at
+once), parse numbers directly from the Char list (U32.read/F32.read are
+primitives; pass the field). Chunk the file with File.read_at in 1 MB pieces so
+peak memory is bounded. Target 41 MB < 1.5 s (12 threads), < 3 s (1 thread).
+
+Second-tier items (do if time remains in M11):
+  - Sort + Head as top-k (Sort.frame_limit): partial LSD radix on the top n only,
+    stable ties and null placement preserved; wire Opt.head to produce
+    Sort{ks, limit=Some n} instead of Head over Sort.
+  - Scan-level projection: Csv.read_with takes the needed column names and skips
+    coding/converting the others (the fields are still split).
+  - Validity as bit-packed U32 words (32 rows per word): halves the mask traffic.
+    Only if a profile says masks matter; the kernels take a mask index function
+    so the change is local to column.bend/kernels.bend.
+
+Measure, before and after, with the existing bench harness (one measurement per
+process, inputs kept alive): parse time, q1..q6 at 1k/100k/1M, 1 and 12
+threads, plus peak RSS via /usr/bin/time -l. Gates: R5.
+
+Owner: fable for the dict/column design and the sort/join contract; opus for
+column/sort/groupby/join changes; sonnet for csvparse and fmt/csv render; haiku
+for bench wiring. Every change must keep bench/diff green (M10) before it is
+merged.
+
+=====================================================================================
+4. M12: API minimum for v0.1
+=====================================================================================
+Principle: enough to write a small ETL script (read, clean, derive, aggregate,
+join, sort, write) without leaving the library; nothing that needs a new dtype.
+
+Verbs (eager + lazy, schema rule, optimizer rule, tests each):
+  drop(names), rename(pairs), tail(n), slice(offset, len), reverse,
+  unique(subset, keep=first, maintain_order), concat_vertical(frames with equal
+  schema), semi_join, anti_join, full_join (output: coalesced keys as Polars
+  with coalesce=True, `_right` suffix rule unchanged), sort with per-key
+  nulls_last (exists) + `limit` (M11 top-k), group_by maintain_order=False
+  honoured as "may return any order" (still first-appearance; the flag is just
+  accepted), with_row_index(name), count/len on a frame (DF.height).
+Expressions:
+  when(cond).then(a).otherwise(b)  (typing: a and b same dtype, cond bool;
+    Kleene: null cond takes otherwise, as Polars),
+  is_in(list of literals), is_between(lo, hi, closed), abs, clip(lo, hi),
+  floordiv (M9 B3), pow with u32 exponent, min_h/max_h over two expressions
+    (pl.min_horizontal with 2 args), coalesce(a, b) = fill_null,
+  str: len_chars, contains(lit), starts_with(lit), ends_with(lit), to_uppercase,
+    to_lowercase, strip_chars, replace(lit, lit), concat via `++` (str + str),
+  aggregations also usable in select/with_columns (M9 G1): plus std, var,
+    median, quantile(q, nearest), any, all (bool), implemented once in Eval.agg
+    and reused by group_by,
+  cast: Str -> U32/I32/F32/Bool strict parse (null on failure, M9 B2), any -> Str.
+Facade:
+  DF.then(r, f)  (ResT(Frame) -> (Frame -> ResT(Frame)) -> ResT(Frame)) and
+  DF.then_io for IO verbs; DF.env(list of (name, frame)) and DF.source_in(env,
+  name); DF.collect_eager(p, frames) convenience; DF.show accepts a Plan too.
+Explicitly NOT in v0.1: window/over, rolling, cum_*, explode, pivot, dates, F64,
+I64, lists, structs, map, SQL, parquet. Say so in README with one line each.
+
+Order: expressions first (they are one typing row + one kernel each), then
+verbs, then facade. Keep LAWS in step: each new typing row gets its law
+(cheap, M13 infra). Every verb lands with: schema rule, Plan.explain line,
+Opt.proj/push/head rule (default: barrier), eager + lazy tests, one diff-gen
+production so M10's generator covers it.
+
+Owner: sonnet for expressions and str ops, opus for unique/concat/joins and
+their optimizer rules, haiku for facade wrappers, docs, explain lines.
+
+=====================================================================================
+5. M13: prove the optimizer
+=====================================================================================
+What exists: schema preservation for merge and head passes, structural
+post-conditions (no adjacent filters/heads, idempotence). What is missing and
+what the head(0) bug showed: result equivalence, which schema laws cannot see.
+
+5.1 Reference semantics (the thing to prove against)
+  src/ref.bend: a pure, list-based model with NO arrays, no IO.
+    RTable = List<&2, RRow>, RRow = List<&2, D.Scalar> (SNull for null) with a
+    schema; Ref.eval_expr(e, schema, row) -> Res(Scalar) for row-wise e, and
+    Ref.agg over a list of scalars; Ref.run(p, renv) -> Res(RTable) for every
+    Plan constructor, where renv maps Source names to RTables and ScanCsv is
+    out of scope (a plan with ScanCsv is first rewritten to Source by the
+    loader; the law is over Source-only plans).
+  This model is small (~600 lines), executable, and tested: tests/ref_agrees.bend
+  runs Ref.run and Exec.run on every M10 generated program and expects equal
+  rendered output. That test is what connects the model to the real engine
+  (until M14 proves it).
+
+5.2 Laws, in order of difficulty, all of the form
+  for p, renv, s, ok: {Plan.schema(p) == Done{s}}
+  {Ref.run(PASS(p), renv) == Ref.run(p, renv)}
+  L1 merge: needs Ref.filter(e, Ref.filter(q, t)) == Ref.filter(And{q,e}, t):
+     row-wise induction over t with the Kleene table: kept iff both Done{SBool
+     True}. 3-valued `and` lemma: and_true_iff. Also the error case: if q errors
+     the merged version errors with the same error? No: errors differ in text
+     (documented). State the law for plans whose schema resolves; Ref.eval of a
+     well-typed row-wise expression never errors (lemma: typing soundness in the
+     model, needed anyway).
+  L2 head: Ref.head(n, Ref.select(es, t)) == Ref.select(es, Ref.head(n, t)) when
+     Opt.rowwise_nonempty(es) (the M9-A precondition): select maps rows one to
+     one. Same for WithColumns. Plus hmin: head n (head m t) = head (min n m) t.
+  L3 push: three lemmas: (a) filter commutes with sort (filter is a sub-sequence
+     selection, sort is a stable permutation: prove over the model's sort, which
+     is List.sort by key with stability spelled out); (b) filter through
+     WithColumns when the predicate reads no produced name: Ref.eval_expr depends
+     only on referenced columns (lemma eval_refs_only, by induction on e); (c)
+     filter through Select with renaming: Ref.eval_expr(rename(e, rs), s0, row0)
+     == Ref.eval_expr(e, s1, select_row(es, row0)) when every referenced output
+     is a plain Col/Alias{Col} (lemma substitution). (c) is the hardest; do (a),
+     (b) first and ship v0.1 with (c) stated and proven if time allows.
+  L4 proj: Ref.run(Select{cols(need), x}) is a sub-projection and every operator
+     above reads only `need`: again eval_refs_only, plus Schema.project of the
+     needed names.
+  Composition: optimize = proj . head . push . merge; equivalence composes.
+
+5.3 The String.eq blocker
+  Base: String.eq(a, b) = Cmp.is_eq(String.order(a, b)); String.order walks
+  Chars and compares as U32 words. Three options, try in order:
+  (1) Prove in a probe: law str_eq_refl: {String.eq(a, a) == True{}} by
+      induction on a, needing {U32.cmp(c, c) == EQ} (or whatever String.order
+      uses per Char). If Base exposes the word comparison as a function over
+      Word(32n) bits, induction over the 32 bits works (Base already proves
+      Word.add_comm, so bit induction is available). Budget: one day. If it
+      works, also prove str_eq_sound: String.eq(a, b) == True -> a == b.
+  (2) If (1) is blocked by an opaque primitive: parametrise Names.has,
+      Schema.find, Opt.rename over an `Eq` record {eq, refl, sound} and prove
+      the optimizer laws for any such record; instantiate with String.eq and a
+      proof obligation that stays open in a SEPARATE file (bend refuses open
+      laws in imports, so the instantiated law lives in PROOF_strings.bend and
+      is documented as the one assumption).
+  (3) Replace names in the plan layer by interned U32 ids (a name table built
+      at plan construction); U32 equality has Base lemmas. Biggest change but
+      also faster. Only if (1) and (2) both fail.
+  Decide by the end of day 1 of M13.
+
+Owner: fable for ref.bend, the law statements and L2/L3; opus for L1, L4 and
+the String.eq probe; sonnet for tests/ref_agrees.bend.
+Acceptance: L1, L2 proven (--verdict), L3(a)(b), L4 proven; L3(c) proven or
+stated with its blocker in DESIGN 8; ref_agrees passes on all generated programs.
+
+=====================================================================================
+6. M14: prove the real code, not the model
+=====================================================================================
+The gap after M13: laws talk about Ref.run; users run Exec.run over Arrays.
+Close it bottom-up, each theorem about a real src function.
+
+  P1 Frame well-formedness as a predicate, not a comment.
+     Frame.wf(f): every column's len == height, depth >= depth_for(len), mask
+     length matches, null slots hold the default (the invariant Eval relies on).
+     Laws: every public verb preserves wf (filter, head, select, with_columns,
+     sort, group_by, join). head is already half done (head_len, head_dtype).
+     Proof style: the array-witness pattern of PROOF.bend section 5b.
+  P2 Kernel element laws (map/zip/compact/gather):
+     {i < n} -> Array.get(map(f, n, d, a), i) == f(Array.get(a, i)).
+     Needs Base lemmas Array.get_set_same / get_set_other (check `bend base
+     Array`; if absent, prove them locally, they are structural on the tree).
+     compact: the kept prefix equals the sub-sequence of rows with mask 1
+     (state over Array.to_list to stay in Data).
+  P3 Evaluator typing soundness, the central theorem:
+     for well-typed row-wise e over schema(f) with Frame.wf(f):
+       Column.dtype(Eval.full(f, e)) == t   where Expr.type(e, s) == Done{t}
+       Column.len(Eval.full(f, e))   == height(f)
+     by induction on the postfix code (Eval.compile) with a stack invariant.
+     This is where the 20 typing laws stop being "about the typing table" and
+     become "about what runs".
+  P4 Filter semantics on the real kernel: Column.to_scalars(filter(f, e)) ==
+     Ref.filter over to_scalars(f). Links Exec to Ref for one verb; do head,
+     select of plain cols, with_columns of row-wise expressions next. With P3,
+     P4 and these, L1/L2 of M13 transfer to Exec.run for plans built from those
+     verbs (Source-only). Sort/group_by/join equivalence to the model is NOT in
+     v0.1; state them in DESIGN 8 as the next targets.
+  P5 I32: neg involution, add associativity, sub = add neg, via Word bit lemmas
+     (Base has Word.add_comm; carry lemmas are the missing piece: ~1 day).
+  P6 Kernel slots laws for compact and gather (the two left out).
+  Housekeeping: split PROOF.bend into PROOF_schema, PROOF_expr, PROOF_plan,
+  PROOF_kernels, PROOF_ref, PROOF_exec, one `bend PROOF.bend` that imports all
+  (check it still runs in seconds); negative tests per file (M10 T3).
+  README wording: "N laws: schema and typing (list), optimizer result
+  equivalence for merge and head over the reference semantics, evaluator typing
+  soundness, kernel element laws, frame invariants. Not proven: sort/group_by/
+  join semantics, CSV, the predicate-pushdown rename step (if L3c is open)."
+
+Owner: fable P3 and P4, opus P1/P2/P6, sonnet P5 and the file split.
+Acceptance: `bend PROOF.bend --verdict` green; every law named in README exists.
+
+=====================================================================================
+7. M15: release
+=====================================================================================
+  - Version pin: README states Bend 2.0.36 and Base hash; CI proves a clean clone
+    works on macOS and Linux.
+  - Hub dry run: `bend frame.bend --publish` to a throwaway name first
+    (bend-frame-rc@0.1.0.0) from a clean checkout; import it from a scratch
+    program in another directory; run the quickstart against the hub import.
+    Then publish bend-frame@0.1.0.0.
+  - README: features, differences from Polars (complete list from M9 G4), the
+    bench table re-measured after M11 with the same harness, the laws paragraph
+    from M14, a "what v0.1 is not" list.
+  - CHANGELOG.md from M9 on. Tag v0.1.0.
+  - Remove build/ artifacts from git if any crept in; keep probes/ (documentation
+    of the design decisions) but move them under docs/probes.
+
+=====================================================================================
+8. Risks
+=====================================================================================
+  - Bend releases move fast (2.0.36 today). Pin, and re-run CI on each bump
+    before changing code; proofs are the likeliest to break on a Base change.
+  - M11 touches every module that handles Str; land it behind the M10
+    differential suite only, in three steps (column + fmt/csv, then sort/
+    group_by, then join) each merged green.
+  - M13 (c) and the String.eq lemma may not close; the plan ships without them
+    and says so. Do not let proof work block the release.
+  - Agent allocation: fable on design/proofs only; opus on anything that changes
+    semantics across modules; sonnet on kernels, parser, tests; haiku on
+    wrappers, docs, scaffolds. Every PR from a smaller model gets a diff review
+    by the next model up before merge (the head(0) and NaN bugs are exactly the
+    kind a second reader catches).

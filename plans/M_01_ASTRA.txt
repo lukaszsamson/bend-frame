@@ -1,0 +1,586 @@
+BEND-FRAME M_01 — PROPOSED v0.1 RELEASE PLAN
+8 October 2026
+Inputs: REVIEW_ASTRA.txt, REVIEW_FABLE.txt, and the implementation.
+Current checkout: 59e7b83, following the reviewed implementation at 03add53.
+Status: proposal; this document does not implement or publish the release.
+
+Release objective
+=================
+
+Ship a useful, bounded, native Bend dataframe library for small-to-medium CSV
+ETL: load data, clean and derive columns, combine tables, aggregate, sort, and
+export. Keep five nullable dtypes and an explicit compatibility contract.
+
+v0.1 should have:
+
+  1. No known wrong-result bugs from either review.
+  2. A coherent minimum eager/lazy API, not a larger collection of exceptions.
+  3. An independently checked result-equivalence theorem for the optimizer
+     actually enabled in the release.
+  4. Element/value proofs about real array kernels, column operations and the
+     production execution path, beyond schema and allocation metadata.
+  5. A measured persistent-string-encoding experiment, shipping the new path
+     only if its correctness, proof and performance gates pass.
+  6. Typed differential tests, reproducible builds and an honest release page.
+
+Do not make broad Polars parity, a target fraction of its API, a GPU backend,
+or a promised speed ratio prerequisites for this release. The proof work is
+substantial: this is several engineering milestones, not a documentation patch.
+
+1. Reconciliation of the two reviews
+====================================
+
+Both reviews establish that the engine works on substantial example workloads,
+the code has coherent structure, and the existing proofs concern mostly
+schema/shape/structure. Both recommend broader differential testing and flag
+the eager/lazy aggregation disagreement and linear-source limitations.
+
+Where they differ, use concrete reproductions rather than average their verdicts:
+
+  - Fable's optimizer traps pass, but they omit head(0) above a literal-only
+    select. Astra reproduced a wrong row count there in native execution.
+    Import BOTH sets of traps into permanent regression tests.
+  - CSV fixture round trips do not establish empty-string/null preservation.
+    Astra's quoted-empty-string case must be a release blocker.
+  - Fable identifies unsafe numeric casts and ambiguous integer division.
+    These join Astra's NaN comparisons and infinite-mean failures in one
+    numeric-semantics work item, rather than separate ad hoc patches.
+  - Fable's "shared checks cannot drift" conclusion is too strong: eager/lazy
+    aggregation acceptance and empty projection already differ.
+  - The missing-Lean issue in REVIEW_ASTRA is now stale. Commit 59e7b83 adds
+    make verdict, and I reran bend PROOF.bend --verdict successfully for this
+    plan. Preserve that gate; do not budget another toolchain installation.
+  - Fable's 3-10x string speedup and short effort estimates are hypotheses.
+    Persistent dictionaries do not by themselves eliminate CSV tokenization
+    or transient linked strings. Measure parse, collection and destruction.
+  - Keep the present F32-only scope, but do not describe F64 as impossible
+    forever. Software emulation, upstream changes and FFI are different future
+    options, none appropriate for this minimum release.
+  - Do not add an axiom merely to bypass String.eq. Prove the runtime equality
+    implementation, change that implementation to a provable one, or omit the
+    affected rewrite from the enabled optimizer.
+
+The old reports remain historical evidence. This plan supersedes their release
+recommendations and the earlier "keep a weaker sum for tiny golden parity"
+decision.
+
+2. Freeze the minimum API and semantics first
+============================================
+
+Recommended mandatory surface
+-----------------------------
+
+Retain the current operations, with the following bounded additions. All table
+verbs listed here must be available eagerly and lazily, with the same data
+semantics; metadata/IO/result helpers naturally have their own interfaces.
+
+  Area            v0.1 minimum / additions
+  --------------  ----------------------------------------------------------
+  Construction    Checked nullable columns, dtype/scalar builders, typed null
+                  literals, frame clone, schema/height access, result and_then.
+  Sources         Add several named frames to an Env; reuse a source in a plan
+                  including self-join; preserve a clear ownership contract.
+  Selection       Existing select/with_columns/filter/head/sort; add drop,
+                  simultaneous rename, slice(offset,length), tail.
+  Combination     Existing inner/left joins; add semi/anti joins and strict
+                  vertical concat. Fixed documented key coalescing/suffixes.
+  Distinct        unique(subset), stable keep-first only.
+  Aggregation     Existing nine reducers; allow global aggregate select and
+                  reductions broadcast in with_columns/filter, eager and lazy.
+  Expressions     Checked cast and try_cast; unambiguous numeric division;
+                  when_then_otherwise; is_in(literal values); is_between;
+                  expose already implemented abs/sqrt; typed nulls.
+  Strings         len_chars, contains_literal, starts_with, ends_with.
+                  Case-sensitive, no regex, no Unicode normalization.
+  IO              Existing CSV, plus explicit schema/options through facade.
+                  Preserve quoted empty strings; truthful scan behavior.
+  Introspection   collect_schema, explain, optimizer toggle for diagnostics,
+                  structured errors, documented limits.
+
+Bound this list further through implementation choices:
+
+  - drop/rename/is_between are checked sugar where possible, not new execution
+    machinery. rename operates simultaneously; collisions are errors, not a
+    sequence of overwrites. Dropping the last column gives the canonical empty
+    result specified below.
+  - slice has nonnegative U32 offset/length, clamps at the end and avoids
+    off+length overflow. tail is defined from height and slice.
+  - concat requires identical ordered names and dtypes; no diagonal concat,
+    coercion, schema union or implicit missing columns. Preserve input order.
+  - Semi/anti joins output only left columns; each left row appears at most
+    once regardless of right multiplicity. Null keys do not match.
+  - unique defines equality consistently with grouping, including NaNs, signed
+    zero, nulls and strings. Only keep-first/stable is needed.
+  - is_in accepts a bounded same-dtype literal set. Null input yields null;
+    null entries do not match non-null values. No subquery/Series membership.
+  - when requires a bool condition and matching branch dtypes. A null condition
+    chooses otherwise. Type-check both branches; use vectorized evaluation,
+    so either branch may report a strict-cast failure even if not selected.
+  - len_chars counts Char/code-point elements, not UTF-8 bytes or graphemes.
+    Document and test this distinction with non-ASCII examples.
+  - Grouped reductions remain a reducer over a row-wise expression, optionally
+    aliased. For sum(x)/sum(y), aggregate named outputs and derive the ratio in
+    a subsequent with_columns. No general expression-of-reducers engine yet.
+
+Defer to a later release: full/cross/asof/non-equi joins; windows/over, rolling
+and cumulative expressions; general grouped expression composition; regex;
+pivot/explode/nested/temporal types; F64/I64/U64; SQL; Parquet/Arrow/IPC; disk
+spilling; automatic parallel scheduling. These are substantial families, not
+one-more-constructor tasks. A true top-k algorithm is also optional, not a
+dependency of this release.
+
+Exact behavioral decisions
+--------------------------
+
+  a. Names/dtypes: no implicit coercion; output order and duplicate-name errors
+     are deterministic. Maintain stable group/unique/join behavior. Returning
+     stable order for maintain_order=False is acceptable, documented behavior.
+
+  b. Cardinality: select([]) -> (0,0) in both APIs; select of only literals or
+     only global reductions -> one row, including on zero-row input. In a
+     selection containing a full column, scalar/reduction results broadcast
+     to input height. with_columns preserves input height; filter evaluates
+     reductions against its full input before filtering. Empty global reducers
+     have individually specified results (sum/count/len versus mean/first).
+
+     A scalar predicate broadcasts. Do not infer row preservation just from
+     the absence of Agg nodes: literal-only and empty selections disprove it.
+
+  c. Numeric arithmetic: retain documented modulo-2^32 add/sub/mul for integer
+     dtypes. Make div F32-only; integer callers explicitly cast first. Add
+     floor_div on same-type integers, rounding toward negative infinity.
+     Define mod consistently with floor division, including negative divisors.
+     Integer division/remainder by zero produce null. For I32 MIN/-1,
+     floor_div produces null (unrepresentable quotient), mod produces zero.
+     F32 division retains IEEE infinity/NaN behavior. This is a declared Bend
+     contract, not a claim to reproduce Polars Float64 true division.
+
+  d. Casts: cast is checked and reports the first invalid valid-cell conversion;
+     try_cast nulls those cells. Existing nulls remain null. Reject nonfinite
+     F32-to-integer casts; truncate finite floats toward zero and check that
+     the resulting integer fits, using bounds that cannot round incorrectly
+     in F32 near U32/I32 limits. Check signed/unsigned range conversions too.
+     No silent bit reinterpretation under the name cast.
+
+     Replace unchecked positive/negative I32 constructors with checked helpers
+     returning Result<I32>; lit_i32 accepts that validated I32 value. If an
+     explicit from_bits constructor is exposed, name/document it as such.
+
+  e. Floating semantics: NaNs compare/key-match using the documented Polars-like
+     total comparison policy; signed zeros compare equal. Mask validity remains
+     separate from NaN. Centralize this relation so eq, sort, group, unique,
+     membership and joins cannot quietly choose different rules.
+
+     Use a shared compensated accumulation policy for F32 sums/means, with
+     explicit NaN/+inf/-inf handling and tests for finite intermediate overflow.
+     Preserve a specified reduction order; do not promise tiny-golden bit parity.
+     Integer means remain F32 and the precision limitation remains documented.
+
+  f. Errors: collect_schema predicts static schema/type errors, not successful
+     IO, successful casts for unknown values or presence of Env bindings.
+     Provide validate_bindings(plan,env) for source existence/schema validation.
+     Stop promising that schema success implies collect success.
+
+     Support source reuse by retaining bindings and obtaining safe cloned frames
+     on reads, initially using existing clone machinery. Make the cost explicit;
+     optimize ownership later. A single-use last-read move is optional.
+
+  g. Limits: enforce checked row/capacity arithmetic at every public allocation
+     path, including joins and concat. Start with a conservative documented
+     maximum of 2^23 rows per materialized frame while the boxed-array limit
+     remains relevant. Verify capacity boundaries without allocating huge
+     fixtures by testing the real allocation guard separately. Do not treat
+     the existing uncapped Kernel.depth_for as a validated guard.
+
+3. Fixes before expansion
+========================
+
+Commit failing regressions first, then repair these groups:
+
+  B01 Cardinality: head(0) above literal select; empty eager/lazy select;
+      scalar predicates over scalar projections; zero-row inputs; reductions
+      and broadcast semantics. The constant-false predicate over literal
+      projection case needs an explicit test as well as the known head case.
+
+  B02 CSV: quoted empty versus null, valid empty-string output, delimiters,
+      escaped quotes, multiline fields, blank records, Unicode and explicit
+      dtypes. Retain quotedness in the parser result; quoting on write alone
+      cannot repair a parser that has discarded it. No schema-inference round
+      trip claim for arbitrary numeric-looking string columns.
+
+  B03 Numeric: strict/lenient casts, I32 literal bounds, division/remainder,
+      NaN comparisons, [inf,1] mean and reversed order, opposite infinities,
+      all-null groups, severe cancellation and integer boundaries.
+
+  B04 Sources/contracts: repeated sources, two-source environments, missing
+      bindings, duplicate binding names, frozen scan schema and changed files.
+      Make eager/lazy aggregation acceptance match the chosen contract.
+
+  B05 Verification harness: real CSV/typed parser, exact integers/strings/bools,
+      schema/order/null comparison, explicit nonfinite-float handling, no
+      swallowed failures. Keep comparator regressions 100000 vs 100001 and
+      NaN vs a finite integer. Correct the stale Kahan comments and benchmarks.
+
+Any one of B01-B05 still producing known wrong results blocks v0.1.
+
+4. String optimization: a bounded experiment, with an integration gate
+=====================================================================
+
+First choice: persistent dictionary encoding for low-cardinality Str columns.
+Do not start by rewriting all strings as byte buffers or adding global caches.
+
+Use one string-column abstraction with Raw and Dictionary storage variants:
+logical length + validity + raw strings OR U32 row codes + dictionary strings.
+Keep dtype Str. Dictionary codes are internal representation, not a public
+categorical dtype, lexical rank, or globally meaningful ID.
+
+Required invariants and operations:
+
+  - Every valid code is in range; each entry denotes a valid string; the
+    dictionary construction contract states whether entries are unique.
+  - Null is represented by validity, not by an empty-string dictionary entry.
+  - cell/clone/head/slice/gather/filter/concat/render preserve decoded values.
+  - Equality within a known common dictionary can compare codes. Cross-column
+    joins/concat must reconcile dictionaries or compare decoded keys. Never
+    assume separately assigned code 7 denotes the same text.
+  - Sorting uses a verified/correctly tested rank mapping based on decoded
+    text, not first-appearance code order. Stable ties remain stable.
+  - The small string predicates can operate on dictionary entries and gather
+    results by code; total operations only. Correctness is representation-
+    independent. CSV encoding should happen as early as practical, but report
+    any remaining full-file/transient-string materialization honestly.
+
+Keep Raw as the high-cardinality fallback. Choose the encoding threshold from
+measured cardinality/size/cost, not from the benchmark's eight regions alone.
+Build selection logic without scanning/copying the whole column repeatedly.
+
+Measure before/after, native, one thread and default threads:
+
+  - 1k/100k/1M rows; 8, 64, 1,000 and near-N distinct strings.
+  - Short/long strings, shared prefixes, Unicode, nulls, valid empty strings.
+  - q1/q3/q4/q5; isolated encode, gather, sort, group, join; repeated queries.
+  - CSV read and scan+collect end-to-end; output rendering; input destruction;
+    peak RSS and repeated-query memory behavior.
+  - Different dictionary assignments for equal values on opposing join inputs.
+
+Integration target, not an asserted prediction: reproducible >=1.5x improvement
+on representative low-cardinality string workloads, without a material memory
+regression or >15% median slowdown in the high-cardinality/numeric control
+workloads outside measurement noise. Report medians and spread, not only best
+runs. Reject or keep opt-in if it does not pass; do not postpone v0.1 forever.
+
+If dictionary storage ships by default, its decoding/representation-preserving
+kernel proofs must be included in the production proof chain. A fast unproved
+replacement must not silently inherit proofs of the old raw-string path.
+
+Optional subsequent experiment: retain full argsort but gather only the first
+k rows for sort+head. This is smaller than a new top-k algorithm, but it still
+requires a result-equivalence proof before the default optimizer enables it.
+
+5. Prove the implementation, then compose an optimizer theorem
+==============================================================
+
+Target theorem (schematic, not proposed copy-paste Bend syntax):
+
+  For validated plan p and well-formed immutable input bindings e,
+  observe_result(Exec.run_pure(Optimize.release(p), e))
+    = observe_result(Exec.run_pure(p, e)).
+
+Here the runs use logically equal inputs, represented with appropriate affine
+witnesses/clones in Bend. e cannot simply be consumed twice in executable code.
+The theorem includes ordered column names/dtypes, height, valid cells and
+semantic errors. It is not just equality of schemas or unordered row sets.
+
+Define observation carefully: validity separately from values; exact integer,
+bool and string data; F32 bit observations for unchanged values (including
+signed zero and NaN payloads where observable), with explicit canonicalization
+only where the API specifies it. A tolerance is appropriate for a numerical
+reference test, not for proving a rewrite that should not reassociate arithmetic.
+
+The real-code requirement
+-------------------------
+
+An observer/specification is necessary. It is not sufficient to implement a
+second list-of-rows engine and prove only that engine optimizes correctly.
+Every theorem must reference production functions or a checked refinement
+lemma connecting the representation to those functions. An executable helper
+used only by proofs, with an unproved "obviously same" bridge, does not count.
+
+Use erased observations and the existing Sigma/witness pattern for affine
+arrays. The observer itself must read the actual leaf/cell semantics, with
+proofs tying it to Array.get/set and the library's accessors. Do not replace
+physical capacity with a left-spine metric and infer value correctness from it.
+
+Layer P0 — invariant and name foundation
+--------------------------------------
+
+  - WellFormedArray(a,d): both children balanced at the expected depth, depth
+    and index arithmetic within supported bounds. Capacity expressed in Nat
+    or a bounded conversion, never an unconstrained wrapping U32 cardinality.
+  - WellFormedColumn: logical length <= capacity, matching mask capacity,
+    mask entries in {0,1}, valid dictionary codes, dtype/storage agreement.
+  - WellFormedFrame: all column lengths equal height, unique names, and the
+    public zero-column convention. Smart constructors establish these facts;
+    operations preserve them. Do not expose unchecked raw constructors as the
+    supported public API; if Bend cannot hide them, define that boundary.
+  - Prove runtime name equality soundness/completeness/reflexivity and the
+    lookup/rename lemmas used by schema/optimizer code. Inspect Base first:
+    String.eq currently uses String.order; Char.is_eq unwraps to U32.is_eq.
+    This deserves a feasibility spike, not an unprovability assertion.
+  - If needed, use a local structural equality implementation in actual
+    schema/optimizer/runtime lookup code and prove it. No new axiom, and no
+    equality routine that exists only in the proof model.
+
+Layer P1 — real array and column contents
+---------------------------------------
+
+Required value-level laws over current or replacement production routines:
+
+  - Kernel.map/zip: every logical output slot equals the supplied function of
+    the corresponding input slot(s); capacity and valid-index assumptions
+    explicit. Prove using actual Array.set/get semantics.
+  - iota and gather: output[i] = input[index[i]], not just correct allocation
+    length; gather checks/proves valid logical indexes rather than relying on
+    Base's wrapping indexes.
+  - compact/filter: output is precisely the order-preserving subsequence whose
+    mask is 1; returned count is its length. Prove data and mask alignment.
+  - Column.head/slice: preserved dtype and the correct prefix/subrange cells.
+  - Validity combinators and when/fill_null: exact chosen cells and truth tables,
+    including nullable boolean filter masks.
+  - Dictionary encode/decode and code-remapping preserve actual Str cells if
+    that representation is shipped.
+
+Add one substantive reduction proof: the production U32 fold implements
+modulo-2^32 summation of valid values. Also prove the real grouped scatter
+accumulator's per-group update invariant for count/U32 sum given valid group
+IDs. Label the latter accurately: it is not yet a proof that grouping computes
+the right partition until Grp.encode/combine/first-occurrence are connected.
+
+Floating error bounds and full hash-join/radix-sort correctness are not minimum
+v0.1 proof deliverables. They remain explicitly tested, not declared verified.
+
+Layer P2 — expression/cardinality analysis and the actual executor
+---------------------------------------------------------------
+
+  - Centralize expression analysis shared by Plan and Eval. Track dtype, refs,
+    row-wise versus scalar versus input-reduction dependence, and whether
+    evaluation can fail on data (strict cast, bounds/overflow checks).
+  - Prove the soundness of the analysis used to authorize rewrites. It may be
+    conservative; it must not certify an unsafe expression as movable.
+  - Prove row-wise Eval results, scalar broadcasting and filtering via the
+    P1 kernels; connect Expr compile/postfix evaluation to the same semantics.
+  - Factor the production executor into IO source materialization and a pure
+    physical plan runner. Production collect must call that runner, not retain
+    an unrelated interpreter while proofs exercise a new toy evaluator.
+  - Prove Exec.compile plus its real stack loop implement the certified plan
+    fragment, with stack shape/order invariants and real operator calls.
+    Refactoring the postfix mechanism is allowed if a single verified runner
+    replaces it in production. Avoid maintaining two semantic implementations.
+  - Prove clone/source lookup preserve observations, and binding/resource
+    validation is performed before rewriting can remove relevant checks.
+
+IO boundary: quantify over snapshots after successful validated reads. Keep
+source acquisition order and errors explicit; no claim about files that change
+mid-read, OS failures, native runtime OOM or the compiler/runtime's correctness.
+Do not add a second full materialization pass unnecessarily: the existing
+stack engine already holds inputs for operators such as joins. Expose what
+"lazy" means and measure any change in retained lifetimes/peak memory.
+
+Deterministic library capacity errors are not OS OOM: rewrites must preserve
+their checks or be barred when they can change observable failure behavior.
+
+Layer P3 — verified optimizer rules and composition
+--------------------------------------------------
+
+Prove these against the production runner, not only a denotational sketch:
+
+  R1 Adjacent head merge: min limits, including zero and empty inputs.
+  R2 Adjacent filter merge: total row-wise predicates, exact Kleene/null-drop
+     semantics and stable row order. Global reductions are excluded.
+  R3 Head through a proven cardinality-preserving, total row-wise select or
+     with_columns. Literal-only projections, empty projections and global
+     reductions are barriers unless separately proved safe.
+  R4 Predicate pushdown through direct-column/alias projection and independent
+     row-wise with_columns, under proved reference/rename and cardinality
+     conditions. Constant predicates and zero-row inputs must be covered.
+  R5 Column pruning through certified row-wise nodes, retaining dependencies,
+     names/order and a height carrier where necessary. Do not discard a
+     fallible output expression merely because its value is unused.
+
+All pending-limit/predicate/required-column accumulators need generalized
+induction statements that explain their execution, not only their schema.
+Prove preservation of well-formedness and preconditions between passes; then
+compose the actual enabled pass order in Optimize.release.
+
+Critical new hazard: making casts strict makes old rewrites unsound even after
+the head bug is fixed. Example: inner filter removes x=0; outer predicate
+strict-casts a bad string on that removed row. Merging evaluates the cast on
+all rows and can introduce a failure. Head sinking can hide failures on rows
+after the limit. Reject both rewrites unless their totality proof applies.
+Aggregation expressions similarly depend on the full input and cannot move
+just because their column names are available earlier.
+
+Scope control for a reasonable release
+-------------------------------------
+
+The minimum default optimizer must genuinely optimize the R1-R5 certified
+fragment. It must not pass its release gate by becoming the identity everywhere.
+For noncertified nodes/rules (initially sort movement, join/group projection
+pushdown, new unique/concat/join operations), keep the subtree unchanged unless
+the necessary production-operator congruence/refinement theorem exists.
+In particular, do not recursively rewrite inside an opaque boundary while
+silently assuming extensionality of the surrounding implementation.
+
+Returning unchanged plans at those boundaries is a deliberate reduction from
+the current optimizer's scope. Document it and measure its cost. The release
+theorem then covers the optimizer actually shipped for every admissible plan:
+certified transformations where applicable, identity elsewhere. Retaining
+all current aggressive rewrites requires their proofs too; they are not
+grandfathered in by the original tests.
+
+Optional wider optimizer experiments must be explicitly opt-in and excluded
+from the default API guarantee. No performance urgency overrides this boundary.
+
+6. Test strategy and acceptance criteria
+========================================
+
+Start the test infrastructure before implementing the expanded API. Preserve
+all old snapshots as regression evidence, updating only deliberately changed
+semantics and documenting the reason.
+
+Typed oracle:
+  Serialize dtypes, ordered column names, row count, validity and cell values
+  unambiguously. Preserve F32 bits for exact comparisons; keep NaN/inf and empty
+  strings separate from null. CSV can be tested as IO, but should not be the
+  only test transport. Test the comparator itself with intentional mismatches.
+
+Three comparisons, with different purposes:
+  1. Eager vs raw lazy vs optimized lazy: exact observable equivalence under
+     the v0.1 contract, including errors and row order. No float tolerance to
+     conceal a rewrite that changes reductions.
+  2. Bend vs pinned Polars 2.0.0: compatibility cases only; explicit dtypes and
+     order options. Record intended departures (F32 means/division, overflow
+     policy, API limits) with an independent oracle, not blanket ignores.
+  3. Numeric reductions vs a higher-precision Python reference of the exact
+     F32 inputs: calibrated absolute/relative/ULP checks, special values and
+     cancellation separately. Relative error alone is invalid near zero.
+
+Generation:
+  Generate small typed frames and well-typed expression/plan trees with bounded
+  depth; generate invalid cases separately. Bias toward empty/one-row frames,
+  lengths around powers of two, mixed/all-null data, repeated names/aliases,
+  dictionary mismatches, duplicate keys, nonfinite floats and strict casts.
+  Save seeds and shrink failures into permanent minimal regressions.
+
+Suggested initial execution budgets (tune runtime, not semantic coverage):
+  - Per change: regressions + 1,000 deterministic generated cases, varied plan
+    shapes, native backend included; ordinary backend smoke coverage too.
+  - Scheduled/release: 10,000+ cases across multiple seed sets and deeper plans;
+    join cardinality/collision cases and raw/dictionary variants.
+  - Release scale: independently validate all six queries at 1k/100k/1M plus
+    new high-cardinality and repeated-query workloads. No swallowed failures.
+
+Proof gates:
+  make proofs and make verdict must both pass on pinned toolchains. Keep
+  negative proof fixtures in a dedicated runner expecting verifier failure.
+  Mutate real code in disposable copies (wrong gathered index, flipped mask,
+  incorrect head rule, bad dictionary remap): the associated value/optimizer
+  theorem must fail. Falsifying only a theorem's RHS checks the checker but
+  does not demonstrate that a theorem constrains production behavior.
+
+Add a public-API coverage matrix: each released operation has success, null,
+empty, invalid-input and eager/lazy cases where applicable. Track generated
+operator/dtype/plan-shape coverage. Do not substitute a line-coverage percentage
+or an increased theorem count for these gates.
+
+7. Milestones, dependencies and deliverables
+===========================================
+
+M0 — Contract, baseline and trustworthy test runner
+  Deliver: compatibility/cardinality/error tables from section 2, reproductions
+  B01-B05, typed comparator, pinned Bend/Base/Lean/Polars versions, immutable
+  benchmark inputs and measured baseline. Keep current make verdict.
+  Exit: tests expose known defects; existing passing behavior remains recorded.
+
+M1 — Correctness repair and shared semantic analysis
+  Deliver: B01-B05 fixes, allocation guards, source reuse/Env facade, strict vs
+  lenient casts and explicit numeric policy, shared expression/cardinality/
+  failure analysis. Disable currently unsafe rewrites until they are repaired.
+  Exit: all known regressions fixed; first 1,000 generated comparisons pass.
+
+M2 — Proof feasibility and production foundation
+  Deliver: P0 invariants, runtime name-equality proof, actual gather/compact
+  content proofs, production pure-runner design and at least one R1 theorem
+  connected to it. Verify with the independent kernel immediately.
+  Exit: demonstrate a complete small real-code-to-optimizer proof chain and
+  a mutation that breaks it. This is the scheduling checkpoint for further
+  proof work; do it before promising a completion date or adding more verbs.
+
+M3 — Minimum API expansion
+  Deliver: the bounded section-2 surface in small groups: facade/sugar first,
+  global reductions and conditionals, slice/concat, unique/semi/anti, strings.
+  Every new AST node receives schema/analysis/compile/eval/explain/test support.
+  Use conservative optimizer barriers until its proof obligations are met.
+  Exit: three end-to-end examples need no direct src/ imports: sales summary,
+  dirty-CSV cleanup with try_cast/when, and deduplication plus semi/anti join.
+
+M4 — String experiment
+  Deliver: Raw/Dictionary storage prototype behind an explicit option, decoded
+  equivalence tests/proofs, benchmark/RSS results and an integrate-or-defer
+  decision using section 4. Freeze representation before final proof closure.
+  Exit: documented measured outcome. An unsuccessful optimization experiment
+  does not invalidate the release; an incorrect default representation does.
+
+M5 — Production proof closure
+  Deliver: required P1/P2 lemmas, R1-R5 rules, composition theorem for the exact
+  release optimizer, and an assurance matrix mapping theorem -> implementation
+  -> assumptions -> independent-check status. Remove unchecked bridges.
+  Exit: correct code passes both checkers; targeted production mutations fail.
+
+M6 — Release candidate
+  Deliver: scale/differential results, final performance report, README/API
+  examples/limits, clean-consumer package test and changelog.
+  Exit: all gates below pass. Prepare exact package/version/source artifact for
+  review; publication is a separate explicit action, not part of this plan.
+
+Dependency order: M0 -> M1 -> M2 -> M3 -> M4 -> M5 -> M6. Testing continues
+throughout. Profiling can overlap conceptually with proof work, but integration
+must not destabilize an already frozen representation without updating proofs.
+No subagents or external model calls are required by this plan.
+
+If scope pressure appears: defer top-k/parallelism/new physical string default
+first, then any optional API beyond the specified minimum. Do not cut the
+typed oracle, known bug fixes, production refinement links or default optimizer
+equivalence claim to preserve a larger list of verbs. If M2 cannot establish
+the proof foundation, report that blocker and revise the release claim openly;
+do not substitute more schema laws and call the optimizer proved.
+
+8. Definition of done and permitted release claims
+==================================================
+
+Release only when all of the following are true:
+
+  [ ] Both reviews' actionable defects have a regression and a disposition.
+  [ ] Mandatory public API/semantics are implemented and documented.
+  [ ] Eager/raw-lazy/optimized-lazy agree across the required test matrix.
+  [ ] Correctness failures fail the build; benchmark failures cannot be hidden.
+  [ ] The default optimizer's production result-equivalence theorem passes
+      --verdict, with nontrivial R1-R5 applications tested and witnessed.
+  [ ] Production gather/compact/map/zip/column/mask and reduction proofs exist
+      as scoped above; shipped string representation is covered.
+  [ ] No theorem relies on an unproved runtime-to-model equivalence, fresh
+      assumption of its conclusion, or an unchecked alternative implementation.
+  [ ] String experiment completed; default choice justified by measurements.
+  [ ] Limits, F32 accuracy, parse/materialization behavior and source ownership
+      are truthful; original benchmark headlines are updated.
+  [ ] Clean consumer import/build/examples and pinned proof toolchain work.
+
+Appropriate claim: "A small Bend-native dataframe library with tested ETL
+operations, verified core buffer operations, and a result-preserving default
+optimizer under documented input/runtime assumptions."
+
+Inappropriate claim: "Polars-compatible verified engine" or "all dataframe
+operations formally correct." Sort/join/group partitioning, complete CSV IO,
+floating numerical accuracy and native runtime correctness are separate
+assurance obligations. List which are proved, tested, or outside the trust
+boundary so the release's stronger proofs communicate precisely what they buy.
