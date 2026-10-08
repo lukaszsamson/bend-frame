@@ -1006,3 +1006,123 @@ law compact_step_cell:
   for +k: U32
   for +bit: U32
   {rd_at(U32, Pair.fst(Array<U32>, U32, K.Kernel.compact.go(~U32, 1n, i, k, (a, out), (mask, bit))), k) == rd_at(U32, a, i) : U32}
+
+# =====================================================================================
+# 11. Buffer contents, the full theorems (plan M_01 section 6 P1, M5): writes at distinct
+#     indices below 2^d take distinct paths, so the production kernels' outputs are what
+#     the per-step lemmas of section 10 say, slot by slot
+# =====================================================================================
+#
+# The read model is `rd` (section 10). `rdN(d, a, k)` is the cell at logical index k of a
+# well-formed array of depth d: rd_at with Array.size's answer 2^d in place (rd_at_wf ties
+# them). `same_d` is the sequence of halving decisions two masked indices make through a
+# perfect tree of depth d (True when they reach the same leaf); `same_at` applies the
+# masking of Array.get.at / Array.swap.at first. `paths_distinct` is the bit-vector lemma:
+# indices below 2^d that reach the same leaf are equal. `addn(j, f)` is the loop counter
+# after f increments; `Room(d, j, f)` says the next f write indices from j are below 2^d.
+
+# the cell at logical index k of a well-formed array of depth d (Array.size answers 2^d)
+def rdN(-T: Data, +d: Nat, a: Array<T>, +k: U32) -> T:
+  rd_size(T, k, (a, U32.shln(1, d)))
+
+# do two masked indices i (left-half test zi) and j (zj) reach the same leaf of a perfect
+# tree of depth d whose slot count is n? (rd's descent, decision by decision)
+def same_d(d: Nat, +n: U32, +i: U32, zi: Bool, +j: U32, zj: Bool) -> Bool:
+  match d zi zj:
+    case 0n _ _:
+      True{}
+    case 1n+p True{} True{}:
+      same_d(p, U32.shr(n), i, U32.is_lt(i, U32.shr(U32.shr(n))), j, U32.is_lt(j, U32.shr(U32.shr(n))))
+    case 1n+p False{} False{}:
+      same_d(p, U32.shr(n), U32.sub(i, U32.shr(n)), U32.is_lt(U32.sub(i, U32.shr(n)), U32.shr(U32.shr(n))), U32.sub(j, U32.shr(n)), U32.is_lt(U32.sub(j, U32.shr(n)), U32.shr(U32.shr(n))))
+    case 1n+p _ _:
+      False{}
+
+# the same for two logical indices, masked to 2^d slots as Array.get / Array.set do
+def same_at(+d: Nat, +i: U32, +j: U32) -> Bool:
+  +nn = U32.shln(1, d)
+  +mi = U32.and(i, U32.sub(nn, 1))
+  +mj = U32.and(j, U32.sub(nn, 1))
+  same_d(d, nn, mi, U32.is_lt(mi, U32.shr(nn)), mj, U32.is_lt(mj, U32.shr(nn)))
+
+# the loop counter after f increments (the kernels count with U32.inc)
+def addn(j: U32, f: Nat) -> U32:
+  match f:
+    case 0n:
+      j
+    case 1n+p:
+      U32.inc(addn(j, p))
+
+# the next f write indices from j are below 2^d (what a kernel needs of its output array)
+def Room(+d: Nat, j: U32, f: Nat) -> Type:
+  match f:
+    case 0n:
+      Unit
+    case 1n+p:
+      {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool} & Room(d, U32.inc(j), p)
+
+# LAW: rd_at of a well-formed array of depth d reads with the slot count 2^d
+law rd_at_wf:
+  for -T: Data
+  for +d: Nat
+  for a: Array<T>
+  for +k: U32
+  for wf: WFArray(T, d, a)
+  {rd_at(T, a, k) == rdN(T, d, a, k) : T}
+
+# LAW (the distinct-paths lemma): two indices below 2^d that reach the same leaf are equal
+law paths_distinct:
+  for +d: Nat
+  for +i: U32
+  for +j: U32
+  for hi: {U32.is_lt(i, U32.shln(1, d)) == True{} : Bool}
+  for hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}
+  for h: {same_at(d, i, j) == True{} : Bool}
+  {i == j : U32}
+
+# LAW: a write at i below 2^d leaves every other slot j below 2^d alone (the production
+# Array.set on a well-formed array; array_set_get of section 10 is the slot i itself)
+law array_set_other:
+  for -T: Data
+  for +d: Nat
+  for a: Array<T>
+  for +i: U32
+  for +j: U32
+  for +v: T
+  for wf: WFArray(T, d, a)
+  for hi: {U32.is_lt(i, U32.shln(1, d)) == True{} : Bool}
+  for hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}
+  for ne: {i != j : U32}
+  {rd_at(T, Array.set(T, a, i, v), j) == rd_at(T, a, j) : T}
+
+# LAW: Array.set keeps an array well formed
+law wf_array_set:
+  for -T: Data
+  for +d: Nat
+  for a: Array<T>
+  for +i: U32
+  for +v: T
+  for wf: WFArray(T, d, a)
+  WFArray(T, d, Array.set(T, a, i, v))
+
+# LAW: the production gather (U32 instance) writes out[k] == src[perm[k]] for every k < n,
+# whenever the output's 2^d slots hold the n rows (indexes read through perm wrap as
+# Array.get wraps them; the index array comes back unchanged)
+law gather_contents:
+  for +d: Nat
+  for +n: U32
+  for src: Array<U32>
+  for perm: Array<U32>
+  for +z: U32
+  for +k: U32
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for hk: {U32.is_lt(k, n) == True{} : Bool}
+  {rd_at(U32, Pair.fst(Array<U32>, Array<U32>, K.Kernel.gather(~U32, n, d, src, perm, z)), k) == rd_at(U32, src, rd_at(U32, perm, k)) : U32}
+
+law gather_keeps_perm:
+  for +d: Nat
+  for +n: U32
+  for src: Array<U32>
+  for perm: Array<U32>
+  for +z: U32
+  {Pair.snd(Array<U32>, Array<U32>, K.Kernel.gather(~U32, n, d, src, perm, z)) == perm : Array<U32>}
