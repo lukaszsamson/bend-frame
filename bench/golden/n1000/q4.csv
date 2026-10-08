@@ -1,0 +1,11 @@
+id,region,product,qty,price,discount,ok
+611,central,prod_04,71,494.0500,0.0700,true
+919,central,prod_48,1,485.2300,0.1100,true
+472,central,prod_61,4,484.4500,0.1400,false
+762,central,prod_35,66,468.0300,0.0700,false
+726,central,prod_37,85,467.7200,0.0900,true
+500,central,prod_33,99,466.6600,0.2100,true
+547,central,prod_27,38,460.4500,0.1200,false
+389,central,prod_44,67,449.2200,0.2400,true
+966,central,prod_48,86,448.0800,0.0800,true
+443,central,prod_50,98,447.2800,0.0200,true
