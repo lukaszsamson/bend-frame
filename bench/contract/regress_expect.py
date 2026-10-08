@@ -875,7 +875,16 @@ def _():
             + one("B02-m empty-schema-none", "eager", frame([], [], height=0))
             + one("B02-m empty-schema-count", "eager", count(2))
             + one("B02-m empty-schema-count-no-header", "eager", count(1))
-            + one("B02-m blank-only-schema-count", "eager", count(1)))
+            + one("B02-m blank-only-schema-count", "eager", count(1))
+            # no header: the width is the first non-blank record's; a blank line in k > 1 columns is
+            # skipped (15.6.2 D; Polars gives an all-null row), in 1 column it is a null row
+            + one("B02-m nohdr-lead-blank-wide", "eager", frame([("u32", "column_0"), ("u32", "column_1")], [[1, 2], [3, 4]]))
+            + one("B02-m nohdr-lead-blank-ragged", "eager", err("ParseError at line 4: expected 2 fields, got 1"))
+            + one("B02-m nohdr-blank-only", "eager", frame([("str", "column_0")], [[None], [None]]))
+            + [("-- B02-m nohdr-infer-lead-blank", "column_0:u32 column_1:str ")]
+            # the separator is refused before the file is opened (read like scan)
+            + one("B02-m sep-read-missing-file", "eager", sep)
+            + one("B02-m sep-read-schema-missing-file", "eager", sep))
 
 
 def main(argv) -> int:

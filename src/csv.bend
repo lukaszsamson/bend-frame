@@ -483,11 +483,32 @@ def Csv.prep.hn(first: H.CsvRec, rest: List<&2, H.CsvRec>, +ts: List<&2, D.DType
     case H.CsvRec{l, cs}:
       Csv.prep.d(Csv.names(cs), rest, ts)
 
-# no header: the first record is data, the names are column_0 ..
+# the cell count of the first non-blank record, 1 when every record is blank (go: the records
+# so far were all blank; the walk stops at the first non-blank one). Without a header a leading
+# blank line is data, not the width: `\n1,2\n` has 2 columns and its blank line is skipped (k > 1)
+def Csv.width.k(blank: Bool, +n: Nat, w: Nat) -> Nat:
+  match blank:
+    case True{}:
+      w
+    case False{}:
+      n
+
+def Csv.width(rows: List<&2, H.CsvRec>, +go: Bool) -> Nat:
+  match rows go:
+    case Nil{} _:
+      1n
+    case H.CsvRec{l, +cs} <> rt True{}:
+      Csv.width.k(Csv.is_blank(cs), List.length(&2, H.CsvCell, cs), Csv.width(rt, Csv.is_blank(cs)))
+    case other False{}:
+      0n
+
+def Csv.prep.gw(+rows: List<&2, H.CsvRec>, +ts: List<&2, D.DType>) -> E.Res(Prep):
+  Csv.prep.d(Csv.gen_names(Csv.width(rows, True{}), 0n), rows, ts)
+
+# no header: the first record is data, the names are column_0 .. (the width of the first
+# non-blank record)
 def Csv.prep.gn(first: H.CsvRec, rest: List<&2, H.CsvRec>, +ts: List<&2, D.DType>) -> E.Res(Prep):
-  match first:
-    case H.CsvRec{+l, +cs}:
-      Csv.prep.d(Csv.gen_names(List.length(&2, H.CsvCell, cs), 0n), H.CsvRec{l, cs} <> rest, ts)
+  Csv.prep.gw(first <> rest, ts)
 
 def Csv.prep.hd(hdr: Bool, first: H.CsvRec, rest: List<&2, H.CsvRec>, ts: List<&2, D.DType>) -> E.Res(Prep):
   match hdr:
@@ -1220,11 +1241,24 @@ def Csv.read.opened(opts: CsvOpts, ts: List<&2, D.DType>, o: Result<&1, &1, U32 
     case Fail{(code, msg)}:
       IO.pure(E.ResT(C.Frame), Fail{E.IoError{code, msg}})
 
-# Strict explicit dtypes (by column position), see Csv.parse_with.
-def Csv.read_with(path: String, opts: CsvOpts, ts: List<&2, D.DType>) -> IO(E.ResT(C.Frame)):
+def Csv.read_open(path: String, opts: CsvOpts, ts: List<&2, D.DType>) -> IO(E.ResT(C.Frame)):
   do IO<E.ResT(C.Frame)>:
     o : Result<&1, &1, U32 & String, File> <- File.open(path, "r")
     Csv.read.opened(opts, ts, o)
+
+# a refused separator is answered before the file is opened (as Csv.scan_fields_with does)
+def Csv.read_chk(bad: Maybe<&2, E.Err>, path: String, opts: CsvOpts, ts: List<&2, D.DType>) -> IO(E.ResT(C.Frame)):
+  match bad:
+    case Some{e}:
+      IO.pure(E.ResT(C.Frame), Fail{e})
+    case None{}:
+      Csv.read_open(path, opts, ts)
+
+# Strict explicit dtypes (by column position), see Csv.parse_with.
+def Csv.read_with(path: String, +opts: CsvOpts, ts: List<&2, D.DType>) -> IO(E.ResT(C.Frame)):
+  match opts:
+    case CsvOpts{+sep, hdr, inf}:
+      Csv.read_chk(Csv.sep_err(sep), path, CsvOpts{sep, hdr, inf}, ts)
 
 def Csv.read(path: String, opts: CsvOpts) -> IO(E.ResT(C.Frame)):
   Csv.read_with(path, opts, Nil{})

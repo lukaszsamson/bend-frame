@@ -1583,8 +1583,8 @@ Join.run makes first). Differences:
    tests use with a lowered cap; the text then names that cap). `src/kernels.bend` gained one
    `import ./err.bend as E` line at the top (imports must precede defs) and an appended section.
    `Kernel.depth_for` is unchanged (it loops to 32; the contract's "capped at 23" is not
-   implemented, the guards make it moot). Paths guarded: `Column.from_scalars` (after the dtype
-   check, before any array: `C.Column.from_scalars.cap`), `Csv.rows` (number of data records after
+   implemented, the guards make it moot). Paths guarded: `Column.from_scalars` (before the dtype
+   check and any array, so an over-cap list with a misfit reports the cap: `C.Column.from_scalars.cap`), `Csv.rows` (number of data records after
    blank-line skipping and the shape checks, so a ragged or bad-dtype-count file reports that error
    first; `Csv.rows.cap`, `Csv.parse_with.cap`; every read, `read_with` and the `scan_csv` collect go
    through it), `Join.run` (`Join.fill.a`, from the `Tot` count of the CSR match counts, before
@@ -1597,8 +1597,8 @@ Join.run makes first). Differences:
    sum). No `DF.max_rows` was added to `frame.bend` (the contract exposes it only in `Kernel`).
 2. **`CsvOpts.sep` / `CsvWriteOpts.sep`**: `"`, CR and LF are refused with
    `InvalidOperation{"csv: separator must not be a double quote, CR or LF"}` (`Csv.sep_err`) by
-   `Csv.parse_with` (so `read`, `read_with`, `read_csv*`, `scan_csv_schema`'s collect), `Csv.infer`,
-   `Csv.scan_fields_with` (before the file is opened) and the facade `write_csv_opts` (before the file
+   `Csv.parse_with`, `Csv.read_with` (so `read`, `read_csv*`, `scan_csv_schema`'s collect; before the
+   file is opened, review fix below), `Csv.infer`, `Csv.scan_fields_with` (before the file is opened) and the facade `write_csv_opts` (before the file
    is touched). The src-level `Csv.write_with` also refuses, with an `IoError 22` value (its result
    type has no `Err` channel), and the pure `Csv.render_with` is unguarded (it has no error channel).
    The contract said "any single char"; this narrows it (a `"` separator is ambiguous with quoting, CR
@@ -1606,7 +1606,10 @@ Join.run makes first). Differences:
 3. **Leading blank lines**: with `has_header = True{}` the blank records before the header are
    skipped (`Csv.lead`), for read, infer and scan alike; physical line numbers of the later records
    are unchanged; a file of blank lines only is then the empty file. Without a header they stay data.
-   Polars 2.0.0 does the same (checked).
+   Polars 2.0.0 does the same (checked). Without a header the column count is the first NON-blank
+   record's (`Csv.width`; 1 when every record is blank), so `\n1,2\n3,4\n` is 2 columns whose
+   leading blank line is skipped like any blank line in k > 1 columns (Polars: an all-null row, the
+   15.6.2 departure); review fix below.
 4. **`read_csv_schema` on an empty file** (or only blank lines with a header): `Csv.rows.none` runs
    the dtype-count check against 0 columns, so d > 0 dtypes is `"csv schema: d dtypes for 0 columns"`
    and `[]` still gives the `(0, 0)` frame. `tests/csv_edge.bend` "schema count empty" changed to the
@@ -1617,6 +1620,20 @@ Join.run makes first). Differences:
 6. Tests: `tests/regress/B04_i_row_cap.bend` (spec `B04_i_row_cap` in `bench/contract/regress_expect.py`),
    `tests/regress/B02_m_sep_lead_blank_empty_schema.bend` (spec of the same name),
    `tests/regress/pending/B04_i_concat_cap.bend.txt` (spec `B04_i_concat_cap`).
+7. **Review fixes** (diff review of b4eda5e): (a) `has_header = False{}` took the column count from
+   the first record even when it was blank, so `\n1,2\n3,4\n` was one column and a
+   `ParseError at line 2: expected 1 fields, got 2` (read, infer and scan alike); now `Csv.width`.
+   (b) `Csv.read_with` opened and read the whole file before `Csv.parse_with` refused the separator,
+   so a missing file with a bad separator was an `IoError` on read (and on a `scan_csv_schema`
+   collect) but an `InvalidOperation` on `scan_csv`; it now refuses before opening. Cases added to
+   `tests/regress/B02_m_sep_lead_blank_empty_schema.bend` (`nohdr-*`, `sep-read-*missing-file`).
+   Audited and found complete for the code that exists: every path that sizes a frame or column
+   from something other than an existing frame's height (`from_scalars`, `Csv.rows`, the join
+   total) is guarded; eval broadcasts (`Eval.const_col`), filter/compact, sort and slice gathers,
+   head, with_columns, the CSV prefix inference (no columns), `Frame.clone`, exec source cloning
+   and dump are bounded by an input height. The CSV record count goes through
+   `U32.from_nat(List.length ..)`, which could only wrap past 2^32 records (a file `File.read`
+   cannot hold).
 
 ### M1 B03 (numerics: 15.5, rows B03-a..q)
 
@@ -2155,7 +2172,7 @@ for Str cells.
 | separator | `CsvOpts.sep` (any single char except `"`, CR and LF, which `InvalidOperation{"csv: separator must not be a double quote, CR or LF"}` refuses on read, scan and write; `','` default); a field holding it is quoted | same (Polars: one byte) |
 | escaped quote | `""` inside a quoted field is one `"` | same |
 | multi-line field | CR/LF inside quotes belong to the field; CRLF and LF line ends both accepted | same |
-| blank lines before the header (`has_header = True{}`) | skipped (physical line numbers unchanged; a file of blank lines only is the empty file); with `has_header = False{}` they are data like any blank line | skipped / null rows |
+| blank lines before the header (`has_header = True{}`) | skipped (physical line numbers unchanged; a file of blank lines only is the empty file); with `has_header = False{}` they are data like any blank line (the column count is the first non-blank record's) | skipped / null rows |
 | blank line, 1 column | a null row (an empty field) | null row |
 | blank line, k > 1 columns | skipped; error line numbers still count it | an all-null row (**D** departure: a blank line is almost always a trailing newline or padding) |
 | ragged short row | `ParseError{line, "expected <k> fields, got <g>"}` (strict) | fills nulls (**D** departure: strict) |

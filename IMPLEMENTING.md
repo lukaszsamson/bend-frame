@@ -487,3 +487,17 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
   count that can exceed 2^32 before a guard (M3 concat).
 - A zero-column frame `C.Frame{8388609, Nil{}}` carries a height without data: the cheap way to
   test an over-cap path that needs no column (group_by with a literal key).
+
+## M1 B04-i / B02 diff review
+
+- **An early-exit walk under strict evaluation**: `Csv.width(rows, go)` (first non-blank record's
+  width) follows `Csv.lead`'s shape: the recursive call is an ARGUMENT of the `.k` chooser, so it is
+  always evaluated, and the `go = False{}` arm must answer at once (`case other False{}: 0n`). Then the
+  walk costs one step past the first non-blank record, not the whole file, and its (non-tail) depth is
+  the number of leading blank lines only.
+- **Validate options before IO**: a check that sits in the pure parser (`Csv.parse_with`) runs after the
+  file is opened and read, so a missing file reports `IoError` while a pure-first entry (`scan`) reports
+  the option error. Put the same `Maybe<&2, E.Err>` chooser in front of `File.open` (`Csv.read_chk`).
+- Timing note: reading the 1M-row bench CSV before and after b4eda5e (5 alternating runs each,
+  3.2-3.7 s both) shows no measurable cost from the added `U32.from_nat(List.length ..)` count and
+  the `+rt` duplication in `Csv.lead`.
