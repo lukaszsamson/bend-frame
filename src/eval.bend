@@ -1,7 +1,7 @@
 # src/eval.bend -- eager expression evaluation. DESIGN.md 4.7.
 #
-# Shape: an Expr is type checked against the frame's schema FIRST (Expr.type,
-# strict, every error early), then compiled into a postfix instruction list
+# Shape: an Expr is type checked against the frame's schema FIRST (the shared
+# analysis A.Expr.analyse, src/analysis.bend: strict, every error early), then compiled into a postfix instruction list
 # (pure Data) and run by a small stack machine whose state (frame + stack of
 # columns) threads through ONE tail-recursive loop (`Eval.run`). That keeps
 # the evaluator free of mutual recursion (R2/R4) while each instruction is a
@@ -34,6 +34,7 @@ import ./kernels.bend as K
 import ./column.bend as C
 import ./schema.bend as S
 import ./expr.bend as X
+import ./analysis.bend as A
 
 type SKind is Data:
   KFull{}
@@ -1135,7 +1136,7 @@ def Eval.slot.t(+e: X.Expr, f: C.Frame, t: E.Res(D.DType)) -> C.Frame & E.ResT(S
 
 def Eval.slot.s(+e: X.Expr, r: C.Frame & List<&2, S.Field>) -> C.Frame & E.ResT(Slot):
   (f, s) = r
-  Eval.slot.t(e, f, X.Expr.type(e, s))
+  Eval.slot.t(e, f, A.Ana.type(e, s))
 
 # type check e against the frame's schema, then evaluate it to a kinded slot
 def Eval.slot(f: C.Frame, +e: X.Expr) -> C.Frame & E.ResT(Slot):
@@ -1206,12 +1207,23 @@ def Eval.check.k(r: E.Res(D.DType), rest: Maybe<&2, E.Err>) -> Maybe<&2, E.Err>:
     case Done{t}:
       rest
 
+# (Expr.type: group_by's Grp.validate, which reports a nested aggregation with
+# its own text after the typing errors)
 def Eval.check(es: List<&2, X.Expr>, +s: List<&2, S.Field>) -> Maybe<&2, E.Err>:
   match es:
     case Nil{}:
       None{}
     case e <> t:
       Eval.check.k(X.Expr.type(e, s), Eval.check(t, s))
+
+# the first error of the shared analysis (typing, then "nested aggregation", per
+# expression in list order): select / with_columns
+def Eval.acheck(es: List<&2, X.Expr>, +s: List<&2, S.Field>) -> Maybe<&2, E.Err>:
+  match es:
+    case Nil{}:
+      None{}
+    case e <> t:
+      Eval.check.k(A.Ana.type(e, s), Eval.acheck(t, s))
 
 def Eval.names(es: List<&2, X.Expr>) -> List<&2, String>:
   match es:
@@ -1220,17 +1232,11 @@ def Eval.names(es: List<&2, X.Expr>) -> List<&2, String>:
     case e <> t:
       X.Expr.name(e) <> Eval.names(t)
 
-def Eval.any_kind(~p: SKind -> Bool, es: List<&2, X.Expr>) -> Bool:
-  match es:
-    case Nil{}:
-      False{}
-    case e <> t:
-      Bool.or(p(Eval.kind(e)), Eval.any_kind(~p, t))
-
-# select's height (Polars): h if any output is a real column, else 1 (an
-# agg-select, or literals only)
-def Eval.target(+es: List<&2, X.Expr>, +h: U32) -> U32:
-  Bool.pick(U32, Eval.any_kind(~(k => SKind.is_full(k)), es), h, 1)
+# select's height (DESIGN.md 15.4): h if some output is KRow (the shared
+# analysis, A.Ana.rows), else 1: literals only and reductions only give one row,
+# also on a zero-row input
+def Eval.target(row: Bool, +h: U32) -> U32:
+  Bool.pick(U32, row, h, 1)
 
 def Eval.many.out(name: String, s: Slot) -> Out:
   match s:
@@ -1277,35 +1283,36 @@ def Eval.outs(outs: List<&1, Out>, +n: U32, acc: List<&1, C.Named>) -> List<&1, 
     case Out{name, k, c} <> t:
       Eval.outs(t, n, C.Named{name, Eval.fit(k, c, n)} <> acc)
 
-def Eval.select.d(+es: List<&2, X.Expr>, r: E.ResT(List<&1, Out>), fh: C.Frame & U32) -> E.ResT(C.Frame):
+def Eval.select.d(row: Bool, r: E.ResT(List<&1, Out>), fh: C.Frame & U32) -> E.ResT(C.Frame):
   match r:
     case Fail{e}:
       Fail{e}
     case Done{outs}:
       (f, +h) = fh
-      C.Frame.from_columns(Eval.outs(outs, Eval.target(es, h), Nil{}))
+      C.Frame.from_columns(Eval.outs(outs, Eval.target(row, h), Nil{}))
 
-def Eval.select.c(+es: List<&2, X.Expr>, st: SelSt) -> E.ResT(C.Frame):
+def Eval.select.c(row: Bool, st: SelSt) -> E.ResT(C.Frame):
   match st:
     case SelSt{f, r}:
-      Eval.select.d(es, r, C.Frame.height(f))
+      Eval.select.d(row, r, C.Frame.height(f))
 
-def Eval.select.b(chk: Maybe<&2, E.Err>, f: C.Frame, +es: List<&2, X.Expr>) -> E.ResT(C.Frame):
+def Eval.select.b(chk: Maybe<&2, E.Err>, f: C.Frame, +es: List<&2, X.Expr>, row: Bool) -> E.ResT(C.Frame):
   match chk:
     case Some{e}:
       Fail{e}
     case None{}:
-      Eval.select.c(es, Eval.many(es, SelSt{f, Done{Nil{}}}))
+      Eval.select.c(row, Eval.many(es, SelSt{f, Done{Nil{}}}))
 
 def Eval.select.a(+es: List<&2, X.Expr>, r: C.Frame & List<&2, S.Field>) -> E.ResT(C.Frame):
-  (f, s) = r
-  Eval.select.b(Eval.check(es, s), f, es)
+  (f, +s) = r
+  Eval.select.b(Eval.acheck(es, s), f, es, A.Ana.rows(es, s))
 
 # a new frame of the expressions' columns, in order, named by Expr.name.
 # Every expression is type checked before anything runs. Mixing real columns
-# with 1-row results broadcasts the latter; all-aggregation selects give one
-# row. DuplicateColumn on repeated output names, ShapeMismatch on unequal
-# lengths. The input frame is consumed.
+# with 1-row results broadcasts the latter; literal-only and reduction-only
+# selects give one row (also on a zero-row input); select([]) is (0, 0)
+# (DESIGN.md 15.4). DuplicateColumn on repeated output names, ShapeMismatch on
+# unequal lengths. The input frame is consumed.
 def Eval.select(f: C.Frame, +es: List<&2, X.Expr>) -> E.ResT(C.Frame):
   Eval.select.a(es, S.Frame.schema(f))
 
@@ -1354,7 +1361,7 @@ def Eval.wc.dup(chk: Maybe<&2, E.Err>, d: Maybe<&2, String>) -> Maybe<&2, E.Err>
 
 def Eval.wc.a(+es: List<&2, X.Expr>, r: C.Frame & List<&2, S.Field>) -> E.ResT(C.Frame):
   (f, s) = r
-  Eval.wc.b(Eval.wc.dup(Eval.check(es, s), C.Names.dup(Eval.names(es), Nil{}, None{})), f, es)
+  Eval.wc.b(Eval.wc.dup(Eval.acheck(es, s), C.Names.dup(Eval.names(es), Nil{}, None{})), f, es)
 
 # Polars with_columns: every expression sees the INPUT frame; results replace
 # a column of the same name in place or append in expression order; 1-row
@@ -1413,7 +1420,7 @@ def Eval.filter.b(+pred: X.Expr, f: C.Frame, r: E.Res(D.DType)) -> E.ResT(C.Fram
 
 def Eval.filter.a(+pred: X.Expr, r: C.Frame & List<&2, S.Field>) -> E.ResT(C.Frame):
   (f, s) = r
-  Eval.filter.b(pred, f, X.Expr.type(pred, s))
+  Eval.filter.b(pred, f, A.Ana.type(pred, s))
 
 # the rows where pred is true (null counts as false), in order; pred must be
 # bool (TypeMismatch{"filter", "bool", got}); a 1-row pred broadcasts

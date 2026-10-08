@@ -853,6 +853,29 @@ def Frame.get_cloned(f: Frame, +name: String) -> Frame & E.ResT(Column):
     case Frame{+h, cols}:
       Frame.get_cloned.k(h, name, Cols.cg.go(cols, name, (Nil{}, None{})))
 
+def Cols.clone.k(+n: String, cc: Column & Column, r: List<&1, Named> & List<&1, Named>) -> List<&1, Named> & List<&1, Named>:
+  (c1, c2) = cc
+  (a, b) = r
+  (Named{n, c1} <> a, Named{n, c2} <> b)
+
+def Cols.clone(cols: List<&1, Named>) -> List<&1, Named> & List<&1, Named>:
+  match cols:
+    case Nil{}:
+      (Nil{}, Nil{})
+    case Named{+n, col} <> rest:
+      Cols.clone.k(n, Column.clone(col), Cols.clone(rest))
+
+def Frame.clone.k(+h: U32, r: List<&1, Named> & List<&1, Named>) -> Frame & Frame:
+  (a, b) = r
+  (Frame{h, a}, Frame{h, b})
+
+# an O(n) deep copy: two frames with the same height, names, order and cells
+# (DESIGN.md 15.2.1 DF.clone; Exec clones a Source used more than once, 15.7)
+def Frame.clone(f: Frame) -> Frame & Frame:
+  match f:
+    case Frame{+h, cols}:
+      Frame.clone.k(h, Cols.clone(cols))
+
 # ---- Frame: select_names / head / filter_mask ----------------------------------------------
 
 def Frame.select.add(+name: String, acc: List<&1, Named>, r: Frame & Maybe<&1, Column>) -> E.ResT(Frame & List<&1, Named>):

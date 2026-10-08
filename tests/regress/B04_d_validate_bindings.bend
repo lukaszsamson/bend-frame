@@ -1,5 +1,3 @@
-# PENDING (M1 API: DF.validate_bindings(p, env) -> Env & Res(Unit), DF.add_source).
-# Rename to tests/regress/B04_d_validate_bindings.bend when the API lands.
 # B04-d: DESIGN.md 15.2.2, 15.7: validate_bindings checks every Source of p against env
 # (uniqueness over the whole env first, then presence and schema per Source in postfix
 # order) and hands env back untouched; the texts are those of collect.

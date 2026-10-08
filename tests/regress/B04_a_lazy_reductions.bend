@@ -1,4 +1,3 @@
-#! xfail B04-a
 # B04-a (Fable B6, Astra G1): eager accepts global reductions in select / with_columns /
 # filter, lazy refuses them ("aggregation in select (v1: use group_by)"). DESIGN.md
 # 15.2.5 and 15.4 C6, C8-C13, C16, C17: reductions are allowed at any depth in both APIs,

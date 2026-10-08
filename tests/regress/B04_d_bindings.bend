@@ -1,4 +1,3 @@
-#! xfail B04-d
 # B04-d: missing / duplicate bindings are found only while executing, and Env.take
 # silently drops an older duplicate. DESIGN.md 15.7: collect checks, after Plan.schema,
 # uniqueness over the whole env ("source bound twice in env: <name>"), then presence

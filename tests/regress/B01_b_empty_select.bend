@@ -1,4 +1,3 @@
-#! xfail B01-b
 # B01-b (Astra E): lazy Select{[]} keeps the input height; eager select([]) gives (0, 0).
 # Contract DESIGN.md 15.4 C1 and 15.2.3: select([]) is (0, 0) in both APIs (Polars 2.0.0
 # eager and lazy: (0, 0), bench/contract/cardinality.py C1).

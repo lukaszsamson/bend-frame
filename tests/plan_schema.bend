@@ -1,6 +1,7 @@
 # Plan.schema (collect_schema, M4): a Select/WithColumns/Filter/GroupBy/Join/
 # Head chain over Sources, and the strict early errors (unknown column, filter
-# on u32, aggregation in select, ...), all without any data.
+# on u32, nested aggregation, ...), all without any data. Global reductions are
+# accepted in Select/WithColumns/Filter (DESIGN.md 15.2.5, B04-a).
 import Base
 import ./../src/dtype.bend as D
 import ./../src/err.bend as E
@@ -73,15 +74,18 @@ def main() -> IO(Unit):
     IO.print("select:  " ++ show(P.Select{[col("price"), al(col("id"), "key"), bin(X.Add{}, col("qty"), u32(1))], sales()}))
     IO.print("wc repl: " ++ show(P.WithColumns{[al(X.Cast{col("id"), D.TStr{}}, "qty")], sales()}))
     IO.print("left:    " ++ show(P.Join{J.Left{}, ["product", "price"], ["product", "price"], sales(), prods()}))
+    IO.print("reduce:  " ++ show(P.Select{[agg(X.Sum{}, col("qty"))], sales()}))
+    IO.print("red wc:  " ++ show(P.WithColumns{[al(agg(X.Max{}, col("qty")), "m")], sales()}))
+    IO.print("red flt: " ++ show(P.Filter{bin(X.Gt{}, col("qty"), agg(X.Max{}, col("qty"))), sales()}))
     IO.print("-- errors")
     IO.print(show(P.Select{[col("id"), col("nope")], sales()}))
     IO.print(show(P.Filter{col("qty"), sales()}))
-    IO.print(show(P.Select{[agg(X.Sum{}, col("qty"))], sales()}))
+    IO.print(show(P.Select{[agg(X.Sum{}, agg(X.Sum{}, col("qty")))], sales()}))
     IO.print(show(P.Select{[col("id"), al(col("qty"), "id")], sales()}))
     IO.print(show(P.Select{[col("nope"), col("id"), col("id")], sales()}))
     IO.print(show(P.WithColumns{[al(u32(1), "x"), al(u32(2), "x")], sales()}))
-    IO.print(show(P.WithColumns{[agg(X.Max{}, col("qty"))], sales()}))
-    IO.print(show(P.Filter{bin(X.Gt{}, col("qty"), agg(X.Max{}, col("qty"))), sales()}))
+    IO.print(show(P.WithColumns{[agg(X.Max{}, agg(X.Max{}, col("qty")))], sales()}))
+    IO.print(show(P.Filter{bin(X.Gt{}, col("qty"), agg(X.Max{}, agg(X.Count{}, col("qty")))), sales()}))
     IO.print(show(P.Filter{bin(X.Gt{}, col("price"), u32(3)), sales()}))
     IO.print(show(P.Sort{[key("id", False{}), key("zz", True{})], sales()}))
     IO.print(show(P.GroupBy{[col("region")], [col("qty")], False{}, sales()}))
@@ -106,15 +110,18 @@ def main() -> IO(Unit):
 #|select:  price:f32, key:u32, qty:u32
 #|wc repl: id:u32, region:str, product:str, qty:str, price:f32, ok:bool
 #|left:    id:u32, region:str, product:str, qty:u32, price:f32, ok:bool, category:str
+#|reduce:  qty:u32
+#|red wc:  id:u32, region:str, product:str, qty:u32, price:f32, ok:bool, m:u32
+#|red flt: id:u32, region:str, product:str, qty:u32, price:f32, ok:bool
 #|-- errors
 #|error: ColumnNotFound: nope
 #|error: TypeMismatch in filter: expected bool, got u32
-#|error: InvalidOperation: aggregation in select (v1: use group_by)
+#|error: InvalidOperation: nested aggregation: col("qty").sum().sum()
 #|error: DuplicateColumn: id
 #|error: ColumnNotFound: nope
 #|error: DuplicateColumn: x
-#|error: InvalidOperation: aggregation in with_columns (v1: use group_by)
-#|error: InvalidOperation: aggregation in filter (v1: use group_by)
+#|error: InvalidOperation: nested aggregation: col("qty").max().max()
+#|error: InvalidOperation: nested aggregation: col("qty").count().max()
 #|error: TypeMismatch in gt: expected f32, got u32
 #|error: ColumnNotFound: zz
 #|error: InvalidOperation: agg expects an aggregation: col("qty")

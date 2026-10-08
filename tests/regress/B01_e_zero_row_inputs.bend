@@ -1,4 +1,3 @@
-#! xfail B01-e
 # B01-e: zero-row inputs through literal-only, reduction and mixed selects, with_columns,
 # filter and group_by. DESIGN.md 15.4 C3, C7, C10, C13, C14, C21, C26: a select of only
 # literals / only reductions is one row even on h = 0; sum/count/len/n_unique of nothing
