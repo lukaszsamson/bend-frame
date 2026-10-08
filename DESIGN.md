@@ -1841,6 +1841,63 @@ Join.run makes first). Differences:
    imports `PROOF_kernels.bend` for its lemmas; the new
    `tests/proof_negative/head_rule_outer_wins.bend` is the T5 mutation of the head rule.
 
+### M3 table verbs (drop, rename, slice, tail, unique, concat_vertical, semi / anti)
+
+Code: `src/table.bend` (`TV`: one static rule `<Verb>.schema` per verb, shared by
+`Plan.schema` and the eager run, and one frame function `<Verb>.run` / `Concat.two`, shared
+by the facade and Exec), `src/join.bend` (`Semi{}` / `Anti{}`, `Join.schema.how`,
+`Join.semi`), `Kernel.append`. Plan nodes `Drop`, `Rename`, `Slice`, `Tail`, `Unique` compile
+to ONE instruction `ITable{TOp}` (so a proof's Instr case split grows by one case, not five);
+`Concat` to `IConcat{i}`.
+
+1. **Concat is a chain of binary nodes, not `Concat{inputs: List<&2, Plan>}`.** A def that
+   recurses through a `List<&2, Plan>` field (`f(Many{t})` after matching `Many{h <> t}`)
+   passes `bend` (the TypeScript checker sees a smaller term) but `--verdict` answers
+   "mismatch between the TypeScript implementation and the formalized BendTT kernel", and
+   `PROOF.bend` imports plan.bend. So the node is `Concat{index: U32, left: Plan, right:
+   Plan}`: `lazy_concat_vertical([p0, .., pk])` (`P.Lazy.concat`) builds `Concat{k, ..
+   Concat{2, Concat{1, p0, p1}, p2} .., pk}` (`right` is input `index`, `left` holds inputs
+   0 .. index-1); one plan is itself; `[]` is `Concat{0, Source{"", []}, Source{"", []}}`,
+   whose schema is the static error `"concat_vertical: no inputs"` (`validate_bindings` of
+   that plan alone would name the dummy source "": it is never reached through `collect`).
+   `explain` prints a chain as one `CONCAT` with every input below it; a concat used as an
+   input of another prints its own `CONCAT` (the index tells the two apart).
+2. **Static error order of a lazy concat is input by input**: input i's own errors, then
+   its schema against input 0's, then input i + 1 (postfix over the chain). An n-ary
+   reading (every input's errors first, then the first differing input) is not available
+   without the list node: a binary step cannot tell a later input's own error from an
+   earlier mismatch. The eager facade `DF.concat_vertical(fs)` takes frames (no input
+   errors), so the two agree whenever the inputs are valid; the differential generator's
+   eager wrapper (`DX.e_concat_vertical`), the model (`model.concat_schema`) and the oracle
+   follow the same input-by-input order. All static checks still precede every runtime
+   error (15.9).
+3. **Row cap of concat**: each binary step checks the saturating sum of its two heights
+   (`TV.Cat.sat`, 2^32 - 1 instead of a wrap) with `Kernel.check_rows` before building
+   anything, so the error names the FIRST prefix of inputs whose summed height passes 2^23
+   (`[8388600, 9, 5]` reads 8388609, `[8388600, 8, 5]` 8388613). The eager `concat_vertical`
+   checks every schema first, then folds the same step, so it reports the same prefix
+   (tests/table_concat_cap.bend).
+4. **Rename pairs are `Sigma<&2, &2, String, x => String>`**, written `("a", "b")` (alias
+   `DF.RenamePair()` for annotations): 15.2.3's `List<&2, String & String>` does not
+   typecheck, `A & B` is a Type ("expected Data / observed Type") and a Plan field must be
+   Data. Rename's checks run in the order 15.2.3 lists them: ColumnNotFound{from} (list
+   order), DuplicateColumn{from} (a from named twice), DuplicateColumn{name} (first repeated
+   output name in frame order).
+5. **`Plan.schema.join` takes `how`** (semi / anti answer the left fields after the same key
+   checks: `J.Join.schema.how`); the proofs' `binary` lemma gained the parameter, and
+   `binary_concat` / `pass_concat_rs` are its Concat copies.
+6. **Optimizers**: every new node is a barrier in `Optimize.release` and in all four
+   passes of `optimize_full` (merge and the head pass recurse into the inputs; pushdown
+   re-wraps the pending conjuncts above the node; projection needs every input column below
+   it). Semi / anti stay `Join` nodes and inherit the join's rules: projection may keep a
+   right non-key column it does not need (harmless).
+7. **Analysis**: the table verbs take no expressions, so `src/analysis.bend` is unchanged;
+   their static rules are pure schema functions.
+8. `unique` reuses group_by's key codes (`G.Grp.codes`, `G.Grp.densify` over clones of the
+   key columns) and gathers every column at the groups' first rows; a frame with no
+   columns keeps `min(h, 1)` rows (C24). `slice` with `start = 0` is `Frame.head` (no copy);
+   otherwise every column is gathered.
+
 ## 15. v0.1 contract (frozen)
 
 The exact semantics every M1-M6 agent codes and tests against. Tables over prose;
@@ -2446,7 +2503,7 @@ Implemented (M1 B04-i): `Kernel.max_rows`, `Kernel.check_rows`, and `Kernel.chec
 today: `Column.from_scalars` (list length; `Column.from_scalars.cap`), `Csv.rows` (data records after
 the shape checks; `Csv.rows.cap`, `Csv.parse_with.cap`), `Join.run` (`Join.fill.a`, the `Tot` count,
 which saturates at 2^32 - 1 instead of wrapping), `GroupBy.run` (the input height, checked after the
-type errors and before any key is evaluated: `ng <= h`). `Concat` waits for M3. See section 14 "M1 B04-i".
+type errors and before any key is evaluated: `ng <= h`). `Concat` (M3): each binary step of the chain checks the saturating sum of its two heights before any column is built (section 14 "M3 table verbs" 3). See section 14 "M1 B04-i".
 
 Tests exercise the guard function directly (`check_rows(8388608)` = `None`,
 `check_rows(8388609)` = `Some`) and each path with a cheap over-cap request: a CSV

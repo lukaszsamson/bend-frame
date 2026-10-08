@@ -649,3 +649,30 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
   output after checking by eye that the failure is the theorem's (mutated rule in
   `expected`, real rule in `observed`), not a parse error.
 - Full check of 71 laws: `bend PROOF.bend` ~1.0 s wall (1.3 s CPU), `--verdict` ~1.1 s wall.
+
+## M3 table verbs (drop, rename, slice, tail, unique, concat, semi / anti)
+
+- **No recursion through a `List<&2, Plan>` field.** `f(Many{t})` after `case Many{h <> t}` passes
+  `bend` and `--check-only`, but `--verdict` answers "mismatch between the TypeScript implementation
+  and the formalized BendTT kernel" (the type alone is fine). Anything PROOF.bend imports must recurse
+  on direct subterms: an n-ary node becomes a chain of binary nodes plus an index field.
+- **`A & B` is never Data**, so `List<&2, String & String>` cannot be a Plan field. The Data pair is
+  `Sigma<&2, &2, String, x => String>`: literals `("a", "b")`, patterns `case (a, b) <> t:` and
+  `(a, b) = p` all work, and a def `RenamePair() -> Data` can name it in annotations.
+- **New Plan constructors in the proofs are mechanical**: every proof that splits on `P.Plan` treats
+  a barrier node exactly like `Sort` (unary) or `Join` (binary) as long as its schema rule has the shape
+  `Plan.schema.<verb>(args.., Plan.schema(x))` with a Fail passing through (identity for slice / tail).
+  `build/scratch/proofgen.py`-style copying of the Sort / Join case blocks (renaming the constructor,
+  the instruction and the schema helper) checked first time, `--verdict` included. Compiling the unary
+  verbs to one `ITable{op}` instruction keeps the Instr case splits at one new case.
+- **A template lambda cannot capture**: a mask for semi vs anti is two closed lambdas chosen by a
+  `match` (`~(m => Bool.to_u32(U32.is_ne(m, 0)))` / `is_eq`), not one lambda over a captured flag.
+- `Plan.lines` (explain) is not in the proofs, so it can take an extra flag (`cont`: the left input of
+  a Concat chain prints no header). A `+acc` lets one arm keep `acc` and the other extend it under
+  `Bool.pick` (both arms are evaluated, which is fine for pure text).
+- Semi / anti need no new hashing: the join's CSR counts per left id (`counts[accl[i]]`, DEAD ids read
+  the zeroed wrap slot) give a 0/1 mask, `Kernel.popcount` the kept count, `Frame.filter_mask` the rows.
+- `DF.then(r, f => DF.then(o, g => DF.semi_join(f, g, ..)))` works in examples: a (non-template)
+  lambda may capture a frame it uses once.
+- The diff generator's old `e_concat_vertical` (go -> step -> go) was mutual recursion and never
+  compiled; a loop def with a non-recursive step helper (`step(st, h, i, s0)`) is the shape.
