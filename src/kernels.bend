@@ -399,3 +399,23 @@ def Kernel.check_rows.cap(+cap: U32, +n: U32) -> Maybe<&2, E.Err>:
 
 def Kernel.check_rows(+n: U32) -> Maybe<&2, E.Err>:
   Kernel.check_rows.cap(Kernel.max_rows(), n)
+
+# ---- append (M3 concat_vertical) -------------------------------------------------------------------
+
+# out[off + i] = a[i] for i < n; a is consumed, out comes back
+def Kernel.copy_into.go(~T: Data, n: Nat, +i: U32, +off: U32, out: Array<T>, r: Array<T> & T) -> Array<T>:
+  match n:
+    case 0n:
+      out
+    case 1n+p:
+      (a, x) = r
+      +j = U32.inc(i)
+      Kernel.copy_into.go(~T, p, j, off, Array.set(T, out, U32.add(off, i), x), Array.get(T, a, j))
+
+def Kernel.copy_into(~T: Data, +n: U32, +off: U32, out: Array<T>, a: Array<T>) -> Array<T>:
+  Kernel.copy_into.go(~T, U32.to_nat(n), 0, off, out, Array.get(T, a, 0))
+
+# a[0..na) then b[0..nb) in a fresh array of 2^d slots padded with z (na + nb <= 2^d); a and b
+# are consumed
+def Kernel.append(~T: Data, +na: U32, +nb: U32, +d: Nat, a: Array<T>, b: Array<T>, +z: T) -> Array<T>:
+  Kernel.copy_into(~T, nb, na, Kernel.copy_into(~T, na, 0, Array.new(T, d, z), a), b)

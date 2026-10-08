@@ -45,6 +45,15 @@ import ./sort.bend as O
 import ./groupby.bend as G
 import ./join.bend as J
 import ./plan.bend as P
+import ./table.bend as TV
+
+# the one-input table verbs of M3 (src/table.bend), one instruction for all of them
+type TOp is Data:
+  TDrop{names: List<&2, String>}
+  TRename{pairs: List<&2, Sigma<&2, &2, String, x => String>>}
+  TSlice{offset: U32, len: U32}
+  TTail{n: U32}
+  TUnique{subset: List<&2, String>}
 
 type Instr is Data:
   IScan{path: String, opts: R.CsvOpts, schema: List<&2, S.Field>}
@@ -56,6 +65,8 @@ type Instr is Data:
   IGroupBy{keys: List<&2, X.Expr>, aggs: List<&2, X.Expr>, maintain_order: Bool}
   IJoin{how: J.JoinHow, left_on: List<&2, String>, right_on: List<&2, String>}
   IHead{n: U32}
+  ITable{op: TOp}
+  IConcat{index: U32}
 
 type St is Type:
   St{env: P.Env, stack: E.ResT(List<&1, C.Frame>)}
@@ -81,6 +92,18 @@ def Exec.compile(p: P.Plan, acc: List<&2, Instr>) -> List<&2, Instr>:
       Exec.compile(l, Exec.compile(r, IJoin{how, lo, ro} <> acc))
     case P.Head{n, x}:
       Exec.compile(x, IHead{n} <> acc)
+    case P.Drop{ns, x}:
+      Exec.compile(x, ITable{TDrop{ns}} <> acc)
+    case P.Rename{ps, x}:
+      Exec.compile(x, ITable{TRename{ps}} <> acc)
+    case P.Slice{o, l, x}:
+      Exec.compile(x, ITable{TSlice{o, l}} <> acc)
+    case P.Tail{n, x}:
+      Exec.compile(x, ITable{TTail{n}} <> acc)
+    case P.Unique{ss, x}:
+      Exec.compile(x, ITable{TUnique{ss}} <> acc)
+    case P.Concat{i, l, r}:
+      Exec.compile(l, Exec.compile(r, IConcat{i} <> acc))
 
 # does a later instruction read the Source `n`?
 def Exec.later(code: List<&2, Instr>, +n: String) -> Bool:
@@ -172,6 +195,20 @@ def Exec.plain(es: List<&2, X.Expr>) -> Bool:
 def Exec.select(f: C.Frame, +es: List<&2, X.Expr>) -> E.ResT(C.Frame):
   Exec.select.k(Exec.plain(es), f, es)
 
+# a table verb over the popped frame (src/table.bend)
+def Exec.table(op: TOp, f: C.Frame) -> E.ResT(C.Frame):
+  match op:
+    case TDrop{ns}:
+      TV.Drop.run(f, ns)
+    case TRename{ps}:
+      TV.Rename.run(f, ps)
+    case TSlice{o, l}:
+      Done{TV.Slice.run(f, o, l)}
+    case TTail{n}:
+      Done{TV.Tail.run(f, n)}
+    case TUnique{ss}:
+      TV.Unique.run(f, ss)
+
 # a one-input operator over the popped frame
 def Exec.unary(i: Instr, f: C.Frame) -> E.ResT(C.Frame):
   match i:
@@ -187,6 +224,8 @@ def Exec.unary(i: Instr, f: C.Frame) -> E.ResT(C.Frame):
       G.GroupBy.run(f, ks, as, mo)
     case IHead{n}:
       Done{C.Frame.head(f, n)}
+    case ITable{op}:
+      Exec.table(op, f)
     case _:
       Fail{E.InvalidOperation{"exec: not a one-input operator"}}
 
@@ -202,6 +241,14 @@ def Exec.join(how: J.JoinHow, lo: List<&2, String>, ro: List<&2, String>, stack:
   match stack:
     case r <> l <> t:
       Exec.push(J.Join.run(how, l, r, lo, ro), t)
+    case _:
+      Fail{Exec.underflow()}
+
+# Concat{i, ..}: the right input (input i) is on top, the left one (inputs 0 .. i-1) below it
+def Exec.concat(+i: U32, stack: List<&1, C.Frame>) -> E.ResT(List<&1, C.Frame>):
+  match stack:
+    case r <> l <> t:
+      Exec.push(TV.Concat.two(i, l, r), t)
     case _:
       Fail{Exec.underflow()}
 
@@ -223,6 +270,8 @@ def Exec.step.pure(i: Instr, env: P.Env, stack: List<&1, C.Frame>) -> St:
       Exec.source(n, s, Exec.source.get(last, env, n), stack)
     case IJoin{how, lo, ro}:
       St{env, Exec.join(how, lo, ro, stack)}
+    case IConcat{i}:
+      St{env, Exec.concat(i, stack)}
     case other:
       St{env, Exec.unary.pop(other, stack)}
 
@@ -316,6 +365,18 @@ def Exec.nscans(p: P.Plan) -> U32:
       U32.add(Exec.nscans(l), Exec.nscans(r))
     case P.Head{n, x}:
       Exec.nscans(x)
+    case P.Drop{ns, x}:
+      Exec.nscans(x)
+    case P.Rename{ps, x}:
+      Exec.nscans(x)
+    case P.Slice{o, l, x}:
+      Exec.nscans(x)
+    case P.Tail{n, x}:
+      Exec.nscans(x)
+    case P.Unique{ss, x}:
+      Exec.nscans(x)
+    case P.Concat{i, l, r}:
+      U32.add(Exec.nscans(l), Exec.nscans(r))
 
 # ScanCsv -> Source{"#scan<k>", s}, numbered in postfix order from k (a Join's
 # left scans come first, as in Exec.compile)
@@ -339,6 +400,18 @@ def Exec.unscan(p: P.Plan, +k: U32) -> P.Plan:
       P.Join{how, lo, ro, Exec.unscan(l, k), Exec.unscan(r, U32.add(k, Exec.nscans(l)))}
     case P.Head{n, x}:
       P.Head{n, Exec.unscan(x, k)}
+    case P.Drop{ns, x}:
+      P.Drop{ns, Exec.unscan(x, k)}
+    case P.Rename{ps, x}:
+      P.Rename{ps, Exec.unscan(x, k)}
+    case P.Slice{o, l, x}:
+      P.Slice{o, l, Exec.unscan(x, k)}
+    case P.Tail{n, x}:
+      P.Tail{n, Exec.unscan(x, k)}
+    case P.Unique{ss, x}:
+      P.Unique{ss, Exec.unscan(x, k)}
+    case P.Concat{i, +l, r}:
+      P.Concat{i, Exec.unscan(l, k), Exec.unscan(r, U32.add(k, Exec.nscans(l)))}
 
 # the env being filled, and the first scan error
 type Mat is Type:

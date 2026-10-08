@@ -198,6 +198,24 @@ def three(+tag: String, eager: E.ResT(C.Frame), +p: P.Plan, env_raw: P.Env, env_
     IO.print(show(tag, "raw", r1))
     IO.print(show(tag, "opt", r2))
 
+def agree.v(+d0: String, d: String) -> String:
+  Bool.pick(String, String.eq(d0, d), "same", "DIFFERS")
+
+def agree.d(+name: String, +d0: String, +d: String) -> String:
+  Bool.pick(String, String.eq(d0, d), "", "-- " ++ name ++ "\n" ++ d)
+
+def four.text(+tag: String, +d0: String, +d1: String, +d2: String, +d3: String) -> String:
+  "-- " ++ tag ++ "\n" ++ d0 ++ "raw " ++ agree.v(d0, d1) ++ ", opt " ++ agree.v(d0, d2) ++ ", full " ++ agree.v(d0, d3) ++ "\n" ++ agree.d("raw", d0, d1) ++ agree.d("opt", d0, d2) ++ agree.d("full", d0, d3)
+
+# the eager dump once, then whether raw lazy, DF.collect and DF.collect_full dump the same
+# text ("raw same, opt same, full same"); a differing run's dump is printed under its name
+def four(+tag: String, eager: E.ResT(C.Frame), +p: P.Plan, env_raw: P.Env, env_opt: P.Env, env_full: P.Env) -> IO(Unit):
+  do IO<Unit>:
+    r1 : E.ResT(C.Frame) <- Q.Exec.run(p, env_raw)
+    r2 : E.ResT(C.Frame) <- DF.collect(p, env_opt)
+    r3 : E.ResT(C.Frame) <- DF.collect_full(p, env_full)
+    IO.print(four.text(tag, DF.dump(eager), DF.dump(r1), DF.dump(r2), DF.dump(r3)))
+
 # raw and optimised lazy only (no eager counterpart, e.g. a plan-only defect)
 def lazy2(+tag: String, +p: P.Plan, env_raw: P.Env, env_opt: P.Env) -> IO(Unit):
   do IO<Unit>:

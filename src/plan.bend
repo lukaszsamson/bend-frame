@@ -82,6 +82,7 @@ import ./csv.bend as V
 import ./sort.bend as O
 import ./join.bend as J
 import ./groupby.bend as G
+import ./table.bend as TV
 
 type Plan is Data:
   ScanCsv{path: String, opts: V.CsvOpts, schema: List<&2, S.Field>}
@@ -93,6 +94,12 @@ type Plan is Data:
   GroupBy{keys: List<&2, X.Expr>, aggs: List<&2, X.Expr>, maintain_order: Bool, input: Plan}
   Join{how: J.JoinHow, left_on: List<&2, String>, right_on: List<&2, String>, left: Plan, right: Plan}
   Head{n: U32, input: Plan}
+  Drop{names: List<&2, String>, input: Plan}
+  Rename{pairs: List<&2, Sigma<&2, &2, String, x => String>>, input: Plan}
+  Slice{offset: U32, len: U32, input: Plan}
+  Tail{n: U32, input: Plan}
+  Unique{subset: List<&2, String>, input: Plan}
+  Concat{index: U32, left: Plan, right: Plan}
 
 # the frames a plan's Source nodes name
 type Named.Frame is Type:
@@ -248,14 +255,54 @@ def Plan.schema.gb(+keys: List<&2, X.Expr>, +aggs: List<&2, X.Expr>, r: E.Res(Li
       Plan.schema.gb.k(G.Grp.validate(keys, aggs, s), keys, aggs, s)
 
 # Join.schema (src/join.bend) is the single definition Join.run checks too
-def Plan.schema.join(lo: List<&2, String>, ro: List<&2, String>, rl: E.Res(List<&2, S.Field>), rr: E.Res(List<&2, S.Field>)) -> E.Res(List<&2, S.Field>):
+def Plan.schema.join(how: J.JoinHow, lo: List<&2, String>, ro: List<&2, String>, rl: E.Res(List<&2, S.Field>), rr: E.Res(List<&2, S.Field>)) -> E.Res(List<&2, S.Field>):
   match rl rr:
     case Fail{e} _:
       Fail{e}
     case Done{x} Fail{e}:
       Fail{e}
     case Done{ls} Done{rs}:
-      J.Join.schema(ls, rs, lo, ro)
+      J.Join.schema.how(how, ls, rs, lo, ro)
+
+# the M3 table verbs: one static rule each over the input's schema (src/table.bend), a Fail of
+# the input passing through
+def Plan.schema.drop(ns: List<&2, String>, r: E.Res(List<&2, S.Field>)) -> E.Res(List<&2, S.Field>):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{s}:
+      TV.Drop.schema(ns, s)
+
+def Plan.schema.rename(ps: List<&2, Sigma<&2, &2, String, x => String>>, r: E.Res(List<&2, S.Field>)) -> E.Res(List<&2, S.Field>):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{s}:
+      TV.Rename.schema(ps, s)
+
+def Plan.schema.slice(o: U32, l: U32, r: E.Res(List<&2, S.Field>)) -> E.Res(List<&2, S.Field>):
+  r
+
+def Plan.schema.tail(n: U32, r: E.Res(List<&2, S.Field>)) -> E.Res(List<&2, S.Field>):
+  r
+
+def Plan.schema.unique(ss: List<&2, String>, r: E.Res(List<&2, S.Field>)) -> E.Res(List<&2, S.Field>):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{s}:
+      TV.Unique.schema(ss, s)
+
+# Concat{i, l, r}: the left inputs' errors, then the right input's, then input i's schema
+# against input 0's (TV.Concat.schema; i = 0 is the empty input list)
+def Plan.schema.concat(i: U32, rl: E.Res(List<&2, S.Field>), rr: E.Res(List<&2, S.Field>)) -> E.Res(List<&2, S.Field>):
+  match rl rr:
+    case Fail{e} _:
+      Fail{e}
+    case Done{x} Fail{e}:
+      Fail{e}
+    case Done{ls} Done{rs}:
+      TV.Concat.schema(i, ls, rs)
 
 # the output schema with no data (Polars collect_schema), strict early errors
 def Plan.schema(p: Plan) -> E.Res(List<&2, S.Field>):
@@ -275,9 +322,21 @@ def Plan.schema(p: Plan) -> E.Res(List<&2, S.Field>):
     case GroupBy{ks, as, mo, x}:
       Plan.schema.gb(ks, as, Plan.schema(x))
     case Join{how, lo, ro, l, r}:
-      Plan.schema.join(lo, ro, Plan.schema(l), Plan.schema(r))
+      Plan.schema.join(how, lo, ro, Plan.schema(l), Plan.schema(r))
     case Head{n, x}:
       Plan.schema(x)
+    case Drop{ns, x}:
+      Plan.schema.drop(ns, Plan.schema(x))
+    case Rename{ps, x}:
+      Plan.schema.rename(ps, Plan.schema(x))
+    case Slice{o, l, x}:
+      Plan.schema.slice(o, l, Plan.schema(x))
+    case Tail{n, x}:
+      Plan.schema.tail(n, Plan.schema(x))
+    case Unique{ss, x}:
+      Plan.schema.unique(ss, Plan.schema(x))
+    case Concat{i, l, r}:
+      Plan.schema.concat(i, Plan.schema(l), Plan.schema(r))
 
 # ---- Plan.optimize: shared helpers -------------------------------------------------------
 
@@ -375,6 +434,18 @@ def Opt.merge(p: Plan) -> Plan:
       Join{how, lo, ro, Opt.merge(l), Opt.merge(r)}
     case Head{n, x}:
       Head{n, Opt.merge(x)}
+    case Drop{ns, x}:
+      Drop{ns, Opt.merge(x)}
+    case Rename{ps, x}:
+      Rename{ps, Opt.merge(x)}
+    case Slice{o, l, x}:
+      Slice{o, l, Opt.merge(x)}
+    case Tail{n, x}:
+      Tail{n, Opt.merge(x)}
+    case Unique{ss, x}:
+      Unique{ss, Opt.merge(x)}
+    case Concat{i, l, r}:
+      Concat{i, Opt.merge(l), Opt.merge(r)}
 
 # every Filter predicate of the plan is total and no reduction (over its input's
 # schema): only then may Opt.merge evaluate an outer predicate on rows an inner one
@@ -399,6 +470,18 @@ def Opt.fsafe(p: Plan) -> Bool:
       Bool.and(Opt.fsafe(l), Opt.fsafe(r))
     case Head{n, x}:
       Opt.fsafe(x)
+    case Drop{ns, x}:
+      Opt.fsafe(x)
+    case Rename{ps, x}:
+      Opt.fsafe(x)
+    case Slice{o, l, x}:
+      Opt.fsafe(x)
+    case Tail{n, x}:
+      Opt.fsafe(x)
+    case Unique{ss, x}:
+      Opt.fsafe(x)
+    case Concat{i, l, r}:
+      Bool.and(Opt.fsafe(l), Opt.fsafe(r))
 
 def Opt.merge_if(ok: Bool, p: Plan) -> Plan:
   match ok:
@@ -586,6 +669,18 @@ def Opt.push(p: Plan, +ps: List<&2, X.Expr>) -> Plan:
       Opt.wrap(ps, Join{how, lo, ro, Opt.push(l, Nil{}), Opt.push(r, Nil{})})
     case Head{n, x}:
       Opt.wrap(ps, Head{n, Opt.push(x, Nil{})})
+    case Drop{ns, x}:
+      Opt.wrap(ps, Drop{ns, Opt.push(x, Nil{})})
+    case Rename{rs, x}:
+      Opt.wrap(ps, Rename{rs, Opt.push(x, Nil{})})
+    case Slice{o, l, x}:
+      Opt.wrap(ps, Slice{o, l, Opt.push(x, Nil{})})
+    case Tail{n, x}:
+      Opt.wrap(ps, Tail{n, Opt.push(x, Nil{})})
+    case Unique{ss, x}:
+      Opt.wrap(ps, Unique{ss, Opt.push(x, Nil{})})
+    case Concat{i, l, r}:
+      Opt.wrap(ps, Concat{i, Opt.push(l, Nil{}), Opt.push(r, Nil{})})
 
 # ---- pass 3: Head merging / pushdown ---------------------------------------------------------
 
@@ -644,6 +739,18 @@ def Opt.head(p: Plan, +n: Maybe<&2, U32>) -> Plan:
       Opt.hwrap(n, Join{how, lo, ro, Opt.head(l, None{}), Opt.head(r, None{})})
     case Head{m, x}:
       Opt.head(x, Some{Opt.hmin(m, n)})
+    case Drop{ns, x}:
+      Opt.hwrap(n, Drop{ns, Opt.head(x, None{})})
+    case Rename{ps, x}:
+      Opt.hwrap(n, Rename{ps, Opt.head(x, None{})})
+    case Slice{o, l, x}:
+      Opt.hwrap(n, Slice{o, l, Opt.head(x, None{})})
+    case Tail{m, x}:
+      Opt.hwrap(n, Tail{m, Opt.head(x, None{})})
+    case Unique{ss, x}:
+      Opt.hwrap(n, Unique{ss, Opt.head(x, None{})})
+    case Concat{i, l, r}:
+      Opt.hwrap(n, Concat{i, Opt.head(l, None{}), Opt.head(r, None{})})
 
 # ---- pass 4: projection pushdown ------------------------------------------------------------
 
@@ -787,6 +894,18 @@ def Opt.proj(p: Plan, +need: List<&2, String>, top: Bool) -> Plan:
       Join{how, lo, ro, Opt.proj(l, Opt.need.l(Opt.sch(Plan.schema(l)), need, lo, Opt.need.nk(Opt.sch(Plan.schema(r)), ro)), False{}), Opt.proj(r, Opt.need.r(Opt.sch(Plan.schema(r)), need, ro, S.Schema.names(Opt.sch(Plan.schema(l)))), False{})}
     case Head{n, x}:
       Head{n, Opt.proj(x, need, top)}
+    case Drop{ns, +x}:
+      Drop{ns, Opt.proj(x, S.Schema.names(Opt.sch(Plan.schema(x))), False{})}
+    case Rename{ps, +x}:
+      Rename{ps, Opt.proj(x, S.Schema.names(Opt.sch(Plan.schema(x))), False{})}
+    case Slice{o, l, +x}:
+      Slice{o, l, Opt.proj(x, S.Schema.names(Opt.sch(Plan.schema(x))), False{})}
+    case Tail{n, +x}:
+      Tail{n, Opt.proj(x, S.Schema.names(Opt.sch(Plan.schema(x))), False{})}
+    case Unique{ss, +x}:
+      Unique{ss, Opt.proj(x, S.Schema.names(Opt.sch(Plan.schema(x))), False{})}
+    case Concat{i, +l, +r}:
+      Concat{i, Opt.proj(l, S.Schema.names(Opt.sch(Plan.schema(l))), False{}), Opt.proj(r, S.Schema.names(Opt.sch(Plan.schema(r))), False{})}
 
 # ---- Optimize.release / Plan.optimize_full ------------------------------------------------------
 
@@ -838,6 +957,18 @@ def Plan.sources(p: Plan, acc: List<&2, String>) -> List<&2, String>:
       Plan.sources(l, Plan.sources(r, acc))
     case Head{n, x}:
       Plan.sources(x, acc)
+    case Drop{ns, x}:
+      Plan.sources(x, acc)
+    case Rename{ps, x}:
+      Plan.sources(x, acc)
+    case Slice{o, l, x}:
+      Plan.sources(x, acc)
+    case Tail{n, x}:
+      Plan.sources(x, acc)
+    case Unique{ss, x}:
+      Plan.sources(x, acc)
+    case Concat{i, l, r}:
+      Plan.sources(l, Plan.sources(r, acc))
 
 # ---- Plan.explain ----------------------------------------------------------------------------------
 
@@ -871,33 +1002,68 @@ def Plan.how.show(h: J.JoinHow) -> String:
       "INNER"
     case J.Left{}:
       "LEFT"
+    case J.Semi{}:
+      "SEMI"
+    case J.Anti{}:
+      "ANTI"
 
-# one line per node, children indented by two spaces, prepended to acc
-def Plan.lines(p: Plan, +ind: String, acc: List<&2, String>) -> List<&2, String>:
+def Plan.strs.show(ns: List<&2, String>) -> String:
+  "[" ++ String.join(ns, ", ") ++ "]"
+
+def Plan.ren.go(ps: List<&2, Sigma<&2, &2, String, x => String>>) -> List<&2, String>:
+  match ps:
+    case Nil{}:
+      Nil{}
+    case (a, b) <> t:
+      (a ++ " -> " ++ b) <> Plan.ren.go(t)
+
+# the indentation of a Concat's inputs: one level deeper, except in a chain continuation (the
+# left input of a Concat{i >= 2} is Concat{i - 1}: its inputs sit with the outer node's)
+def Plan.lines.cind(cont: Bool, +ind: String) -> String:
+  Bool.pick(String, cont, ind, ind ++ "  ")
+
+# one line per node, children indented by two spaces, prepended to acc. `cont` marks the left
+# input of a Concat chain (Plan.lines.cind): it prints no CONCAT header of its own, so a chain
+# reads as ONE `CONCAT` with every input below it
+def Plan.lines(p: Plan, +ind: String, +cont: Bool, +acc: List<&2, String>) -> List<&2, String>:
   match p:
     case ScanCsv{path, o, s}:
       (ind ++ "SCAN CSV " ++ path ++ " [" ++ S.Schema.show(s) ++ "]") <> acc
     case Source{n, s}:
       (ind ++ "SOURCE " ++ n ++ " [" ++ S.Schema.show(s) ++ "]") <> acc
     case Select{es, x}:
-      (ind ++ "SELECT " ++ Plan.exprs.show(es)) <> Plan.lines(x, ind ++ "  ", acc)
+      (ind ++ "SELECT " ++ Plan.exprs.show(es)) <> Plan.lines(x, ind ++ "  ", False{}, acc)
     case WithColumns{es, x}:
-      (ind ++ "WITH_COLUMNS " ++ Plan.exprs.show(es)) <> Plan.lines(x, ind ++ "  ", acc)
+      (ind ++ "WITH_COLUMNS " ++ Plan.exprs.show(es)) <> Plan.lines(x, ind ++ "  ", False{}, acc)
     case Filter{e, x}:
-      (ind ++ "FILTER " ++ X.Expr.show(e)) <> Plan.lines(x, ind ++ "  ", acc)
+      (ind ++ "FILTER " ++ X.Expr.show(e)) <> Plan.lines(x, ind ++ "  ", False{}, acc)
     case Sort{ks, x}:
-      (ind ++ "SORT BY [" ++ String.join(Plan.keys.go(ks), ", ") ++ "]") <> Plan.lines(x, ind ++ "  ", acc)
+      (ind ++ "SORT BY [" ++ String.join(Plan.keys.go(ks), ", ") ++ "]") <> Plan.lines(x, ind ++ "  ", False{}, acc)
     case GroupBy{ks, as, mo, x}:
-      (ind ++ "GROUP_BY " ++ Plan.exprs.show(ks) ++ " AGG " ++ Plan.exprs.show(as) ++ Bool.pick(String, mo, " MAINTAIN_ORDER", "")) <> Plan.lines(x, ind ++ "  ", acc)
+      (ind ++ "GROUP_BY " ++ Plan.exprs.show(ks) ++ " AGG " ++ Plan.exprs.show(as) ++ Bool.pick(String, mo, " MAINTAIN_ORDER", "")) <> Plan.lines(x, ind ++ "  ", False{}, acc)
     case Join{how, lo, ro, l, r}:
       +ind2 = ind ++ "  "
-      (ind ++ Plan.how.show(how) ++ " JOIN ON [" ++ String.join(Plan.on.go(lo, ro), ", ") ++ "]") <> Plan.lines(l, ind2, Plan.lines(r, ind2, acc))
+      (ind ++ Plan.how.show(how) ++ " JOIN ON [" ++ String.join(Plan.on.go(lo, ro), ", ") ++ "]") <> Plan.lines(l, ind2, False{}, Plan.lines(r, ind2, False{}, acc))
     case Head{n, x}:
-      (ind ++ "HEAD " ++ U32.show(n)) <> Plan.lines(x, ind ++ "  ", acc)
+      (ind ++ "HEAD " ++ U32.show(n)) <> Plan.lines(x, ind ++ "  ", False{}, acc)
+    case Drop{ns, x}:
+      (ind ++ "DROP " ++ Plan.strs.show(ns)) <> Plan.lines(x, ind ++ "  ", False{}, acc)
+    case Rename{ps, x}:
+      (ind ++ "RENAME [" ++ String.join(Plan.ren.go(ps), ", ") ++ "]") <> Plan.lines(x, ind ++ "  ", False{}, acc)
+    case Slice{o, l, x}:
+      (ind ++ "SLICE " ++ U32.show(o) ++ " " ++ U32.show(l)) <> Plan.lines(x, ind ++ "  ", False{}, acc)
+    case Tail{n, x}:
+      (ind ++ "TAIL " ++ U32.show(n)) <> Plan.lines(x, ind ++ "  ", False{}, acc)
+    case Unique{ss, x}:
+      (ind ++ "UNIQUE " ++ Plan.strs.show(ss)) <> Plan.lines(x, ind ++ "  ", False{}, acc)
+    case Concat{+i, l, r}:
+      +ind2 = Plan.lines.cind(cont, ind)
+      +body = Bool.pick(List<&2, String>, U32.is_zero(i), acc, Plan.lines(l, ind2, U32.is_gt(i, 1), Plan.lines(r, ind2, False{}, acc)))
+      Bool.pick(List<&2, String>, cont, body, (ind ++ "CONCAT") <> body)
 
 # the plan as an indented tree (Polars `explain()`), one node per line
 def Plan.explain(p: Plan) -> String:
-  String.join(Plan.lines(p, "", Nil{}), "\n")
+  String.join(Plan.lines(p, "", False{}, Nil{}), "\n")
 
 # ---- Env -------------------------------------------------------------------------------------------
 
@@ -917,6 +1083,24 @@ def Env.add(env: Env, +name: String, f: C.Frame) -> Env & Plan:
 # a one-frame environment and its Source (Polars `df.lazy()`)
 def Lazy.source(+name: String, f: C.Frame) -> Env & Plan:
   Env.add(Env.empty(), name, f)
+
+def Lazy.concat.go(ps: List<&2, Plan>, acc: Plan, +i: U32) -> Plan:
+  match ps:
+    case Nil{}:
+      acc
+    case p <> t:
+      Lazy.concat.go(t, Concat{i, acc, p}, U32.inc(i))
+
+# concat_vertical of plans (DESIGN.md 15.2.4, 14 "M3 table verbs"): [p0, p1, .., pk] is the
+# left-nested chain Concat{k, .. Concat{2, Concat{1, p0, p1}, p2} .., pk} of binary nodes
+# (Concat{i, l, r}: r is input i); one plan is itself; [] is Concat{0, ..} over two empty
+# Sources, whose schema is the static error "concat_vertical: no inputs"
+def Lazy.concat(ps: List<&2, Plan>) -> Plan:
+  match ps:
+    case Nil{}:
+      Concat{0, Source{"", Nil{}}, Source{"", Nil{}}}
+    case p <> t:
+      Lazy.concat.go(t, p, 1)
 
 def Env.take.hit.k(f: C.Frame, r: List<&1, Named.Frame> & Maybe<&1, C.Frame>) -> List<&1, Named.Frame> & Maybe<&1, C.Frame>:
   (rest, m) = r
