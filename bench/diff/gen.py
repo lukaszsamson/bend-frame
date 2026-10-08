@@ -335,6 +335,9 @@ class Gen:
         pairs = []
         for a in self.rng.sample(ns, k) if ns else []:
             pairs.append((a, self.pick(ALIASES + ns)))
+        if self.err and self.r() < self.err:
+            # a missing `from`, or a `from` named twice
+            pairs.append(("nope", "x") if not pairs or self.r() < 0.5 else (pairs[0][0], "y"))
         return (tuple(pairs),)
 
     def gen_join_keys(self, ls, rs):
@@ -371,7 +374,8 @@ class Gen:
         pl = Pl("source", (src,))
         cur = list(sources[src])
         for _ in range(depth):
-            usable = [v for v in self.verbs if M.VERBS[v].nin == 1 or (allow_join and M.VERBS[v].nin == 2 and "u" in sources)]
+            usable = [v for v in self.verbs if M.VERBS[v].nin == 1 or (allow_join and M.VERBS[v].nin == 2 and "u" in sources)
+                      or (allow_join and M.VERBS[v].nin == -1)]
             if not usable:
                 break
             v = r.choices(usable, [M.VERBS[x].weight for x in usable])[0]
@@ -390,7 +394,17 @@ class Gen:
                 lo, ro = self.gen_join_keys(cur, rs)
                 npl = Pl(v, (lo, ro), (pl, right))
             else:
-                continue
+                # concat_vertical: the current plan and one or two more inputs, each the same plan
+                # again (its sources read several times) or a short plan over a source (often
+                # another schema: an error, kept only in invalid cases)
+                kids = [pl]
+                for _ in range(r.choice([1, 1, 2])):
+                    if r.random() < 0.6:
+                        kids.append(pl)
+                    else:
+                        rname = "u" if "u" in sources and r.random() < 0.7 else names[0]
+                        kids.append(self.plan({rname: sources[rname]}, self.pick([0, 0, 1]), allow_join=False))
+                npl = Pl(v, (), tuple(kids))
             try:
                 cur = M.plan_schema(npl, sources)
             except M.TErr:
