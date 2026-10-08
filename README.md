@@ -1,6 +1,6 @@
 # bend-frame
 
-A columnar dataframe library for [Bend](https://bend-lang.com/) 2 (checked against Bend 2.0.36), shaped after the Polars 2.0 eager and lazy APIs. Queries are built as a lazy `Plan`, a pure data tree, and the output schema is resolved before any row is read: `DF.collect_schema` returns a strict error such as a filter on a `u32` column, and `DF.collect` refuses the same plan with the same error. Row order is part of the contract: `select`, `with_columns`, `filter` and `head` keep input order, `sort` is stable and multi-key, and `group_by` and joins answer in first-appearance and left-row order. Dtypes are `Bool`, `U32`, `I32`, `F32` and `Str`, each nullable through a validity mask, with no implicit casts. 48 laws over the schema, expression and optimizer code are stated in `LAWS.bend` and machine-checked by `PROOF.bend`: `bend PROOF.bend` prints `ALL PROOFS CHECK`, and `bend PROOF.bend --verdict` confirms it with Bend's independent, Lean-verified BendTT kernel.
+A columnar dataframe library for [Bend](https://bend-lang.com/) 2 (checked against Bend 2.0.36), shaped after the Polars 2.0 eager and lazy APIs. Queries are built as a lazy `Plan`, a pure data tree, and the output schema is resolved before any row is read: `DF.collect_schema` returns a strict error such as a filter on a `u32` column, and `DF.collect` refuses the same plan with the same error. Row order is part of the contract: `select`, `with_columns`, `filter` and `head` keep input order, `sort` is stable and multi-key, and `group_by` and joins answer in first-appearance and left-row order. Dtypes are `Bool`, `U32`, `I32`, `F32` and `Str`, each nullable through a validity mask, with no implicit casts. 71 laws over the schema, expression, optimizer, runner and buffer code are stated in `LAWS.bend` and machine-checked by `PROOF.bend`: `bend PROOF.bend` prints `ALL PROOFS CHECK`, and `bend PROOF.bend --verdict` confirms it with Bend's independent, Lean-verified BendTT kernel.
 
 ## Quickstart
 
@@ -137,7 +137,7 @@ collect: error: TypeMismatch in filter: expected bool, got u32
 
 ## Laws
 
-`LAWS.bend` states 48 laws over `src/`. `PROOF.bend` proves all of them with no `@unsafe` and no foreign code. The groups:
+`LAWS.bend` states 71 laws over `src/`. `PROOF.bend` (one file per area: `PROOF_lib`, `PROOF_schema`, `PROOF_expr`, `PROOF_plan`, `PROOF_kernels`, `PROOF_exec`) proves all of them with no `@unsafe`, no foreign code and no axiom. The groups:
 
 - Schema: projection has exactly the requested names in order; `with_columns` keeps the width for an existing name and appends a new one.
 - Expression typing: comparisons are `bool`; arithmetic keeps a numeric dtype; `&` and `|` over bools; allowed casts have the target dtype; `count`, `len` and `n_unique` are `u32`; `mean` is `f32`; `min`, `max`, `first` and `last` keep the dtype.
@@ -145,8 +145,12 @@ collect: error: TypeMismatch in filter: expected bool, got u32
 - Optimizer: head and merge passes keep the schema, merge leaves no `Filter` on a `Filter`, the merge is idempotent and a fixed point, and the head pass leaves no `Head` on a `Head`.
 - Columns and kernels: `head(c, n)` has `min(n, len)` rows; the map, zip and iota kernels produce exactly `2^d` slots.
 - `I32`: addition commutes, and the bit pattern round-trips.
+- Names and numbers: `U32.min` is commutative and associative, and the runtime name equality `String.eq` is reflexive and sound (proved from Base's `Word` comparison, no axiom).
+- The production runner (`Exec.run_pure`, what `collect` runs after validating the bindings and reading the scans): two adjacent `head`s run as one `head` with the min for every plan; on plans whose `select` / `with_columns` are head barriers, `DF.optimize` preserves the runner's result exactly, frames and errors included, and therefore its `DF.dump`. A mutated copy of the head rule is refused by the same proof (`tests/proof_negative/`).
+- Well-formedness: Type-valued predicates for arrays, columns and frames (`len <= 2^depth`, 0/1 masks, null slots at the default, equal heights, unique names); `Array.new`, the empty frame and `head` are proven to produce / preserve them.
+- Buffer contents: `Array.get` is pure and reads the modelled cell, read-after-write through `Array.set`, and one step of the production `gather` and `compact` kernels moves the right cell.
 
-Not yet proven (recorded in `DESIGN.md` section 8): schema preservation through the predicate and projection pushdowns (blocked on a `String.eq` reflexivity lemma in Base); the height of `with_columns`; `compact` and `gather` bounds; `I32` negation and addition algebra; CSV and number formatting round trips; and the `group_by` and join schema laws.
+Not yet proven (recorded in `DESIGN.md` section 8): the head sink below a certified `select` / `with_columns` (R3) and the other optimizer rules, so the result-preservation theorem covers the merge-only fragment today; full `gather` / `compact` contents (the per-step lemmas exist, the distinct-paths bit-vector lemma does not); well-formedness preservation by the other verbs; the height of `with_columns`; `I32` negation and addition algebra; CSV and number formatting round trips; and the `group_by` and join schema laws.
 
 ## Performance
 
