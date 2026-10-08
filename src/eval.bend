@@ -359,10 +359,11 @@ def Eval.un.f(op: X.UnOp, +n: U32, +d: Nat, v: C.Valid, x: Array<F32>) -> E.ResT
       Fail{Eval.bug("unary op on f32")}
 
 # len_chars: the number of code points (String.length); a null row holds "" -> 0, the default
-def Eval.un.s(op: X.UnOp, +n: U32, +d: Nat, v: C.Valid, x: Array<String>) -> E.ResT(C.Column):
+# (a Dictionary measures each entry once, then gathers by code: ST.Strs.map)
+def Eval.un.s(op: X.UnOp, +n: U32, +d: Nat, v: C.Valid, x: ST.Strs) -> E.ResT(C.Column):
   match op:
     case X.LenChars{}:
-      Done{C.CU32{n, d, v, K.Kernel.map(~String, ~U32, ~(w => U32.from_nat(String.length(w))), n, d, x, 0)}}
+      Done{C.CU32{n, d, v, ST.Strs.map(~U32, ~(w => U32.from_nat(String.length(w))), n, d, x, 0)}}
     case _:
       Fail{Eval.bug("unary op on str")}
 
@@ -829,7 +830,24 @@ def Eval.when.f(+n: U32, +d: Nat, va: C.Valid, vb: C.Valid, r: Array<U32> & Arra
 
 def Eval.when.s(+n: U32, +d: Nat, va: C.Valid, vb: C.Valid, r: Array<U32> & Array<String>) -> E.ResT(C.Column):
   (m, x) = r
-  Done{C.CStr{n, d, Eval.when.valid(n, d, va, vb, m), x}}
+  Done{C.CStr{n, d, Eval.when.valid(n, d, va, vb, m), ST.SRaw{x}}}
+
+def Eval.when.sd2(+n: U32, +d: Nat, va: C.Valid, vb: C.Valid, dict: ST.Dict, r: Array<U32> & Array<U32>) -> E.ResT(C.Column):
+  (m, x) = r
+  Done{C.CStr{n, d, Eval.when.valid(n, d, va, vb, m), ST.SDict{x, dict}}}
+
+def Eval.when.sd(+n: U32, +d: Nat, m: Array<U32>, va: C.Valid, vb: C.Valid, ca: Array<U32>, cb: Array<U32>, r: ST.Dict & ST.Dict & Array<U32>) -> E.ResT(C.Column):
+  (db, da, mb) = r
+  Eval.when.sd2(n, d, va, vb, da, K.Kernel.choose(~U32, n, m, ca, Eval.zd.map(n, d, mb, cb)))
+
+# when over Str: two Dictionaries merge (b's entries into a's) and the codes are chosen;
+# otherwise the strings (M4)
+def Eval.when.str(+n: U32, +d: Nat, m: Array<U32>, va: C.Valid, vb: C.Valid, xa: ST.Strs, xb: ST.Strs) -> E.ResT(C.Column):
+  match xa xb:
+    case ST.SDict{ca, da} ST.SDict{cb, db}:
+      Eval.when.sd(n, d, m, va, vb, ca, cb, ST.Dict.merge(db, da))
+    case a b:
+      Eval.when.s(n, d, va, vb, K.Kernel.choose(~String, n, m, ST.Strs.decode(n, d, a), ST.Strs.decode(n, d, b)))
 
 # row i = a[i] where m[i] (cond true and valid), else b[i]; each row keeps the chosen side's
 # validity, and a null slot already holds the default on both sides (no fix needed)
@@ -844,7 +862,7 @@ def Eval.when.v(m: Array<U32>, a: C.Column, b: C.Column) -> E.ResT(C.Column):
     case C.CF32{+n, +d, va, xa} C.CF32{n2, d2, vb, xb}:
       Eval.when.f(n, d, va, vb, K.Kernel.choose(~F32, n, m, xa, xb))
     case C.CStr{+n, +d, va, xa} C.CStr{n2, d2, vb, xb}:
-      Eval.when.s(n, d, va, vb, K.Kernel.choose(~String, n, m, xa, xb))
+      Eval.when.str(n, d, m, va, vb, xa, xb)
     case _ _:
       Fail{Eval.bug("operand dtypes in when")}
 
@@ -927,7 +945,7 @@ def Eval.isin(vs: List<&2, D.Scalar>, c: C.Column) -> E.ResT(C.Column):
     case C.CF32{+n, +d, v, x}:
       Eval.bin.w(D.TBool{}, n, d, v, K.Kernel.map_p(~F32, ~List<&2, U32>, ~U32, ~(p => w => Bool.to_u32(Eval.wmem(K.Kernel.fword(w), p))), n, d, x, Eval.isin.words(vs), 0))
     case C.CStr{+n, +d, v, x}:
-      Eval.bin.w(D.TBool{}, n, d, v, K.Kernel.map_p(~String, ~List<&2, String>, ~U32, ~(p => w => Bool.to_u32(Eval.smem(w, p))), n, d, x, Eval.isin.strs(vs), 0))
+      Eval.bin.w(D.TBool{}, n, d, v, ST.Strs.map_p(~List<&2, String>, ~U32, ~(p => w => Bool.to_u32(Eval.smem(w, p))), n, d, x, Eval.isin.strs(vs), 0))
 
 # a numeric literal's word (u32 as is, i32 bits) / f32 value; typing guarantees the dtype
 def Eval.sword(s: D.Scalar) -> U32:
@@ -976,14 +994,15 @@ def Eval.clip(+lo: D.Scalar, +hi: D.Scalar, c: C.Column) -> E.ResT(C.Column):
       Fail{Eval.bug("clip of a non-numeric column")}
 
 # the literal string predicates: case-sensitive, code-point equality, an empty pattern is true
-def Eval.strpred.k(op: X.StrPredOp, +n: U32, +d: Nat, x: Array<String>, +pat: String) -> Array<U32>:
+# (a Dictionary tests each entry once, then gathers by code: ST.Strs.map_p)
+def Eval.strpred.k(op: X.StrPredOp, +n: U32, +d: Nat, x: ST.Strs, +pat: String) -> Array<U32>:
   match op:
     case X.Contains{}:
-      K.Kernel.map_p(~String, ~String, ~U32, ~(p => w => Bool.to_u32(String.contains(w, p))), n, d, x, pat, 0)
+      ST.Strs.map_p(~String, ~U32, ~(p => w => Bool.to_u32(String.contains(w, p))), n, d, x, pat, 0)
     case X.StartsWith{}:
-      K.Kernel.map_p(~String, ~String, ~U32, ~(p => w => Bool.to_u32(String.starts_with(w, p))), n, d, x, pat, 0)
+      ST.Strs.map_p(~String, ~U32, ~(p => w => Bool.to_u32(String.starts_with(w, p))), n, d, x, pat, 0)
     case X.EndsWith{}:
-      K.Kernel.map_p(~String, ~String, ~U32, ~(p => w => Bool.to_u32(String.ends_with(w, p))), n, d, x, pat, 0)
+      ST.Strs.map_p(~String, ~U32, ~(p => w => Bool.to_u32(String.ends_with(w, p))), n, d, x, pat, 0)
 
 def Eval.strpred(op: X.StrPredOp, +pat: String, c: C.Column) -> E.ResT(C.Column):
   match c:
@@ -1518,6 +1537,12 @@ def Eval.agg.sd(op: X.AggOp, +k: U32, codes: Array<U32>, dict: ST.Dict) -> E.Res
       Fail{Eval.bug("sum over str")}
     case X.Mean{}:
       Fail{Eval.bug("mean over str")}
+    case X.Std{}:
+      Fail{Eval.bug("std over str")}
+    case X.Var{}:
+      Fail{Eval.bug("var over str")}
+    case X.Median{}:
+      Fail{Eval.bug("median over str")}
     case _:
       Done{Eval.unit(D.SU32{k}, D.TU32{})}
 

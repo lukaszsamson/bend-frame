@@ -207,6 +207,11 @@ def main() -> IO(Unit):
     IO.print(same("cast num u32 (strict, fails)", o.wc(False{}, [DF.cast(DF.col("num"), D.TU32{})]), o.wc(True{}, [DF.cast(DF.col("num"), D.TU32{})])))
     IO.print(same("fill_null lit, col; is_null", o.wc(False{}, [DF.alias(DF.fill_null(k(), ls("zz")), "a"), DF.alias(DF.fill_null(k(), w()), "b"), DF.alias(DF.fill_null(w(), ls("")), "c"), DF.alias(DF.is_null(k()), "d")]), o.wc(True{}, [DF.alias(DF.fill_null(k(), ls("zz")), "a"), DF.alias(DF.fill_null(k(), w()), "b"), DF.alias(DF.fill_null(w(), ls("")), "c"), DF.alias(DF.is_null(k()), "d")])))
     IO.print(repr("fill_null", o.wc(True{}, [DF.alias(DF.fill_null(k(), ls("zz")), "a"), DF.alias(DF.fill_null(k(), w()), "b")])))
+    IO.print(same("len_chars, str predicates", o.wc(False{}, [DF.alias(DF.len_chars(k()), "lc"), DF.alias(DF.contains_literal(k(), "b"), "c"), DF.alias(DF.starts_with(k(), "a"), "sw"), DF.alias(DF.ends_with(w(), "本"), "ew"), DF.alias(DF.contains_literal(k(), ""), "ce")]), o.wc(True{}, [DF.alias(DF.len_chars(k()), "lc"), DF.alias(DF.contains_literal(k(), "b"), "c"), DF.alias(DF.starts_with(k(), "a"), "sw"), DF.alias(DF.ends_with(w(), "本"), "ew"), DF.alias(DF.contains_literal(k(), ""), "ce")])))
+    IO.print(same("is_in str", o.wc(False{}, [DF.alias(DF.is_in(k(), [s("b"), s(""), s("q")]), "i"), DF.alias(DF.is_in(w(), []), "e")]), o.wc(True{}, [DF.alias(DF.is_in(k(), [s("b"), s(""), s("q")]), "i"), DF.alias(DF.is_in(w(), []), "e")])))
+    IO.print(same("when str", o.wc(False{}, [DF.alias(DF.when(DF.gt(DF.col("v"), DF.lit_u32(6)), k(), w()), "a"), DF.alias(DF.when(DF.eq(k(), ls("b")), ls("B"), k()), "b")]), o.wc(True{}, [DF.alias(DF.when(DF.gt(DF.col("v"), DF.lit_u32(6)), k(), w()), "a"), DF.alias(DF.when(DF.eq(k(), ls("b")), ls("B"), k()), "b")])))
+    IO.print(repr("when str", o.wc(True{}, [DF.alias(DF.when(DF.gt(DF.col("v"), DF.lit_u32(6)), k(), w()), "a")])))
+    IO.print(same("group_by k median v", o.gb(False{}, [k()], [DF.alias(DF.median(DF.col("v")), "m"), DF.alias(DF.std(DF.col("v")), "sd")]), o.gb(True{}, [k()], [DF.alias(DF.median(DF.col("v")), "m"), DF.alias(DF.std(DF.col("v")), "sd")])))
     IO.print(same("inner join dict x dict", o.join(False{}, False{}, False{}, ["k"], ["key"]), o.join(True{}, True{}, False{}, ["k"], ["key"])))
     IO.print(repr("inner join dict x dict", o.join(True{}, True{}, False{}, ["k"], ["key"])))
     IO.print(same("inner join dict x raw", o.join(False{}, False{}, False{}, ["k"], ["key"]), o.join(True{}, False{}, False{}, ["k"], ["key"])))
@@ -228,6 +233,7 @@ def main() -> IO(Unit):
     IO.print(same("all null: select min", o.edge(z(False{}), f => DF.select(f, [DF.min(DF.col("k")), DF.alias(DF.first(DF.col("k")), "f")])), o.edge(z(True{}), f => DF.select(f, [DF.min(DF.col("k")), DF.alias(DF.first(DF.col("k")), "f")]))))
     IO.print(same("no rows: sort, filter, min", o.edge(z0(False{}), f => DF.select(f, [DF.min(DF.col("k"))])), o.edge(z0(True{}), f => DF.select(f, [DF.min(DF.col("k"))]))))
     IO.print(same("no rows: filter", o.edge(z0(False{}), f => DF.filter(f, DF.lt(DF.col("k"), DF.lit_str("a")))), o.edge(z0(True{}), f => DF.filter(f, DF.lt(DF.col("k"), DF.lit_str("a"))))))
+
 
 #|dump: same
 #|dump repr: k:dict v:raw w:dict num:dict
@@ -263,6 +269,11 @@ def main() -> IO(Unit):
 #|cast num u32 (strict, fails): same
 #|fill_null lit, col; is_null: same
 #|fill_null repr: k:dict v:raw w:dict num:dict a:dict b:dict
+#|len_chars, str predicates: same
+#|is_in str: same
+#|when str: same
+#|when str repr: k:dict v:raw w:dict num:dict a:dict
+#|group_by k median v: same
 #|inner join dict x dict: same
 #|inner join dict x dict repr: k:dict v:raw w:dict num:dict n:raw cat:dict
 #|inner join dict x raw: same

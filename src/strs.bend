@@ -573,3 +573,21 @@ def Dict.entries(d: Dict) -> Dict & Ents:
   match d:
     case Dict{+k, +dd, strs, +b, slots, +tag}:
       Dict.entries.k(k, dd, b, slots, tag, Array.clone(String, strs))
+
+def Dict.mp.t2(~P: Data, ~U: Data, ~f: P -> String -> U, +k: U32, +dd: Nat, +b: Nat, slots: Array<SSlot>, +tag: U32, ss: Array<String> & Array<String>, +p: P, +z: U) -> Dict & Array<U>:
+  (s1, s2) = ss
+  (Dict{k, dd, s1, b, slots, tag}, K.Kernel.map_p(~String, ~P, ~U, ~f, k, dd, s2, p, z))
+
+def Dict.mp.t(~P: Data, ~U: Data, ~f: P -> String -> U, d: Dict, +p: P, +z: U) -> Dict & Array<U>:
+  match d:
+    case Dict{+k, +dd, strs, +b, slots, +tag}:
+      Dict.mp.t2(~P, ~U, ~f, k, dd, b, slots, tag, Array.clone(String, strs), p, z)
+
+# Kernel.map_p over the rows: out[i] = f(p, row i); per ENTRY for a Dictionary, then gathered
+# by code (string predicates, is_in: once per distinct string). s is consumed.
+def Strs.map_p(~P: Data, ~U: Data, ~f: P -> String -> U, +n: U32, +d: Nat, s: Strs, +p: P, +z: U) -> Array<U>:
+  match s:
+    case SRaw{a}:
+      K.Kernel.map_p(~String, ~P, ~U, ~f, n, d, a, p, z)
+    case SDict{codes, dict}:
+      Dict.map.k(~U, n, d, codes, z, Dict.mp.t(~P, ~U, ~f, dict, p, z))
