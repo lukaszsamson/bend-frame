@@ -187,9 +187,9 @@ def Fmt.show(f: C.Frame) -> C.Frame & String:
 # Polars' describe(): a `statistic` Str column (count null_count mean std min 25% 50% 75%
 # max) and one column per input column. Numeric (u32 i32 f32) inputs become F32 columns
 # (cast to f32, nulls dropped once: count = valid rows, null_count = the rest, mean = the
-# DESIGN.md 15.5.3 mean (Neumaier with the non-finite guard, Eval.agg Mean), std = sample
-# std (ddof 1) = sqrt of the 15.5.3 sum of squared deviations / (count - 1), each term an
-# f32 (15.5.4; null when count < 2),
+# DESIGN.md 15.5.3 mean (Neumaier with the non-finite guard, Eval.agg Mean), std = Eval.agg Std
+# (15.5.4: sample std, ddof 1, sqrt of the 15.5.3 sum of squared deviations / (count - 1), each
+# term an f32; null when count < 2; the kernel DF.std uses),
 # min/max = Eval.agg Min/Max (15.5.2: NaN skipped, -0.0 < 0.0 on a tie), the quantiles read from ONE
 # stable radix sort of the valid values, by NEAREST rank idx = round(p * (count - 1)), half away
 # from zero (Polars describe(interpolation="nearest"), its default, so "50%" is NOT the 15.5.4
@@ -215,48 +215,10 @@ def Fmt.d.agg(op: X.AggOp, c: C.Column) -> D.Scalar:
 def Fmt.d.names() -> List<&2, D.Scalar>:
   [D.SStr{"count"}, D.SStr{"null_count"}, D.SStr{"mean"}, D.SStr{"std"}, D.SStr{"min"}, D.SStr{"25%"}, D.SStr{"50%"}, D.SStr{"75%"}, D.SStr{"max"}]
 
-# sample std from the 15.5.3 sum (Eval.agg Sum) of squared deviations
-def Fmt.d.std.fin(+k: U32, ss: D.Scalar) -> D.Scalar:
-  match ss:
-    case D.SF32{s}:
-      D.SF32{F32.sqrt(F32.div(s, U32.to_f32(U32.sub(k, 1))))}
-    case other:
-      D.SNull{}
-
-def Fmt.d.std.sq(+k: U32, r: E.ResT(C.Column)) -> D.Scalar:
-  match r:
-    case Fail{e}:
-      D.SNull{}
-    case Done{sq}:
-      Fmt.d.std.fin(k, Fmt.d.agg(X.Sum{}, sq))
-
-def Fmt.d.std.mul(+k: U32, r: C.Column & C.Column) -> D.Scalar:
-  (a, b) = r
-  Fmt.d.std.sq(k, V.Eval.bin(X.Mul{}, a, b))
-
-def Fmt.d.std.dev(+k: U32, r: E.ResT(C.Column)) -> D.Scalar:
-  match r:
-    case Fail{e}:
-      D.SNull{}
-    case Done{dv}:
-      Fmt.d.std.mul(k, C.Column.clone(dv))
-
-def Fmt.d.std.m(+k: U32, mean: D.Scalar, d: C.Column) -> D.Scalar:
-  match mean:
-    case D.SF32{m}:
-      Fmt.d.std.dev(k, V.Eval.bin(X.Sub{}, d, V.Eval.const_col(D.SF32{m}, D.TF32{}, k)))
-    case other:
-      D.SNull{}
-
-def Fmt.d.std.b(small: Bool, +k: U32, mean: D.Scalar, d: C.Column) -> D.Scalar:
-  match small:
-    case True{}:
-      D.SNull{}
-    case False{}:
-      Fmt.d.std.m(k, mean, d)
-
-def Fmt.d.std(+k: U32, mean: D.Scalar, d: C.Column) -> D.Scalar:
-  Fmt.d.std.b(U32.is_lt(k, 2), k, mean, d)
+# sample std (ddof 1): Eval.agg Std, the 15.5.4 kernel DF.std uses (two passes: the 15.5.3
+# mean, then the 15.5.3 sum of the f32 squared deviations; null when k < 2)
+def Fmt.d.std(d: C.Column) -> D.Scalar:
+  Fmt.d.agg(X.Std{}, d)
 
 # the sorted rows to read: min, 25%, 50%, 75%, max (k >= 1)
 def Fmt.d.idx(+k: U32) -> List<&2, U32>:
@@ -319,8 +281,7 @@ def Fmt.d.num.e(+k: U32, +nn: U32, mean: D.Scalar, std: D.Scalar, r: C.Column & 
   Fmt.d.num.f(k, nn, mean, std, Fmt.d.agg(X.Min{}, d1), C.Column.clone(d2))
 
 def Fmt.d.num.c(+k: U32, +nn: U32, d: C.Column, ds: C.Column, mean: D.Scalar) -> E.ResT(C.Column):
-  +m = mean
-  Fmt.d.num.e(k, nn, m, Fmt.d.std(k, m, ds), C.Column.clone(d))
+  Fmt.d.num.e(k, nn, mean, Fmt.d.std(ds), C.Column.clone(d))
 
 def Fmt.d.num.b(+k: U32, +nn: U32, d: C.Column, r: C.Column & C.Column) -> E.ResT(C.Column):
   (dm, ds) = r
