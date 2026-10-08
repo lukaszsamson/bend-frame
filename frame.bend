@@ -32,6 +32,7 @@ import ./src/csv.bend as R
 import ./src/fmt.bend as F
 import ./src/plan.bend as P
 import ./src/exec.bend as Q
+import ./src/dump.bend as Y
 
 # ---- types ----------------------------------------------------------------------------
 # Imports carry no types, so annotations name them through these aliases:
@@ -226,6 +227,15 @@ def show(r: E.ResT(C.Frame)) -> String:
       "error: " ++ E.Err.show(e)
     case Done{f}:
       show.s(F.Fmt.show(f))
+
+# the typed oracle text of a result (DESIGN.md 15.1): every dtype, name, validity
+# and F32 bit pattern, or the error line; consumes r
+def dump(r: E.ResT(C.Frame)) -> String:
+  Y.Dump.result(r)
+
+# the same for a Frame that is not wrapped in a result
+def dump_frame(f: C.Frame) -> String:
+  Y.Dump.frame(f)
 
 # helper: the result of a (frame & result) pair
 def describe.r(x: C.Frame & E.ResT(C.Frame)) -> E.ResT(C.Frame):

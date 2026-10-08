@@ -1,0 +1,116 @@
+# CI: `make ci` on macOS (arm64) and Linux (x86_64), with every tool pinned in TOOLCHAIN.
+# Pins are read from TOOLCHAIN by the first step, so changing a version there is the only edit.
+# Bend comes from the release archive named in flake.nix (sha256 checked); Lean from elan; uv from
+# astral's versioned installer; Polars and numpy from bench/uv.lock (`uv sync --locked` fails on drift).
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  make-ci:
+    name: make ci (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-24.04]
+    env:
+      ELAN_VERSION: "4.2.4"
+      CI: "true"
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Load the pinned toolchain (TOOLCHAIN)
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -E '^[A-Z_]+=[^ ]+$' TOOLCHAIN >> "$GITHUB_ENV"
+          cat TOOLCHAIN
+
+      - name: Cache elan (Lean toolchains)
+        uses: actions/cache@v4
+        with:
+          path: ~/.elan
+          key: elan-${{ runner.os }}-${{ runner.arch }}-${{ env.LEAN_VERSION }}
+
+      - name: Install Lean ${{ env.LEAN_VERSION }} via elan
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -x "$HOME/.elan/bin/elan" ]; then
+            curl -fsSL --proto '=https' --tlsv1.2 \
+              "https://raw.githubusercontent.com/leanprover/elan/v${ELAN_VERSION}/elan-init.sh" \
+              -o "$RUNNER_TEMP/elan-init.sh"
+            sh "$RUNNER_TEMP/elan-init.sh" -y --no-modify-path \
+              --default-toolchain "leanprover/lean4:v${LEAN_VERSION}"
+          fi
+          export PATH="$HOME/.elan/bin:$PATH"
+          elan default "leanprover/lean4:v${LEAN_VERSION}"
+          lean --version | grep -F "version ${LEAN_VERSION},"
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Install Bend ${{ env.BEND_VERSION }} (release archive, sha256 checked)
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$(uname -s)-$(uname -m)" in
+            Darwin-arm64)  target=darwin-arm64; sha=2876687ceb0aba836abc98b3f62c8fc9fb612d124ae2af6814d5ec937760878d ;;
+            Darwin-x86_64) target=darwin-x64;   sha=925bb306c60260e1cdde56c2b8e4ba0e1eb4cbc88a76372cc0bb389a172dccdf ;;
+            Linux-x86_64)  target=linux-x64;    sha=02089dc0eed0fd5fd6d73c74cc9cffcb2c6638dd3b02ae83f7b8cc57fbe381ba ;;
+            Linux-aarch64) target=linux-arm64;  sha=a14a311e39bad45f9669d4eab39d156b578c945f13a2b7bae20d9c23567a4664 ;;
+            *) echo "no pinned Bend archive for $(uname -s)-$(uname -m)" >&2; exit 1 ;;
+          esac
+          archive="$RUNNER_TEMP/bend-$BEND_VERSION-$target.tar.gz"
+          curl -fsSL --proto '=https' --tlsv1.2 -o "$archive" \
+            "https://github.com/bendlang/bend/releases/download/v${BEND_VERSION}/bend-${BEND_VERSION}-${target}.tar.gz"
+          if command -v sha256sum >/dev/null 2>&1; then
+            echo "$sha  $archive" | sha256sum -c -
+          else
+            echo "$sha  $archive" | shasum -a 256 -c -
+          fi
+          # the archive holds bin/bend beside bend2/ and guide/: unpack it where install.sh puts bend
+          mkdir -p "$HOME/.bend"
+          tar -xzf "$archive" -C "$HOME/.bend"
+          test "$("$HOME/.bend/bin/bend" version)" = "bend $BEND_VERSION"
+          echo "$HOME/.bend/bin" >> "$GITHUB_PATH"
+
+      - name: Install uv ${{ env.UV_VERSION }} and Python ${{ env.PYTHON_VERSION }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          test "$(uv --version | awk '{print $2}')" = "$UV_VERSION"
+          uv python install "$PYTHON_VERSION"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "UV_PYTHON=$PYTHON_VERSION" >> "$GITHUB_ENV"
+
+      - name: Sync the bench environment (Polars and numpy from bench/uv.lock)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          uv sync --locked --project bench
+          uv run --project bench python -c 'import polars; assert polars.__version__ == "'"$POLARS_VERSION"'", polars.__version__'
+
+      - name: clang for bend -o (bench/main.bend)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v clang >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y clang
+          fi
+          clang --version | head -1
+
+      - name: make ci
+        shell: bash
+        run: make ci

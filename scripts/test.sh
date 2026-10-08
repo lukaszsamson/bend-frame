@@ -1,8 +1,18 @@
 #!/usr/bin/env bash
-# Runs every tests/**/*.bend (sorted) and checks its output against its `#|` lines.
+# Runs every tests/**/*.bend (sorted, recursive: tests/regress/, tests/diff/ too) and checks its
+# output against its `#|` lines.
 #
 # Usage: scripts/test.sh [filter ...]    a file runs if its path contains any filter
 #        BEND=/path/to/bend scripts/test.sh
+#        TEST_JOBS=8 scripts/test.sh     run files in parallel (default 1); output stays in file order
+#
+# Expected failures: a test with a line `#! xfail <ID>` (e.g. `#! xfail B01`) pins a known defect.
+#  - it must FAIL its check: reported as `XFAIL <file> (<ID>)` and not counted as a failure;
+#  - if it passes, it is reported as `XPASS <file> (<ID>)` and counted as a failure, so the marker
+#    is removed when the defect is fixed.
+#
+# Summary: `PASS: p / total, XFAIL: x`, where total counts the tests not marked xfail (so the run
+# is green iff p == total). Exit status is 1 when any test fails or XPASSes.
 #
 # Convention, matched to bend/gates/test.ts (where it differs, this is noted):
 #  - expected output = every line starting with `#|`, with the `#|` removed and
@@ -29,59 +39,80 @@ cd "$(dirname "$0")/.." || exit 1
 
 BEND_BIN="${BEND:-$HOME/.bend/bin/bend}"
 LIMIT=120
+JOBS="${TEST_JOBS:-1}"
+case "$JOBS" in
+  ''|*[!0-9]*|0) echo "TEST_JOBS must be a positive integer, got: $JOBS" >&2; exit 2 ;;
+esac
 
 # gates' tidy(): strip trailing whitespace per line, then trim the whole text
 norm() { perl -0777 -pe 's/[ \t]+$//mg; s/\A\s+//; s/\s+\z//'; }
 
+# xfail_id FILE: the ID of the file's `#! xfail <ID>` line, or nothing
+xfail_id() { perl -ne 'if (/^#! xfail\s+(\S+)/) { print $1; last }' "$1"; }
+
+# check_one FILE OUT: runs one test. Its report goes to stdout; its verdict (PASS, FAIL, XFAIL or
+# XPASS) goes to OUT.status. Temporary files use the OUT prefix, so parallel workers do not collide.
+check_one() {
+  local f=$1 out=$2 id run rc exp act errexp=0 ok=0 suffix="" body="" status
+  id=$(xfail_id "$f")
+  if ! grep -q '^#|' "$f"; then
+    run=$(perl -e 'alarm shift; exec @ARGV' "$LIMIT" "$BEND_BIN" "$f" </dev/null 2>&1)
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+      ok=1
+      suffix=" (no expect)"
+    else
+      if [ "$rc" -eq 142 ]; then suffix=" (timeout)"; else suffix=" (exit $rc)"; fi
+      body=$run
+    fi
+  else
+    exp=$(perl -ne 'print substr($_, 2) if /^#\|/' "$f" | norm)
+    case "$exp" in
+      "SOME PROOFS FAIL"*|"Error:"*) errexp=1 ;;
+    esac
+    run=$(perl -e 'alarm shift; exec @ARGV' "$LIMIT" "$BEND_BIN" "$f" </dev/null 2>&1)
+    rc=$?
+    if [ "$rc" -eq 142 ]; then
+      run="$run"$'\n'"timeout"
+    elif [ "$rc" -ne 0 ] && [ "$errexp" -eq 0 ]; then
+      run="$run"$'\n'"exit $rc"
+    fi
+    act=$(printf '%s\n' "$run" | norm)
+    if [ "$exp" = "$act" ]; then
+      ok=1
+    else
+      printf '%s\n' "$exp" > "$out.expected"
+      printf '%s\n' "$act" > "$out.actual"
+      body=$(diff -u --label expected --label actual "$out.expected" "$out.actual")
+    fi
+  fi
+
+  if [ -n "$id" ]; then
+    if [ "$ok" -eq 1 ]; then
+      status=XPASS
+      printf 'XPASS %s (%s)\n  the defect is fixed: delete its `#! xfail` line\n' "$f" "$id"
+    else
+      status=XFAIL
+      printf 'XFAIL %s (%s)\n' "$f" "$id"
+    fi
+  elif [ "$ok" -eq 1 ]; then
+    status=PASS
+    printf 'PASS %s%s\n' "$f" "$suffix"
+  else
+    status=FAIL
+    printf 'FAIL %s%s\n' "$f" "$suffix"
+    [ -n "$body" ] && printf '%s\n' "$body"
+  fi
+  printf '%s\n' "$status" > "$out.status"
+}
+
 tmp=$(mktemp -d) || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
-# run_one FILE: prints PASS/FAIL (and a diff on failure); returns 0 on pass
-run_one() {
-  local f=$1 out rc exp act errexp=0
-  if ! grep -q '^#|' "$f"; then
-    out=$(perl -e 'alarm shift; exec @ARGV' "$LIMIT" "$BEND_BIN" "$f" </dev/null 2>&1)
-    rc=$?
-    if [ "$rc" -eq 0 ]; then
-      echo "PASS $f (no expect)"
-      return 0
-    fi
-    if [ "$rc" -eq 142 ]; then
-      echo "FAIL $f (timeout)"
-    else
-      echo "FAIL $f (exit $rc)"
-    fi
-    printf '%s\n' "$out"
-    return 1
-  fi
-
-  exp=$(perl -ne 'print substr($_, 2) if /^#\|/' "$f" | norm)
-  case "$exp" in
-    "SOME PROOFS FAIL"*|"Error:"*) errexp=1 ;;
-  esac
-
-  out=$(perl -e 'alarm shift; exec @ARGV' "$LIMIT" "$BEND_BIN" "$f" </dev/null 2>&1)
-  rc=$?
-  if [ "$rc" -eq 142 ]; then
-    out="$out"$'\n'"timeout"
-  elif [ "$rc" -ne 0 ] && [ "$errexp" -eq 0 ]; then
-    out="$out"$'\n'"exit $rc"
-  fi
-  act=$(printf '%s\n' "$out" | norm)
-
-  if [ "$exp" = "$act" ]; then
-    echo "PASS $f"
-    return 0
-  fi
-  echo "FAIL $f"
-  printf '%s\n' "$exp" > "$tmp/expected"
-  printf '%s\n' "$act" > "$tmp/actual"
-  diff -u --label expected --label actual "$tmp/expected" "$tmp/actual"
-  return 1
-}
-
-pass=0
-total=0
+# Select the files: NUL-separated (index, path) pairs, so the report can follow file order.
+list="$tmp/list"
+: > "$list"
+n=0
 while IFS= read -r f; do
   [ -n "$f" ] || continue
   if [ "$#" -gt 0 ]; then
@@ -91,17 +122,41 @@ while IFS= read -r f; do
     done
     [ "$keep" -eq 1 ] || continue
   fi
-  total=$((total + 1))
-  if run_one "$f"; then
-    pass=$((pass + 1))
-  fi
+  printf '%s\0%s\0' "$n" "$f" >> "$list"
+  n=$((n + 1))
 done <<< "$(find tests -name '*.bend' -type f | LC_ALL=C sort)"
 
-if [ "$total" -eq 0 ]; then
+if [ "$n" -eq 0 ]; then
   echo "no tests matched: $*" >&2
   exit 1
 fi
-echo "PASS: $pass / $total"
+
+# Run them (JOBS at a time). Each worker writes its report to $tmp/r<i>.log and its verdict to
+# $tmp/r<i>.status; the report below reads them back in file order.
+export -f norm xfail_id check_one
+export BEND_BIN LIMIT tmp
+xargs -0 -n 2 -P "$JOBS" bash -c 'check_one "$1" "$tmp/r$0" > "$tmp/r$0.log"' < "$list" || true
+
+pass=0
+total=0
+xfail=0
+while IFS= read -r -d '' i; do
+  IFS= read -r -d '' f
+  st=$(cat "$tmp/r$i.status" 2>/dev/null)
+  if [ -z "$st" ]; then
+    echo "FAIL $f (no result: the runner died)"
+    st=FAIL
+  else
+    cat "$tmp/r$i.log"
+  fi
+  case "$st" in
+    PASS) pass=$((pass + 1)); total=$((total + 1)) ;;
+    XFAIL) xfail=$((xfail + 1)) ;;
+    *) total=$((total + 1)) ;;
+  esac
+done < "$list"
+
+echo "PASS: $pass / $total, XFAIL: $xfail"
 if [ "$pass" -ne "$total" ]; then
   exit 1
 fi

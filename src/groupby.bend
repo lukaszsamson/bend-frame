@@ -17,9 +17,10 @@
 #     first row (`first`).
 #  4. key output columns = the key columns gathered at `first`; every
 #     aggregation is one scatter over the rows into an n_groups accumulator
-#     array (Kahan sums, (seen, value) min/max, counts, first/last row
-#     indices then a gather, n_unique by first occurrences of (group, value)
-#     codes). Results equal Eval.agg applied to each group's rows in order.
+#     array (U32/I32 sums: wrapping word adds; F32 sum: plain SEQUENTIAL f32
+#     adds, Grp.nsum, no compensation; mean: Kahan-compensated, Grp.kahan;
+#     (seen, value) min/max, counts, first/last row indices then a gather,
+#     n_unique by first occurrences of (group, value) codes). Results equal Eval.agg applied to each group's rows in order.
 #
 # Output order: first appearance for maintain_order = True{} AND False{}
 # (v1 does not use the flag; the contract of DESIGN.md 7 only promises first
@@ -48,7 +49,8 @@ type Groups is Type:
 type MM is Data:
   MM{mn: U32, mx: U32}
 
-# accumulators: compensated sum + valid count; (seen, value)
+# accumulators: running sum s, Kahan compensation c (only Grp.kahan, i.e. mean, updates it;
+# Grp.nsum leaves it 0) and valid count k; (seen, value)
 type KS is Data:
   KS{s: F32, c: F32, k: U32}
 
@@ -340,7 +342,7 @@ def Grp.combine(+n: U32, +d: Nat, g: Codes, c: Codes) -> Codes:
 
 # ---- accumulator steps ------------------------------------------------------------------------
 
-# a compensated-sum step (Kernel.fsum's) when v = 1; unchanged when v = 0
+# a Kahan-compensated sum step (the one Kernel.fsum takes), used by mean; unchanged when v = 0
 def Grp.kahan(acc: KS, +y0: F32, +v: U32) -> KS:
   match acc:
     case KS{+s, +c, k}:
@@ -349,8 +351,9 @@ def Grp.kahan(acc: KS, +y0: F32, +v: U32) -> KS:
       +skip = U32.is_zero(v)
       KS{Bool.pick(F32, skip, s, t), Bool.pick(F32, skip, c, F32.sub(F32.sub(t, s), y)), U32.add(k, v)}
 
-# a plain sequential f32 add (Polars' group_by sum accumulates this way; Kahan
-# differs from it in the last bit, bench/golden/q3.csv); unchanged when v = 0
+# a plain sequential f32 add, the group_by F32 sum today: no compensation, so the error grows
+# with the group size (~1e-5 relative at 1M rows against Polars' ~3e-7, bench/README.md);
+# unchanged when v = 0
 def Grp.nsum(acc: KS, +y0: F32, +v: U32) -> KS:
   match acc:
     case KS{+s, c, k}:

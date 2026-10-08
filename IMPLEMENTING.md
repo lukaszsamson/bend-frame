@@ -309,3 +309,45 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
 - **Negative-test your laws**: change a claim (`shln(2, d)`) and confirm
   `SOME PROOFS FAIL` before trusting a first-try ALL PROOFS CHECK.
 - Full check of 48 laws: ~0.45 s. `--verdict` needs Lean v4.34.0 (absent).
+
+## M0 (test runner, toolchain, CI)
+
+- **`#! xfail <ID>` is a plain comment to bend**: a test file with that line first
+  compiles and runs as usual. `scripts/test.sh` reports `XFAIL` when its check fails and
+  `XPASS` (a failure) when it passes; delete the line when the defect is fixed.
+- **Parallel runs keep order**: `TEST_JOBS=n` runs `xargs -P n bash -c check_one`. Each
+  worker writes `r<i>.log` and `r<i>.status` under the temp dir, and the report is replayed
+  in file order, so `TEST_JOBS=4` and `TEST_JOBS=1` print the same text. Two tests that
+  write the same file would race under `TEST_JOBS>1`; none do today.
+- **Bend cannot be pinned through `install.sh`**: it installs the latest release. CI downloads
+  `releases/download/v<ver>/bend-<ver>-<target>.tar.gz`, checks the sha256 copied from
+  `flake.nix` (the release's own pins), unpacks into `~/.bend` (the install.sh layout) and
+  checks `bend version`.
+- **numpy 2.5.3 wheels need Python 3.12+**: `bench/pyproject.toml` requires `>=3.12`
+  (it was `>=3.10`, which made `uv lock` fail).
+- **`make ci` relies on `uv sync --locked`** in CI, so a `pyproject.toml` change without a
+  relock fails the build instead of silently resolving.
+- **Peak RSS**: `/usr/bin/time -l` on macOS reports `maximum resident set size` in bytes;
+  GNU `-v` reports kbytes. `scripts/baseline.sh` handles both.
+
+## M0 T1/B05 (DF.dump, typed comparator)
+
+- **Hex printing**: Base has no hex printer. `Dump.hex(n: Nat, +x: U32)` recurses on the Nat FIRST
+  (`Dump.hex(p, U32.shrn(x, 4n)) ++ digit(U32.and(x, 15))`: high digit first, linear). With `x` first
+  the termination check refuses it ("a decreasing self-call: arguments are read left to right").
+- A `Char` is `Chr{code: U32}` and holds a Unicode code point (not a UTF-8 byte): `IO.print` of
+  `Chr{233}` writes the two UTF-8 bytes, so strings with non-ASCII text round-trip through dumps.
+  `SCon{Chr{c}, SNil{}}` builds a one-char string; literals understand `\t \n \" \\`.
+- `F32.bits` of `F32.div(0.0, 0.0)` is `0x7fc00000`, `F32.neg(that)` is `0xffc00000`, `inf - inf` is
+  `0x7fc00000`; `F32.neg(0.0)` is `0x80000000`. There is no `F32.from_bits`; to get a specific NaN
+  payload into a test you need `Column`/CSV, so payload cases live in the Python comparator tests.
+- A recursive def that builds its answer from a helper which itself calls the recursion is mutual
+  recursion and is refused as "unfilled law": `Dump.rows` + `Dump.rows.k(p, step(..))` failed; thread
+  the state as a PAIR PARAMETER and build the next state in a non-recursive `next` helper called in
+  the argument list (`Dump.rows(p, Dump.rows.next(st))`). Collect row lines newest-first in a list and
+  `String.concat` the reversed list at the end (appending to a growing left operand is quadratic).
+- `(c, +xs) = r` is needed when a list taken from a pair result is used twice.
+- Dump of `bench/data/sales_1000.csv` (7 columns, 1000 rows) takes ~0.4 s interpreted; it is
+  byte-identical to `bench/dump_polars.py` run on the same CSV with an explicit schema.
+- `IO.print(DF.dump(r))` prints the dump's trailing newline plus one more; the runner trims the
+  whole text and `check.py --dump` ignores trailing blank lines.

@@ -2,8 +2,8 @@
 name = "bend-frame-bench"
 version = "0.0.0"
 description = "Polars reference benchmarks and golden outputs for bend-frame"
-requires-python = ">=3.10"
-dependencies = ["polars>=2.0,<3", "numpy"]
+requires-python = ">=3.12"
+dependencies = ["polars==2.0.0", "numpy==2.5.3"]
 
 [tool.uv]
 package = false
