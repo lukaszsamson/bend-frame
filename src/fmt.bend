@@ -186,8 +186,10 @@ def Fmt.show(f: C.Frame) -> C.Frame & String:
 # ---- Fmt.describe ---------------------------------------------------------------------
 # Polars' describe(): a `statistic` Str column (count null_count mean std min 25% 50% 75%
 # max) and one column per input column. Numeric (u32 i32 f32) inputs become F32 columns
-# (cast to f32, nulls dropped once: count = valid rows, null_count = the rest, mean = Kahan
-# mean, std = sample std over the Kahan sum of squared deviations (null when count < 2),
+# (cast to f32, nulls dropped once: count = valid rows, null_count = the rest, mean = the
+# DESIGN.md 15.5.3 mean (Neumaier with the non-finite guard, Eval.agg Mean), std = sample
+# std (ddof 1) = sqrt of the 15.5.3 sum of squared deviations / (count - 1), each term an
+# f32 (15.5.4; null when count < 2),
 # min/max/quantiles read from ONE stable radix sort of the valid values, quantiles
 # by NEAREST rank idx = round(p * (count - 1)), half away from zero; all null at count 0).
 # Str/Bool inputs become Str columns: count, null_count, min, max as text, null elsewhere.
@@ -211,7 +213,7 @@ def Fmt.d.agg(op: X.AggOp, c: C.Column) -> D.Scalar:
 def Fmt.d.names() -> List<&2, D.Scalar>:
   [D.SStr{"count"}, D.SStr{"null_count"}, D.SStr{"mean"}, D.SStr{"std"}, D.SStr{"min"}, D.SStr{"25%"}, D.SStr{"50%"}, D.SStr{"75%"}, D.SStr{"max"}]
 
-# sample std from the Kahan sum of squared deviations
+# sample std from the 15.5.3 sum (Eval.agg Sum) of squared deviations
 def Fmt.d.std.fin(+k: U32, ss: D.Scalar) -> D.Scalar:
   match ss:
     case D.SF32{s}:

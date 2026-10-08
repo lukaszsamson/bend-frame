@@ -1,4 +1,3 @@
-#! xfail B03-q
 # B03-q: str -> number cast trims; Polars does not. DESIGN.md 15.5.5 (D:): U32.read /
 # I32.read / F32.read of the cell AS IS: " 2 " and "+5" fail for u32, " -3" for i32;
 # F32.read accepts nan, inf, -inf, 1e3, .5, 5., +5 (the valid case). Polars 2.0.0 strict

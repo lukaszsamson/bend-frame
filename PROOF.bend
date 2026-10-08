@@ -262,6 +262,8 @@ def cmp_ok(op: X.BinOp, +t: D.DType, cmp: {Laws.is_cmp(op) == True{} : Bool}) ->
       Empty.absurd({X.Expr.type.bin.ok(X.Mul{}, t, t) == Done{D.TBool{}} : E.Res(D.DType)}, false_true(cmp))
     case X.Div{}:
       Empty.absurd({X.Expr.type.bin.ok(X.Div{}, t, t) == Done{D.TBool{}} : E.Res(D.DType)}, false_true(cmp))
+    case X.FloorDiv{}:
+      Empty.absurd({X.Expr.type.bin.ok(X.FloorDiv{}, t, t) == Done{D.TBool{}} : E.Res(D.DType)}, false_true(cmp))
     case X.Mod{}:
       Empty.absurd({X.Expr.type.bin.ok(X.Mod{}, t, t) == Done{D.TBool{}} : E.Res(D.DType)}, false_true(cmp))
     case X.And{}:
@@ -289,7 +291,9 @@ def arith_op_ok(op: X.BinOp, +t: D.DType, ar: {Laws.is_arith(op) == True{} : Boo
     case X.Mul{}:
       arith_ok("mul", t, num)
     case X.Div{}:
-      arith_ok("div", t, num)
+      Empty.absurd({X.Expr.type.bin.ok(X.Div{}, t, t) == Done{t} : E.Res(D.DType)}, false_true(ar))
+    case X.FloorDiv{}:
+      Empty.absurd({X.Expr.type.bin.ok(X.FloorDiv{}, t, t) == Done{t} : E.Res(D.DType)}, false_true(ar))
     case X.Mod{}:
       Empty.absurd({X.Expr.type.bin.ok(X.Mod{}, t, t) == Done{t} : E.Res(D.DType)}, false_true(ar))
     case X.Eq{}:
@@ -335,6 +339,8 @@ def logic_ok(op: X.BinOp, lg: {Laws.is_logic(op) == True{} : Bool}) -> {X.Expr.t
       Empty.absurd({X.Expr.type.bin.ok(X.Mul{}, D.TBool{}, D.TBool{}) == Done{D.TBool{}} : E.Res(D.DType)}, false_true(lg))
     case X.Div{}:
       Empty.absurd({X.Expr.type.bin.ok(X.Div{}, D.TBool{}, D.TBool{}) == Done{D.TBool{}} : E.Res(D.DType)}, false_true(lg))
+    case X.FloorDiv{}:
+      Empty.absurd({X.Expr.type.bin.ok(X.FloorDiv{}, D.TBool{}, D.TBool{}) == Done{D.TBool{}} : E.Res(D.DType)}, false_true(lg))
     case X.Mod{}:
       Empty.absurd({X.Expr.type.bin.ok(X.Mod{}, D.TBool{}, D.TBool{}) == Done{D.TBool{}} : E.Res(D.DType)}, false_true(lg))
     case X.Eq{}:

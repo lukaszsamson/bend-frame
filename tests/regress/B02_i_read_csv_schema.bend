@@ -1,5 +1,3 @@
-# PENDING (M3 API: DF.read_csv_schema(path, opts, dtypes), DF.csv_opts). Rename to
-# tests/regress/B02_i_read_csv_schema.bend when the API lands.
 # B02-i: the explicit schema through the facade (DESIGN.md 15.2.7, 15.6.3); the src entry
 # Csv.read_with is checked today by tests/regress/B02_i_schema_count_src.bend.
 import Base

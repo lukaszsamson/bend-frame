@@ -19,8 +19,9 @@
 #
 # Totality (15.3.2 note i, 15.5.5): `total = True{}` means Eval of the node over a
 # well-formed frame never answers Fail whatever the data. It is syntactic and
-# conservative: only `Cast` of a fallible pair (Ana.cast_total) is non-total; the
-# typed null literal `Cast{Lit{SNull}, t}` is total.
+# conservative: only `Cast` of a fallible pair (X.Cast.total is False) is non-total;
+# the typed null literal `Cast{Lit{SNull}, t}`, TryCast (nulls instead of failing),
+# FloorDiv / Mod (null on a zero divisor) and IEEE Div are total.
 #
 # Locality (field `local`, an addition to the 15.3.2 record, DESIGN.md 14 "M1
 # B01/B04"): `local = True{}` means no reduction occurs anywhere in e, so row i
@@ -98,51 +99,30 @@ def Ana.mk(t: E.Res(D.DType), rs: List<&2, String>, k: AKind, tot: Bool, loc: Bo
     case Done{d}:
       Done{Ana{d, rs, k, tot, loc}}
 
-# DESIGN.md 15.5.5: a cast pair is total when no valid cell can fail. Pairs the
-# cast table refuses (Cast.ok) never get here.
-def Ana.cast_total(from: D.DType, to: D.DType) -> Bool:
-  match from to:
-    case D.TBool{} _:
-      True{}
-    case D.TU32{} D.TI32{}:
-      False{}
-    case D.TU32{} _:
-      True{}
-    case D.TI32{} D.TU32{}:
-      False{}
-    case D.TI32{} _:
-      True{}
-    case D.TF32{} D.TF32{}:
-      True{}
-    case D.TF32{} D.TStr{}:
-      True{}
-    case D.TF32{} _:
-      False{}
-    case D.TStr{} D.TStr{}:
-      True{}
-    case D.TStr{} _:
-      False{}
-
 def Ana.col(+n: String, t: Maybe<&2, D.DType>) -> E.Res(Ana):
   Ana.mk(X.Expr.type.col(n, t), n <> Nil{}, KRow{}, True{}, True{})
 
 def Ana.lit(v: D.Scalar) -> E.Res(Ana):
   Ana.mk(X.Expr.type.lit(D.Scalar.dtype(v)), Nil{}, KScalar{}, True{}, True{})
 
-def Ana.cast.k(+to: D.DType, a: Ana) -> E.Res(Ana):
-  match a:
-    case Ana{+t, rs, k, tot, loc}:
-      Ana.mk(X.Expr.type.cast(False{}, to, Done{t}), rs, k, Bool.and(tot, Ana.cast_total(t, to)), loc)
+# Cast is total iff its pair is (X.Cast.total, DESIGN.md 15.5.5); TryCast nulls a
+# failing cell instead, so it is as total as its operand
+def Ana.cast.k(try: Bool, +to: D.DType, a: Ana) -> E.Res(Ana):
+  match try a:
+    case False{} Ana{+t, rs, k, tot, loc}:
+      Ana.mk(X.Expr.type.cast(False{}, to, Done{t}), rs, k, Bool.and(tot, X.Cast.total(t, to)), loc)
+    case True{} Ana{t, rs, k, tot, loc}:
+      Ana.mk(X.Expr.type.trycast(False{}, to, Done{t}), rs, k, tot, loc)
 
-# the typed null literal Cast{Lit{SNull}, to} is a total scalar of dtype `to`
-def Ana.cast(nl: Bool, +to: D.DType, r: E.Res(Ana)) -> E.Res(Ana):
+# the typed null literal Cast{Lit{SNull}, to} (or TryCast) is a total scalar of dtype `to`
+def Ana.cast(try: Bool, nl: Bool, +to: D.DType, r: E.Res(Ana)) -> E.Res(Ana):
   match nl r:
     case True{} _:
       Done{Ana{to, Nil{}, KScalar{}, True{}, True{}}}
     case False{} Fail{e}:
       Fail{e}
     case False{} Done{a}:
-      Ana.cast.k(to, a)
+      Ana.cast.k(try, to, a)
 
 def Ana.un.k(op: X.UnOp, a: Ana) -> E.Res(Ana):
   match a:
@@ -219,7 +199,9 @@ def Expr.analyse(e: X.Expr, +s: List<&2, S.Field>) -> E.Res(Ana):
     case X.Alias{e2, n}:
       Expr.analyse(e2, s)
     case X.Cast{+e2, +to}:
-      Ana.cast(X.Expr.is_null_lit(e2), to, Expr.analyse(e2, s))
+      Ana.cast(False{}, X.Expr.is_null_lit(e2), to, Expr.analyse(e2, s))
+    case X.TryCast{+e2, +to}:
+      Ana.cast(True{}, X.Expr.is_null_lit(e2), to, Expr.analyse(e2, s))
     case X.Un{op, e2}:
       Ana.un(op, Expr.analyse(e2, s))
     case X.Bin{op, a, b}:

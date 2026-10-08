@@ -45,14 +45,11 @@ def Sort.none() -> U32:
 def Sort.sign() -> U32:
   2147483648
 
-# order-preserving word of an f32: NaN (any payload) is the largest word,
-# -0.0 equals 0.0, negatives are bit-flipped, positives get the sign bit set
-def Sort.fword.b(+b: U32) -> U32:
-  +a = U32.and(b, 2147483647)
-  Bool.pick(U32, U32.is_gt(a, 2139095040), 4294967295, Bool.pick(U32, U32.is_zero(a), 2147483648, Bool.pick(U32, U32.is_ge(b, 2147483648), U32.xor(b, 4294967295), U32.or(b, 2147483648))))
-
+# order-preserving word of an f32: NaN (any payload) is the largest word, -0.0 equals 0.0,
+# negatives are bit-flipped, positives get the sign bit set. This is THE f32 relation of
+# DESIGN.md 15.5.2, shared with comparisons, group_by, n_unique (K.Kernel.fword).
 def Sort.fword(x: F32) -> U32:
-  Sort.fword.b(F32.bits(x))
+  K.Kernel.fword(x)
 
 def Sort.iword(x: U32) -> U32:
   U32.xor(x, 2147483648)

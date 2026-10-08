@@ -1,4 +1,3 @@
-#! xfail B03-m
 # B03-m (Astra G5): f32 -> i32 out of range is garbage; u32 <-> i32 casts retag silently.
 # DESIGN.md 15.5.5: f32 -> i32 = trunc toward zero, failing for NaN, +-inf,
 # x < -2147483648.0 and x >= 2147483648.0; u32 -> i32 fails for v >= 2^31; i32 -> u32

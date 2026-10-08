@@ -52,3 +52,19 @@ bench:
 
 clean:
 	rm -rf build
+
+# ---- differential generator (bench/diff, plans/M_01.txt T2/T3) ----------------------------
+# make diff [SEED=1] [N=1000] [DIFF_ARGS="--backend both --features noreductions,noselfjoin"]
+# Runs N seeded cases: eager vs raw-lazy vs optimised-lazy (T2.1) and vs the Polars-based oracle
+# (T2.2); failures are shrunk, classified against DESIGN.md 15.10 and written to
+# build/diff/seed<SEED>/failures.json. Exits 1 on a failure no known defect explains (NEW), a crash
+# or an oracle error; DIFF_ARGS=--strict also fails on known defects. See bench/diff/README.md.
+.PHONY: diff diff-lib
+SEED ?= 1
+N ?= 1000
+diff:
+	cd bench && uv run python diff/run.py --seed $(SEED) --n $(N) $(DIFF_ARGS)
+
+# regenerate the helper module tests/diff/lib/dx.bend after frame.bend gained verbs
+diff-lib:
+	cd bench && uv run python diff/gen.py --lib

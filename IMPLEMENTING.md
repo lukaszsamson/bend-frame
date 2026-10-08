@@ -401,3 +401,52 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
   `ISource` of the same name?) is simpler than threading a counter through the IO loop's state.
 - `perl -i` over several files does not reset `$.` between them; run line-number edits one file at
   a time.
+
+## M1 B02 (csvparse, scan prefix)
+
+- **Forking a hub module**: copy `core.bend` from `~/.bend/lib/<hash>/core.bend` into `src/`, keep its
+  license text (here MIT, copyright nohzafk, not the project author) in the header, and delete the
+  import. Constructors of its types are used through the importing alias (`H.CsvCell{..}`, `H.CsvRec{..}`).
+- **Extra state in a walk costs little**: two more `U32` arguments (line counter, record start line) and
+  a `CsvCell` / `CsvRec` node per field / record cost about +11% on `Csv.read` of a 7-column 100k-row
+  file. A per-record line list that is only read on the error path is built next to the columns.
+- **`File.read` mangles UTF-8 cut at the end of a chunk** (`a\xc3` + `\xa9` becomes a replacement
+  char): read chunks with `File.read_at` (bytes, `List<&2, U32>`), cut at the last LF byte (never inside
+  a sequence) and decode with an own decoder. A loop that adds a continuation byte by byte needs
+  `need` / `cp` state arguments; compute each next-state value in a small `Bool.pick` helper called in the
+  recursive call's argument list (no `match` after the `bs` match, no mutual recursion).
+- **A non-tail-recursive def over a 64K-element byte list overflowed the stack** in the interpreter
+  (`bend: memory fault (machine stack overflow?)`); build the string reversed in an accumulator and
+  `String.reverse` it. 100k-element non-tail recursions over records/cells (Csv.conv, Csv.tr) are fine.
+- **Termination of a counting loop that must stop early**: the structural argument has to come first
+  and be passed as `p` / `t` itself. For "stop after the n-th event" keep walking the list but freeze the
+  state with an `act` flag computed once (`+act = U32.is_gt(m, 0)`) and applied in each helper
+  (`Csv.sc`); do not replace the Nat by a computed value.
+- **An IO loop over chunks** (`Csv.pre.loop`): the loop def holds the bind and the recursive call; the
+  step is a separate def returning `IO(PSt)` (the Exec.loop shape); the state is a Type sum
+  `PRun{..} | PEnd{r}` and the loop stops on `PEnd`; the fuel is the file size + 2 (a `Nat` is a number
+  natively, so a 40M fuel is free); each step closes the file when it makes `PEnd`.
+- **`A & B` is a Type, not Data**: a pair parameter cannot be `+dp`; destructure it as the FIRST
+  parameter of a helper (`(done, pend) = dp` then `match eof`), or the matches on earlier parameters are
+  refused ("can't be matched in this position").
+- `sed '/start/,/end/d'` with an `end` pattern that never matches deletes to the end of the file; a
+  stale `mv` of a pending test is recoverable with `git show HEAD:<path>`.
+
+## M1 B03 (numerics)
+
+- **Base number readers**: `U32.read` refuses `"+5"`, `" 2"`, `""`, `"-0"` and overflow
+  (`"4294967296"`); `F32.read` accepts `nan`, `NaN`, `inf`, `-inf`, `1e3`, `.5`, `5.`, `+5`,
+  refuses `1_0`, `0x10`, `""`, a trailing space, but SKIPS LEADING whitespace (`" 3"` -> 3).
+- `F32.to_u32` saturates negatives to 0 and truncates (`2.9` -> 2, `4294967040.0` exact); range
+  and NaN checks must come first. `F32.show(2147483648.0)` is `"2147483600"` (shortest form).
+- **NaN bits propagate**: `F32.neg(0/0) + 1` keeps `0xffc00000`; only the dump canonicalises.
+- A `type` can be declared in the middle of a module (`K.NS` in kernels.bend); its constructor
+  from another module is `K.NS{s, c}`, also as a pattern.
+- `Bool.pick` evaluates both arms: fine for pure scalar code (`Bool.pick(Maybe<&2, U32>, ok,
+  Some{F32.to_u32(x)}, None{})`), but keep expensive or failing work behind a `match`.
+- Spec-file edits: when a scripted replacement's NEW text ends a file, it carries the file's
+  final newline; anchors that end mid-line then gain a stray line break (`bend --check-only`
+  reports `expected 'def', 'type' or 'law'`).
+- A strict operation that must report the first failing row cheaply: run the lenient one on a
+  clone, compare null counts (`Column.null_count`), and only on a mismatch walk the two validity
+  masks (`Valid.materialize(v, 0n)` gives the 1-slot all-ones array for AllValid).

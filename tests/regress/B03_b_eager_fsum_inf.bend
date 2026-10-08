@@ -1,4 +1,5 @@
-#! xfail B03-b
+# (B03 fixed in M1: eager and grouped runs pass; the lazy select runs still refuse the
+# reduction until B04-a lands. Remove the marker with B04-a.)
 # B03-b (Astra C audit): the eager reduction (Kernel.fsum, Kahan) has the same inf - inf
 # contamination as B03-a. DESIGN.md 15.5.3 (same accumulation for every f32 sum/mean):
 #   p [inf, 1] sum inf mean inf; q [1, inf] inf, inf; r [inf, -inf] NaN, NaN;

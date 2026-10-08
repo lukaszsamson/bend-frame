@@ -1,4 +1,3 @@
-#! xfail B02-h
 # B02-h: non-ASCII fields, multi-line fields and escaped quotes were not in a differential
 # test. DESIGN.md 15.6.2: UTF-8 verbatim; "" inside quotes is one quote; CR/LF inside
 # quotes belong to the field; CRLF line ends are accepted; error line numbers are the

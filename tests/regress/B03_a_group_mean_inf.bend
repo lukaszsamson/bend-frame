@@ -1,4 +1,3 @@
-#! xfail B03-a
 # B03-a (Astra C): grouped mean of [inf, 1] is NaN (Kahan computes inf - inf).
 # DESIGN.md 15.5.3: Neumaier compensation while the partial sum is finite, plain IEEE add
 # once it is not, rows in ascending order within a group. Expected means per group:

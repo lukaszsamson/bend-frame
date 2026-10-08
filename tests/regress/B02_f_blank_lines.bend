@@ -1,4 +1,3 @@
-#! xfail B02-f
 # B02-f: blank-line handling (1 column vs k columns, and vs Polars) was undocumented.
 # DESIGN.md 15.6.2: in a 1-column file a blank line is a null row (Polars same); with
 # k > 1 columns it is skipped (Polars: an all-null row; documented departure); error line

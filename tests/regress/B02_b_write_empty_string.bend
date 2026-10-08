@@ -1,4 +1,3 @@
-#! xfail B02-b
 # B02-b (Astra B): writing a valid "" emits an empty field, the same text as null.
 # DESIGN.md 15.6.1 (writing): null -> empty field; a valid str is quoted when it is empty
 # (or holds the separator, a quote, CR or LF). So "" writes as `""` and reads back as "",

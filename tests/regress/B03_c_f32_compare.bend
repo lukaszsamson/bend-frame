@@ -1,4 +1,3 @@
-#! xfail B03-c
 # B03-c (Astra D): f32 == and > use raw IEEE predicates (NaN == NaN false, NaN > 0
 # false) while sort/group/join keys use a total order. DESIGN.md 15.5.2: every f32
 # comparison is U32.cmp of Sort.fword: -inf < .. < -0.0 = 0.0 < .. < inf < NaN, all NaNs

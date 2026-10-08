@@ -66,6 +66,12 @@ def Err() -> Data:
 def Schema() -> Data:
   List<&2, S.Field>
 
+def CsvOpts() -> Data:
+  R.CsvOpts
+
+def CsvWriteOpts() -> Data:
+  R.CsvWriteOpts
+
 # ---- columns and literals -------------------------------------------------------------
 
 def col(name: String) -> X.Expr:
@@ -74,13 +80,28 @@ def col(name: String) -> X.Expr:
 def lit_u32(v: U32) -> X.Expr:
   X.Lit{D.SU32{v}}
 
-# non-negative only (the bit pattern must be < 2^31); see lit_i32_neg
-def lit_i32(v: U32) -> X.Expr:
-  X.Lit{D.SI32{D.I32{v}}}
+# the i32 literal v for v < 2^31; a larger v builds `cast(lit_u32(v), i32)`, a strict cast that
+# fails when evaluated ("cast u32 to i32: row 0 holds <v>"): no silent wrap (DESIGN.md 15.2.1 D:)
+def lit_i32(+v: U32) -> X.Expr:
+  Bool.pick(X.Expr, U32.is_lt(v, 2147483648), X.Lit{D.SI32{D.I32{v}}}, X.Cast{X.Lit{D.SU32{v}}, D.TI32{}})
 
-# -v
-def lit_i32_neg(v: U32) -> X.Expr:
-  X.Lit{D.SI32{D.I32.neg(D.I32{v})}}
+# -v for v <= 2^31 (lit_i32_neg(2147483648) is MIN); a larger v builds the negation of the
+# failing cast above
+def lit_i32_neg(+v: U32) -> X.Expr:
+  Bool.pick(X.Expr, U32.is_le(v, 2147483648), X.Lit{D.SI32{D.I32.neg(D.I32{v})}}, X.Un{X.Neg{}, X.Cast{X.Lit{D.SU32{v}}, D.TI32{}}})
+
+# a checked i32 value: v < 2^31, else InvalidOperation{"i32 out of range: <v>"} (D.I32.checked);
+# D.I32.from_bits(w) is the explicit, unchecked reinterpretation
+def i32(v: U32) -> E.Res(D.I32):
+  D.I32.checked(v)
+
+# -v as a checked i32: v <= 2^31
+def i32_neg(v: U32) -> E.Res(D.I32):
+  D.I32.checked_neg(v)
+
+# the null literal of dtype t
+def lit_null(t: D.DType) -> X.Expr:
+  X.Cast{X.Lit{D.SNull{}}, t}
 
 def lit_f32(v: F32) -> X.Expr:
   X.Lit{D.SF32{v}}
@@ -94,8 +115,14 @@ def lit_bool(b: Bool) -> X.Expr:
 def alias(e: X.Expr, name: String) -> X.Expr:
   X.Alias{e, name}
 
+# strict (DESIGN.md 15.5.5): the first valid cell that does not convert is
+# InvalidOperation{"cast <from> to <to>: row <i> holds <cell>"}
 def cast(e: X.Expr, t: D.DType) -> X.Expr:
   X.Cast{e, t}
+
+# the same conversion with failing cells set to null (never an error at run time)
+def try_cast(e: X.Expr, t: D.DType) -> X.Expr:
+  X.TryCast{e, t}
 
 def cast_f32(e: X.Expr) -> X.Expr:
   X.Cast{e, D.TF32{}}
@@ -114,11 +141,19 @@ def sub(a: X.Expr, b: X.Expr) -> X.Expr:
 def mul(a: X.Expr, b: X.Expr) -> X.Expr:
   X.Bin{X.Mul{}, a, b}
 
+# f32 / f32 only (IEEE: x/0 = +-inf); cast integers to f32 first
 def div(a: X.Expr, b: X.Expr) -> X.Expr:
   X.Bin{X.Div{}, a, b}
 
+# u32 // u32, i32 // i32: floor toward -inf; null for a zero divisor and for i32 MIN // -1
+def floor_div(a: X.Expr, b: X.Expr) -> X.Expr:
+  X.Bin{X.FloorDiv{}, a, b}
+
+# u32 % u32, i32 % i32: the result has the divisor's sign (consistent with floor_div); null
+# for a zero divisor
 def mod(a: X.Expr, b: X.Expr) -> X.Expr:
   X.Bin{X.Mod{}, a, b}
+
 
 def eq(a: X.Expr, b: X.Expr) -> X.Expr:
   X.Bin{X.Eq{}, a, b}
@@ -213,8 +248,22 @@ def named(name: String, c: C.Column) -> C.Named:
 def from_columns(cols: List<&1, C.Named>) -> E.ResT(C.Frame):
   C.Frame.from_columns(cols)
 
+# CSV options: separator, has_header, rows that decide each column's dtype (0 = all)
+# (DESIGN.md 15.6.3). `read_csv` and `scan_csv` use (',', True, 100).
+def csv_opts(sep: Char, has_header: Bool, infer_rows: U32) -> R.CsvOpts:
+  R.CsvOpts{sep, has_header, infer_rows}
+
+# the whole file is read once; dtypes are inferred
 def read_csv(path: String) -> IO(E.ResT(C.Frame)):
   R.Csv.read(path, R.Csv.default())
+
+def read_csv_opts(path: String, opts: R.CsvOpts) -> IO(E.ResT(C.Frame)):
+  R.Csv.read(path, opts)
+
+# explicit dtypes by column position (the header gives the names); a cell that does not
+# parse is a ParseError, a wrong count an InvalidOperation; [] infers
+def read_csv_schema(path: String, opts: R.CsvOpts, dtypes: List<&2, D.DType>) -> IO(E.ResT(C.Frame)):
+  R.Csv.read_with(path, opts, dtypes)
 
 # helper: the table of a (frame & text) pair
 def show.s(x: C.Frame & String) -> String:
@@ -265,19 +314,28 @@ def write_csv.r(x: C.Frame & Result<&1, &1, U32 & String, Unit>) -> E.ResT(C.Fra
   (f, w) = x
   write_csv.res(f, w)
 
-def write_csv.io(f: C.Frame, path: String) -> IO(E.ResT(C.Frame)):
+def write_csv.io(f: C.Frame, path: String, w: R.CsvWriteOpts) -> IO(E.ResT(C.Frame)):
   do IO<E.ResT(C.Frame)>:
-    x : C.Frame & Result<&1, &1, U32 & String, Unit> <- R.Csv.write(f, path)
+    x : C.Frame & Result<&1, &1, U32 & String, Unit> <- R.Csv.write_with(f, path, w)
     return write_csv.r(x)
 
-# writes the frame as CSV (F32 shortest digits) and answers the same frame, or
-# the write's error; an error in r passes through
-def write_csv(r: E.ResT(C.Frame), path: String) -> IO(E.ResT(C.Frame)):
+# CSV write options: separator, header line or not, F32 decimals (None: shortest digits)
+def write_opts(sep: Char, include_header: Bool, float_precision: Maybe<&2, U32>) -> R.CsvWriteOpts:
+  R.CsvWriteOpts{sep, include_header, float_precision}
+
+# writes the frame as CSV with the options (DESIGN.md 15.6.3) and answers the same frame,
+# or the write's error; an error in r passes through
+def write_csv_opts(r: E.ResT(C.Frame), path: String, w: R.CsvWriteOpts) -> IO(E.ResT(C.Frame)):
   match r:
     case Fail{e}:
       IO.pure(E.ResT(C.Frame), Fail{e})
     case Done{f}:
-      write_csv.io(f, path)
+      write_csv.io(f, path, w)
+
+# writes the frame as CSV (',' separator, header, F32 shortest digits) and answers the
+# same frame, or the write's error; an error in r passes through
+def write_csv(r: E.ResT(C.Frame), path: String) -> IO(E.ResT(C.Frame)):
+  write_csv_opts(r, path, R.Csv.write_default())
 
 # ---- eager verbs (Frame -> ResT(Frame)) ----------------------------------------------
 
@@ -348,9 +406,18 @@ def then_io(r: E.ResT(C.Frame), k: C.Frame -> IO(E.ResT(C.Frame))) -> IO(E.ResT(
     case Done{f}:
       k(f)
 
-# reads the header and a sample of a CSV file now; the rows are read at collect
+# reads a bounded prefix of a CSV file now (header and the first infer_rows rows, 64 KiB
+# chunks) to freeze the schema; the whole file is read once, at collect (DESIGN.md 15.6.4)
 def scan_csv(path: String) -> IO(E.Res(P.Plan)):
   P.Lazy.scan_csv(path, R.Csv.default())
+
+def scan_csv_opts(path: String, opts: R.CsvOpts) -> IO(E.Res(P.Plan)):
+  P.Lazy.scan_csv(path, opts)
+
+# a scan with a given schema: pure, no inference and no IO until collect, which checks the
+# file's header against the schema's names and reads the cells strictly as its dtypes
+def scan_csv_schema(path: String, opts: R.CsvOpts, schema: List<&2, S.Field>) -> P.Plan:
+  P.ScanCsv{path, opts, schema}
 
 def lazy_select(p: P.Plan, exprs: List<&2, X.Expr>) -> P.Plan:
   P.Select{exprs, p}

@@ -160,7 +160,7 @@ for v1. CSV: 100k lines (2.2 MB) read 30 ms, split 100 ms, parse 33 ms, sort
 
 ## 3. Dependencies
 
-- `bend-csv-parser@0.1.0.1/core.bend` (hash `0x64aa7934c3659ee6a818595494b38921`,
+- (M1: forked into `src/csvparse.bend`, the hub import is removed, see 14 "M1 B02".) `bend-csv-parser@0.1.0.1/core.bend` (hash `0x64aa7934c3659ee6a818595494b38921`,
   181 lines, MIT, ships proofs): `Csv.parse(text) -> Ans` with
   `Parsed{rows: List<&2, List<&2, String>>} | Rejected{}`; `Csv.parse_sep(sep:
   U32, text)` for other separators. Handles quotes, CRLF, lone CR. Verified in
@@ -193,7 +193,8 @@ src/eval.bend              Eval.expr: dtype×op dispatch onto kernels           
 src/sort.bend              argsort, multi-key stable sort, Sort.frame          [opus]
 src/groupby.bend           GroupBy.run                                         [opus]
 src/join.bend              Join.run (hash join on string keys)                 [opus]
-src/csv.bend               Csv.read/parse/infer/write/render (+ hub parser)   [sonnet]
+src/csvparse.bend          fork of the hub parser: CsvCell{text, quoted}, CsvRec{line, cells}
+src/csv.bend               Csv.read/parse/infer/scan_fields/write/render       [sonnet]
 src/fmt.bend               Fmt.show (table), Fmt.describe                      [sonnet]
 src/plan.bend              Plan, Env, Plan.schema, Plan.optimize               [opus]
 src/exec.bend              Exec.run                                            [opus]
@@ -1478,6 +1479,9 @@ Join.run makes first). Differences:
   a predicate may be merged / pushed only when total and local (`Ana.rowwise_total`); a row filter
   commutes with a Select / WithColumns whose expressions are all total and local (and, for Select,
   some KRow). Same strengthening is needed in the P2/P3 theorems.
+- **Totality after the M1-A merge**: `Cast` is total iff `X.Cast.total(from, to)` (expr.bend, 15.5.5);
+  `TryCast` is as total as its operand (failing cells become null); `Bin{FloorDiv/Mod/Div}` are total.
+  The typed null literal (`Cast` or `TryCast` of `Lit{SNull}`) is a total KScalar.
 - **Users of the analysis**: `Plan.schema` (Select/WithColumns fields, Filter predicate), Eval's
   `select` / `with_columns` / `filter` type check (`Eval.acheck`, `Eval.slot`) and select's height
   (`A.Ana.rows`), `Opt.head` / `Opt.push` / `Opt.fsafe`. `Eval.check` (X.Expr.type) stays for
@@ -1508,6 +1512,87 @@ Join.run makes first). Differences:
 - The example and README show `DF.optimize_full` for the projection-pushdown illustration, since
   `DF.optimize` (release) no longer pushes projections. The bench (`Lazy.collect`) therefore runs
   without predicate/projection pushdown; its cost is to be measured (plan section 6).
+
+### M1 B02 (CSV: csvparse, quotedness, physical lines, scan prefix)
+
+- `src/csvparse.bend` is the hub parser's walk with two more loop arguments (the physical line counter and
+  the line the current record started on) and two result types: `CsvCell{text, quoted}` and
+  `CsvRec{line, cells}`. The hub import is gone (no network fetch at check time); the file keeps the
+  hub package's MIT notice (copyright holder: nohzafk). The hub package's proofs do not cover the fork.
+- Behaviour fixed (rows B02-a, b, c, f, h; B02-d, g, i, j, k pass and stay as tests; B02-e is now a
+  facade test): quoted `""` is the empty string, unquoted empty is null, both on read and (via
+  `Csv.quote`: an empty string is quoted) on write; blank lines count as physical lines; a short or
+  long record, and a bad cell, report the record's first physical line (a `lines` list, one `U32` per
+  data record, is built next to the columns and read only when an error text is built).
+- `Csv.infer` (used by `scan_csv`) now applies the reader's shape checks to its text: blank lines are
+  skipped for k > 1 columns, a ragged record in the prefix is the reader's `ParseError`. Before, a blank
+  line made the inferred schema short, and collect failed with `csv schema: 1 dtypes for 2 columns`.
+- Inference departure from the old code: a column whose cells are all empty after trimming, but with
+  some unquoted non-empty whitespace (`" "`), is `str` (it used to be `u32` of nulls). Under an
+  explicit schema a blank numeric cell is a null (it used to be a `ParseError`), as 15.6.1 says.
+- `Csv.render_with(f, w: CsvWriteOpts)` replaces `render_with(f, prec, sep)`; `Csv.render(f, prec)` and
+  `Csv.write(f, path)` keep their signatures. `Csv.write_with(f, path, w)`, `Csv.write_default()`,
+  `CsvWriteOpts`, `Csv.scan_fields(path, opts)` and `Csv.scan_fields_with(path, opts, chunk)` are new.
+- scan prefix (15.6.4): `Csv.scan_fields` reads 64 KiB chunks with `File.read_at` (bytes: `File.read`
+  decodes a chunk and mangles a UTF-8 sequence cut at its end), cuts every chunk at its last LF, counts
+  line ends outside quotes on the bytes (a `"` toggles the quote state, a doubled quote toggles it
+  twice), stops at the `infer_rows + 1`-th such line end and decodes only the text up to it with an own
+  UTF-8 decoder (`Csv.u8`; a malformed byte becomes U+FFFD). A line longer than the chunk doubles the
+  chunk. The loop is bounded by a fuel of file size + 2 and ends at the first finished state. Quote
+  parity on bytes ignores the reader's grammar: a stray quote inside a bare field (a malformed file)
+  can flip it, and then the prefix may end early or late; the parse of the prefix reports the
+  malformedness only if it is inside the prefix. `Lazy.scan_csv` (plan.bend) is now a 4-line wrapper
+  over `Csv.scan_fields`.
+- The reader still reads the whole file with one `File.read` and parses a `String` (the 1 MiB chunked
+  reader is M4); `csvparse.bend`'s walk is tail recursive over explicit state so it can be resumed.
+- Measured natively (bench/data/sales_100000.csv, `build/bench ... parse`, 5 runs each): `Csv.read`
+  median 295 ms before, 327 ms after (+11%): an extra `CsvCell` / `CsvRec` node per field / record, the
+  per-record `lines` list, the per-column `has_value` trim.
+
+### M1 B03 (numerics: 15.5, rows B03-a..q)
+
+1. **NaN cells dump as `0x7fc00000`** (`Dump.fbits`), whatever their sign and payload. 15.1
+   rule 3 said "NaN prints the stored bits" and left NaN equality to the comparator; but NaN bits
+   are not portable (arm64 makes `0x7fc00000` for `0/0` and `inf - inf`, x86-64 makes
+   `0xffc00000`, and payloads propagate: `-NaN + 1` keeps `0xffc00000`), so the same program
+   printed different dumps on the two CI machines. Canonicalising in the dump makes every test
+   expectation portable; `bench/check.py --dump` still treats any two NaN cells as equal, so a
+   Polars-side dump with another payload still compares. Values are unchanged (only the text).
+2. **str -> f32 cast refuses leading whitespace**: Base `F32.read` skips it (`" 3"` reads as 3),
+   which would trim on one side only; `Eval.read_f32` answers None for a cell starting with
+   space / TAB / CR / LF, so 15.5.5's "as is, no trimming" (Polars) holds. `U32.read`/`I32.read`
+   already refuse it.
+3. **Where the policy lives**: `K.Kernel.fword` (the 15.5.2 order word; `Sort.fword` now calls it),
+   `K.Kernel.fmin/fmax` (15.5.2 exceptions), `K.Kernel.nm.add/nm.result` and the Data type
+   `K.NS{s, c}` (15.5.3 step), `K.Kernel.fsum` (Neumaier, used by eager Sum/Mean and describe),
+   `Grp.nm` (the same step per group, sum and mean), `K.Kernel.first_drop`, `K.Kernel.zip_maybe`.
+   Eager f32 `n_unique` counts distinct `fword`s (as group_by's codes do: B03-k).
+4. **Strict cast** = `Eval.try_cast` of a clone, then null counts compared: equal means no valid
+   cell failed (a conversion only adds nulls); otherwise the error row is the first row valid in
+   the source and null in the result (`K.Kernel.first_drop`), the cell read from the source by
+   `Column.data_cell` and shown by `Expr.show.lit`. Total pairs (`X.Cast.total`, in expr.bend for
+   the analysis) skip the clone. `Eval.cast` is strict for every caller, including `Fmt.describe`'s
+   numeric -> f32 cast (total).
+5. **Integers**: `D.I32.floor_div` / `D.I32.floor_mod` -> `Maybe` (None = null) are the evaluator's
+   `//` and `%`; `D.I32.div` / `D.I32.mod` stay the truncating helpers (`tests/i32.bend`). The u32 /
+   i32 `Bin{Div}` kernels remain in `Eval.zip.u/i` only as unreachable cases (typing refuses).
+6. **lit_i32** follows 15.2.1 D: (`Cast{Lit{SU32{v}}, TI32}` above range, `Un{Neg, ..}` of it for
+   `lit_i32_neg`). `DF.i32`, `DF.i32_neg`, `D.I32.checked`, `D.I32.checked_neg`, `D.I32.from_bits`
+   (`from_u32` kept as an alias) exist; `src/dtype.bend` now imports `src/err.bend`. `DF.lit_null`
+   and `DF.try_cast`, `DF.floor_div` added.
+7. **Goldens**: `bench/golden.py` writes q3 from `q3_reference` (exact rational sum of each group's
+   f32 inputs rounded once to f32, ties to even; mean = that f32 / f32(count) in f32), not from
+   Polars; the other queries stay Polars'. `bench/golden/q3.csv` `inland` 96373.4141 -> 96373.4062;
+   `bench/golden/n1000/q3.csv` 5 of 8 `revenue_sum` cells move by 1-2 ulp. Bend matches the
+   reference exactly at 1k and 100k (`make bench-check`: q3 identical). `--rtol` in
+   scripts/bench.sh is unchanged (still needed by q6 at 100k). This reverses M5 (describe,
+   goldens) note 2, as 15.5.3 says.
+8. **Laws**: `Laws.is_arith` no longer contains `Div` (`arith_type` now covers `+ - *`: `/` is
+   f32-only); PROOF.bend gains the `FloorDiv` cases. Still 48 laws, all proved.
+9. **Not done here**: `AggOp` Std/Var/Median (15.2.5) are left to M3 (eager + grouped kernels,
+   sort-based median per group). B03-b/h/k/n regressions now carry `#! xfail B04-a`: their eager
+   and grouped runs pass, the lazy `select` of a reduction still needs B04-a. B04-j's eager and
+   raw-lazy runs now match the contract; only the optimised runs differ (barrier rules, B04-j).
 
 ## 15. v0.1 contract (frozen)
 

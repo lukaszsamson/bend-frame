@@ -1,5 +1,3 @@
-# PENDING (M3 API: DF.csv_opts, DF.read_csv_opts, DF.scan_csv_opts, DF.write_opts,
-# DF.write_csv_opts). Rename to tests/regress/B02_e_csv_opts.bend when the API lands.
 # B02-e: separators other than ',' and write options through the facade (DESIGN.md
 # 15.2.7, 15.6.3). Read B02_e_semicolon.csv with sep ';' (a ',' inside a field is data);
 # write with sep ';', no header, 2 decimals (Fmt.fixed, round half even), then read the
