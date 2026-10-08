@@ -923,3 +923,85 @@ law wf_frame_head:
   for +n: U32
   for wf: WFFrame(f)
   WFFrame(C.Frame.head(f, n))
+
+# =====================================================================================
+# 10. Buffer contents (plan M_01 section 6 P1, the M2 part): what Array.get reads,
+#     what Array.set writes, and what one step of gather / compact does with them
+# =====================================================================================
+#
+# `rd` is the pure read model: the cell Array.get.go answers, making exactly the
+# production getter's halving decisions (n the slot count, i the masked index, z the
+# "left half" test); array_get_pure ties it to the real Array.get (which also hands the
+# array back unchanged). array_set_get is read-after-write at the same index through
+# the real Array.set. gather_step / compact_step are one iteration of the production
+# kernels: the cell read at perm[j] (resp. a[i]) is the cell written at out[j] (resp.
+# out[k]). NOT proven here (M5): that later writes leave earlier slots alone, i.e.
+# that two indices below 2^d take different paths; that bit-vector fact over
+# Word.and / shr / sub / is_lt is what separates these lemmas from the full
+# "out[i] == in[index[i]]" / subsequence theorems.
+
+def rd(-T: Data, a: Array<T>, +n: U32, +i: U32, z: Bool) -> T:
+  match a z:
+    case ALeaf{x} _:
+      x
+    case ANode{xs, ys} True{}:
+      rd(T, xs, U32.shr(n), i, U32.is_lt(i, U32.shr(U32.shr(n))))
+    case ANode{xs, ys} False{}:
+      rd(T, ys, U32.shr(n), U32.sub(i, U32.shr(n)), U32.is_lt(U32.sub(i, U32.shr(n)), U32.shr(U32.shr(n))))
+
+# the cell at logical index i (masked to the slot count, as Array.get.at does)
+def rd_size(-T: Data, +i: U32, an: Array<T> & U32) -> T:
+  (a, +n) = an
+  +j = U32.and(i, U32.sub(n, 1))
+  rd(T, a, n, j, U32.is_lt(j, U32.shr(n)))
+
+def rd_at(-T: Data, a: Array<T>, +i: U32) -> T:
+  rd_size(T, i, Array.size(T, a))
+
+# LAW: Array.get is pure: it hands the array back and answers the modelled cell
+law array_get_pure:
+  for -T: Data
+  for a: Array<T>
+  for +i: U32
+  {Array.get(T, a, i) == (a, rd_at(T, a, i)) : Array<T> & T}
+
+# LAW: read-after-write at the same index through the production Array.set
+law array_set_get:
+  for -T: Data
+  for a: Array<T>
+  for +i: U32
+  for +v: T
+  {rd_at(T, Array.set(T, a, i, v), i) == v : T}
+
+# LAW: one step of Kernel.gather.go (the production gather) writes the cell read at
+# perm's slot into out's slot j: out'[j] == src[i] where i is the pending read of perm[j]
+law gather_step:
+  for -T: Data
+  for src: Array<T>
+  for out: Array<T>
+  for perm: Array<U32>
+  for +j: U32
+  for +i: U32
+  {rd_at(T, Pair.fst(Array<T>, Array<U32>, K.Kernel.gather.go(~T, 1n, j, (src, out), (perm, i))), j) == rd_at(T, src, i) : T}
+
+# LAW: one step of Kernel.compact.go (the production compaction) writes a[i] into
+# out's slot k and advances k by the mask bit
+law compact_step:
+  for -T: Data
+  for a: Array<T>
+  for out: Array<T>
+  for mask: Array<U32>
+  for +i: U32
+  for +k: U32
+  for +bit: U32
+  {Pair.snd(Array<T>, U32, K.Kernel.compact.go(~T, 1n, i, k, (a, out), (mask, bit))) == U32.add(k, bit) : U32}
+
+law compact_step_cell:
+  for -T: Data
+  for a: Array<T>
+  for out: Array<T>
+  for mask: Array<U32>
+  for +i: U32
+  for +k: U32
+  for +bit: U32
+  {rd_at(T, Pair.fst(Array<T>, U32, K.Kernel.compact.go(~T, 1n, i, k, (a, out), (mask, bit))), k) == rd_at(T, a, i) : T}

@@ -275,3 +275,155 @@ def Laws.wf_frame_head(f, n, wf):
   match f:
     case C.Frame{+h, cols}:
       wf_cols_head(h, cols, Nil{}, n, wf)
+
+# =====================================================================================
+# 10. Buffer contents (LAWS.bend section 10): Array.get reads Laws.rd, Array.set
+#     writes where rd reads, one step of gather / compact. Every lemma over an array
+#     hands it back as a Sigma witness beside the equations (arrays are affine).
+# =====================================================================================
+
+# Array.size hands the array back unchanged, with its slot count as a Data witness
+def size_same_node(-T: Type, -xs: Array<T>, ys: Array<T>, w: &b: Array<T> -> &n: U32 -> {b == xs : Array<T>} & {Array.size(T, xs) == (b, n) : Array<T> & U32} & {Laws.slots(T, b) == n : U32})
+  -> &b2: Array<T> -> &n2: U32 -> {b2 == ANode{xs, ys} : Array<T>} & {Array.size(T, ANode{xs, ys}) == (b2, n2) : Array<T> & U32} & {Laws.slots(T, b2) == n2 : U32}:
+  (b, n0, eb, es, sl) = w
+  +n = n0
+  (ANode{b, ys}, U32.shl(n), (%eb : {ANode{b, ys} == ANode{_, ys} : Array<T>}; {==}), (%Equal.sym(Array<T> & U32, Array.size(T, xs), (b, n), es) : {Array.size.node(T, ys, _) == (ANode{b, ys}, U32.shl(n)) : Array<T> & U32}; {==}), (%sl : {U32.shl(Laws.slots(T, b)) == U32.shl(_) : U32}; {==}))
+
+def size_same(-T: Type, a: Array<T>) -> &b: Array<T> -> &n: U32 -> {b == a : Array<T>} & {Array.size(T, a) == (b, n) : Array<T> & U32} & {Laws.slots(T, b) == n : U32}:
+  match a:
+    case ALeaf{x}:
+      (ALeaf{x}, 1, {==}, {==}, {==})
+    case ANode{xs, ys}:
+      size_same_node(T, xs, ys, size_same(T, xs))
+
+# Array.get.go hands the array back and answers the cell rd models
+def get_rd_lo(-T: Data, -xs: Array<T>, -ys: Array<T>, +n: U32, +i: U32, w: &x: T -> {Array.get.go(T, xs, U32.shr(n), i, U32.is_lt(i, U32.shr(U32.shr(n)))) == (xs, x) : Array<T> & T} & {x == Laws.rd(T, xs, U32.shr(n), i, U32.is_lt(i, U32.shr(U32.shr(n)))) : T})
+  -> &x2: T -> {Array.get.go(T, ANode{xs, ys}, n, i, True{}) == (ANode{xs, ys}, x2) : Array<T> & T} & {x2 == Laws.rd(T, ANode{xs, ys}, n, i, True{}) : T}:
+  (x, e1, e2) = w
+  (x, (%Equal.sym(Array<T> & T, Array.get.go(T, xs, U32.shr(n), i, U32.is_lt(i, U32.shr(U32.shr(n)))), (xs, x), e1) : {Array.swap.lo(T, ys, _) == (ANode{xs, ys}, x) : Array<T> & T}; {==}), e2)
+
+def get_rd_hi(-T: Data, -xs: Array<T>, -ys: Array<T>, +n: U32, +i: U32, w: &x: T -> {Array.get.go(T, ys, U32.shr(n), U32.sub(i, U32.shr(n)), U32.is_lt(U32.sub(i, U32.shr(n)), U32.shr(U32.shr(n)))) == (ys, x) : Array<T> & T} & {x == Laws.rd(T, ys, U32.shr(n), U32.sub(i, U32.shr(n)), U32.is_lt(U32.sub(i, U32.shr(n)), U32.shr(U32.shr(n)))) : T})
+  -> &x2: T -> {Array.get.go(T, ANode{xs, ys}, n, i, False{}) == (ANode{xs, ys}, x2) : Array<T> & T} & {x2 == Laws.rd(T, ANode{xs, ys}, n, i, False{}) : T}:
+  (x, e1, e2) = w
+  (x, (%Equal.sym(Array<T> & T, Array.get.go(T, ys, U32.shr(n), U32.sub(i, U32.shr(n)), U32.is_lt(U32.sub(i, U32.shr(n)), U32.shr(U32.shr(n)))), (ys, x), e1) : {Array.swap.hi(T, xs, _) == (ANode{xs, ys}, x) : Array<T> & T}; {==}), e2)
+
+def get_rd(-T: Data, a: Array<T>, +n: U32, +i: U32, z: Bool) -> &x: T -> {Array.get.go(T, a, n, i, z) == (a, x) : Array<T> & T} & {x == Laws.rd(T, a, n, i, z) : T}:
+  match a z:
+    case ALeaf{+x} _:
+      (x, {==}, {==})
+    case ANode{xs, ys} True{}:
+      get_rd_lo(T, xs, ys, n, i, get_rd(T, xs, U32.shr(n), i, U32.is_lt(i, U32.shr(U32.shr(n)))))
+    case ANode{xs, ys} False{}:
+      get_rd_hi(T, xs, ys, n, i, get_rd(T, ys, U32.shr(n), U32.sub(i, U32.shr(n)), U32.is_lt(U32.sub(i, U32.shr(n)), U32.shr(U32.shr(n)))))
+
+# Array.get through Array.size: b is a (eb) with n slots (es)
+def get_at_k2(-T: Data, -a: Array<T>, -b: Array<T>, +i: U32, +n: U32, eb: {b == a : Array<T>}, +es: {Array.size(T, a) == (b, n) : Array<T> & U32},
+  w: &x: T -> {Array.get.go(T, b, n, U32.and(i, U32.sub(n, 1)), U32.is_lt(U32.and(i, U32.sub(n, 1)), U32.shr(n))) == (b, x) : Array<T> & T} & {x == Laws.rd(T, b, n, U32.and(i, U32.sub(n, 1)), U32.is_lt(U32.and(i, U32.sub(n, 1)), U32.shr(n))) : T})
+  -> &x2: T -> {Array.get(T, a, i) == (a, x2) : Array<T> & T} & {x2 == Laws.rd_at(T, a, i) : T}:
+  (x, e1, e2) = w
+  (x, (%Equal.sym(Array<T> & U32, Array.size(T, a), (b, n), es) : {Array.get.at(T, i, _) == (a, x) : Array<T> & T}; %eb : {Array.get.go(T, b, n, U32.and(i, U32.sub(n, 1)), U32.is_lt(U32.and(i, U32.sub(n, 1)), U32.shr(n))) == (_, x) : Array<T> & T}; e1), (%Equal.sym(Array<T> & U32, Array.size(T, a), (b, n), es) : {x == Laws.rd_size(T, i, _) : T}; e2))
+
+def get_at_k(-T: Data, -a: Array<T>, +i: U32, w: &b: Array<T> -> &n: U32 -> {b == a : Array<T>} & {Array.size(T, a) == (b, n) : Array<T> & U32} & {Laws.slots(T, b) == n : U32})
+  -> &x: T -> {Array.get(T, a, i) == (a, x) : Array<T> & T} & {x == Laws.rd_at(T, a, i) : T}:
+  (b, n0, eb, es, sl) = w
+  +n = n0
+  get_at_k2(T, a, b, i, n, eb, es, get_rd(T, b, n, U32.and(i, U32.sub(n, 1)), U32.is_lt(U32.and(i, U32.sub(n, 1)), U32.shr(n))))
+
+# the cell Array.get answers, as a live witness (the array is consumed once)
+def get_at_w(-T: Data, a: Array<T>, +i: U32) -> &x: T -> {Array.get(T, a, i) == (a, x) : Array<T> & T} & {x == Laws.rd_at(T, a, i) : T}:
+  get_at_k(T, a, i, size_same(T, a))
+
+def get_pure_fin(-T: Data, -a: Array<T>, +i: U32, w: &x: T -> {Array.get(T, a, i) == (a, x) : Array<T> & T} & {x == Laws.rd_at(T, a, i) : T}) -> {Array.get(T, a, i) == (a, Laws.rd_at(T, a, i)) : Array<T> & T}:
+  (x, e1, e2) = w
+  %e2 : {Array.get(T, a, i) == (a, _) : Array<T> & T}
+  e1
+
+def Laws.array_get_pure(T, a, i):
+  get_pure_fin(T, a, i, get_at_w(T, a, i))
+
+# Array.swap.go writes v where rd reads at the same (n, j, z); the written array keeps its slots
+def swap_rd_lo(-T: Data, -xs: Array<T>, ys: Array<T>, +n: U32, +j: U32, +v: T, w: &c: Array<T> -> &o: T -> {Array.swap.go(T, xs, U32.shr(n), j, v, U32.is_lt(j, U32.shr(U32.shr(n)))) == (c, o) : Array<T> & T} & {Laws.rd(T, c, U32.shr(n), j, U32.is_lt(j, U32.shr(U32.shr(n)))) == v : T} & {Laws.slots(T, c) == Laws.slots(T, xs) : U32})
+  -> &c2: Array<T> -> &o2: T -> {Array.swap.lo(T, ys, Array.swap.go(T, xs, U32.shr(n), j, v, U32.is_lt(j, U32.shr(U32.shr(n))))) == (c2, o2) : Array<T> & T} & {Laws.rd(T, c2, n, j, True{}) == v : T} & {Laws.slots(T, c2) == Laws.slots(T, ANode{xs, ys}) : U32}:
+  (c, o, eq, hr, sl) = w
+  (ANode{c, ys}, o, (%Equal.sym(Array<T> & T, Array.swap.go(T, xs, U32.shr(n), j, v, U32.is_lt(j, U32.shr(U32.shr(n)))), (c, o), eq) : {Array.swap.lo(T, ys, _) == (ANode{c, ys}, o) : Array<T> & T}; {==}), hr, (%sl : {U32.shl(Laws.slots(T, c)) == U32.shl(_) : U32}; {==}))
+
+def swap_rd_hi(-T: Data, xs: Array<T>, -ys: Array<T>, +n: U32, +j: U32, +v: T, w: &c: Array<T> -> &o: T -> {Array.swap.go(T, ys, U32.shr(n), U32.sub(j, U32.shr(n)), v, U32.is_lt(U32.sub(j, U32.shr(n)), U32.shr(U32.shr(n)))) == (c, o) : Array<T> & T} & {Laws.rd(T, c, U32.shr(n), U32.sub(j, U32.shr(n)), U32.is_lt(U32.sub(j, U32.shr(n)), U32.shr(U32.shr(n)))) == v : T} & {Laws.slots(T, c) == Laws.slots(T, ys) : U32})
+  -> &c2: Array<T> -> &o2: T -> {Array.swap.hi(T, xs, Array.swap.go(T, ys, U32.shr(n), U32.sub(j, U32.shr(n)), v, U32.is_lt(U32.sub(j, U32.shr(n)), U32.shr(U32.shr(n))))) == (c2, o2) : Array<T> & T} & {Laws.rd(T, c2, n, j, False{}) == v : T} & {Laws.slots(T, c2) == Laws.slots(T, ANode{xs, ys}) : U32}:
+  (c, o, eq, hr, sl) = w
+  (ANode{xs, c}, o, (%Equal.sym(Array<T> & T, Array.swap.go(T, ys, U32.shr(n), U32.sub(j, U32.shr(n)), v, U32.is_lt(U32.sub(j, U32.shr(n)), U32.shr(U32.shr(n)))), (c, o), eq) : {Array.swap.hi(T, xs, _) == (ANode{xs, c}, o) : Array<T> & T}; {==}), hr, {==})
+
+def swap_rd(-T: Data, a: Array<T>, +n: U32, +j: U32, +v: T, z: Bool) -> &c: Array<T> -> &o: T -> {Array.swap.go(T, a, n, j, v, z) == (c, o) : Array<T> & T} & {Laws.rd(T, c, n, j, z) == v : T} & {Laws.slots(T, c) == Laws.slots(T, a) : U32}:
+  match a z:
+    case ALeaf{x} _:
+      (ALeaf{v}, x, {==}, {==}, {==})
+    case ANode{xs, ys} True{}:
+      swap_rd_lo(T, xs, ys, n, j, v, swap_rd(T, xs, U32.shr(n), j, v, U32.is_lt(j, U32.shr(U32.shr(n)))))
+    case ANode{xs, ys} False{}:
+      swap_rd_hi(T, xs, ys, n, j, v, swap_rd(T, ys, U32.shr(n), U32.sub(j, U32.shr(n)), v, U32.is_lt(U32.sub(j, U32.shr(n)), U32.shr(U32.shr(n)))))
+
+# reading the written array c at i: its size is (c, n) again (c2 is c, n2 is n)
+def set_get_k3(-T: Data, -c: Array<T>, +i: U32, +n: U32, +v: T,
+  hr: {Laws.rd(T, c, n, U32.and(i, U32.sub(n, 1)), U32.is_lt(U32.and(i, U32.sub(n, 1)), U32.shr(n))) == v : T},
+  slc: {Laws.slots(T, c) == n : U32},
+  w: &c2: Array<T> -> &n2: U32 -> {c2 == c : Array<T>} & {Array.size(T, c) == (c2, n2) : Array<T> & U32} & {Laws.slots(T, c2) == n2 : U32})
+  -> {Laws.rd_at(T, c, i) == v : T}:
+  (c2, n2, ec2, es2, sl2) = w
+  %Equal.sym(Array<T> & U32, Array.size(T, c), (c2, n2), es2) : {Laws.rd_size(T, i, _) == v : T}
+  %sl2 : {Laws.rd(T, c2, _, U32.and(i, U32.sub(_, 1)), U32.is_lt(U32.and(i, U32.sub(_, 1)), U32.shr(_))) == v : T}
+  %Equal.sym(Array<T>, c2, c, ec2) : {Laws.rd(T, _, Laws.slots(T, _), U32.and(i, U32.sub(Laws.slots(T, _), 1)), U32.is_lt(U32.and(i, U32.sub(Laws.slots(T, _), 1)), U32.shr(Laws.slots(T, _)))) == v : T}
+  %Equal.sym(U32, Laws.slots(T, c), n, slc) : {Laws.rd(T, c, _, U32.and(i, U32.sub(_, 1)), U32.is_lt(U32.and(i, U32.sub(_, 1)), U32.shr(_))) == v : T}
+  hr
+
+def set_get_k2(-T: Data, -b: Array<T>, +i: U32, +n: U32, +v: T, slb: {Laws.slots(T, b) == n : U32},
+  w: &c: Array<T> -> &o: T -> {Array.swap.go(T, b, n, U32.and(i, U32.sub(n, 1)), v, U32.is_lt(U32.and(i, U32.sub(n, 1)), U32.shr(n))) == (c, o) : Array<T> & T} & {Laws.rd(T, c, n, U32.and(i, U32.sub(n, 1)), U32.is_lt(U32.and(i, U32.sub(n, 1)), U32.shr(n))) == v : T} & {Laws.slots(T, c) == Laws.slots(T, b) : U32})
+  -> {Laws.rd_at(T, Array.set.fin(T, Array.swap.go(T, b, n, U32.and(i, U32.sub(n, 1)), v, U32.is_lt(U32.and(i, U32.sub(n, 1)), U32.shr(n)))), i) == v : T}:
+  (c, o, eq, hr, slc) = w
+  %Equal.sym(Array<T> & T, Array.swap.go(T, b, n, U32.and(i, U32.sub(n, 1)), v, U32.is_lt(U32.and(i, U32.sub(n, 1)), U32.shr(n))), (c, o), eq) : {Laws.rd_at(T, Array.set.fin(T, _), i) == v : T}
+  set_get_k3(T, c, i, n, v, hr, Equal.trans(U32, Laws.slots(T, c), Laws.slots(T, b), n, slc, slb), size_same(T, c))
+
+def set_get_k1(-T: Data, -a: Array<T>, +i: U32, +v: T, w: &b: Array<T> -> &n: U32 -> {b == a : Array<T>} & {Array.size(T, a) == (b, n) : Array<T> & U32} & {Laws.slots(T, b) == n : U32})
+  -> {Laws.rd_at(T, Array.set(T, a, i, v), i) == v : T}:
+  (b, n0, eb, es, sl) = w
+  +n = n0
+  %Equal.sym(Array<T> & U32, Array.size(T, a), (b, n), es) : {Laws.rd_at(T, Array.set.fin(T, Array.swap.at(T, i, v, _)), i) == v : T}
+  set_get_k2(T, b, i, n, v, sl, swap_rd(T, b, n, U32.and(i, U32.sub(n, 1)), v, U32.is_lt(U32.and(i, U32.sub(n, 1)), U32.shr(n))))
+
+def Laws.array_set_get(T, a, i, v):
+  set_get_k1(T, a, i, v, size_same(T, a))
+
+# ---- one step of the production kernels ----
+
+def gather_step_k(-T: Data, -src: Array<T>, out: Array<T>, -perm: Array<U32>, +j: U32, +i: U32,
+  ws: &x: T -> {Array.get(T, src, i) == (src, x) : Array<T> & T} & {x == Laws.rd_at(T, src, i) : T},
+  wp: &y: U32 -> {Array.get(U32, perm, U32.inc(j)) == (perm, y) : Array<U32> & U32} & {y == Laws.rd_at(U32, perm, U32.inc(j)) : U32})
+  -> {Laws.rd_at(T, Pair.fst(Array<T>, Array<U32>, K.Kernel.gather.go(~T, 1n, j, (src, out), (perm, i))), j) == Laws.rd_at(T, src, i) : T}:
+  (x, e1, e2) = ws
+  (y, f1, f2) = wp
+  %Equal.sym(Array<T> & T, Array.get(T, src, i), (src, x), e1) : {Laws.rd_at(T, Pair.fst(Array<T>, Array<U32>, K.Kernel.gather.go(~T, 0n, U32.inc(j), K.Kernel.gather.put(~T, out, j, _), Array.get(U32, perm, U32.inc(j)))), j) == Laws.rd_at(T, src, i) : T}
+  %Equal.sym(Array<U32> & U32, Array.get(U32, perm, U32.inc(j)), (perm, y), f1) : {Laws.rd_at(T, Pair.fst(Array<T>, Array<U32>, K.Kernel.gather.go(~T, 0n, U32.inc(j), K.Kernel.gather.put(~T, out, j, (src, x)), _)), j) == Laws.rd_at(T, src, i) : T}
+  %e2 : {Laws.rd_at(T, Array.set(T, out, j, x), j) == _ : T}
+  Laws.array_set_get(T, out, j, x)
+
+def Laws.gather_step(T, src, out, perm, j, i):
+  gather_step_k(T, src, out, perm, j, i, get_at_w(T, src, i), get_at_w(U32, perm, U32.inc(j)))
+
+def compact_step_k(-T: Data, -a: Array<T>, out: Array<T>, mask: Array<U32>, +i: U32, +k: U32, +bit: U32,
+  ws: &x: T -> {Array.get(T, a, i) == (a, x) : Array<T> & T} & {x == Laws.rd_at(T, a, i) : T})
+  -> {Pair.snd(Array<T>, U32, K.Kernel.compact.go(~T, 1n, i, k, (a, out), (mask, bit))) == U32.add(k, bit) : U32}:
+  (x, e1, e2) = ws
+  %Equal.sym(Array<T> & T, Array.get(T, a, i), (a, x), e1) : {Pair.snd(Array<T>, U32, K.Kernel.compact.go(~T, 0n, U32.inc(i), U32.add(k, bit), K.Kernel.compact.put(~T, out, k, _), Array.get(U32, mask, U32.inc(i)))) == U32.add(k, bit) : U32}
+  {==}
+
+def Laws.compact_step(T, a, out, mask, i, k, bit):
+  compact_step_k(T, a, out, mask, i, k, bit, get_at_w(T, a, i))
+
+def compact_cell_k(-T: Data, -a: Array<T>, out: Array<T>, mask: Array<U32>, +i: U32, +k: U32, +bit: U32,
+  ws: &x: T -> {Array.get(T, a, i) == (a, x) : Array<T> & T} & {x == Laws.rd_at(T, a, i) : T})
+  -> {Laws.rd_at(T, Pair.fst(Array<T>, U32, K.Kernel.compact.go(~T, 1n, i, k, (a, out), (mask, bit))), k) == Laws.rd_at(T, a, i) : T}:
+  (x, e1, e2) = ws
+  %Equal.sym(Array<T> & T, Array.get(T, a, i), (a, x), e1) : {Laws.rd_at(T, Pair.fst(Array<T>, U32, K.Kernel.compact.go(~T, 0n, U32.inc(i), U32.add(k, bit), K.Kernel.compact.put(~T, out, k, _), Array.get(U32, mask, U32.inc(i)))), k) == Laws.rd_at(T, a, i) : T}
+  %e2 : {Laws.rd_at(T, Array.set(T, out, k, x), k) == _ : T}
+  Laws.array_set_get(T, out, k, x)
+
+def Laws.compact_step_cell(T, a, out, mask, i, k, bit):
+  compact_cell_k(T, a, out, mask, i, k, bit, get_at_w(T, a, i))
