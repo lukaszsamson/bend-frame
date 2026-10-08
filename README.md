@@ -1,6 +1,6 @@
 # bend-frame
 
-A columnar dataframe library for [Bend](https://higherorderco.com/) 2 (checked against Bend 2.0.36), shaped after the Polars 2.0 eager and lazy APIs. Queries are built as a lazy `Plan`, a pure data tree, and the output schema is resolved before any row is read: `DF.collect_schema` returns a strict error such as a filter on a `u32` column, and `DF.collect` refuses the same plan with the same error. Row order is part of the contract: `select`, `with_columns`, `filter` and `head` keep input order, `sort` is stable and multi-key, and `group_by` and joins answer in first-appearance and left-row order. Dtypes are `Bool`, `U32`, `I32`, `F32` and `Str`, each nullable through a validity mask, with no implicit casts. 48 laws over the schema, expression and optimizer code are stated in `LAWS.bend` and machine-checked by `PROOF.bend`: `bend PROOF.bend` prints `ALL PROOFS CHECK`.
+A columnar dataframe library for [Bend](https://bend-lang.com/) 2 (checked against Bend 2.0.36), shaped after the Polars 2.0 eager and lazy APIs. Queries are built as a lazy `Plan`, a pure data tree, and the output schema is resolved before any row is read: `DF.collect_schema` returns a strict error such as a filter on a `u32` column, and `DF.collect` refuses the same plan with the same error. Row order is part of the contract: `select`, `with_columns`, `filter` and `head` keep input order, `sort` is stable and multi-key, and `group_by` and joins answer in first-appearance and left-row order. Dtypes are `Bool`, `U32`, `I32`, `F32` and `Str`, each nullable through a validity mask, with no implicit casts. 48 laws over the schema, expression and optimizer code are stated in `LAWS.bend` and machine-checked by `PROOF.bend`: `bend PROOF.bend` prints `ALL PROOFS CHECK`, and `bend PROOF.bend --verdict` confirms it with Bend's independent, Lean-verified BendTT kernel.
 
 ## Quickstart
 
@@ -170,6 +170,7 @@ Top optimization opportunities, from the analysis there:
 make test      # scripts/test.sh: every tests/**/*.bend against its #| expectations (39 files)
 make check     # bend --check-only on every src/ and tests/ file
 make proofs    # bend PROOF.bend: prints ALL PROOFS CHECK
+make verdict   # bend PROOF.bend --verdict: recheck with the BendTT kernel (needs Lean 4.34)
 scripts/bench.sh   # Polars reference (needs uv), then Bend; writes results and a table (about 10 min)
 ```
 

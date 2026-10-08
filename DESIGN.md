@@ -36,7 +36,7 @@ Non-goals / deferred (v2+): `F64/U64/I64` (Base lacks them, WONTFIX "SOON"),
 is ready for it, kernels are not), streaming/out-of-core, GPU kernels (measured
 useless at this size, see §12), parallel merge sort, outer/semi/anti joins,
 window functions, string ops beyond equality/ordering, bit-packed validity, a
-JS/web build (works but untested), `--verdict` runs (needs Lean 4.34 installed).
+JS/web build (works but untested).
 
 Polars concept → bend-frame:
 
@@ -146,7 +146,7 @@ Some{s}, h)` before using it to replace `f(p)`. Injectivity of `Some` comes
 from `Equal.cong` through `Maybe.default`; a `None == Some{x}` clash is refuted
 through a motive `disc` (None ↦ Unit, Some ↦ Empty) and `Empty.absurd`. Laws
 over Type-kinded values (a `Column` holding an `Array`) prove by case split
-(p20). `--verdict` needs Lean v4.34.0, absent on this machine.
+(p20). `--verdict` (Lean v4.34.0 via elan) rechecks them with the BendTT kernel.
 
 R13. **Performance shape (p07, p15, p15b, p15c, p16; Apple M-series, 12
 threads).** Flat `Array.get/set` loops: 4M floats summed in 4–6 ms, written in
@@ -759,8 +759,8 @@ therefore sequential inside a column and parallel ACROSS independent work:
 
 Status (M6): `LAWS.bend` states 48 laws over `src/`; `PROOF.bend` proves all
 of them (`bend PROOF.bend` prints ALL PROOFS CHECK in ~0.45 s; `make proofs`).
-No `@unsafe`, no foreign code. `--verdict` could not run on this machine
-(needs Lean v4.34.0). A deliberately false claim (2^(d+1) slots) fails with
+No `@unsafe`, no foreign code. `bend PROOF.bend --verdict` also prints ALL
+PROOFS CHECK under the independent BendTT kernel (~1 s; `make verdict`). A deliberately false claim (2^(d+1) slots) fails with
 the expected/observed terms, so the claims are load-bearing. The miniature
 probes p08/p20 remain as the pattern references.
 
@@ -972,7 +972,8 @@ M8 publish readiness [haiku]
    WONTFIX #1065 also keeps `!` to the root of an IO step.
 5. **Intra-column parallel speedup is ≤1.8×** on this machine (R13); the plan
    is cross-expression parallelism (M7), unproven until then.
-6. **No `--verdict`** without Lean 4.34; `bend PROOF.bend` is the gate.
+6. **`--verdict` needs Lean 4.34** (installed via elan); `make verdict` is the
+   strong gate, `make proofs` the fast one.
 7. **`Array` limits**: block class 31 (2^31 slots) and `Nat` < 2^48 (WONTFIX
    #779); `Array.new` of a computed value at depth ≥ 24 trips the 2^24 copy
    count on the C lane (#1267): a column may not exceed 2^23 rows per
