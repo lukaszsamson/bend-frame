@@ -1940,12 +1940,31 @@ to ONE instruction `ITable{TOp}` (so a proof's Instr case split grows by one cas
    15.2.1 dtype / scalar builders `DF.t_bool .. DF.t_str` and `DF.s_null / s_bool / s_u32 / s_i32 /
    s_f32 / s_str` (needed by try_cast, is_in and clip without a src/ import; `DF.s_i32` takes a
    `D.I32`, i.e. `DF.i32(v)`'s value). Not added here: `DF.column`, `DF.schema`, `DF.height`,
-   `DF.collect_show` (15.2.1; not in this group).
+   `DF.collect_show` (15.2.1; added in "M3 facade leftovers" below).
 7. **Expr.show**: an is_in list shows each literal with `Expr.show.lit` (`nan`, `0`, `"a"`); a
    string pattern is shown raw inside the quotes (no escaping, as `lit("..")`).
 8. **bench/diff**: the EXPRS rows and oracle functions existed from M0; `model.t_is_in` now reports
    the first offending literal in list order (null or dtype), as `Expr.type` does, and the
    generator injects a null literal into is_in / clip in invalid cases.
+
+### M3 facade leftovers
+
+1. **Gap check against 15.2.** Every `DF.<name>` token of section 15.2 (83 names) and every bare
+   builder name in its rows was compared with the `def`s of `frame.bend`. Four had no facade def,
+   all in 15.2.1, and are now added as thin wrappers (no new logic in `src/`):
+   - `DF.column(t: D.DType, xs: List<&2, D.Scalar>) -> ResT(Column)` = `C.Column.from_scalars(xs, t)`.
+     Its type name `DF.Column()` is added beside `DF.Frame()` so the result can be annotated.
+   - `DF.schema(f: Frame) -> Frame & Schema` = `S.Frame.schema(f)`. The contract's `Schema` is the
+     `Schema()` alias (Data); written `C.Frame & Schema()` it type-checks, so the signature is exact.
+   - `DF.height(f: Frame) -> Frame & U32` = `C.Frame.height(f)`. Both pair results hand the frame
+     back, as `Frame` is linear.
+   - `DF.collect_show(p: Plan, env: Env) -> IO(String)` = `Q.Lazy.collect(p, env)`, then `show`, in a
+     do block (as `write_csv.io`). Its errors are `collect`'s, rendered by `show`.
+2. **No contract row needs new logic in `src/`**, and no signature is impossible in Bend, so
+   nothing is substituted. `DF.schema` and `DF.height` have no error path (15.2.1 says none).
+3. **Tests**: `tests/facade_m3.bend` (success and one invalid input for `column` and
+   `collect_show`; success for `schema` and `height`; `height` of the empty frame is the edge case).
+   Expectations were reasoned from the table format and the error texts of 15.9 before the run.
 
 ## 15. v0.1 contract (frozen)
 

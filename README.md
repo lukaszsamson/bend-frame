@@ -96,7 +96,8 @@ collect: error: TypeMismatch in filter: expected bool, got u32
 
 - Eager (`Frame -> ResT(Frame)`, an error is a value): `select`, `with_columns`, `filter`, `sort` (multi-key, per-key `asc` / `desc` and nulls placement), `group_by` with `sum mean min max count len first last n_unique`, `inner_join`, `left_join`, `semi_join` and `anti_join` (multi-key), `head`, `slice` (offset and length, clamped), `tail`, `drop`, `rename` (simultaneous `(from, to)` pairs), `unique` (keep first, input order, `[]` = every column), `concat_vertical` (identical names, dtypes and order), `describe`, `show`; `then` / `then_io` chain them, passing an error through.
 - Lazy (`Plan`): `lazy_select`, `lazy_with_columns`, `lazy_filter`, `lazy_sort`, `lazy_group_by`, `lazy_head`, `lazy_inner_join`, `lazy_left_join`, `lazy_semi_join`, `lazy_anti_join`, `lazy_slice`, `lazy_tail`, `lazy_drop`, `lazy_rename`, `lazy_unique`, `lazy_concat_vertical`, with `source` / `add_source` / `empty_env` for in-memory frames (several named frames in one env; a frame may be read more than once, e.g. a self join) and `scan_csv` for files.
-- Inspect and run: `collect_schema`, `schema_show`, `explain`, `validate_bindings`, `optimize` (the certified rewrites: head merge and the analysis-restricted head sink), `optimize_full` (opt-in: filter merge, predicate and projection pushdown, head), `collect`, `collect_raw`, `collect_full`. `collect_schema` predicts the static schema and type errors; `validate_bindings` predicts the binding errors (a missing source, a name bound twice, a frame whose schema differs from the plan's); the rest (IO, data-dependent errors) shows up only at `collect`.
+- Frames and columns: `column` builds a checked nullable column from a dtype (`t_bool` .. `t_str`) and scalars (`s_null`, `s_bool`, `s_u32`, `s_i32`, `s_f32`, `s_str`), and a first scalar of the wrong dtype is a `TypeMismatch`; `from_columns` with `named` assembles a frame. `schema` and `height` answer the frame's schema and row count and hand the frame back, as a pair.
+- Inspect and run: `collect_schema`, `schema_show`, `explain`, `validate_bindings`, `optimize` (the certified rewrites: head merge and the analysis-restricted head sink), `optimize_full` (opt-in: filter merge, predicate and projection pushdown, head), `collect`, `collect_raw`, `collect_full`, and `collect_show` (collect, then the table or the error text). `collect_schema` predicts the static schema and type errors; `validate_bindings` predicts the binding errors (a missing source, a name bound twice, a frame whose schema differs from the plan's); the rest (IO, data-dependent errors) shows up only at `collect`.
 - CSV: `read_csv` (types inferred per column), `read_csv_opts` / `read_csv_schema` (separator, header or not, inference rows, explicit dtypes), `scan_csv` / `scan_csv_opts` / `scan_csv_schema` (the last one is pure: no IO until `collect`), `write_csv` / `write_csv_opts` (separator, header or not, F32 shortest digits or fixed decimals). A quoted `""` is the empty string and an empty field is null, on read and on write.
 
 ### Expressions
@@ -179,7 +180,7 @@ Top optimization opportunities, from the analysis there:
 ## Development
 
 ```sh
-make test      # scripts/test.sh: every tests/**/*.bend against its #| expectations (39 files)
+make test      # scripts/test.sh: every tests/**/*.bend against its #| expectations (130+ files)
 make check     # bend --check-only on every src/ and tests/ file
 make proofs    # bend PROOF.bend: prints ALL PROOFS CHECK
 make verdict   # bend PROOF.bend --verdict: recheck with the BendTT kernel (needs Lean 4.34)

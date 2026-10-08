@@ -708,3 +708,19 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
 - Checking expectations: the f32 bits for std / var / median came from
   `bench/diff/oracle.reduce_` (`cd bench && uv run python`), the contract's algorithm in numpy
   float32; the sales table from Polars 2.0.0 directly.
+
+## M3 facade leftovers (DF.column, schema, height, collect_show)
+
+- **A Data alias works inside a pair type**: `-> C.Frame & Schema()` (frame.bend's `Schema()` is Data)
+  type-checks, as does `DF.Frame() & DF.Schema()` in a test helper's annotation. Writing the list type
+  out (`List<&2, S.Field>`) is the fallback, not a necessity.
+- **A facade def may share a name with a parameter**: `def schema(f)` sits beside
+  `scan_csv_schema(path, opts, schema: ..)`; the parameter shadows inside its own body, and
+  `--check-only` accepts both.
+- **Pair results stay pairs in the facade**: `C.Frame.height` answers `Frame & U32`, so `DF.height` is
+  the same annotation; a test reads it through a helper `hgt.s(x: DF.Frame() & U32)` that destructures
+  `(f, h) = x` (the frame is unused there, as in `show.s`).
+- **An IO wrapper over an existing IO result** follows `write_csv.io`: `do IO<String>:` with a typed
+  bind `r : E.ResT(C.Frame) <- Q.Lazy.collect(p, env)` and `return show(r)`.
+- **Test expectations**: `IO.print` adds the newline, so a table or an error line prints as one line
+  with no blank separator; a null cell in a column of width 3 is five spaces between the bars.
