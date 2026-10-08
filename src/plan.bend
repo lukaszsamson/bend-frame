@@ -33,6 +33,11 @@
 #     that clashes with ANY left name gets the suffix `_right`;
 #     DuplicateColumn last.
 #   - Head: input schema.
+#   - Drop / Rename / Slice / Tail / Unique / Concat (M3): the static rules of src/table.bend
+#     (TV.Drop.schema, TV.Rename.schema, TV.Unique.schema, TV.Concat.schema; slice and tail keep
+#     the input schema). Concat{i, l, r} is one step of a left-nested chain (Lazy.concat): l's
+#     errors, r's, then r (input i) against l's schema (input 0's); i = 0 is the empty list.
+#     Join{Semi/Anti}: the join's key checks, then the left fields (J.Join.schema.how).
 #   - ScanCsv/Source: their declared schema. `Lazy.scan_csv` fills
 #     ScanCsv.schema at plan-build time from the header + the first
 #     `infer_rows` rows (Csv.infer), so Plan.schema stays pure; Exec reads
@@ -46,7 +51,9 @@
 #     sinks below a Select/WithColumns ONLY when the analysis certifies it as
 #     height preserving (Ana.preserving: a non-empty list of KRow, total
 #     expressions). Literal-only, reduction, mixed, empty and fallible (strict
-#     cast) nodes are barriers (B01-a, B01-f, B04-j); so is every other node.
+#     cast) nodes are barriers (B01-a, B01-f, B04-j); so is every other node, the M3
+#     table verbs included (no rewrite moves anything across Drop, Rename, Slice, Tail,
+#     Unique, Concat or a semi / anti Join, in either optimizer).
 #   Plan.optimize_full (DF.optimize_full, opt-in, outside the guarantee): four
 #     structural passes, in this order:
 #   1. Opt.merge  Filter{p, Filter{q, x}} -> Filter{q & p, x}; applied only

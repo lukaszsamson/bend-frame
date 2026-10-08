@@ -24,6 +24,10 @@
 #   WithColumns / Filter -> Eval.with_columns / Eval.filter
 #   Sort / GroupBy / Join -> Sort.frame / GroupBy.run / Join.run
 #   Head     -> Frame.head
+#   Drop / Rename / Slice / Tail / Unique -> ITable{op}: TV.Drop.run / TV.Rename.run /
+#               TV.Slice.run / TV.Tail.run / TV.Unique.run (src/table.bend)
+#   Concat{i, l, r} -> IConcat{i}: pops r (input i) and l, TV.Concat.two (schema, row cap)
+#   Join{Semi/Anti} -> Join.run like the other joins
 #
 # Exec.run = Plan.schema (its static error first), then Exec.validate (the
 # bindings: uniqueness over the whole env, then presence and schema per Source
