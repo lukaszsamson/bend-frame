@@ -127,6 +127,16 @@ def main() -> IO(Unit):
     IO.print(names(X.FillNull{col("a"), agg(X.Max{}, col("b"))}))
     IO.print(split.r(X.Expr.split_agg(X.Alias{agg(X.Len{}, lu(1)), "count"})))
     IO.print(split.r(X.Expr.split_agg(bin(X.Add{}, agg(X.Sum{}, col("a")), lu(1)))))
+    # M1 (DESIGN.md 15.3.1): div is f32-only, floor_div integer-only, try_cast has its own op name
+    IO.print(ty(bin(X.Div{}, col("a"), col("a"))))
+    IO.print(ty(bin(X.Div{}, col("f"), col("i"))))
+    IO.print(ty(bin(X.FloorDiv{}, col("i"), col("i"))))
+    IO.print(ty(bin(X.FloorDiv{}, col("f"), col("f"))))
+    IO.print(ty(bin(X.FloorDiv{}, col("a"), col("i"))))
+    IO.print(ty(X.TryCast{col("s"), D.TU32{}}))
+    IO.print(ty(X.TryCast{col("f"), D.TBool{}}))
+    IO.print(ty(X.TryCast{X.Lit{D.SNull{}}, D.TI32{}}))
+    IO.print(names(X.TryCast{bin(X.FloorDiv{}, col("a"), col("b")), D.TF32{}}))
 #|col("a") : u32
 #|col("zz") : ColumnNotFound: zz
 #|lit(1) : u32
@@ -195,3 +205,13 @@ def main() -> IO(Unit):
 #|col("a").fill_null(col("b").max()) name=a refs=[a, b] is_agg=true
 #|len of lit(1)
 #|none
+#|(col("a") / col("a")) : TypeMismatch in div: expected f32, got u32
+#|(col("f") / col("i")) : TypeMismatch in div: expected f32, got i32
+#|(col("i") // col("i")) : i32
+#|(col("f") // col("f")) : TypeMismatch in floor_div: expected u32 or i32, got f32
+#|(col("a") // col("i")) : TypeMismatch in floor_div: expected u32, got i32
+#|col("s").try_cast(u32) : u32
+#|col("f").try_cast(bool) : TypeMismatch in try_cast: expected castable to bool, got f32
+#|lit(null).try_cast(i32) : i32
+#|(col("a") // col("b")).try_cast(f32) name=a refs=[a, b] is_agg=false
+

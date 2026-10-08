@@ -1500,6 +1500,51 @@ Join.run makes first). Differences:
   median 295 ms before, 327 ms after (+11%): an extra `CsvCell` / `CsvRec` node per field / record, the
   per-record `lines` list, the per-column `has_value` trim.
 
+### M1 B03 (numerics: 15.5, rows B03-a..q)
+
+1. **NaN cells dump as `0x7fc00000`** (`Dump.fbits`), whatever their sign and payload. 15.1
+   rule 3 said "NaN prints the stored bits" and left NaN equality to the comparator; but NaN bits
+   are not portable (arm64 makes `0x7fc00000` for `0/0` and `inf - inf`, x86-64 makes
+   `0xffc00000`, and payloads propagate: `-NaN + 1` keeps `0xffc00000`), so the same program
+   printed different dumps on the two CI machines. Canonicalising in the dump makes every test
+   expectation portable; `bench/check.py --dump` still treats any two NaN cells as equal, so a
+   Polars-side dump with another payload still compares. Values are unchanged (only the text).
+2. **str -> f32 cast refuses leading whitespace**: Base `F32.read` skips it (`" 3"` reads as 3),
+   which would trim on one side only; `Eval.read_f32` answers None for a cell starting with
+   space / TAB / CR / LF, so 15.5.5's "as is, no trimming" (Polars) holds. `U32.read`/`I32.read`
+   already refuse it.
+3. **Where the policy lives**: `K.Kernel.fword` (the 15.5.2 order word; `Sort.fword` now calls it),
+   `K.Kernel.fmin/fmax` (15.5.2 exceptions), `K.Kernel.nm.add/nm.result` and the Data type
+   `K.NS{s, c}` (15.5.3 step), `K.Kernel.fsum` (Neumaier, used by eager Sum/Mean and describe),
+   `Grp.nm` (the same step per group, sum and mean), `K.Kernel.first_drop`, `K.Kernel.zip_maybe`.
+   Eager f32 `n_unique` counts distinct `fword`s (as group_by's codes do: B03-k).
+4. **Strict cast** = `Eval.try_cast` of a clone, then null counts compared: equal means no valid
+   cell failed (a conversion only adds nulls); otherwise the error row is the first row valid in
+   the source and null in the result (`K.Kernel.first_drop`), the cell read from the source by
+   `Column.data_cell` and shown by `Expr.show.lit`. Total pairs (`X.Cast.total`, in expr.bend for
+   the analysis) skip the clone. `Eval.cast` is strict for every caller, including `Fmt.describe`'s
+   numeric -> f32 cast (total).
+5. **Integers**: `D.I32.floor_div` / `D.I32.floor_mod` -> `Maybe` (None = null) are the evaluator's
+   `//` and `%`; `D.I32.div` / `D.I32.mod` stay the truncating helpers (`tests/i32.bend`). The u32 /
+   i32 `Bin{Div}` kernels remain in `Eval.zip.u/i` only as unreachable cases (typing refuses).
+6. **lit_i32** follows 15.2.1 D: (`Cast{Lit{SU32{v}}, TI32}` above range, `Un{Neg, ..}` of it for
+   `lit_i32_neg`). `DF.i32`, `DF.i32_neg`, `D.I32.checked`, `D.I32.checked_neg`, `D.I32.from_bits`
+   (`from_u32` kept as an alias) exist; `src/dtype.bend` now imports `src/err.bend`. `DF.lit_null`
+   and `DF.try_cast`, `DF.floor_div` added.
+7. **Goldens**: `bench/golden.py` writes q3 from `q3_reference` (exact rational sum of each group's
+   f32 inputs rounded once to f32, ties to even; mean = that f32 / f32(count) in f32), not from
+   Polars; the other queries stay Polars'. `bench/golden/q3.csv` `inland` 96373.4141 -> 96373.4062;
+   `bench/golden/n1000/q3.csv` 5 of 8 `revenue_sum` cells move by 1-2 ulp. Bend matches the
+   reference exactly at 1k and 100k (`make bench-check`: q3 identical). `--rtol` in
+   scripts/bench.sh is unchanged (still needed by q6 at 100k). This reverses M5 (describe,
+   goldens) note 2, as 15.5.3 says.
+8. **Laws**: `Laws.is_arith` no longer contains `Div` (`arith_type` now covers `+ - *`: `/` is
+   f32-only); PROOF.bend gains the `FloorDiv` cases. Still 48 laws, all proved.
+9. **Not done here**: `AggOp` Std/Var/Median (15.2.5) are left to M3 (eager + grouped kernels,
+   sort-based median per group). B03-b/h/k/n regressions now carry `#! xfail B04-a`: their eager
+   and grouped runs pass, the lazy `select` of a reduction still needs B04-a. B04-j's eager and
+   raw-lazy runs now match the contract; only the optimised runs differ (barrier rules, B04-j).
+
 ## 15. v0.1 contract (frozen)
 
 The exact semantics every M1-M6 agent codes and tests against. Tables over prose;

@@ -250,20 +250,93 @@ def Kernel.choose.go(~T: Data, n: Nat, +i: U32, ra: Array<T> & T, rb: Array<T> &
 def Kernel.choose(~T: Data, +n: U32, m: Array<U32>, a: Array<T>, b: Array<T>) -> Array<U32> & Array<T>:
   Kernel.choose.go(~T, U32.to_nat(n), 0, Array.get(T, a, 0), Array.get(T, b, 0), Array.get(U32, m, 0))
 
-# compensated (Kahan) F32 sum of cv(a[i]) over i < n; a is consumed
-def Kernel.fsum.go(~T: Data, ~cv: T -> F32, n: Nat, +i: U32, +s: F32, c: F32, r: Array<T> & T) -> F32:
+# ---- the F32 policy (DESIGN.md 15.5.2, 15.5.3): one relation, one accumulation ---------
+
+# the total-order word of an f32 (15.5.2): -inf < .. < -0.0 = 0.0 < .. < +inf < NaN, every
+# NaN (any payload, any sign) the largest word; negatives are bit-flipped, positives get the
+# sign bit set. `x op y` over f32 (== != < <= > >=, sort, group_by, n_unique, join keys) is
+# `U32 op` of these words. Sort.fword is this function.
+def Kernel.fword.b(+b: U32) -> U32:
+  +a = U32.and(b, 2147483647)
+  Bool.pick(U32, U32.is_gt(a, 2139095040), 4294967295, Bool.pick(U32, U32.is_zero(a), 2147483648, Bool.pick(U32, U32.is_ge(b, 2147483648), U32.xor(b, 4294967295), U32.or(b, 2147483648))))
+
+def Kernel.fword(x: F32) -> U32:
+  Kernel.fword.b(F32.bits(x))
+
+# finite: neither +-inf nor NaN (exponent bits not all ones)
+def Kernel.is_finite(x: F32) -> Bool:
+  U32.is_lt(U32.and(F32.bits(x), 2147483647), 2139095040)
+
+def Kernel.is_nan(+x: F32) -> Bool:
+  Bool.not(F32.is_eq(x, x))
+
+# min / max (15.5.2 exceptions): NaN is skipped (both NaN -> NaN); a -0.0 / 0.0 tie gives
+# -0.0 for min and 0.0 for max, whatever the order; otherwise IEEE `<`
+def Kernel.fmin(+a: F32, +b: F32) -> F32:
+  Bool.pick(F32, Kernel.is_nan(a), b, Bool.pick(F32, Kernel.is_nan(b), a, Bool.pick(F32, F32.is_lt(a, b), a, Bool.pick(F32, F32.is_lt(b, a), b, Bool.pick(F32, U32.is_ge(F32.bits(a), 2147483648), a, b)))))
+
+def Kernel.fmax(+a: F32, +b: F32) -> F32:
+  Bool.pick(F32, Kernel.is_nan(a), b, Bool.pick(F32, Kernel.is_nan(b), a, Bool.pick(F32, F32.is_lt(b, a), a, Bool.pick(F32, F32.is_lt(a, b), b, Bool.pick(F32, U32.is_ge(F32.bits(a), 2147483648), b, a)))))
+
+# Neumaier accumulation with a non-finite guard (15.5.3): state (s, c), both f32
+type NS is Data:
+  NS{s: F32, c: F32}
+
+# the compensation after t = s + x: Neumaier's term while t is finite, c unchanged once
+# the partial sum is +-inf or NaN (c is never read again then)
+def Kernel.nm.c(fin: Bool, +s: F32, +x: F32, +t: F32, +c: F32) -> F32:
+  match fin:
+    case True{}:
+      F32.add(c, Bool.pick(F32, F32.is_ge(F32.abs(s), F32.abs(x)), F32.add(F32.sub(s, t), x), F32.add(F32.sub(x, t), s)))
+    case False{}:
+      c
+
+# one step: the sum s, the compensation c, the next value x
+def Kernel.nm.add(+s: F32, +c: F32, +x: F32) -> NS:
+  +t = F32.add(s, x)
+  NS{t, Kernel.nm.c(Kernel.is_finite(t), s, x, t, c)}
+
+def Kernel.nm.step(acc: NS, +x: F32) -> NS:
+  match acc:
+    case NS{+s, +c}:
+      Kernel.nm.add(s, c, x)
+
+# the result: s + c while s is finite, s itself (+-inf or NaN) otherwise
+def Kernel.nm.result(+s: F32, +c: F32) -> F32:
+  Bool.pick(F32, Kernel.is_finite(s), F32.add(s, c), s)
+
+def Kernel.nm.fin(acc: NS) -> F32:
+  match acc:
+    case NS{+s, +c}:
+      Kernel.nm.result(s, c)
+
+# the 15.5.3 sum of cv(a[i]) over i < n, in ascending i; a is consumed
+def Kernel.fsum.go(~T: Data, ~cv: T -> F32, n: Nat, +i: U32, acc: NS, r: Array<T> & T) -> F32:
   match n:
     case 0n:
-      s
+      Kernel.nm.fin(acc)
     case 1n+p:
       (a, x) = r
-      +y = F32.sub(cv(x), c)
-      +t = F32.add(s, y)
       +j = U32.inc(i)
-      Kernel.fsum.go(~T, ~cv, p, j, t, F32.sub(F32.sub(t, s), y), Array.get(T, a, j))
+      Kernel.fsum.go(~T, ~cv, p, j, Kernel.nm.step(acc, cv(x)), Array.get(T, a, j))
 
 def Kernel.fsum(~T: Data, ~cv: T -> F32, +n: U32, a: Array<T>) -> F32:
-  Kernel.fsum.go(~T, ~cv, U32.to_nat(n), 0, 0.0, 0.0, Array.get(T, a, 0))
+  Kernel.fsum.go(~T, ~cv, U32.to_nat(n), 0, NS{0.0, 0.0}, Array.get(T, a, 0))
+
+# the first i < n with a[i] != 0 and b[i] = 0, else n (a cell valid in a, null in b);
+# a 1-slot array reads its one slot for every i. Both arrays are consumed.
+def Kernel.first_drop.go(n: Nat, +i: U32, +m: U32, +acc: U32, ra: Array<U32> & U32, rb: Array<U32> & U32) -> U32:
+  match n:
+    case 0n:
+      acc
+    case 1n+p:
+      (a, x) = ra
+      (b, y) = rb
+      +j = U32.inc(i)
+      Kernel.first_drop.go(p, j, m, Bool.pick(U32, Bool.and(U32.is_eq(acc, m), Bool.and(U32.is_ne(x, 0), U32.is_zero(y))), i, acc), Array.get(U32, a, j), Array.get(U32, b, j))
+
+def Kernel.first_drop(+n: U32, a: Array<U32>, b: Array<U32>) -> U32:
+  Kernel.first_drop.go(U32.to_nat(n), 0, n, n, Array.get(U32, a, 0), Array.get(U32, b, 0))
 
 # out[i] = v and ok[i] = 1 where f(a[i]) = Some{v}, else z and 0; one pass
 # over a (consumed); answers (out, ok), both of 2^d slots
@@ -286,3 +359,18 @@ def Kernel.map_maybe.go(~T: Data, ~U: Data, ~f: T -> Maybe<&2, U>, n: Nat, +i: U
 
 def Kernel.map_maybe(~T: Data, ~U: Data, ~f: T -> Maybe<&2, U>, +n: U32, +d: Nat, a: Array<T>, +z: U) -> Array<U> & Array<U32>:
   Kernel.map_maybe.go(~T, ~U, ~f, U32.to_nat(n), 0, z, (Array.new(U, d, z), Array.new(U32, d, 0)), Array.get(T, a, 0))
+
+# out[i] = v and ok[i] = 1 where f(a[i], b[i]) = Some{v}, else z and 0 (both consumed)
+def Kernel.zip_maybe.go(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> Maybe<&2, V>, n: Nat, +i: U32, +z: V, oo: Array<V> & Array<U32>, ra: Array<T> & T, rb: Array<U> & U) -> Array<V> & Array<U32>:
+  match n:
+    case 0n:
+      oo
+    case 1n+p:
+      (out, ok) = oo
+      (a, x) = ra
+      (b, y) = rb
+      +j = U32.inc(i)
+      Kernel.zip_maybe.go(~T, ~U, ~V, ~f, p, j, z, Kernel.map_maybe.put(~V, i, z, out, ok, f(x, y)), Array.get(T, a, j), Array.get(U, b, j))
+
+def Kernel.zip_maybe(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> Maybe<&2, V>, +n: U32, +d: Nat, a: Array<T>, b: Array<U>, +z: V) -> Array<V> & Array<U32>:
+  Kernel.zip_maybe.go(~T, ~U, ~V, ~f, U32.to_nat(n), 0, z, (Array.new(V, d, z), Array.new(U32, d, 0)), Array.get(T, a, 0), Array.get(U, b, 0))

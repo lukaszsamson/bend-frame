@@ -1,5 +1,4 @@
-# PENDING (M1 API: DF.floor_div / X.Bin{X.FloorDiv{}, a, b}). Rename to
-# tests/regress/B03_d_floor_div.bend when the API lands (imports are written for that place).
+# M1 API test (was tests/regress/pending/; activated with the B03 numerics work).
 # B03-d / B03-f / B03-l: integer division. DESIGN.md 15.5.1, 15.2.6, 15.3.1: floor_div is
 # u32 x u32 -> u32 and i32 x i32 -> i32, floor toward -inf; null when either side is
 # null, when b = 0, and for i32 MIN // -1 (Polars answers MIN there: intended departure).

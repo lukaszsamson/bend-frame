@@ -1,5 +1,4 @@
-# PENDING (M1 API: DF.try_cast / X.TryCast{e, to}). Rename to
-# tests/regress/B03_e_try_cast.bend when the API lands.
+# M1 API test (was tests/regress/pending/; activated with the B03 numerics work).
 # B03-e / B03-p / B03-m: try_cast is cast with failing cells set to null (DESIGN.md
 # 15.5.5, 15.2.6); it never fails at runtime; typing as Cast.ok, error
 # TypeMismatch{"try_cast", "castable to <to>", <t>}. Polars 2.0.0 cast(strict=False)

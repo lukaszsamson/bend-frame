@@ -1,11 +1,10 @@
-#! xfail B03-e
 # B03-e (Fable B2, Astra G5): cast f32 -> u32 of a negative, huge or NaN value answers 0.
 # DESIGN.md 15.5.5: cast is strict; f32 -> u32 is trunc(x), failing for NaN, +-inf,
 # x <= -1.0 and x >= 4294967296.0; the first failing valid cell is
 # InvalidOperation{"cast f32 to u32: row <i> holds <F32.show cell>"} in every API (a
 # runtime error: collect_schema accepts). Polars 2.0.0 strict cast raises on the same
 # cells and gives [0, 4294967040, 2, null] for the valid case. try_cast (the null-ing
-# variant) is M1 API: tests/regress/pending/B03_e_try_cast.bend.txt.
+# variant) is M1 API: tests/regress/B03_e_try_cast.bend.
 import Base
 import ./../../frame.bend as DF
 import ./../../src/dtype.bend as D

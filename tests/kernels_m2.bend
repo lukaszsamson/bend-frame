@@ -1,4 +1,4 @@
-# The M2 kernels: mask_data, choose, fsum (Kahan), map_maybe.
+# The M2 kernels: mask_data, choose, fsum (Neumaier with the non-finite guard, DESIGN.md 15.5.3), map_maybe.
 import Base
 import ./../src/kernels.bend as K
 

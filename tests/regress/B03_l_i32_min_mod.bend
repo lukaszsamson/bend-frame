@@ -1,7 +1,7 @@
 # B03-l: i32 MIN // -1 and MIN % -1 follow wrapping; the contract says null / 0.
 # DESIGN.md 15.5.1: MIN % -1 = 0 (Polars 0); MIN % 1 = 0; MIN % MIN = 0 (Polars 2.0.0,
 # regress_expect.py). The % half PASSES today (no xfail): I32 mod already answers 0 here.
-# MIN // -1 = null needs floor_div (M1 API): tests/regress/pending/B03_d_floor_div.bend.txt.
+# MIN // -1 = null needs floor_div (M1 API): tests/regress/B03_d_floor_div.bend.
 # (MAX % MIN = -1 is a sign case: B03-o.)
 import Base
 import ./../../frame.bend as DF

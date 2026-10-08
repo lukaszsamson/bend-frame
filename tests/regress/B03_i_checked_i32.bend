@@ -1,5 +1,4 @@
-# PENDING (M1 API: DF.i32 / DF.i32_neg -> Res(D.I32), D.I32.from_bits). Rename to
-# tests/regress/B03_i_checked_i32.bend when the API lands.
+# M1 API test (was tests/regress/pending/; activated with the B03 numerics work).
 # B03-i: DESIGN.md 15.2.1: DF.i32(v) is D.I32.checked(v): v < 2^31 else
 # InvalidOperation{"i32 out of range: <v>"}; DF.i32_neg(v) accepts v <= 2^31;
 # D.I32.from_bits(w) is the explicit unchecked reinterpretation.

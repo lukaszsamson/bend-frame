@@ -128,22 +128,24 @@ def main() -> IO(Unit):
     IO.print(on(f => fr(V.Eval.filter(f, bin(X.Gt{}, col("a"), lu(3))))))
     # select reorders (and drops)
     IO.print(on(f => fr(V.Eval.select(f, [col("i"), col("a")]))))
-    # cast(str -> f32): "x" (unparsable) becomes null, text is trimmed
-    IO.print(on.k(f => fr(V.Eval.select(f, [X.Alias{X.Cast{col("s"), D.TF32{}}, "x"}])), strs()))
-    # U32: + - * / % (wrap-around, division by zero answers 0, mod by zero a)
+    # try_cast(str -> f32): "x" (unparsable) and " 3" (the text is not trimmed) become null
+    IO.print(on.k(f => fr(V.Eval.select(f, [X.Alias{X.TryCast{col("s"), D.TF32{}}, "x"}])), strs()))
+    # U32: + - * // % (wrap-around; floor_div and mod by zero are null); `/` is f32-only
     IO.print(ex(bin(X.Sub{}, col("a"), lu(3))))
     IO.print(ex(bin(X.Mul{}, col("a"), lu(4294967295))))
-    IO.print(ex(bin(X.Div{}, col("a"), lu(2))))
+    IO.print(ex(bin(X.FloorDiv{}, col("a"), lu(2))))
     IO.print(ex(bin(X.Mod{}, col("a"), lu(2))))
-    IO.print(ex(bin(X.Div{}, col("a"), lu(0))))
+    IO.print(ex(bin(X.FloorDiv{}, col("a"), lu(0))))
     IO.print(ex(bin(X.Mod{}, col("a"), lu(0))))
-    # I32 negatives: truncating division, remainder takes the sign of a
+    IO.print(ex(bin(X.Div{}, col("a"), lu(2))))
+    # I32 negatives: floor division (toward -inf), the remainder takes the divisor's sign
     IO.print(ex(bin(X.Sub{}, col("i"), X.Lit{pos(5)})))
     IO.print(ex(bin(X.Mul{}, col("i"), col("i"))))
-    IO.print(ex(bin(X.Div{}, col("i"), X.Lit{pos(2)})))
+    IO.print(ex(bin(X.FloorDiv{}, col("i"), X.Lit{pos(2)})))
     IO.print(ex(bin(X.Mod{}, col("i"), X.Lit{pos(3)})))
-    IO.print(ex(bin(X.Div{}, col("i"), X.Lit{neg(2)})))
-    IO.print(ex(bin(X.Div{}, col("i"), X.Lit{pos(0)})))
+    IO.print(ex(bin(X.FloorDiv{}, col("i"), X.Lit{neg(2)})))
+    IO.print(ex(bin(X.Mod{}, col("i"), X.Lit{neg(3)})))
+    IO.print(ex(bin(X.FloorDiv{}, col("i"), X.Lit{pos(0)})))
     IO.print(ex(X.Un{X.Neg{}, col("i")}))
     IO.print(ex(X.Un{X.Abs{}, col("i")}))
     # F32: IEEE, x / 0 = inf, -x / 0 = -inf, 0 / 0 = nan
@@ -182,19 +184,22 @@ def main() -> IO(Unit):
 #|+-----+-----+-----+-----+
 #|h=2 a:u32=[4, 5] | b:f32=[null, 4.5] | i:i32=[0, null]
 #|h=5 i:i32=[-3, 7, -8, 0, null] | a:u32=[1, 2, null, 4, 5]
-#|h=5 x:f32=[1.5, null, 3, null, -2]
+#|h=5 x:f32=[1.5, null, null, null, -2]
 #|u32=[4294967294, 4294967295, null, 1, 2]
 #|u32=[4294967295, 4294967294, null, 4294967292, 4294967291]
 #|u32=[0, 1, null, 2, 2]
 #|u32=[1, 0, null, 0, 1]
-#|u32=[0, 0, null, 0, 0]
-#|u32=[1, 2, null, 4, 5]
+#|u32=[null, null, null, null, null]
+#|u32=[null, null, null, null, null]
+#|error: TypeMismatch in div: expected f32, got u32
 #|i32=[-8, 2, -13, -5, null]
 #|i32=[9, 49, 64, 0, null]
-#|i32=[-1, 3, -4, 0, null]
-#|i32=[0, 1, -2, 0, null]
-#|i32=[1, -3, 4, 0, null]
-#|i32=[0, 0, 0, 0, null]
+#|i32=[-2, 3, -4, 0, null]
+#|i32=[0, 1, 1, 0, null]
+#|i32=[1, -4, 4, 0, null]
+#|i32=[0, -2, -2, 0, null]
+#|i32=[null, null, null, null, null]
+
 #|i32=[3, -7, 8, 0, null]
 #|i32=[3, 7, 8, 0, null]
 #|f32=[1, 3, 5, null, 9]

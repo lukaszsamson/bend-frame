@@ -16,7 +16,8 @@
 #   error <TAB> <E.Err.show text>           for a Fail result
 #
 # Cells: null | true | false | <u32 decimal> | <i32 decimal, "-" if negative>
-#        | 0x<8 lowercase hex digits> (f32 bits) | "<escaped string>".
+#        | 0x<8 lowercase hex digits> (f32 bits, every NaN as 0x7fc00000)
+#        | "<escaped string>".
 # Escapes: \" \\ \n \r \t, \xHH for the other C0 controls and U+007F; every
 # other code point is written as is.
 #
@@ -109,6 +110,15 @@ def Dump.quote(s: String) -> String:
 
 # ---- cells ------------------------------------------------------------------
 
+# the bits printed for an f32 cell: every NaN (any sign, any payload) prints as the quiet
+# NaN 0x7fc00000, because NaN bits are not portable (arm64 makes 0x7fc00000 where x86-64
+# makes 0xffc00000 for `inf - inf`, and payloads propagate); DESIGN.md 14 (B03 NaN dump)
+def Dump.fbits.b(+b: U32) -> U32:
+  Bool.pick(U32, U32.is_gt(U32.and(b, 2147483647), 2139095040), 2143289344, b)
+
+def Dump.fbits(x: F32) -> U32:
+  Dump.fbits.b(F32.bits(x))
+
 def Dump.cell(s: D.Scalar) -> String:
   match s:
     case D.SNull{}:
@@ -120,7 +130,8 @@ def Dump.cell(s: D.Scalar) -> String:
     case D.SI32{v}:
       D.Scalar.show(D.SI32{v})
     case D.SF32{x}:
-      "0x" ++ Dump.hex(8n, F32.bits(x))
+      "0x" ++ Dump.hex(8n, Dump.fbits(x))
+
     case D.SStr{t}:
       Dump.quote(t)
 

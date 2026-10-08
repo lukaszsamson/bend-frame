@@ -1,10 +1,9 @@
-#! xfail B03-i
 # B03-i (Fable minor, plan 2.2d): DF.lit_i32(v) with v >= 2^31 is silently negative.
 # DESIGN.md 15.2.1 (D:): lit_i32 / lit_i32_neg stay total builders; out of range they
 # build Cast{Lit{SU32{v}}, TI32} (resp. its Neg), a strict cast that fails when evaluated:
 # InvalidOperation{"cast u32 to i32: row 0 holds <v>"}; collect_schema accepts (i32).
 # In range: lit_i32(2147483647) and lit_i32_neg(2147483648) = MIN are plain literals.
-# The checked DF.i32 / DF.i32_neg are M1 API (pending/B03_i_checked_i32.bend.txt).
+# The checked DF.i32 / DF.i32_neg are M1 API (tests/regress/B03_i_checked_i32.bend).
 import Base
 import ./../../frame.bend as DF
 import ./../../src/dtype.bend as D

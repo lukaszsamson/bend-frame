@@ -55,7 +55,9 @@ if [ -z "${SKIP_CHECK:-}" ]; then
   echo "== correctness vs Polars (build/q<k>_<n>.csv vs golden) =="
   failed=0
   checked=0
-  # group_by's f32 sums are plain sequential adds (Polars sums with far less error): ~1e-5 rel at 1M rows
+  # q3's golden is the f32 reference of DESIGN.md 15.5.3 (bench/golden.py q3_reference), which the
+  # Neumaier group sums match exactly at 1k and 100k; the tolerance is kept for q6's describe
+  # (one cell at 100k differs from Polars by ~5e-8 rel) and for 1M (CHECK_MAX), not re-measured
   for n in $(echo "$SIZES" | tr ' ' '\n' | awk -v m="${CHECK_MAX:-100000}" '$1 <= m'); do
     if [ "$n" = 1000 ]; then gold=bench/golden/n$n; else gold=build/golden_$n; fi
     (cd bench && $PY golden.py --input data/sales_$n.csv --out "$ROOT/$gold" >/dev/null)
