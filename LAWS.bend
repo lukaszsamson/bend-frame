@@ -1111,8 +1111,8 @@ law paths_distinct:
   for +d: Nat
   for +i: U32
   for +j: U32
-  for hi: {U32.is_lt(i, U32.shln(1, d)) == True{} : Bool}
-  for hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}
+  for +hi: {U32.is_lt(i, U32.shln(1, d)) == True{} : Bool}
+  for +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}
   for h: {same_at(d, i, j) == True{} : Bool}
   {i == j : U32}
 

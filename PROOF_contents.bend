@@ -127,3 +127,91 @@ def wf_set_fin(-T: Data, +d: Nat, -a: Array<T>, +i: U32, +v: T, w: &c: Array<T> 
 
 def Laws.wf_array_set(T, d, a, i, v, wf):
   wf_set_fin(T, d, a, i, v, set_other_w(T, d, a, i, v, wf))
+
+# ---- the distinct-paths lemma (Laws.paths_distinct) -------------------------------------------
+
+# U32.is_lt(U32{x}, U32.shln(1, d)) == True: x is below 2^d
+def lt_shln_zabove(+d: Nat, +x: Word(32n)) -> {U32.is_lt(U32{x}, U32.shln(1, d)) == True{} : Bool} -> B.Zabove(d, 32n, x):
+  %Equal.sym(U32, U32.shln(1, d), U32{B.bitw(32n, d)}, B.shln_bitw(d)) : {U32.is_lt(U32{x}, _) == True{} : Bool} -> B.Zabove(d, 32n, x)
+  h => B.lt_bitw_zabove(32n, d, x, B.is_lt_lt(Word.cmp(32n, x, B.bitw(32n, d)), h))
+
+# ... and NOT below 2^p: Word.cmp(x, bitw(p)) is not LT
+def lt_shln_false(+p: Nat, +x: Word(32n)) -> {U32.is_lt(U32{x}, U32.shln(1, p)) == False{} : Bool} -> {Cmp.is_lt(Word.cmp(32n, x, B.bitw(32n, p))) == False{} : Bool}:
+  %Equal.sym(U32, U32.shln(1, p), U32{B.bitw(32n, p)}, B.shln_bitw(p)) : {U32.is_lt(U32{x}, _) == False{} : Bool} -> {Cmp.is_lt(Word.cmp(32n, x, B.bitw(32n, p))) == False{} : Bool}
+  h => h
+
+# U32.sub(U32{x}, U32.shln(1, p)) as a word subtraction of the single bit
+def sub_shln(+p: Nat, +x: Word(32n)) -> {U32.sub(U32{x}, U32.shln(1, p)) == U32{Word.sub(32n, x, B.bitw(32n, p))} : U32}:
+  %Equal.sym(U32, U32.shln(1, p), U32{B.bitw(32n, p)}, B.shln_bitw(p)) : {U32.sub(U32{x}, _) == U32{Word.sub(32n, x, B.bitw(32n, p))} : U32}
+  {==}
+
+# nothing is below U32.shln(1, d) when it is 0
+def shln_nz(+d: Nat, +x: Word(32n)) -> {U32.shln(1, d) == 0 : U32} -> {U32.is_lt(U32{x}, U32.shln(1, d)) == True{} : Bool} -> Empty:
+  z =>
+    %Equal.sym(U32, U32.shln(1, d), 0, z) : {U32.is_lt(U32{x}, _) == True{} : Bool} -> Empty
+    h => B.lt_zero(32n, x, B.is_lt_lt(Word.cmp(32n, x, Word.zero(32n)), h))
+
+# U32.shln(1, p) == 0 gives U32.shln(1, 1+p) == 0
+def shl_zero(+p: Nat) -> {U32.shln(1, p) == 0 : U32} -> {U32.shln(1, 1n+p) == 0 : U32}:
+  z =>
+    %Equal.sym(U32, U32.shln(1, p), 0, z) : {U32.shl(_) == 0 : U32}
+    {==}
+
+# the node step of same_inj, by the two halving decisions (bi for x, bj for y), with
+# U32.shr(U32.shln(1, 1+p)) == U32.shln(1, p) in hand; the decisions and the same_d
+# hypothesis sit in the goal so one rewrite reaches them all
+def same_inj_bits(bi: Bool, bj: Bool, +p: Nat, +x: Word(32n), +y: Word(32n), hx: B.Zabove(1n+p, 32n, x), hy: B.Zabove(1n+p, 32n, y), nz: {U32.shln(1, 1n+p) == 0 : U32} -> Empty, spec: {U32.shr(U32.shln(1, 1n+p)) == U32.shln(1, p) : U32},
+  ih: @x2: Word(32n) -> @y2: Word(32n) -> B.Zabove(p, 32n, x2) -> B.Zabove(p, 32n, y2) -> ({U32.shln(1, p) == 0 : U32} -> Empty) -> {Laws.same_d(p, U32.shln(1, p), U32{x2}, U32.is_lt(U32{x2}, U32.shr(U32.shln(1, p))), U32{y2}, U32.is_lt(U32{y2}, U32.shr(U32.shln(1, p)))) == True{} : Bool} -> {x2 == y2 : Word(32n)})
+  -> {U32.is_lt(U32{x}, U32.shr(U32.shln(1, 1n+p))) == bi : Bool} -> {U32.is_lt(U32{y}, U32.shr(U32.shln(1, 1n+p))) == bj : Bool} -> {Laws.same_d(1n+p, U32.shln(1, 1n+p), U32{x}, bi, U32{y}, bj) == True{} : Bool} -> {x == y : Word(32n)}:
+  match bi bj:
+    case True{} True{}:
+      %Equal.sym(U32, U32.shr(U32.shln(1, 1n+p)), U32.shln(1, p), spec) : {U32.is_lt(U32{x}, _) == True{} : Bool} -> {U32.is_lt(U32{y}, _) == True{} : Bool} -> {Laws.same_d(p, _, U32{x}, U32.is_lt(U32{x}, U32.shr(_)), U32{y}, U32.is_lt(U32{y}, U32.shr(_))) == True{} : Bool} -> {x == y : Word(32n)}
+      ex => ey => ih(x, y, lt_shln_zabove(p, x)(ex), lt_shln_zabove(p, y)(ey), z => nz(shl_zero(p)(z)))
+    case False{} False{}:
+      %Equal.sym(U32, U32.shr(U32.shln(1, 1n+p)), U32.shln(1, p), spec) : {U32.is_lt(U32{x}, _) == False{} : Bool} -> {U32.is_lt(U32{y}, _) == False{} : Bool} -> {Laws.same_d(p, _, U32.sub(U32{x}, _), U32.is_lt(U32.sub(U32{x}, _), U32.shr(_)), U32.sub(U32{y}, _), U32.is_lt(U32.sub(U32{y}, _), U32.shr(_))) == True{} : Bool} -> {x == y : Word(32n)}
+      %Equal.sym(U32, U32.sub(U32{x}, U32.shln(1, p)), U32{Word.sub(32n, x, B.bitw(32n, p))}, sub_shln(p, x)) : {U32.is_lt(U32{x}, U32.shln(1, p)) == False{} : Bool} -> {U32.is_lt(U32{y}, U32.shln(1, p)) == False{} : Bool} -> {Laws.same_d(p, U32.shln(1, p), _, U32.is_lt(_, U32.shr(U32.shln(1, p))), U32.sub(U32{y}, U32.shln(1, p)), U32.is_lt(U32.sub(U32{y}, U32.shln(1, p)), U32.shr(U32.shln(1, p)))) == True{} : Bool} -> {x == y : Word(32n)}
+      %Equal.sym(U32, U32.sub(U32{y}, U32.shln(1, p)), U32{Word.sub(32n, y, B.bitw(32n, p))}, sub_shln(p, y)) : {U32.is_lt(U32{x}, U32.shln(1, p)) == False{} : Bool} -> {U32.is_lt(U32{y}, U32.shln(1, p)) == False{} : Bool} -> {Laws.same_d(p, U32.shln(1, p), U32{Word.sub(32n, x, B.bitw(32n, p))}, U32.is_lt(U32{Word.sub(32n, x, B.bitw(32n, p))}, U32.shr(U32.shln(1, p))), _, U32.is_lt(_, U32.shr(U32.shln(1, p)))) == True{} : Bool} -> {x == y : Word(32n)}
+      ex => ey => h => B.sub_inj(32n, x, y, B.bitw(32n, p), ih(Word.sub(32n, x, B.bitw(32n, p)), Word.sub(32n, y, B.bitw(32n, p)), B.sub_bit(32n, p, x, hx, lt_shln_false(p, x)(ex)), B.sub_bit(32n, p, y, hy, lt_shln_false(p, y)(ey)), z => nz(shl_zero(p)(z)))(h))
+    case True{} False{}:
+      ex => ey => h => Empty.absurd({x == y : Word(32n)}, L.false_true(h))
+    case False{} True{}:
+      ex => ey => h => Empty.absurd({x == y : Word(32n)}, L.false_true(h))
+
+# the node step with the shr fact as a Bool-indexed witness (b False: 2^(1+p) is already 0)
+def same_inj_case(b: Bool, +p: Nat, +x: Word(32n), +y: Word(32n), hx: B.Zabove(1n+p, 32n, x), hy: B.Zabove(1n+p, 32n, y), nz: {U32.shln(1, 1n+p) == 0 : U32} -> Empty, spec: B.ShrSpec(b, p),
+  ih: @x2: Word(32n) -> @y2: Word(32n) -> B.Zabove(p, 32n, x2) -> B.Zabove(p, 32n, y2) -> ({U32.shln(1, p) == 0 : U32} -> Empty) -> {Laws.same_d(p, U32.shln(1, p), U32{x2}, U32.is_lt(U32{x2}, U32.shr(U32.shln(1, p))), U32{y2}, U32.is_lt(U32{y2}, U32.shr(U32.shln(1, p)))) == True{} : Bool} -> {x2 == y2 : Word(32n)})
+  -> {Laws.same_d(1n+p, U32.shln(1, 1n+p), U32{x}, U32.is_lt(U32{x}, U32.shr(U32.shln(1, 1n+p))), U32{y}, U32.is_lt(U32{y}, U32.shr(U32.shln(1, 1n+p)))) == True{} : Bool} -> {x == y : Word(32n)}:
+  match b:
+    case False{}:
+      h => Empty.absurd({x == y : Word(32n)}, nz(spec))
+    case True{}:
+      same_inj_bits(U32.is_lt(U32{x}, U32.shr(U32.shln(1, 1n+p))), U32.is_lt(U32{y}, U32.shr(U32.shln(1, 1n+p))), p, x, y, hx, hy, nz, spec, ih)({==})({==})
+
+def same_inj_step(+p: Nat, +x: Word(32n), +y: Word(32n), hx: B.Zabove(1n+p, 32n, x), hy: B.Zabove(1n+p, 32n, y), nz: {U32.shln(1, 1n+p) == 0 : U32} -> Empty, w: &b: Bool -> B.ShrSpec(b, p),
+  ih: @x2: Word(32n) -> @y2: Word(32n) -> B.Zabove(p, 32n, x2) -> B.Zabove(p, 32n, y2) -> ({U32.shln(1, p) == 0 : U32} -> Empty) -> {Laws.same_d(p, U32.shln(1, p), U32{x2}, U32.is_lt(U32{x2}, U32.shr(U32.shln(1, p))), U32{y2}, U32.is_lt(U32{y2}, U32.shr(U32.shln(1, p)))) == True{} : Bool} -> {x2 == y2 : Word(32n)})
+  -> {Laws.same_d(1n+p, U32.shln(1, 1n+p), U32{x}, U32.is_lt(U32{x}, U32.shr(U32.shln(1, 1n+p))), U32{y}, U32.is_lt(U32{y}, U32.shr(U32.shln(1, 1n+p)))) == True{} : Bool} -> {x == y : Word(32n)}:
+  (b, spec) = w
+  same_inj_case(b, p, x, y, hx, hy, nz, spec, ih)
+
+# two words below 2^d whose halving decisions agree all the way down are equal
+def same_inj(d: Nat, +x: Word(32n), +y: Word(32n), hx: B.Zabove(d, 32n, x), hy: B.Zabove(d, 32n, y), nz: {U32.shln(1, d) == 0 : U32} -> Empty)
+  -> {Laws.same_d(d, U32.shln(1, d), U32{x}, U32.is_lt(U32{x}, U32.shr(U32.shln(1, d))), U32{y}, U32.is_lt(U32{y}, U32.shr(U32.shln(1, d)))) == True{} : Bool} -> {x == y : Word(32n)}:
+  match d:
+    case 0n:
+      h =>
+        %Equal.sym(Word(32n), x, Word.zero(32n), hx) : {_ == y : Word(32n)}
+        %Equal.sym(Word(32n), y, Word.zero(32n), hy) : {Word.zero(32n) == _ : Word(32n)}
+        {==}
+    case 1n++p:
+      same_inj_step(p, x, y, hx, hy, nz, B.shr_shln(p), x2 => y2 => hx2 => hy2 => nz2 => same_inj(p, x2, y2, hx2, hy2, nz2))
+
+# same_at with the masks removed (both indices below 2^d)
+def paths_k(+d: Nat, +x: Word(32n), +y: Word(32n), hx: B.Zabove(d, 32n, x), hx2: B.Zabove(d, 32n, x), hy: B.Zabove(d, 32n, y), hy2: B.Zabove(d, 32n, y), nz: {U32.shln(1, d) == 0 : U32} -> Empty) -> {Laws.same_at(d, U32{x}, U32{y}) == True{} : Bool} -> {U32{x} == U32{y} : U32}:
+  %Equal.sym(U32, U32.and(U32{x}, U32.sub(U32.shln(1, d), 1)), U32{x}, B.mask_id(d, x, hx)) : {Laws.same_d(d, U32.shln(1, d), _, U32.is_lt(_, U32.shr(U32.shln(1, d))), U32.and(U32{y}, U32.sub(U32.shln(1, d), 1)), U32.is_lt(U32.and(U32{y}, U32.sub(U32.shln(1, d), 1)), U32.shr(U32.shln(1, d)))) == True{} : Bool} -> {U32{x} == U32{y} : U32}
+  %Equal.sym(U32, U32.and(U32{y}, U32.sub(U32.shln(1, d), 1)), U32{y}, B.mask_id(d, y, hy)) : {Laws.same_d(d, U32.shln(1, d), U32{x}, U32.is_lt(U32{x}, U32.shr(U32.shln(1, d))), _, U32.is_lt(_, U32.shr(U32.shln(1, d)))) == True{} : Bool} -> {U32{x} == U32{y} : U32}
+  h => Equal.cong(Word(32n), U32, w => U32{w}, x, y, same_inj(d, x, y, hx2, hy2, nz)(h))
+
+def Laws.paths_distinct(d, i, j, hi, hj, h):
+  match i j:
+    case U32{+x} U32{+y}:
+      paths_k(d, x, y, lt_shln_zabove(d, x)(hi), lt_shln_zabove(d, x)(hi), lt_shln_zabove(d, y)(hj), lt_shln_zabove(d, y)(hj), z => shln_nz(d, x)(z)(hi))(h)
