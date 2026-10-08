@@ -757,31 +757,78 @@ therefore sequential inside a column and parallel ACROSS independent work:
 
 ## 8. Laws v1 (`LAWS.bend`) and how they are proven (`PROOF.bend`) [opus]
 
-Proven in miniature by p08 and p20 (ALL PROOFS CHECK); the real ones are the
-same statements over `src/`:
+Status (M6): `LAWS.bend` states 48 laws over `src/`; `PROOF.bend` proves all
+of them (`bend PROOF.bend` prints ALL PROOFS CHECK in ~0.45 s; `make proofs`).
+No `@unsafe`, no foreign code. `--verdict` could not run on this machine
+(needs Lean v4.34.0). A deliberately false claim (2^(d+1) slots) fails with
+the expected/observed terms, so the claims are load-bearing. The miniature
+probes p08/p20 remain as the pattern references.
 
-```python
-law filter_keeps_schema:   # for p, +s, e, ok: {Plan.schema(p) == Done{s}}, t: {Expr.type(e, s) == Done{TBool{}}}
-  {Plan.schema(Filter{e, p}) == Done{s} : Res(List<&2, Field>)}
-law select_cols_is_project: # Select of plain Col exprs == Schema.project of the names
-  {Plan.schema(Select{List.map(.. Col ..), p}) == Schema.project(names, s) : Res(List<&2, Field>)}
-law project_length:        # a successful projection has one field per name
-  {List.length(&2, Field, out) == List.length(&2, String, names) : Nat}
-law head_keeps_schema:     {Plan.schema(Head{n, p}) == Plan.schema(p) : Res(List<&2, Field>)}
-law sort_keeps_schema:     # given the keys exist
-law head_len:              {snd(Column.len(Column.head(c, n))) == U32.min(n, snd(Column.len(c))) : U32}
-law with_columns_height:   # eager: height of with_columns(f, es) == height of f, when Done
-law expr_name_alias:       {Expr.name(Alias{e, n}) == n : String}
-law optimize_keeps_schema: # STRETCH: {Plan.schema(Plan.optimize(p)) == Plan.schema(p)}; prove per rewrite rule first
-```
+Proven (`law x` in LAWS.bend, `def Laws.x` in PROOF.bend):
 
-Proof toolkit (from p08/p20): unfold one step with `{==}`; flip hypotheses
-with `Equal.sym`; induct on lists with the step's computed `Maybe/Result`
-values passed to a lemma as parameters; `Some`/`Done` injectivity via
-`Equal.cong` + `Maybe.default`/`Result.default`; refute `Fail == Done` with a
-`disc` motive and `Empty.absurd`; a law over a `Column` splits on its five
-constructors. Mark reused law parameters `+s` (a Data schema used twice).
-Open laws are allowed to ship as TODOs only in the stretch group.
+| group | laws |
+|-------|------|
+| Schema (schema.bend) | `project_nil`, `project_length`, `project_names` (a successful `Schema.project` has exactly the requested names, in order), `with_existing_keeps_width`, `with_new_appends` |
+| Expr typing (expr.bend) | `dtype_eq_refl`, `alias_name`, `col_name`, `alias_type`, `alias_is_agg`, `agg_is_agg`, `col_refs`, `lit_type`, `col_type`, `cmp_type_bool` (any of `== != < <= > >=` over one dtype is bool), `arith_type` (`+ - * /` over one numeric dtype keep it), `mod_type`, `logic_type` (`& |` over bools), `cast_type` (an allowed cast has the target dtype), `is_null_type`, `is_not_null_type`, `counting_type` (count/len/n_unique are u32), `keeping_agg_type` (min/max/first/last keep the dtype), `sum_type`, `mean_type` (f32) |
+| Plan.schema (plan.bend) | `source_schema`, `head_keeps_schema`, `filter_keeps_schema` (bool, non-aggregating predicate; the `Expr.is_agg(e) == False{}` hypothesis of section 14/M4), `filter_schema_is_input` (whenever a Filter resolves, it is the input schema: no side condition), `sort_keeps_schema` (keys exist, stated with `Laws.keys_exist`), `sort_schema_is_input`, `select_cols_is_project` (a Select of plain `Col`s IS `Schema.project`, errors included), `select_cols_names`, `with_column_keeps_width` (one expression whose name the input has) |
+| Optimizer (plan.bend) | `head_pass_keeps_schema` (`Opt.head(p, n)` keeps the schema of EVERY plan, any pending limit), `merge_pass_keeps_schema` (`Opt.merge` keeps the schema of every well-typed plan), `merge_head_keeps_schema` (their composition), `merge_pass_merges` (after the pass no Filter sits on a Filter), `merge_fixed_point`, `merge_idempotent`, `head_pass_merges` (no Head sits on a Head) |
+| Columns (column.bend) | `head_len` (`head(c, n)` has `min(n, len)` rows), `head_dtype` |
+| Kernels (kernels.bend) | `mask_not_slots` (`Kernel.map`), `mask_and_slots` (`Kernel.zip`), `iota_slots` (`Kernel.iota_from`): the output array has exactly 2^d slots, through a pure model `Laws.slots` of `Array.size` |
+| I32 (dtype.bend) | `i32_add_comm` (via Base's `U32.add_comm`), `i32_bits_roundtrip` |
+
+Not provable or not true as stated, recorded here instead of as open laws:
+
+- `Plan.schema(Plan.optimize(p)) == Plan.schema(p)` for the FULL pipeline:
+  the predicate-pushdown (`Opt.push`) and projection-pushdown (`Opt.proj`)
+  passes rename and filter column names through `String.eq` / `Names.has`;
+  `String.eq` goes through `String.cmp` and `Char` comparison, so even
+  `String.eq(n, n) == True{}` has no computational proof, and every fact of
+  the form "the renamed predicate still types" or "`Opt.fkeep(s, names(s))
+  == s`" is out of reach. Future: a `String.eq` reflexivity/soundness lemma
+  in Base (or a `law` on `Names.has`) would unlock both passes. The two
+  passes that do not touch names (merge, head) are fully proven.
+- `Opt.merge` does NOT keep the schema of an ill-typed plan: `Filter{e,
+  Filter{q, x}}` with `q : u32` fails with `TypeMismatch{"filter", "bool",
+  "u32"}` while the merged `Filter{q & e, x}` fails with `TypeMismatch{"and",
+  "bool", "u32"}`. This is why `Plan.optimize` guards on `Plan.schema(p)`
+  (section 14/M4) and why the law carries the `Plan.schema(p) == Done{s}`
+  hypothesis. Not a bug: the error text differs, never a Done schema.
+- `with_columns_height` (eager, from the v1 sketch): `Eval.with_columns`
+  runs in IO-free but Array-heavy code over `Frame`; a height law needs a
+  model of every kernel (as `Laws.slots` models `Array.size`). Future.
+- I32 `neg` involution, `add` zero/associativity: `U32.sub` is `Word.adc(..,
+  True, True)`; Base proves only `Word.add_comm`. Bit-vector carry lemmas
+  are future work (Base-level).
+- `Kernel.compact` count `<= n` (filter length): a U32 inequality over
+  `Word`s, same reason. The slots laws cover map/zip/iota; `compact` and
+  `gather` would need an `Array.get` witness lemma (a copy of `swap_ex`).
+- Fmt/Csv round trips: `F32.show`/`U32.show`/`F32.read` are primitives.
+- Group_by/Join schema laws: `Grp.validate`/`Join.schema` go through
+  `Names.has` (String.eq) for duplicate and clash checks. Future with the
+  String.eq lemma above.
+
+Proof toolkit (verified in PROOF.bend; see its header comment): unfold one
+step with `{==}`; `%e : P` rewrites with `e : {a == b}` where `_` in P marks
+b and becomes a (so flip hypotheses with `Equal.sym` before replacing a
+computed term by its value); `Done`/`Some` injectivity via `Equal.cong` +
+`Result.default`/`Maybe.default` (the payload itself as the default avoids
+needing an inhabitant); refute `Fail == Done`, `False == True`, `True ==
+False` through a motive and `Empty.absurd`; a value the code computes (a
+dtype lookup, a sub-plan's schema, a kernel's read pair) is passed to a lemma
+as a PARAMETER and matched there (p08); a hypothesis that must be rewritten
+moves into the goal as a function type `H -> G`, is rewritten there and taken
+back with `h => ...`; a schema rule over an input result is abstracted as a
+function parameter `f` with a `fails: @e -> {f(Fail{e}) == Fail{e}}` witness
+(`unary` in PROOF.bend) instead of one lemma per node; `match` on a `+x`
+pattern binder when the proof spends it twice (law binders too: `for +s`);
+Type-kinded values (arrays, columns) can be matched once and never copied,
+so every array lemma hands the rewritten array back as a Sigma witness
+(`&b: Array<T> -> {.. == b} & {slots(b) == k}`) and the next lemma takes it
+as a parameter; template kernels are proven by template proof defs
+(`map_go_slots(~T, ~U, ~f, ..)`) with the induction hypothesis passed as a
+lambda to the step lemma (no mutual recursion). A `case other:` fallback
+does not refine the scrutinee, so a goal that must compute on "any other
+constructor" lists the constructors.
 
 ## 9. Idiom checklist for implementers (copy into every module's header)
 
@@ -1326,3 +1373,42 @@ Join.run makes first). Differences:
    left rows' string cells during the gather. `bench/join_bench.bend`
    reproduces these.
 
+
+### M5 (describe, goldens)
+
+1. **`Fmt.describe` is implemented in `src/fmt.bend`** (supersedes the M1 stub of
+   item 1 above). `fmt.bend` now imports `expr`, `eval` and `sort`; none of them
+   imports `fmt` (only `csv` does), so there is no cycle and no separate module.
+   Layout as 4.12: `statistic` + one column per input; the input frame comes
+   back untouched (columns are cloned). Numeric columns are cast to f32,
+   nulls dropped once; `mean` = `Eval.agg Mean` (Kahan), `std` = sqrt(Kahan sum of
+   squared deviations / (count - 1)) (null when count < 2), `min`/`max`/`25%`/`50%`/
+   `75%` read from one stable radix sort (`Sort.frame`), nearest rank
+   `idx = round(p * (count - 1))`, half away from zero, computed in integers as
+   `(m+2)/4`, `(m+1)/2`, `(3m+2)/4` with `m = count - 1`; verified equal to Polars 2.0
+   (`describe`, `quantile(.., "nearest")`) on random frames with nulls for 13 sizes
+   (1..1001) and on sales_1000000.csv (describe of 1M rows: ~100 ms native).
+   `Str`/`Bool` columns: `count`, `null_count`, `min`, `max` as TEXT (Bool prints
+   `true`/`false`; Polars prints 1.0/0.0 there), null elsewhere. All-null/empty
+   numeric columns: `count 0`, `null_count n`, the rest null. No columns: just the
+   `statistic` column. An input column named `statistic` gives `DuplicateColumn`.
+2. **Group-by `Sum` over f32 is a plain sequential f32 add, not Kahan**
+   (`Grp.nsum` in `groupby.bend`; `Mean` stays Kahan; `Eval.agg Sum` stays Kahan).
+   Reason: `bench/golden/q3.csv` (written by Polars' LAZY group_by) has
+   `revenue_sum = 96373.4141` for `inland`; the correctly rounded sum of the six
+   f32 revenues is `96373.4062` (that is what Kahan and Polars' eager
+   `df.group_by(..).sum()` give), the lazy engine accumulates in row order in f32
+   and lands on `...4141`. Equal to Polars for small groups; for big groups
+   Polars' lazy engine combines partial sums from parallel partitions, which no
+   sequential order reproduces, so large-n f32 sums may differ in the last bits
+   from either implementation. Consequence: lazy `GroupBy` Sum and column-level
+   `Eval.agg Sum` can differ in the last ulp (item 5 of the M5 sort/group_by
+   notes said they are equal).
+3. **`bench/queries.bend`** (new) holds the six canonical queries as Plans for
+   reuse by tests and benchmarks: `Q.q1..Q.q5(sales: P.Plan, products: P.Plan) ->
+   P.Plan`, `Q.q6(sales: C.Frame) -> E.ResT(C.Frame)` (select id/qty/price/
+   discount, then describe; eager like Polars). Import with a module alias that
+   differs from `Q` (exec.bend is `Q` in the tests): `QS.Q.q1(..)`.
+   `tests/golden_q1..q6.bend` run them over `tiny.csv`/`products.csv` (scans
+   with an inferred schema) and compare `Csv.render(.., Some{4})` with the
+   golden files byte for byte; `tests/fmt_describe.bend` covers mixed dtypes.

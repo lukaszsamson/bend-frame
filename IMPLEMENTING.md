@@ -268,3 +268,44 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
   n in 1..1001, `describe` in Bend vs `pl.read_csv(schema=..).describe()`, tolerance 1e-3
   relative; Polars prints Bool min/max as 1.0/0.0, bend-frame as `true`/`false` (DESIGN 14).
 - Importing `eval`/`sort` into `fmt.bend` makes every `csv`-importing test compile those modules too (not measurable in `make test`).
+
+## M6 (LAWS.bend, PROOF.bend)
+
+- **Rewrite direction**: `%e : P` with `e : {a == b}` needs `_` in P at the
+  places of `b` (the RIGHT side); the goal becomes P with `a`. To replace a
+  computed term `f(p)` by its known value, flip the hypothesis first:
+  `%Equal.sym(T, f(p), Done{s}, ok) : {g(_) == ..}`. The checker prints
+  `expected` (the goal) and `observed` (P with b) when it does not match.
+- **Quantities are enforced in proofs**: a hypothesis spent twice
+  (`and_left(.., h)` and `and_right(.., h)`) needs `+h` in the LAW binder; a
+  Data value passed to two lemmas needs `+` (a `case P.Filter{e, +x}` pattern
+  works); an `-erased` param cannot be passed to a live parameter, and a
+  recursive call inside a `%e : P` rewrite is a live use. Arrays and other
+  Type values cannot be `+`: a lemma matches them once and must hand the
+  rewritten array back as a Sigma witness for the next lemma.
+- **Hypotheses cannot be rewritten in place**: return a function type
+  `{H} -> {G}`, rewrite inside it, then `h => ...`. Lambda bodies take
+  statement lines (`h =>` on its own line, then `%e : P`, then the term);
+  a tuple component can hold `(%e : P; {==})` inline.
+- **Refutations**: `Fail == Done` through `res_disc(A, r)` (Fail -> Unit,
+  Done -> Empty) with `%h : res_disc(A, _); Unit{}`; the motive must send the
+  RIGHT side of `h` to the goal's type (`{True == False}` needs the motive
+  with `False -> Empty`, `{False == True}` the one with `True -> Empty`).
+- **Multi-scrutinee matches reduce when the first column decides**:
+  `Plan.schema.filter.k(Fail{e}, agg, s)` with `agg` a variable reduces to
+  `Fail{e}` (the `case Fail{e} _` row), but `Done{other} _` with `other` a
+  variable is stuck: list the four non-bool dtypes.
+- **`case other:` does not refine the goal**: a goal
+  `Opt.merge.f(e, other)` stays stuck; write the eight constructors.
+- **Higher-order lemma params work**: `unary(-f: Res -> Res, fails: @e: E.Err ->
+  {f(Fail{e}) == Fail{e}}, ..)` called with `r => P.Plan.schema.select(es, r)`
+  and `e => {==}`; the induction hypothesis of the main law is passed as
+  `o => h => Laws.merge_pass_keeps_schema(x, o, h)` (p08's idiom).
+- **Template proofs**: a proof over a template kernel is itself a template
+  def (`map_go_slots(~T: Data, ~U: Data, ~f: T -> U, ..)`), recursion
+  allowed, the step lemma takes the IH as a lambda. `Array.new(T, 1n+p, v)`
+  computes to `ANode{Array.new(T, p, v), ..}` and `U32.shln(1, 1n+p)` to
+  `U32.shl(U32.shln(1, p))`, so "2^d slots" is `U32.shln(1, d)` directly.
+- **Negative-test your laws**: change a claim (`shln(2, d)`) and confirm
+  `SOME PROOFS FAIL` before trusting a first-try ALL PROOFS CHECK.
+- Full check of 48 laws: ~0.45 s. `--verdict` needs Lean v4.34.0 (absent).
