@@ -1,6 +1,5 @@
-# PENDING (M3 API: DF.drop / DF.lazy_drop, DF.unique / DF.lazy_unique,
-# DF.concat_vertical / DF.lazy_concat_vertical). Rename to
-# tests/regress/B01_c_zero_column_m3.bend when the API lands.
+# Activated in M3 (table verbs): DF.drop / DF.lazy_drop, DF.unique / DF.lazy_unique,
+# DF.concat_vertical / DF.lazy_concat_vertical.
 # B01-c, C22-C24 (DESIGN.md 15.4): a zero-column frame keeps its height through every
 # verb: drop of every column -> (6, 0); then with_columns([lit 1]) -> (6, 1);
 # unique([]) -> (min(h, 1), 0); concat([z, z]) -> (12, 0). Polars 2.0.0:
