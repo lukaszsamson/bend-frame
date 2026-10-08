@@ -1,4 +1,3 @@
-#! xfail B01-a
 # B01-a (Astra A): Head{0} sunk below a literal-only Select gives one row.
 # Contract DESIGN.md 15.4 C4/C5 and 15.2.8 (a Select all of whose expressions are
 # KScalar/KRed is a height barrier for Opt.head). Polars 2.0.0

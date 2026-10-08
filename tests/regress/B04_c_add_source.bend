@@ -1,5 +1,3 @@
-# PENDING (M1 API: DF.add_source(env, name, f) -> Env & Plan). Rename to
-# tests/regress/B04_c_add_source.bend when the API lands.
 # B04-c (Astra G4): several named frames in one Env through the facade (DESIGN.md
 # 15.2.2); the Plan is Source{name, Frame.schema(f)}. A two-source join, eager vs lazy.
 import Base

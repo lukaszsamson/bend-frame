@@ -1464,6 +1464,55 @@ Join.run makes first). Differences:
 - B05-h's negative proof fixture is kept in `tests/regress/pending/` because `make check` runs
   `bend --check-only` on every `tests/**/*.bend` and an expected-failure fixture fails it.
 
+### M1 B01/B04 (shared analysis, cardinality, sources)
+
+- **The analysis lives in `src/analysis.bend`** (`A.Expr.analyse(e, s) -> E.Res(A.Ana)`, `A.AKind =
+  KRow | KScalar | KRed`), not in expr.bend: it calls expr.bend's per-node typing helpers
+  (`Expr.type.col/lit/cast/un.ok/bin.ok/fill/agg.ok`) on its sub-records' dtypes, so every dtype rule
+  is still written once. `A.Ana.type(e, s)` is the dtype projection. `Expr.type` is NOT yet redefined
+  as that projection (15.3.2): expr.bend cannot import the analysis (layering), and the agreement
+  law of 15.3.2 is left for M2/M5.
+- **The record has a fifth field, `local: Bool`** (no reduction anywhere in `e`). 15.3.2/15.4's
+  height certificate "every expression KRow and total, list non-empty" admits `x - mean(x)` (KRow by
+  the join table), and a Head sunk below it recomputes the mean over the first n rows
+  (`B01_f "head2-over-centered"`). `Ana.preserving` = non-empty, every record KRow, total and local;
+  a predicate may be merged / pushed only when total and local (`Ana.rowwise_total`); a row filter
+  commutes with a Select / WithColumns whose expressions are all total and local (and, for Select,
+  some KRow). Same strengthening is needed in the P2/P3 theorems.
+- **Totality after the M1-A merge**: `Cast` is total iff `X.Cast.total(from, to)` (expr.bend, 15.5.5);
+  `TryCast` is as total as its operand (failing cells become null); `Bin{FloorDiv/Mod/Div}` are total.
+  The typed null literal (`Cast` or `TryCast` of `Lit{SNull}`) is a total KScalar.
+- **Users of the analysis**: `Plan.schema` (Select/WithColumns fields, Filter predicate), Eval's
+  `select` / `with_columns` / `filter` type check (`Eval.acheck`, `Eval.slot`) and select's height
+  (`A.Ana.rows`), `Opt.head` / `Opt.push` / `Opt.fsafe`. `Eval.check` (X.Expr.type) stays for
+  `Grp.validate`, so group_by keeps its own `"nested aggregation in agg: .."` text; `Eval.kind`
+  (runtime-slot kind, used by groupby.bend) is untouched.
+- **Error order inside one expression**: the analysis reports errors bottom-up, so a nested
+  aggregation is found while typing; `filter(sum(sum(a)))` (a non-bool AND nested predicate) reports
+  `nested aggregation` where 15.2.3 lists `TypeMismatch{"filter", ..}` first. At an `Agg` node the
+  nested check precedes the reducer's dtype rule.
+- **`Optimize.release` = `Opt.head(p, None)` only** (15.2.8). The task's "filter merge only for total
+  row-wise predicates" is implemented in `Plan.optimize_full` as a whole-plan guard: `Opt.merge`
+  (unchanged, so its four laws stand) runs only when every Filter predicate is total and local
+  (`Opt.fsafe`); a plan with one fallible or reducing predicate gets no merging at all. `Opt.push`
+  moves only total, local conjuncts, never across a fallible / reducing Filter, and only through
+  Select/WithColumns certified by `Ana.rowwise_select` / `Ana.rowwise_with`. `Plan.optimize` is gone
+  (tests/plan_optimize.bend now exercises `Plan.optimize_full` / `Lazy.collect_full`).
+- **Use counting** is done on the compiled code: `Exec.mark` flags each `ISource{name, schema, last}`
+  that is the last use of its name in postfix order; earlier uses `Env.clone` (new `C.Frame.clone`,
+  added to column.bend), the last `Env.take`s. Equivalent to 15.7's `remaining` counter.
+- **`Exec.validate`** walks the same compiled code (postfix order) instead of `Plan.sources`
+  (`Plan.sources` exists as 15.7 names it). The duplicate reported is `C.Names.dup` over the env's
+  names in env order (newest frame first, since `Env.add` prepends). `Exec.run` itself validates, so
+  `collect_raw` (= `Exec.run`) and `collect_full` report binding errors exactly like `collect`.
+- **LAW `filter_keeps_schema`** is restated over the analysis: hypothesis `A.Ana.type(e, s) ==
+  Done{bool}`, and the `is_agg(e) == False` hypothesis is dropped (reductions are accepted). The
+  head-pass and merge proofs were updated for the restricted `Opt.head` and the analysis-typed
+  `Plan.schema.filter`; still 48 laws.
+- The example and README show `DF.optimize_full` for the projection-pushdown illustration, since
+  `DF.optimize` (release) no longer pushes projections. The bench (`Lazy.collect`) therefore runs
+  without predicate/projection pushdown; its cost is to be measured (plan section 6).
+
 ### M1 B02 (CSV: csvparse, quotedness, physical lines, scan prefix)
 
 - `src/csvparse.bend` is the hub parser's walk with two more loop arguments (the physical line counter and

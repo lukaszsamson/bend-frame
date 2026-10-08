@@ -1,5 +1,6 @@
-# M4: Plan.optimize. For each plan: explain before / after, then the plan is
-# collected as written (Exec.run) and optimised (Lazy.collect); the two
+# M4: Plan.optimize_full (the opt-in four passes; M1 renamed it, DF.optimize is
+# now Optimize.release). For each plan: explain before / after, then the plan is
+# collected as written (Exec.run) and fully optimised (Lazy.collect_full); the two
 # results and the two schemas must be identical. Covers filter merging,
 # predicate pushdown through Select (renamed through an alias), WithColumns
 # and Sort with the unmovable conjuncts left in place, no pushdown through
@@ -127,23 +128,23 @@ def verdict(+t1: String, +t2: String, +s1: String, +s2: String) -> String:
   Bool.pick(String, Bool.and(String.eq(t1, t2), String.eq(s1, s2)), "same: " ++ t1, "DIFFERENT:\n  " ++ s1 ++ "\n  " ++ s2 ++ "\n  " ++ t1 ++ "\n  " ++ t2)
 
 def explain2(+p: P.Plan) -> String:
-  P.Plan.explain(p) ++ "\n=>\n" ++ P.Plan.explain(P.Plan.optimize(p))
+  P.Plan.explain(p) ++ "\n=>\n" ++ P.Plan.explain(P.Plan.optimize_full(p))
 
 def check(+name: String, +p: P.Plan) -> IO(Unit):
   do IO<Unit>:
     IO.print("-- " ++ name)
     IO.print(explain2(p))
     r1 : E.ResT(C.Frame) <- Q.Exec.run(p, env())
-    r2 : E.ResT(C.Frame) <- Q.Lazy.collect(p, env())
-    IO.print(verdict(fr(r1), fr(r2), sch(P.Plan.schema(p)), sch(P.Plan.schema(P.Plan.optimize(p)))))
+    r2 : E.ResT(C.Frame) <- Q.Lazy.collect_full(p, env())
+    IO.print(verdict(fr(r1), fr(r2), sch(P.Plan.schema(p)), sch(P.Plan.schema(P.Plan.optimize_full(p)))))
 
 def check2(+name: String, +p: P.Plan) -> IO(Unit):
   do IO<Unit>:
     IO.print("-- " ++ name)
     IO.print(explain2(p))
     r1 : E.ResT(C.Frame) <- Q.Exec.run(p, env2())
-    r2 : E.ResT(C.Frame) <- Q.Lazy.collect(p, env2())
-    IO.print(verdict(fr(r1), fr(r2), sch(P.Plan.schema(p)), sch(P.Plan.schema(P.Plan.optimize(p)))))
+    r2 : E.ResT(C.Frame) <- Q.Lazy.collect_full(p, env2())
+    IO.print(verdict(fr(r1), fr(r2), sch(P.Plan.schema(p)), sch(P.Plan.schema(P.Plan.optimize_full(p)))))
 
 # ---- plans ----------------------------------------------------------------------------
 
@@ -213,6 +214,7 @@ def main() -> IO(Unit):
     IO.print("-- join + group_by")
     IO.print(explain2(p_join()))
     IO.print("-- exec errors")
+    # a self join (Source t used twice): Exec clones t for the first use (B04-b)
     j : E.ResT(C.Frame) <- Q.Lazy.collect(P.Join{J.Inner{}, ["b"], ["b"], src(), src()}, env())
     IO.print(fr(j))
     w : E.ResT(C.Frame) <- Q.Lazy.collect(P.Source{"t", [S.Field{"a", D.TU32{}}, S.Field{"b", D.TU32{}}]}, env())
@@ -330,9 +332,9 @@ def main() -> IO(Unit):
 #|      SELECT [col("product"), col("category"), col("price")]
 #|        SOURCE products [product:str, category:str, price:f32, weight:f32]
 #|-- exec errors
-#|error: InvalidOperation: source not in env (or used twice): t
+#|h=14 a:u32=[1, 1, 1, 2, 2, null, 4, 4, 4, 5, 5, 6, 6, 6] | b:str=[x, x, x, y, y, z, x, x, x, y, y, x, x, x] | c:f32=[0.5, 0.5, 0.5, 1.5, 1.5, 2.5, null, null, null, 4.5, 4.5, 5.5, 5.5, 5.5] | d:bool=[true, true, true, false, false, true, true, true, true, null, null, true, true, true] | e:u32=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] | a_right:u32=[1, 4, 6, 2, 5, null, 1, 4, 6, 2, 5, 1, 4, 6] | c_right:f32=[0.5, null, 5.5, 1.5, 4.5, 2.5, 0.5, null, 5.5, 1.5, 4.5, 0.5, null, 5.5] | d_right:bool=[true, true, true, false, null, true, true, true, true, false, null, true, true, true] | e_right:u32=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 #|error: InvalidOperation: source t: data schema [a:u32, b:str, c:f32, d:bool, e:u32] differs from the plan's [a:u32, b:u32]
-#|error: InvalidOperation: source not in env (or used twice): nope
+#|error: InvalidOperation: source not in env: nope
 #|-- an ill-typed plan comes back unchanged
 #|FILTER col("a")
 #|  FILTER col("d")

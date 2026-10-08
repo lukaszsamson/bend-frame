@@ -18,6 +18,7 @@ import ./src/kernels.bend as K
 import ./src/column.bend as C
 import ./src/schema.bend as S
 import ./src/expr.bend as X
+import ./src/analysis.bend as A
 import ./src/sort.bend as O
 import ./src/plan.bend as P
 import ./LAWS.bend as Laws
@@ -451,34 +452,31 @@ def Laws.source_schema(n, s):
 def Laws.head_keeps_schema(p, n):
   {==}
 
-def Laws.filter_keeps_schema(p, s, e, ok, t, na):
+def Laws.filter_keeps_schema(p, s, e, ok, t):
   %Equal.sym(E.Res(List<&2, S.Field>), P.Plan.schema(p), Done{s}, ok) : {P.Plan.schema.filter(e, _) == Done{s} : E.Res(List<&2, S.Field>)}
-  %Equal.sym(E.Res(D.DType), X.Expr.type(e, s), Done{D.TBool{}}, t) : {P.Plan.schema.filter.k(_, X.Expr.is_agg(e), s) == Done{s} : E.Res(List<&2, S.Field>)}
-  %Equal.sym(Bool, X.Expr.is_agg(e), False{}, na) : {P.Plan.schema.filter.k(Done{D.TBool{}}, _, s) == Done{s} : E.Res(List<&2, S.Field>)}
+  %Equal.sym(E.Res(D.DType), A.Ana.type(e, s), Done{D.TBool{}}, t) : {P.Plan.schema.filter.k(_, s) == Done{s} : E.Res(List<&2, S.Field>)}
   {==}
 
-# Plan.schema.filter.k(t, agg, s) == Done{out} forces t = bool, agg = false, out = s
-def filter_inv(t: E.Res(D.DType), agg: Bool, -s: List<&2, S.Field>, -out: List<&2, S.Field>, h: {P.Plan.schema.filter.k(t, agg, s) == Done{out} : E.Res(List<&2, S.Field>)}) -> {out == s : List<&2, S.Field>}:
-  match t agg:
-    case Fail{e} _:
+# Plan.schema.filter.k(t, s) == Done{out} forces t = bool, out = s
+def filter_inv(t: E.Res(D.DType), -s: List<&2, S.Field>, -out: List<&2, S.Field>, h: {P.Plan.schema.filter.k(t, s) == Done{out} : E.Res(List<&2, S.Field>)}) -> {out == s : List<&2, S.Field>}:
+  match t:
+    case Fail{e}:
       Empty.absurd({out == s : List<&2, S.Field>}, fail_done(List<&2, S.Field>, e, out, h))
-    case Done{D.TBool{}} False{}:
+    case Done{D.TBool{}}:
       Equal.sym(List<&2, S.Field>, s, out, done_inj(List<&2, S.Field>, s, out, h))
-    case Done{D.TBool{}} True{}:
-      Empty.absurd({out == s : List<&2, S.Field>}, fail_done(List<&2, S.Field>, E.InvalidOperation{P.Plan.msg.filter()}, out, h))
-    case Done{D.TU32{}} _:
+    case Done{D.TU32{}}:
       Empty.absurd({out == s : List<&2, S.Field>}, fail_done(List<&2, S.Field>, E.TypeMismatch{"filter", "bool", "u32"}, out, h))
-    case Done{D.TI32{}} _:
+    case Done{D.TI32{}}:
       Empty.absurd({out == s : List<&2, S.Field>}, fail_done(List<&2, S.Field>, E.TypeMismatch{"filter", "bool", "i32"}, out, h))
-    case Done{D.TF32{}} _:
+    case Done{D.TF32{}}:
       Empty.absurd({out == s : List<&2, S.Field>}, fail_done(List<&2, S.Field>, E.TypeMismatch{"filter", "bool", "f32"}, out, h))
-    case Done{D.TStr{}} _:
+    case Done{D.TStr{}}:
       Empty.absurd({out == s : List<&2, S.Field>}, fail_done(List<&2, S.Field>, E.TypeMismatch{"filter", "bool", "str"}, out, h))
 
 # the hypothesis about Filter{e, p} is rewritten inside the goal (as H -> G)
 def filter_is_input(-p: P.Plan, +s: List<&2, S.Field>, +e: X.Expr, -out: List<&2, S.Field>, ok: {P.Plan.schema(p) == Done{s} : E.Res(List<&2, S.Field>)}) -> {P.Plan.schema(P.Filter{e, p}) == Done{out} : E.Res(List<&2, S.Field>)} -> {out == s : List<&2, S.Field>}:
   %Equal.sym(E.Res(List<&2, S.Field>), P.Plan.schema(p), Done{s}, ok) : {P.Plan.schema.filter(e, _) == Done{out} : E.Res(List<&2, S.Field>)} -> {out == s : List<&2, S.Field>}
-  h => filter_inv(X.Expr.type(e, s), X.Expr.is_agg(e), s, out, h)
+  h => filter_inv(A.Ana.type(e, s), s, out, h)
 
 def Laws.filter_schema_is_input(p, s, e, out, ok, h):
   filter_is_input(p, s, e, out, ok)(h)
@@ -513,7 +511,7 @@ def Laws.sort_schema_is_input(p, s, ks, out, ok, h):
 
 # one Col field of a Select is one step of Schema.project.go: the lookup t
 # and the tail r are parameters
-def fields_cols_step(-n: String, t: Maybe<&2, D.DType>, r: E.Res(List<&2, S.Field>), -msg: String) -> {P.Plan.fields.put(P.Plan.field.k(X.Expr.type.col(n, t), False{}, n, msg), r) == S.Schema.project.put(n, t, r) : E.Res(List<&2, S.Field>)}:
+def fields_cols_step(-n: String, t: Maybe<&2, D.DType>, r: E.Res(List<&2, S.Field>)) -> {P.Plan.fields.put(P.Plan.field.k(A.Ana.type.k(A.Ana.col(n, t)), n), r) == S.Schema.project.put(n, t, r) : E.Res(List<&2, S.Field>)}:
   match t r:
     case None{} Fail{e}:
       {==}
@@ -524,17 +522,17 @@ def fields_cols_step(-n: String, t: Maybe<&2, D.DType>, r: E.Res(List<&2, S.Fiel
     case Some{d} Done{fs}:
       {==}
 
-def fields_cols(names: List<&2, String>, +s: List<&2, S.Field>, +msg: String) -> {P.Plan.fields(Laws.cols(names), msg, s) == S.Schema.project.go(names, s) : E.Res(List<&2, S.Field>)}:
+def fields_cols(names: List<&2, String>, +s: List<&2, S.Field>) -> {P.Plan.fields(Laws.cols(names), s) == S.Schema.project.go(names, s) : E.Res(List<&2, S.Field>)}:
   match names:
     case Nil{}:
       {==}
     case +n <> +rest:
-      %fields_cols(rest, s, msg) : {P.Plan.fields.put(P.Plan.field(msg, X.Col{n}, s), P.Plan.fields(Laws.cols(rest), msg, s)) == S.Schema.project.put(n, S.Schema.find(s, n), _) : E.Res(List<&2, S.Field>)}
-      fields_cols_step(n, S.Schema.find(s, n), P.Plan.fields(Laws.cols(rest), msg, s), msg)
+      %fields_cols(rest, s) : {P.Plan.fields.put(P.Plan.field(X.Col{n}, s), P.Plan.fields(Laws.cols(rest), s)) == S.Schema.project.put(n, S.Schema.find(s, n), _) : E.Res(List<&2, S.Field>)}
+      fields_cols_step(n, S.Schema.find(s, n), P.Plan.fields(Laws.cols(rest), s))
 
 def Laws.select_cols_is_project(p, s, names, ok):
   %Equal.sym(E.Res(List<&2, S.Field>), P.Plan.schema(p), Done{s}, ok) : {P.Plan.schema.select(Laws.cols(names), _) == S.Schema.project(names, s) : E.Res(List<&2, S.Field>)}
-  %fields_cols(names, s, P.Plan.msg.select()) : {S.Schema.project.chk(P.Plan.fields(Laws.cols(names), P.Plan.msg.select(), s)) == S.Schema.project.chk(_) : E.Res(List<&2, S.Field>)}
+  %fields_cols(names, s) : {S.Schema.project.chk(P.Plan.fields(Laws.cols(names), s)) == S.Schema.project.chk(_) : E.Res(List<&2, S.Field>)}
   {==}
 
 def Laws.select_cols_names(p, s, names, out, ok, h):
@@ -548,21 +546,19 @@ def wc_has(+n: String, -d: D.DType, +s: List<&2, S.Field>, -out: List<&2, S.Fiel
     %done_inj(List<&2, S.Field>, S.Schema.with.go(s, n, S.Field{n, d}), out, h) : {List.length(&2, S.Field, _) == List.length(&2, S.Field, s) : Nat}
     with_go_length(s, n, S.Field{n, d})
 
-# the typed field of the one expression: t its type, agg its aggregation test
-def wc_inv(t: E.Res(D.DType), agg: Bool, +n: String, +s: List<&2, S.Field>, -out: List<&2, S.Field>, has: {S.Schema.has(s, n) == True{} : Bool},
-  h: {P.Plan.schema.wc.k(S.Schema.project.chk(P.Plan.fields.put(P.Plan.field.k(t, agg, n, P.Plan.msg.with_columns()), Done{Nil{}})), s) == Done{out} : E.Res(List<&2, S.Field>)})
+# the typed field of the one expression: t its type (the shared analysis)
+def wc_inv(t: E.Res(D.DType), +n: String, +s: List<&2, S.Field>, -out: List<&2, S.Field>, has: {S.Schema.has(s, n) == True{} : Bool},
+  h: {P.Plan.schema.wc.k(S.Schema.project.chk(P.Plan.fields.put(P.Plan.field.k(t, n), Done{Nil{}})), s) == Done{out} : E.Res(List<&2, S.Field>)})
   -> {List.length(&2, S.Field, out) == List.length(&2, S.Field, s) : Nat}:
-  match t agg:
-    case Fail{e} _:
+  match t:
+    case Fail{e}:
       Empty.absurd({List.length(&2, S.Field, out) == List.length(&2, S.Field, s) : Nat}, fail_done(List<&2, S.Field>, e, out, h))
-    case Done{d} True{}:
-      Empty.absurd({List.length(&2, S.Field, out) == List.length(&2, S.Field, s) : Nat}, fail_done(List<&2, S.Field>, E.InvalidOperation{P.Plan.msg.with_columns()}, out, h))
-    case Done{d} False{}:
+    case Done{d}:
       wc_has(n, d, s, out, has)(h)
 
 def wc_width(-p: P.Plan, +s: List<&2, S.Field>, +e: X.Expr, -out: List<&2, S.Field>, ok: {P.Plan.schema(p) == Done{s} : E.Res(List<&2, S.Field>)}, has: {S.Schema.has(s, X.Expr.name(e)) == True{} : Bool}) -> {P.Plan.schema(P.WithColumns{e <> Nil{}, p}) == Done{out} : E.Res(List<&2, S.Field>)} -> {List.length(&2, S.Field, out) == List.length(&2, S.Field, s) : Nat}:
   %Equal.sym(E.Res(List<&2, S.Field>), P.Plan.schema(p), Done{s}, ok) : {P.Plan.schema.wc(e <> Nil{}, _) == Done{out} : E.Res(List<&2, S.Field>)} -> {List.length(&2, S.Field, out) == List.length(&2, S.Field, s) : Nat}
-  h => wc_inv(X.Expr.type(e, s), X.Expr.is_agg(e), X.Expr.name(e), s, out, has, h)
+  h => wc_inv(A.Ana.type(e, s), X.Expr.name(e), s, out, has, h)
 
 def Laws.with_column_keeps_width(p, s, e, out, ok, has, h):
   wc_width(p, s, e, out, ok, has)(h)
@@ -585,11 +581,13 @@ def Laws.head_pass_keeps_schema(p, n):
       hwrap_schema(n, P.ScanCsv{path, o, s})
     case P.Source{nm, s}:
       hwrap_schema(n, P.Source{nm, s})
-    case P.Select{es, x}:
-      %Laws.head_pass_keeps_schema(x, n) : {P.Plan.schema.select(es, P.Plan.schema(P.Opt.head(x, n))) == P.Plan.schema.select(es, _) : E.Res(List<&2, S.Field>)}
+    case P.Select{+es, +x}:
+      %Equal.sym(E.Res(List<&2, S.Field>), P.Plan.schema(P.Opt.hwrap(P.Opt.hstop(P.Opt.sinks(es, P.Plan.schema(x)), n), P.Select{es, P.Opt.head(x, P.Opt.hpass(P.Opt.sinks(es, P.Plan.schema(x)), n))})), P.Plan.schema(P.Select{es, P.Opt.head(x, P.Opt.hpass(P.Opt.sinks(es, P.Plan.schema(x)), n))}), hwrap_schema(P.Opt.hstop(P.Opt.sinks(es, P.Plan.schema(x)), n), P.Select{es, P.Opt.head(x, P.Opt.hpass(P.Opt.sinks(es, P.Plan.schema(x)), n))})) : {_ == P.Plan.schema.select(es, P.Plan.schema(x)) : E.Res(List<&2, S.Field>)}
+      %Laws.head_pass_keeps_schema(x, P.Opt.hpass(P.Opt.sinks(es, P.Plan.schema(x)), n)) : {P.Plan.schema.select(es, P.Plan.schema(P.Opt.head(x, P.Opt.hpass(P.Opt.sinks(es, P.Plan.schema(x)), n)))) == P.Plan.schema.select(es, _) : E.Res(List<&2, S.Field>)}
       {==}
-    case P.WithColumns{es, x}:
-      %Laws.head_pass_keeps_schema(x, n) : {P.Plan.schema.wc(es, P.Plan.schema(P.Opt.head(x, n))) == P.Plan.schema.wc(es, _) : E.Res(List<&2, S.Field>)}
+    case P.WithColumns{+es, +x}:
+      %Equal.sym(E.Res(List<&2, S.Field>), P.Plan.schema(P.Opt.hwrap(P.Opt.hstop(P.Opt.sinks(es, P.Plan.schema(x)), n), P.WithColumns{es, P.Opt.head(x, P.Opt.hpass(P.Opt.sinks(es, P.Plan.schema(x)), n))})), P.Plan.schema(P.WithColumns{es, P.Opt.head(x, P.Opt.hpass(P.Opt.sinks(es, P.Plan.schema(x)), n))}), hwrap_schema(P.Opt.hstop(P.Opt.sinks(es, P.Plan.schema(x)), n), P.WithColumns{es, P.Opt.head(x, P.Opt.hpass(P.Opt.sinks(es, P.Plan.schema(x)), n))})) : {_ == P.Plan.schema.wc(es, P.Plan.schema(x)) : E.Res(List<&2, S.Field>)}
+      %Laws.head_pass_keeps_schema(x, P.Opt.hpass(P.Opt.sinks(es, P.Plan.schema(x)), n)) : {P.Plan.schema.wc(es, P.Plan.schema(P.Opt.head(x, P.Opt.hpass(P.Opt.sinks(es, P.Plan.schema(x)), n)))) == P.Plan.schema.wc(es, _) : E.Res(List<&2, S.Field>)}
       {==}
     case P.Filter{e, +x}:
       %Equal.sym(E.Res(List<&2, S.Field>), P.Plan.schema(P.Opt.hwrap(n, P.Filter{e, P.Opt.head(x, None{})})), P.Plan.schema(P.Filter{e, P.Opt.head(x, None{})}), hwrap_schema(n, P.Filter{e, P.Opt.head(x, None{})})) : {_ == P.Plan.schema.filter(e, P.Plan.schema(x)) : E.Res(List<&2, S.Field>)}
@@ -641,45 +639,41 @@ def binary(lo: List<&2, String>, ro: List<&2, String>, rl: E.Res(List<&2, S.Fiel
       %Equal.sym(E.Res(List<&2, S.Field>), rr2, Done{b}, ihr(b, {==})) : {P.Plan.schema.join(lo, ro, Done{a}, _) == Done{s} : E.Res(List<&2, S.Field>)}
       h
 
-# a bool, non-aggregating e over s1 after a bool, non-aggregating q: `q & e`
-# is bool and non-aggregating over s1 too. te/ae are e's type and test.
-def and_e(te: E.Res(D.DType), ae: Bool, -s0: List<&2, S.Field>, -s: List<&2, S.Field>, h: {P.Plan.schema.filter.k(te, ae, s0) == Done{s} : E.Res(List<&2, S.Field>)}) -> {P.Plan.schema.filter.k(X.Expr.type.bin(X.And{}, Done{D.TBool{}}, te), ae, s0) == Done{s} : E.Res(List<&2, S.Field>)}:
-  match te ae:
-    case Fail{e} _:
-      Empty.absurd({P.Plan.schema.filter.k(X.Expr.type.bin(X.And{}, Done{D.TBool{}}, Fail{e}), ae, s0) == Done{s} : E.Res(List<&2, S.Field>)}, fail_done(List<&2, S.Field>, e, s, h))
-    case Done{D.TBool{}} False{}:
+# a bool e over s0 after a bool q (its record rs, k, tot, loc): `q & e` is bool
+# over s0 too. re is e's analysis.
+def and_e(re: E.Res(A.Ana), -rs: List<&2, String>, -k: A.AKind, -tot: Bool, -loc: Bool, -s0: List<&2, S.Field>, -s: List<&2, S.Field>, h: {P.Plan.schema.filter.k(A.Ana.type.k(re), s0) == Done{s} : E.Res(List<&2, S.Field>)}) -> {P.Plan.schema.filter.k(A.Ana.type.k(A.Ana.bin(X.And{}, Done{A.Ana{D.TBool{}, rs, k, tot, loc}}, re)), s0) == Done{s} : E.Res(List<&2, S.Field>)}:
+  match re:
+    case Fail{e}:
+      Empty.absurd({P.Plan.schema.filter.k(A.Ana.type.k(A.Ana.bin(X.And{}, Done{A.Ana{D.TBool{}, rs, k, tot, loc}}, Fail{e})), s0) == Done{s} : E.Res(List<&2, S.Field>)}, fail_done(List<&2, S.Field>, e, s, h))
+    case Done{A.Ana{D.TBool{}, rs2, k2, tot2, loc2}}:
       h
-    case Done{D.TBool{}} True{}:
-      Empty.absurd({P.Plan.schema.filter.k(X.Expr.type.bin(X.And{}, Done{D.TBool{}}, Done{D.TBool{}}), True{}, s0) == Done{s} : E.Res(List<&2, S.Field>)}, fail_done(List<&2, S.Field>, E.InvalidOperation{P.Plan.msg.filter()}, s, h))
-    case Done{D.TU32{}} _:
-      Empty.absurd({P.Plan.schema.filter.k(X.Expr.type.bin(X.And{}, Done{D.TBool{}}, Done{D.TU32{}}), ae, s0) == Done{s} : E.Res(List<&2, S.Field>)}, fail_done(List<&2, S.Field>, E.TypeMismatch{"filter", "bool", "u32"}, s, h))
-    case Done{D.TI32{}} _:
-      Empty.absurd({P.Plan.schema.filter.k(X.Expr.type.bin(X.And{}, Done{D.TBool{}}, Done{D.TI32{}}), ae, s0) == Done{s} : E.Res(List<&2, S.Field>)}, fail_done(List<&2, S.Field>, E.TypeMismatch{"filter", "bool", "i32"}, s, h))
-    case Done{D.TF32{}} _:
-      Empty.absurd({P.Plan.schema.filter.k(X.Expr.type.bin(X.And{}, Done{D.TBool{}}, Done{D.TF32{}}), ae, s0) == Done{s} : E.Res(List<&2, S.Field>)}, fail_done(List<&2, S.Field>, E.TypeMismatch{"filter", "bool", "f32"}, s, h))
-    case Done{D.TStr{}} _:
-      Empty.absurd({P.Plan.schema.filter.k(X.Expr.type.bin(X.And{}, Done{D.TBool{}}, Done{D.TStr{}}), ae, s0) == Done{s} : E.Res(List<&2, S.Field>)}, fail_done(List<&2, S.Field>, E.TypeMismatch{"filter", "bool", "str"}, s, h))
+    case Done{A.Ana{D.TU32{}, rs2, k2, tot2, loc2}}:
+      Empty.absurd({P.Plan.schema.filter.k(A.Ana.type.k(A.Ana.bin(X.And{}, Done{A.Ana{D.TBool{}, rs, k, tot, loc}}, Done{A.Ana{D.TU32{}, rs2, k2, tot2, loc2}})), s0) == Done{s} : E.Res(List<&2, S.Field>)}, fail_done(List<&2, S.Field>, E.TypeMismatch{"filter", "bool", "u32"}, s, h))
+    case Done{A.Ana{D.TI32{}, rs2, k2, tot2, loc2}}:
+      Empty.absurd({P.Plan.schema.filter.k(A.Ana.type.k(A.Ana.bin(X.And{}, Done{A.Ana{D.TBool{}, rs, k, tot, loc}}, Done{A.Ana{D.TI32{}, rs2, k2, tot2, loc2}})), s0) == Done{s} : E.Res(List<&2, S.Field>)}, fail_done(List<&2, S.Field>, E.TypeMismatch{"filter", "bool", "i32"}, s, h))
+    case Done{A.Ana{D.TF32{}, rs2, k2, tot2, loc2}}:
+      Empty.absurd({P.Plan.schema.filter.k(A.Ana.type.k(A.Ana.bin(X.And{}, Done{A.Ana{D.TBool{}, rs, k, tot, loc}}, Done{A.Ana{D.TF32{}, rs2, k2, tot2, loc2}})), s0) == Done{s} : E.Res(List<&2, S.Field>)}, fail_done(List<&2, S.Field>, E.TypeMismatch{"filter", "bool", "f32"}, s, h))
+    case Done{A.Ana{D.TStr{}, rs2, k2, tot2, loc2}}:
+      Empty.absurd({P.Plan.schema.filter.k(A.Ana.type.k(A.Ana.bin(X.And{}, Done{A.Ana{D.TBool{}, rs, k, tot, loc}}, Done{A.Ana{D.TStr{}, rs2, k2, tot2, loc2}})), s0) == Done{s} : E.Res(List<&2, S.Field>)}, fail_done(List<&2, S.Field>, E.TypeMismatch{"filter", "bool", "str"}, s, h))
 
 # the inner filter q over s0 resolved to s1 (h1); the outer e over s1 to s (H).
-# tq/aq are q's type and test over s0.
-def and_q(tq: E.Res(D.DType), aq: Bool, +s0: List<&2, S.Field>, -s1: List<&2, S.Field>, -s: List<&2, S.Field>, +e: X.Expr, h1: {P.Plan.schema.filter.k(tq, aq, s0) == Done{s1} : E.Res(List<&2, S.Field>)})
-  -> {P.Plan.schema.filter.k(X.Expr.type(e, s1), X.Expr.is_agg(e), s1) == Done{s} : E.Res(List<&2, S.Field>)} -> {P.Plan.schema.filter.k(X.Expr.type.bin(X.And{}, tq, X.Expr.type(e, s0)), Bool.or(aq, X.Expr.is_agg(e)), s0) == Done{s} : E.Res(List<&2, S.Field>)}:
-  match tq aq:
-    case Fail{err} _:
-      Empty.absurd({P.Plan.schema.filter.k(X.Expr.type(e, s1), X.Expr.is_agg(e), s1) == Done{s} : E.Res(List<&2, S.Field>)} -> {P.Plan.schema.filter.k(X.Expr.type.bin(X.And{}, Fail{err}, X.Expr.type(e, s0)), Bool.or(aq, X.Expr.is_agg(e)), s0) == Done{s} : E.Res(List<&2, S.Field>)}, fail_done(List<&2, S.Field>, err, s1, h1))
-    case Done{D.TBool{}} False{}:
-      %done_inj(List<&2, S.Field>, s0, s1, h1) : {P.Plan.schema.filter.k(X.Expr.type(e, _), X.Expr.is_agg(e), _) == Done{s} : E.Res(List<&2, S.Field>)} -> {P.Plan.schema.filter.k(X.Expr.type.bin(X.And{}, Done{D.TBool{}}, X.Expr.type(e, s0)), Bool.or(False{}, X.Expr.is_agg(e)), s0) == Done{s} : E.Res(List<&2, S.Field>)}
-      h => and_e(X.Expr.type(e, s0), X.Expr.is_agg(e), s0, s, h)
-    case Done{D.TBool{}} True{}:
-      Empty.absurd({P.Plan.schema.filter.k(X.Expr.type(e, s1), X.Expr.is_agg(e), s1) == Done{s} : E.Res(List<&2, S.Field>)} -> {P.Plan.schema.filter.k(X.Expr.type.bin(X.And{}, Done{D.TBool{}}, X.Expr.type(e, s0)), Bool.or(True{}, X.Expr.is_agg(e)), s0) == Done{s} : E.Res(List<&2, S.Field>)}, fail_done(List<&2, S.Field>, E.InvalidOperation{P.Plan.msg.filter()}, s1, h1))
-    case Done{D.TU32{}} _:
-      Empty.absurd({P.Plan.schema.filter.k(X.Expr.type(e, s1), X.Expr.is_agg(e), s1) == Done{s} : E.Res(List<&2, S.Field>)} -> {P.Plan.schema.filter.k(X.Expr.type.bin(X.And{}, Done{D.TU32{}}, X.Expr.type(e, s0)), Bool.or(aq, X.Expr.is_agg(e)), s0) == Done{s} : E.Res(List<&2, S.Field>)}, fail_done(List<&2, S.Field>, E.TypeMismatch{"filter", "bool", "u32"}, s1, h1))
-    case Done{D.TI32{}} _:
-      Empty.absurd({P.Plan.schema.filter.k(X.Expr.type(e, s1), X.Expr.is_agg(e), s1) == Done{s} : E.Res(List<&2, S.Field>)} -> {P.Plan.schema.filter.k(X.Expr.type.bin(X.And{}, Done{D.TI32{}}, X.Expr.type(e, s0)), Bool.or(aq, X.Expr.is_agg(e)), s0) == Done{s} : E.Res(List<&2, S.Field>)}, fail_done(List<&2, S.Field>, E.TypeMismatch{"filter", "bool", "i32"}, s1, h1))
-    case Done{D.TF32{}} _:
-      Empty.absurd({P.Plan.schema.filter.k(X.Expr.type(e, s1), X.Expr.is_agg(e), s1) == Done{s} : E.Res(List<&2, S.Field>)} -> {P.Plan.schema.filter.k(X.Expr.type.bin(X.And{}, Done{D.TF32{}}, X.Expr.type(e, s0)), Bool.or(aq, X.Expr.is_agg(e)), s0) == Done{s} : E.Res(List<&2, S.Field>)}, fail_done(List<&2, S.Field>, E.TypeMismatch{"filter", "bool", "f32"}, s1, h1))
-    case Done{D.TStr{}} _:
-      Empty.absurd({P.Plan.schema.filter.k(X.Expr.type(e, s1), X.Expr.is_agg(e), s1) == Done{s} : E.Res(List<&2, S.Field>)} -> {P.Plan.schema.filter.k(X.Expr.type.bin(X.And{}, Done{D.TStr{}}, X.Expr.type(e, s0)), Bool.or(aq, X.Expr.is_agg(e)), s0) == Done{s} : E.Res(List<&2, S.Field>)}, fail_done(List<&2, S.Field>, E.TypeMismatch{"filter", "bool", "str"}, s1, h1))
+# rq is q's analysis over s0.
+def and_q(rq: E.Res(A.Ana), +s0: List<&2, S.Field>, -s1: List<&2, S.Field>, -s: List<&2, S.Field>, +e: X.Expr, h1: {P.Plan.schema.filter.k(A.Ana.type.k(rq), s0) == Done{s1} : E.Res(List<&2, S.Field>)})
+  -> {P.Plan.schema.filter.k(A.Ana.type.k(A.Expr.analyse(e, s1)), s1) == Done{s} : E.Res(List<&2, S.Field>)} -> {P.Plan.schema.filter.k(A.Ana.type.k(A.Ana.bin(X.And{}, rq, A.Expr.analyse(e, s0))), s0) == Done{s} : E.Res(List<&2, S.Field>)}:
+  match rq:
+    case Fail{err}:
+      Empty.absurd({P.Plan.schema.filter.k(A.Ana.type.k(A.Expr.analyse(e, s1)), s1) == Done{s} : E.Res(List<&2, S.Field>)} -> {P.Plan.schema.filter.k(A.Ana.type.k(A.Ana.bin(X.And{}, Fail{err}, A.Expr.analyse(e, s0))), s0) == Done{s} : E.Res(List<&2, S.Field>)}, fail_done(List<&2, S.Field>, err, s1, h1))
+    case Done{A.Ana{D.TBool{}, rs, k, tot, loc}}:
+      %done_inj(List<&2, S.Field>, s0, s1, h1) : {P.Plan.schema.filter.k(A.Ana.type.k(A.Expr.analyse(e, _)), _) == Done{s} : E.Res(List<&2, S.Field>)} -> {P.Plan.schema.filter.k(A.Ana.type.k(A.Ana.bin(X.And{}, Done{A.Ana{D.TBool{}, rs, k, tot, loc}}, A.Expr.analyse(e, s0))), s0) == Done{s} : E.Res(List<&2, S.Field>)}
+      h => and_e(A.Expr.analyse(e, s0), rs, k, tot, loc, s0, s, h)
+    case Done{A.Ana{D.TU32{}, rs, k, tot, loc}}:
+      Empty.absurd({P.Plan.schema.filter.k(A.Ana.type.k(A.Expr.analyse(e, s1)), s1) == Done{s} : E.Res(List<&2, S.Field>)} -> {P.Plan.schema.filter.k(A.Ana.type.k(A.Ana.bin(X.And{}, Done{A.Ana{D.TU32{}, rs, k, tot, loc}}, A.Expr.analyse(e, s0))), s0) == Done{s} : E.Res(List<&2, S.Field>)}, fail_done(List<&2, S.Field>, E.TypeMismatch{"filter", "bool", "u32"}, s1, h1))
+    case Done{A.Ana{D.TI32{}, rs, k, tot, loc}}:
+      Empty.absurd({P.Plan.schema.filter.k(A.Ana.type.k(A.Expr.analyse(e, s1)), s1) == Done{s} : E.Res(List<&2, S.Field>)} -> {P.Plan.schema.filter.k(A.Ana.type.k(A.Ana.bin(X.And{}, Done{A.Ana{D.TI32{}, rs, k, tot, loc}}, A.Expr.analyse(e, s0))), s0) == Done{s} : E.Res(List<&2, S.Field>)}, fail_done(List<&2, S.Field>, E.TypeMismatch{"filter", "bool", "i32"}, s1, h1))
+    case Done{A.Ana{D.TF32{}, rs, k, tot, loc}}:
+      Empty.absurd({P.Plan.schema.filter.k(A.Ana.type.k(A.Expr.analyse(e, s1)), s1) == Done{s} : E.Res(List<&2, S.Field>)} -> {P.Plan.schema.filter.k(A.Ana.type.k(A.Ana.bin(X.And{}, Done{A.Ana{D.TF32{}, rs, k, tot, loc}}, A.Expr.analyse(e, s0))), s0) == Done{s} : E.Res(List<&2, S.Field>)}, fail_done(List<&2, S.Field>, E.TypeMismatch{"filter", "bool", "f32"}, s1, h1))
+    case Done{A.Ana{D.TStr{}, rs, k, tot, loc}}:
+      Empty.absurd({P.Plan.schema.filter.k(A.Ana.type.k(A.Expr.analyse(e, s1)), s1) == Done{s} : E.Res(List<&2, S.Field>)} -> {P.Plan.schema.filter.k(A.Ana.type.k(A.Ana.bin(X.And{}, Done{A.Ana{D.TStr{}, rs, k, tot, loc}}, A.Expr.analyse(e, s0))), s0) == Done{s} : E.Res(List<&2, S.Field>)}, fail_done(List<&2, S.Field>, E.TypeMismatch{"filter", "bool", "str"}, s1, h1))
 
 # Filter{e, Filter{q, z}} resolving to s makes Filter{q & e, z} resolve to s;
 # r is z's schema
@@ -691,7 +685,7 @@ def and_filter(+q: X.Expr, +e: X.Expr, r: E.Res(List<&2, S.Field>), -s1: List<&2
     case Fail{err}:
       Empty.absurd({P.Plan.schema.filter(X.Bin{X.And{}, q, e}, Fail{err}) == Done{s} : E.Res(List<&2, S.Field>)}, fail_done(List<&2, S.Field>, err, s1, h1))
     case Done{+s0}:
-      and_q(X.Expr.type(q, s0), X.Expr.is_agg(q), s0, s1, s, e, h1)(h)
+      and_q(A.Expr.analyse(q, s0), s0, s1, s, e, h1)(h)
 
 # Filter{e, y} resolves to s when y resolves to s1 and e over s1 to s
 def filter_over(+e: X.Expr, -y: P.Plan, -s1: List<&2, S.Field>, -s: List<&2, S.Field>, iy: {P.Plan.schema(y) == Done{s1} : E.Res(List<&2, S.Field>)}, h: {P.Plan.schema.filter(e, Done{s1}) == Done{s} : E.Res(List<&2, S.Field>)}) -> {P.Plan.schema(P.Filter{e, y}) == Done{s} : E.Res(List<&2, S.Field>)}:
@@ -864,10 +858,10 @@ def Laws.head_pass_merges(p, n):
       hwrap_nah(n, P.ScanCsv{path, o, sc}, {==}, {==})
     case P.Source{nm, sc}:
       hwrap_nah(n, P.Source{nm, sc}, {==}, {==})
-    case P.Select{es, x}:
-      Laws.head_pass_merges(x, n)
-    case P.WithColumns{es, x}:
-      Laws.head_pass_merges(x, n)
+    case P.Select{+es, +x}:
+      hwrap_nah(P.Opt.hstop(P.Opt.sinks(es, P.Plan.schema(x)), n), P.Select{es, P.Opt.head(x, P.Opt.hpass(P.Opt.sinks(es, P.Plan.schema(x)), n))}, {==}, Laws.head_pass_merges(x, P.Opt.hpass(P.Opt.sinks(es, P.Plan.schema(x)), n)))
+    case P.WithColumns{+es, +x}:
+      hwrap_nah(P.Opt.hstop(P.Opt.sinks(es, P.Plan.schema(x)), n), P.WithColumns{es, P.Opt.head(x, P.Opt.hpass(P.Opt.sinks(es, P.Plan.schema(x)), n))}, {==}, Laws.head_pass_merges(x, P.Opt.hpass(P.Opt.sinks(es, P.Plan.schema(x)), n)))
     case P.Filter{e, +x}:
       hwrap_nah(n, P.Filter{e, P.Opt.head(x, None{})}, {==}, Laws.head_pass_merges(x, None{}))
     case P.Sort{ks, +x}:

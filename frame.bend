@@ -195,7 +195,8 @@ def is_not_null(e: X.Expr) -> X.Expr:
 def fill_null(e: X.Expr, v: X.Expr) -> X.Expr:
   X.FillNull{e, v}
 
-# ---- aggregations (inside group_by only; see DESIGN.md 4.13) ------------------------
+# ---- aggregations: group_by aggs, and global reductions anywhere in select /
+# with_columns / filter, eager and lazy (DESIGN.md 15.2.5, 15.4) ------------------------
 
 def sum(e: X.Expr) -> X.Expr:
   X.Agg{X.Sum{}, e}
@@ -373,6 +374,38 @@ def empty_env() -> P.Env:
 def source(name: String, f: C.Frame) -> P.Env & P.Plan:
   P.Lazy.source(name, f)
 
+# one more named frame in an env (several sources in one plan, DESIGN.md 15.2.2):
+# the env holding it and the Source plan Source{name, schema of f}. A name bound
+# twice is reported by validate_bindings / collect, not here.
+def add_source(env: P.Env, name: String, f: C.Frame) -> P.Env & P.Plan:
+  P.Env.add(env, name, f)
+
+# the bindings a plan needs, checked without running it (DESIGN.md 15.7): every
+# name bound once in env, every Source of p present with its schema. Hands env
+# back untouched; the error texts are collect's.
+def validate_bindings(p: P.Plan, env: P.Env) -> P.Env & E.Res(Unit):
+  Q.Exec.validate(p, env)
+
+# an O(n) deep copy (same height, names, order and cells)
+def clone(f: C.Frame) -> C.Frame & C.Frame:
+  C.Frame.clone(f)
+
+# and_then: k runs on the frame; an error passes through
+def then(r: E.ResT(C.Frame), k: C.Frame -> E.ResT(C.Frame)) -> E.ResT(C.Frame):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{f}:
+      k(f)
+
+# and_then into IO (write_csv, collect chains); an error passes through
+def then_io(r: E.ResT(C.Frame), k: C.Frame -> IO(E.ResT(C.Frame))) -> IO(E.ResT(C.Frame)):
+  match r:
+    case Fail{e}:
+      IO.pure(E.ResT(C.Frame), Fail{e})
+    case Done{f}:
+      k(f)
+
 # reads a bounded prefix of a CSV file now (header and the first infer_rows rows, 64 KiB
 # chunks) to freeze the schema; the whole file is read once, at collect (DESIGN.md 15.6.4)
 def scan_csv(path: String) -> IO(E.Res(P.Plan)):
@@ -432,10 +465,26 @@ def schema_show(r: E.Res(List<&2, S.Field>)) -> String:
 def explain(p: P.Plan) -> String:
   P.Plan.explain(p)
 
-# the same plan after the rewrites (filter merge, pushdown, head merge, projection)
+# the plan collect runs (DESIGN.md 15.2.8): only the certified rewrites (Head
+# merging; a Head sinks only below a Select/WithColumns the analysis certifies
+# height preserving)
 def optimize(p: P.Plan) -> P.Plan:
-  P.Plan.optimize(p)
+  P.Optimize.release(p)
 
-# optimise, then execute: the frame, or the first error
+# every rewrite (filter merge, pushdown, head, projection), opt-in, outside the
+# release guarantee
+def optimize_full(p: P.Plan) -> P.Plan:
+  P.Plan.optimize_full(p)
+
+# optimise (DF.optimize), then execute: the frame, or the first error (the
+# plan's schema error, then a binding error, then IO / data errors)
 def collect(p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
   Q.Lazy.collect(p, env)
+
+# execute the plan as written (no rewrite)
+def collect_raw(p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
+  Q.Exec.run(p, env)
+
+# execute after DF.optimize_full
+def collect_full(p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
+  Q.Lazy.collect_full(p, env)

@@ -1,4 +1,3 @@
-#! xfail B04-b
 # B04-b (Fable B8, Astra G4): a Source used twice (self-join) passes collect_schema and
 # fails collect ("source not in env (or used twice)"). DESIGN.md 15.7 use counting: Exec
 # clones the frame at every use but the last, so a self-join sees two identical frames.

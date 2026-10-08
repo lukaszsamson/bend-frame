@@ -1,4 +1,3 @@
-#! xfail B01-c
 # B01-c (Astra E): the height of a zero-column frame must stay what the contract says and
 # become visible only as the contract says. DESIGN.md 15.4 C1, C22-C24 and the rule below
 # the table: select([]) answers Frame{0, []}; a zero-column frame of height h (what `drop`

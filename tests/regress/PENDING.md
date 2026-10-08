@@ -12,11 +12,12 @@ if the defect is not fixed in the same change. Expected output (`#|` lines) come
 
 | file | rows | API it needs (DESIGN.md) | milestone |
 |---|---|---|---|
-| `B04_c_add_source.bend.txt` | B04-c | `DF.add_source(env, name, f) -> Env & Plan` (15.2.2) | M1 |
-| `B04_d_validate_bindings.bend.txt` | B04-d | `DF.validate_bindings(p, env) -> Env & Res(Unit)` (15.2.2, 15.7) | M1 |
 | `B04_i_row_cap.bend.txt` | B04-i | `K.Kernel.max_rows()`, `K.Kernel.check_rows(n) -> Maybe<&2, E.Err>` (15.8), `DF.concat_vertical` (M3); the join case needs only the guard | M1 (+M3 concat) |
 | `B01_c_zero_column_m3.bend.txt` | B01-c (C22, C24) | `DF.drop / DF.lazy_drop`, `DF.unique / DF.lazy_unique`, `DF.concat_vertical / DF.lazy_concat_vertical` (15.2.3, 15.2.4) | M3 |
 | `B05_h_proof_negative.bend.txt` | B05-h | no API: a negative proof fixture (expects `SOME PROOFS FAIL`). It runs and passes under `scripts/test.sh` today, but `make check` runs `bend --check-only` on every `tests/**/*.bend` and fails on it. Activate once `make check` skips fixtures whose expectation is `SOME PROOFS FAIL` (or move it to `tests/proof_negative/` with that exclusion, plan T5). | M0 harness |
+
+Activated in M1 (B01/B04 agent): `B04_c_add_source.bend`, `B04_d_validate_bindings.bend` (expectations
+unchanged; `DF.validate_bindings` reports the first error with collect's texts, as assumed below).
 
 Activated in M1 (B03 numerics): `B03_d_floor_div`, `B03_e_try_cast`, `B03_i_checked_i32` (now
 `tests/regress/*.bend`, passing).

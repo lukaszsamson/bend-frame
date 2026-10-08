@@ -155,7 +155,7 @@ def main() -> IO(Unit):
     IO.print(sel([X.Agg{X.Sum{}, X.Bin{X.Mul{}, col("a"), lu(2)}}, X.Agg{X.Mean{}, X.Bin{X.Add{}, X.Cast{col("a"), D.TF32{}}, col("f")}}]))
     IO.print(sel([X.Agg{X.Sum{}, X.Bin{X.Mul{}, col("a"), lu(2)}}, X.Alias{X.Agg{X.Mean{}, X.Bin{X.Add{}, X.Cast{col("a"), D.TF32{}}, col("f")}}, "m"}]))
     IO.print(sel([X.Alias{X.Agg{X.Sum{}, lu(2)}, "s2"}, X.Agg{X.Len{}, lu(1)}, X.Alias{X.Agg{X.Max{}, X.Lit{D.SStr{"z"}}}, "mz"}]))
-    # an aggregation of an aggregation is a 1-row aggregation
+    # an aggregation of an aggregation is refused (DESIGN.md 15.3.1, the shared analysis)
     IO.print(sel([X.Agg{X.Count{}, X.Agg{X.Sum{}, col("a")}}]))
     # Eval.expr: a 1-row column
     IO.print(on(f => ex.k(V.Eval.expr(f, X.Agg{X.Min{}, col("f")}))))
@@ -186,7 +186,7 @@ def main() -> IO(Unit):
 #|error: DuplicateColumn: a
 #|h=1 a:u32=[24] | m:f32=[4.125]
 #|h=1 s2:u32=[2] | literal:u32=[6] | mz:str=[z]
-#|h=1 a:u32=[1]
+#|error: InvalidOperation: nested aggregation: col("a").sum().count()
 #|f32=[-1]
 #|h=1 sum:f32=[1] | mean:f32=[0.1]
 #|h=1 first:u32=[null] | last:u32=[9] | n_unique:u32=[3] | count:u32=[3] | len:u32=[4]

@@ -207,8 +207,7 @@ def main() -> IO(Unit):
 #|id:u32, region:str, product:str, qty:u32, price:f32, discount:f32, ok:bool
 #|GROUP_BY [col("region")] AGG [lit(1).len().alias("n")] MAINTAIN_ORDER
 #|  FILTER col("ok")
-#|    SELECT [col("region"), col("ok")]
-#|      SCAN CSV bench/fixtures/tiny.csv [id:u32, region:str, product:str, qty:u32, price:f32, discount:f32, ok:bool]
+#|    SCAN CSV bench/fixtures/tiny.csv [id:u32, region:str, product:str, qty:u32, price:f32, discount:f32, ok:bool]
 #|shape: (5, 2)
 #|+---------+-----+
 #|| region  | n   |

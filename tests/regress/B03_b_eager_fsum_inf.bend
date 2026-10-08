@@ -1,4 +1,3 @@
-#! xfail B04-a
 # (B03 fixed in M1: eager and grouped runs pass; the lazy select runs still refuse the
 # reduction until B04-a lands. Remove the marker with B04-a.)
 # B03-b (Astra C audit): the eager reduction (Kernel.fsum, Kahan) has the same inf - inf

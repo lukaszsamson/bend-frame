@@ -10,17 +10,21 @@
 #
 #   ScanCsv  -> Csv.read_with(path, opts, the plan's dtypes) (strict), then the
 #               file's schema must equal the plan's (names included)
-#   Source   -> Env.take (a frame is consumed by ONE Source: a plan naming a
-#               frame twice, e.g. a self join, fails with InvalidOperation);
-#               the frame's schema must equal the Source's
-#   Select   -> plain `Col`s only: Frame.select_names (moves, no clone);
-#               else Eval.select
+#   Source   -> use counting (DESIGN.md 15.7): `Exec.mark` flags every ISource
+#               that is the LAST use of its name in the code; earlier uses
+#               clone the frame and leave it in the env (Env.clone), the last
+#               one takes it (Env.take, no copy). A self join therefore sees
+#               two identical frames. The frame's schema must equal the Source's
+#   Select   -> a non-empty list of plain `Col`s: Frame.select_names (moves,
+#               no clone); else Eval.select (select([]) is (0, 0))
 #   WithColumns / Filter -> Eval.with_columns / Eval.filter
 #   Sort / GroupBy / Join -> Sort.frame / GroupBy.run / Join.run
 #   Head     -> Frame.head
 #
-# Exec.run runs Plan.schema first and fails early with its error.
-# Lazy.collect(p, env) = Exec.run(Plan.optimize(p), env).
+# Exec.run = Plan.schema (its static error first), then Exec.validate (the
+# bindings: uniqueness over the whole env, then presence and schema per Source
+# in postfix order; DF.validate_bindings), then execution.
+# Lazy.collect(p, env) = Exec.run(Optimize.release(p), env).
 #
 # Idioms (DESIGN.md section 9): helpers above callers; match only on params;
 # pairs taken apart in a helper's parameter.
@@ -39,7 +43,7 @@ import ./plan.bend as P
 
 type Instr is Data:
   IScan{path: String, opts: R.CsvOpts, schema: List<&2, S.Field>}
-  ISource{name: String, schema: List<&2, S.Field>}
+  ISource{name: String, schema: List<&2, S.Field>, last: Bool}
   ISelect{exprs: List<&2, X.Expr>}
   IWith{exprs: List<&2, X.Expr>}
   IFilter{pred: X.Expr}
@@ -57,7 +61,7 @@ def Exec.compile(p: P.Plan, acc: List<&2, Instr>) -> List<&2, Instr>:
     case P.ScanCsv{path, o, s}:
       IScan{path, o, s} <> acc
     case P.Source{n, s}:
-      ISource{n, s} <> acc
+      ISource{n, s, True{}} <> acc
     case P.Select{es, x}:
       Exec.compile(x, ISelect{es} <> acc)
     case P.WithColumns{es, x}:
@@ -72,6 +76,31 @@ def Exec.compile(p: P.Plan, acc: List<&2, Instr>) -> List<&2, Instr>:
       Exec.compile(l, Exec.compile(r, IJoin{how, lo, ro} <> acc))
     case P.Head{n, x}:
       Exec.compile(x, IHead{n} <> acc)
+
+# does a later instruction read the Source `n`?
+def Exec.later(code: List<&2, Instr>, +n: String) -> Bool:
+  match code:
+    case Nil{}:
+      False{}
+    case ISource{m, s, l} <> t:
+      Bool.or(String.eq(m, n), Exec.later(t, n))
+    case i <> t:
+      Exec.later(t, n)
+
+def Exec.mark.i(i: Instr, +rest: List<&2, Instr>) -> Instr:
+  match i:
+    case ISource{+n, s, l}:
+      ISource{n, s, Bool.not(Exec.later(rest, n))}
+    case other:
+      other
+
+# flag each ISource with whether it is the last use of its name (15.7 use counting)
+def Exec.mark(code: List<&2, Instr>) -> List<&2, Instr>:
+  match code:
+    case Nil{}:
+      Nil{}
+    case i <> +t:
+      Exec.mark.i(i, t) <> Exec.mark(t)
 
 def Exec.underflow() -> E.Err:
   E.InvalidOperation{"exec: malformed plan (stack underflow)"}
@@ -98,7 +127,7 @@ def Exec.check(what: String, +s: List<&2, S.Field>, r: C.Frame & List<&2, S.Fiel
 def Exec.source.k(+n: String, s: List<&2, S.Field>, m: Maybe<&1, C.Frame>, stack: List<&1, C.Frame>) -> E.ResT(List<&1, C.Frame>):
   match m:
     case None{}:
-      Fail{E.InvalidOperation{"source not in env (or used twice): " ++ n}}
+      Fail{E.InvalidOperation{"source not in env: " ++ n}}
     case Some{f}:
       Exec.push(Exec.check("source " ++ n, s, S.Frame.schema(f)), stack)
 
@@ -127,8 +156,16 @@ def Exec.select.k(cols: Bool, f: C.Frame, +es: List<&2, X.Expr>) -> E.ResT(C.Fra
     case False{}:
       V.Eval.select(f, es)
 
+# a non-empty list of plain columns (select([]) goes through Eval.select: (0, 0))
+def Exec.plain(es: List<&2, X.Expr>) -> Bool:
+  match es:
+    case Nil{}:
+      False{}
+    case e <> t:
+      Bool.and(Exec.is_col(e), Exec.all_cols(t))
+
 def Exec.select(f: C.Frame, +es: List<&2, X.Expr>) -> E.ResT(C.Frame):
-  Exec.select.k(Exec.all_cols(es), f, es)
+  Exec.select.k(Exec.plain(es), f, es)
 
 # a one-input operator over the popped frame
 def Exec.unary(i: Instr, f: C.Frame) -> E.ResT(C.Frame):
@@ -163,10 +200,18 @@ def Exec.join(how: J.JoinHow, lo: List<&2, String>, ro: List<&2, String>, stack:
     case _:
       Fail{Exec.underflow()}
 
+# the last use of a name takes the frame; an earlier one clones it
+def Exec.source.get(last: Bool, env: P.Env, +n: String) -> P.Env & Maybe<&1, C.Frame>:
+  match last:
+    case True{}:
+      P.Env.take(env, n)
+    case False{}:
+      P.Env.clone(env, n)
+
 def Exec.step.pure(i: Instr, env: P.Env, stack: List<&1, C.Frame>) -> St:
   match i:
-    case ISource{+n, s}:
-      Exec.source(n, s, P.Env.take(env, n), stack)
+    case ISource{+n, s, last}:
+      Exec.source(n, s, Exec.source.get(last, env, n), stack)
     case IJoin{how, lo, ro}:
       St{env, Exec.join(how, lo, ro, stack)}
     case other:
@@ -240,20 +285,95 @@ def Exec.fin(st: St) -> E.ResT(C.Frame):
     case St{env, r}:
       Exec.fin.r(r)
 
-def Exec.run.k(r: E.Res(List<&2, S.Field>), p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
+# ---- bindings (DESIGN.md 15.7, DF.validate_bindings) ---------------------------------------
+
+def Exec.bnames(bs: List<&2, P.Bind>) -> List<&2, String>:
+  match bs:
+    case Nil{}:
+      Nil{}
+    case P.Bind{n, s} <> t:
+      n <> Exec.bnames(t)
+
+def Exec.bfind(bs: List<&2, P.Bind>, +n: String) -> Maybe<&2, List<&2, S.Field>>:
+  match bs:
+    case Nil{}:
+      None{}
+    case P.Bind{+m, s} <> t:
+      Bool.pick(Maybe<&2, List<&2, S.Field>>, String.eq(m, n), Some{s}, Exec.bfind(t, n))
+
+def Exec.bind.k(+n: String, +s: List<&2, S.Field>, m: Maybe<&2, List<&2, S.Field>>) -> Maybe<&2, E.Err>:
+  match m:
+    case None{}:
+      Some{E.InvalidOperation{"source not in env: " ++ n}}
+    case Some{+fs}:
+      Bool.pick(Maybe<&2, E.Err>, S.Schema.eq(fs, s), None{}, Some{E.InvalidOperation{"source " ++ n ++ ": data schema [" ++ S.Schema.show(fs) ++ "] differs from the plan's [" ++ S.Schema.show(s) ++ "]"}})
+
+# presence and schema of every Source, in postfix (execution) order: the first error
+def Exec.binds(code: List<&2, Instr>, +bs: List<&2, P.Bind>) -> Maybe<&2, E.Err>:
+  match code:
+    case Nil{}:
+      None{}
+    case ISource{+n, +s, l} <> t:
+      Maybe.or(&2, E.Err, Exec.bind.k(n, s, Exec.bfind(bs, n)), Exec.binds(t, bs))
+    case i <> t:
+      Exec.binds(t, bs)
+
+def Exec.validate.fin(m: Maybe<&2, E.Err>) -> E.Res(Unit):
+  match m:
+    case Some{e}:
+      Fail{e}
+    case None{}:
+      Done{Unit{}}
+
+def Exec.validate.chk(d: Maybe<&2, String>, +p: P.Plan, +bs: List<&2, P.Bind>) -> E.Res(Unit):
+  match d:
+    case Some{n}:
+      Fail{E.InvalidOperation{"source bound twice in env: " ++ n}}
+    case None{}:
+      Exec.validate.fin(Exec.binds(Exec.compile(p, Nil{}), bs))
+
+def Exec.validate.k(+p: P.Plan, r: P.Env & List<&2, P.Bind>) -> P.Env & E.Res(Unit):
+  (env, +bs) = r
+  (env, Exec.validate.chk(C.Names.dup(Exec.bnames(bs), Nil{}, None{}), p, bs))
+
+# the bindings a plan needs, checked against env without running anything: env
+# binds each name once ("source bound twice in env: <name>", over the whole env,
+# first), then every Source of p in postfix order is present ("source not in env:
+# <name>") with the plan's schema ("source <name>: data schema [..] differs from
+# the plan's [..]"). env comes back untouched.
+def Exec.validate(+p: P.Plan, env: P.Env) -> P.Env & E.Res(Unit):
+  Exec.validate.k(p, P.Env.info(env))
+
+# ---- run / collect ---------------------------------------------------------------------------
+
+def Exec.run.v(+p: P.Plan, r: P.Env & E.Res(Unit)) -> IO(E.ResT(C.Frame)):
+  (env, v) = r
+  match v:
+    case Fail{e}:
+      IO.pure(E.ResT(C.Frame), Fail{e})
+    case Done{u}:
+      do IO<E.ResT(C.Frame)>:
+        st : St <- Exec.loop(Exec.mark(Exec.compile(p, Nil{})), St{env, Done{Nil{}}})
+        return Exec.fin(st)
+
+def Exec.run.k(r: E.Res(List<&2, S.Field>), +p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
   match r:
     case Fail{e}:
       IO.pure(E.ResT(C.Frame), Fail{e})
     case Done{s}:
-      do IO<E.ResT(C.Frame)>:
-        st : St <- Exec.loop(Exec.compile(p, Nil{}), St{env, Done{Nil{}}})
-        return Exec.fin(st)
+      Exec.run.v(p, Exec.validate(p, env))
 
-# run a plan as written (no optimisation) over the frames of env; the plan's
-# schema is resolved first and its error, if any, is the result
+# run a plan as written (no optimisation) over the frames of env: the plan's
+# schema is resolved first and its error, if any, is the result; then the
+# bindings (Exec.validate); then the plan. env is consumed (frames the plan does
+# not name are dropped).
 def Exec.run(+p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
   Exec.run.k(P.Plan.schema(p), p, env)
 
-# Polars collect(): optimise, then run
+# Polars collect(): the release optimizer (Optimize.release), then run
 def Lazy.collect(+p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
-  Exec.run(P.Plan.optimize(p), env)
+  Exec.run(P.Optimize.release(p), env)
+
+# every rewrite of Plan.optimize_full (opt-in, outside the guarantee), then run
+def Lazy.collect_full(+p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
+  Exec.run(P.Plan.optimize_full(p), env)

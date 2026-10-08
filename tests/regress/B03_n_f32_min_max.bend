@@ -1,4 +1,3 @@
-#! xfail B04-a
 # (B03 fixed in M1: eager and grouped runs pass; the lazy select runs still refuse the
 # reduction until B04-a lands. Remove the marker with B04-a.)
 # B03-n: f32 min/max depend on NaN position (F32.min(NaN, 1) = 1, F32.min(1, NaN) = NaN)

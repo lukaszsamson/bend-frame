@@ -1,4 +1,3 @@
-#! xfail B01-f
 # B01-f: Opt.head sinks below every Select/WithColumns whatever its expressions are. It
 # may only sink below a node whose expressions are all KRow and total, with a non-empty
 # list (DESIGN.md 15.3.2 design note ii, 15.4 rule): a reduction computed over the full

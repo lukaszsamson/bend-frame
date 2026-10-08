@@ -6,7 +6,9 @@
 # here touches column data; `src/exec.bend` runs a plan.
 #
 # Plan.schema (collect_schema) is strict and data-free, and agrees with the
-# eager verbs of eval.bend on every plan it accepts:
+# eager verbs of eval.bend on every plan it accepts. Expressions are typed by
+# the shared analysis (A.Ana.type = the dtype of A.Expr.analyse, src/analysis.bend),
+# the same function Eval's type check uses:
 #   - Select: each expression typed against the input schema (first error in
 #     list order), then DuplicateColumn on repeated output names
 #     (Schema.project.chk, the same check Schema.project uses, so a Select of
@@ -14,11 +16,12 @@
 #   - WithColumns: every expression sees the INPUT schema (Polars); type
 #     errors in list order, then DuplicateColumn; then Schema.with in order.
 #   - Filter: the predicate's type error, else TypeMismatch{"filter", "bool",
-#     got}, else the aggregation check.
-#   - v1 refuses aggregations in Select/WithColumns/Filter (InvalidOperation),
-#     DESIGN 4.13: the lazy layer does not broadcast aggregations (eager Eval
-#     does). This keeps every non-GroupBy operator row-wise, which is what
-#     makes predicate and Head pushdown sound without side conditions.
+#     got}.
+#   - Global reductions are accepted in Select/WithColumns/Filter, as eagerly
+#     (DESIGN.md 15.2.5, 15.4: B04-a); a reduction over a reduction is the
+#     analysis' "nested aggregation" error. Row preservation is therefore not
+#     "no Agg node" any more: the optimizer asks the analysis (Ana.preserving,
+#     Ana.rowwise_total).
 #   - Sort: every key must exist (ColumnNotFound), schema unchanged.
 #   - GroupBy: G.Grp.validate (groupby.bend, what GroupBy.run checks): type
 #     errors (keys, then aggs), >= 1 key, keys non-aggregate, each agg an
@@ -35,18 +38,32 @@
 #     `infer_rows` rows (Csv.infer), so Plan.schema stays pure; Exec reads
 #     the file with exactly those dtypes (strict) and checks the names.
 #
-# Plan.optimize runs only on plans whose schema resolves (an ill-typed plan
-# comes back unchanged, so Plan.schema(optimize(p)) == Plan.schema(p) holds
-# trivially on errors). Four separate structural passes, in this order:
-#   1. Opt.merge  Filter{p, Filter{q, x}} -> Filter{q & p, x}
+# Optimizers (DESIGN.md 15.2.8). Both run only on plans whose schema resolves
+# (an ill-typed plan comes back unchanged, so the schema is kept trivially on
+# errors).
+#   Optimize.release (DF.optimize, used by collect): the certified fragment,
+#     today only Opt.head: Head{n, Head{m, x}} -> Head{min n m, x}, and a Head
+#     sinks below a Select/WithColumns ONLY when the analysis certifies it as
+#     height preserving (Ana.preserving: a non-empty list of KRow, total
+#     expressions). Literal-only, reduction, mixed, empty and fallible (strict
+#     cast) nodes are barriers (B01-a, B01-f, B04-j); so is every other node.
+#   Plan.optimize_full (DF.optimize_full, opt-in, outside the guarantee): four
+#     structural passes, in this order:
+#   1. Opt.merge  Filter{p, Filter{q, x}} -> Filter{q & p, x}; applied only
+#                 when every Filter predicate of the plan is total and no
+#                 reduction (Opt.merge_safe), since merging evaluates the outer
+#                 predicate on rows the inner one removed.
 #   2. Opt.push   predicate pushdown: predicates are split into conjuncts and
 #                 sunk through Select (when every column they read is a plain
 #                 `Col`/`Alias{Col}` output; renamed back through the alias),
 #                 WithColumns (when they read no column it produces) and Sort;
-#                 never through Head, GroupBy, Join. Conjuncts that cannot
-#                 move stay where they are (re-joined with `&`).
-#   3. Opt.head   Head{n, Head{m, x}} -> Head{min n m, x}; Head sinks below
-#                 Select/WithColumns.
+#                 never through Head, GroupBy, Join. Only total, reduction-free
+#                 predicates move, and only through Select/WithColumns whose
+#                 expressions are total and reduction-free (and, for Select,
+#                 height preserving: some KRow); every other Filter/node is a
+#                 barrier. Conjuncts that cannot move stay where they are
+#                 (re-joined with `&`).
+#   3. Opt.head   as in Optimize.release.
 #   4. Opt.proj   projection pushdown: the names needed above each node; a
 #                 `Select{[Col ..]}` of the needed columns (source order) is
 #                 inserted directly over a Source/ScanCsv when it narrows it
@@ -60,6 +77,7 @@ import ./err.bend as E
 import ./column.bend as C
 import ./schema.bend as S
 import ./expr.bend as X
+import ./analysis.bend as A
 import ./csv.bend as V
 import ./sort.bend as O
 import ./join.bend as J
@@ -87,29 +105,22 @@ type Env is Type:
 type Ren is Data:
   Ren{out: String, src: String}
 
+# what an Env binds under a name (Env.info): the frame's schema
+type Bind is Data:
+  Bind{name: String, schema: List<&2, S.Field>}
+
 # ---- Plan.schema ------------------------------------------------------------------
 
-def Plan.msg.select() -> String:
-  "aggregation in select (v1: use group_by)"
-
-def Plan.msg.with_columns() -> String:
-  "aggregation in with_columns (v1: use group_by)"
-
-def Plan.msg.filter() -> String:
-  "aggregation in filter (v1: use group_by)"
-
-# one row-wise output field: the type error, else the aggregation refusal
-def Plan.field.k(t: E.Res(D.DType), agg: Bool, n: String, msg: String) -> E.Res(S.Field):
-  match t agg:
-    case Fail{e} _:
+# one output field: the expression's dtype (the shared analysis), or its error
+def Plan.field.k(t: E.Res(D.DType), n: String) -> E.Res(S.Field):
+  match t:
+    case Fail{e}:
       Fail{e}
-    case Done{d} True{}:
-      Fail{E.InvalidOperation{msg}}
-    case Done{d} False{}:
+    case Done{d}:
       Done{S.Field{n, d}}
 
-def Plan.field(msg: String, +e: X.Expr, +s: List<&2, S.Field>) -> E.Res(S.Field):
-  Plan.field.k(X.Expr.type(e, s), X.Expr.is_agg(e), X.Expr.name(e), msg)
+def Plan.field(+e: X.Expr, +s: List<&2, S.Field>) -> E.Res(S.Field):
+  Plan.field.k(A.Ana.type(e, s), X.Expr.name(e))
 
 # cons a field result onto the rest: the earlier (outer) error wins
 def Plan.fields.put(f: E.Res(S.Field), r: E.Res(List<&2, S.Field>)) -> E.Res(List<&2, S.Field>):
@@ -121,21 +132,21 @@ def Plan.fields.put(f: E.Res(S.Field), r: E.Res(List<&2, S.Field>)) -> E.Res(Lis
     case Done{x} Done{xs}:
       Done{x <> xs}
 
-# the fields of row-wise expressions over one input schema, first error in
-# list order (no duplicate check: Schema.project.chk does it after)
-def Plan.fields(es: List<&2, X.Expr>, +msg: String, +s: List<&2, S.Field>) -> E.Res(List<&2, S.Field>):
+# the fields of expressions over one input schema, first error in list order
+# (no duplicate check: Schema.project.chk does it after)
+def Plan.fields(es: List<&2, X.Expr>, +s: List<&2, S.Field>) -> E.Res(List<&2, S.Field>):
   match es:
     case Nil{}:
       Done{Nil{}}
     case e <> t:
-      Plan.fields.put(Plan.field(msg, e, s), Plan.fields(t, msg, s))
+      Plan.fields.put(Plan.field(e, s), Plan.fields(t, s))
 
 def Plan.schema.select(es: List<&2, X.Expr>, r: E.Res(List<&2, S.Field>)) -> E.Res(List<&2, S.Field>):
   match r:
     case Fail{e}:
       Fail{e}
     case Done{s}:
-      S.Schema.project.chk(Plan.fields(es, Plan.msg.select(), s))
+      S.Schema.project.chk(Plan.fields(es, s))
 
 # Schema.with each output field in order
 def Plan.with_all(fs: List<&2, S.Field>, s: List<&2, S.Field>) -> List<&2, S.Field>:
@@ -157,17 +168,15 @@ def Plan.schema.wc(es: List<&2, X.Expr>, r: E.Res(List<&2, S.Field>)) -> E.Res(L
     case Fail{e}:
       Fail{e}
     case Done{+s}:
-      Plan.schema.wc.k(S.Schema.project.chk(Plan.fields(es, Plan.msg.with_columns(), s)), s)
+      Plan.schema.wc.k(S.Schema.project.chk(Plan.fields(es, s)), s)
 
-def Plan.schema.filter.k(t: E.Res(D.DType), agg: Bool, s: List<&2, S.Field>) -> E.Res(List<&2, S.Field>):
-  match t agg:
-    case Fail{e} _:
+def Plan.schema.filter.k(t: E.Res(D.DType), s: List<&2, S.Field>) -> E.Res(List<&2, S.Field>):
+  match t:
+    case Fail{e}:
       Fail{e}
-    case Done{D.TBool{}} False{}:
+    case Done{D.TBool{}}:
       Done{s}
-    case Done{D.TBool{}} True{}:
-      Fail{E.InvalidOperation{Plan.msg.filter()}}
-    case Done{other} _:
+    case Done{other}:
       Fail{E.TypeMismatch{"filter", "bool", D.DType.show(other)}}
 
 def Plan.schema.filter(+e: X.Expr, r: E.Res(List<&2, S.Field>)) -> E.Res(List<&2, S.Field>):
@@ -175,7 +184,7 @@ def Plan.schema.filter(+e: X.Expr, r: E.Res(List<&2, S.Field>)) -> E.Res(List<&2
     case Fail{err}:
       Fail{err}
     case Done{+s}:
-      Plan.schema.filter.k(X.Expr.type(e, s), X.Expr.is_agg(e), s)
+      Plan.schema.filter.k(A.Ana.type(e, s), s)
 
 def Plan.sort.miss.k(has: Bool, n: String, rest: Maybe<&2, E.Err>) -> Maybe<&2, E.Err>:
   match has:
@@ -301,6 +310,41 @@ def Opt.refs(es: List<&2, X.Expr>, acc: List<&2, String>) -> List<&2, String>:
     case e <> t:
       X.Expr.refs.go(e, Opt.refs(t, acc))
 
+# ---- the analysis' certificates over a node's input schema (an input whose schema
+# does not resolve certifies nothing) --------------------------------------------------
+
+# Head may sink below Select/WithColumns{es}: non-empty, every expression KRow and total
+def Opt.sinks(+es: List<&2, X.Expr>, r: E.Res(List<&2, S.Field>)) -> Bool:
+  match r:
+    case Fail{e}:
+      False{}
+    case Done{+s}:
+      A.Ana.preserving(es, s)
+
+# a predicate that may see more rows than its Filter gives it: total, no reduction
+def Opt.pred_ok(+e: X.Expr, r: E.Res(List<&2, S.Field>)) -> Bool:
+  match r:
+    case Fail{err}:
+      False{}
+    case Done{+s}:
+      A.Ana.rowwise_total(e, s)
+
+# a row filter commutes with Select{es}: height preserving, total, no reduction
+def Opt.sel_ok(+es: List<&2, X.Expr>, r: E.Res(List<&2, S.Field>)) -> Bool:
+  match r:
+    case Fail{e}:
+      False{}
+    case Done{+s}:
+      A.Ana.rowwise_select(es, s)
+
+# a row filter commutes with WithColumns{es}: total, no reduction
+def Opt.wc_ok(+es: List<&2, X.Expr>, r: E.Res(List<&2, S.Field>)) -> Bool:
+  match r:
+    case Fail{e}:
+      False{}
+    case Done{+s}:
+      A.Ana.rowwise_with(es, s)
+
 # ---- pass 1: filter merging ---------------------------------------------------------------
 
 # Filter{e, x} where x is already merged: a Filter directly below absorbs e
@@ -331,6 +375,37 @@ def Opt.merge(p: Plan) -> Plan:
       Join{how, lo, ro, Opt.merge(l), Opt.merge(r)}
     case Head{n, x}:
       Head{n, Opt.merge(x)}
+
+# every Filter predicate of the plan is total and no reduction (over its input's
+# schema): only then may Opt.merge evaluate an outer predicate on rows an inner one
+# removed
+def Opt.fsafe(p: Plan) -> Bool:
+  match p:
+    case ScanCsv{path, o, s}:
+      True{}
+    case Source{n, s}:
+      True{}
+    case Select{es, x}:
+      Opt.fsafe(x)
+    case WithColumns{es, x}:
+      Opt.fsafe(x)
+    case Filter{+e, +x}:
+      Bool.and(Opt.pred_ok(e, Plan.schema(x)), Opt.fsafe(x))
+    case Sort{ks, x}:
+      Opt.fsafe(x)
+    case GroupBy{ks, as, mo, x}:
+      Opt.fsafe(x)
+    case Join{how, lo, ro, l, r}:
+      Bool.and(Opt.fsafe(l), Opt.fsafe(r))
+    case Head{n, x}:
+      Opt.fsafe(x)
+
+def Opt.merge_if(ok: Bool, p: Plan) -> Plan:
+  match ok:
+    case True{}:
+      Opt.merge(p)
+    case False{}:
+      p
 
 # ---- pass 2: predicate pushdown -------------------------------------------------------------
 
@@ -462,6 +537,31 @@ def Opt.wc.move(ps: List<&2, X.Expr>, +ns: List<&2, String>) -> List<&2, X.Expr>
     case +p <> t:
       Opt.keep.k(Opt.any_in(X.Expr.refs(p), ns), p, Opt.wc.move(t, ns))
 
+# what moves below a node: the movable conjuncts when the node allows it, else none
+def Opt.gate(ok: Bool, ps: List<&2, X.Expr>) -> List<&2, X.Expr>:
+  match ok:
+    case True{}:
+      ps
+    case False{}:
+      Nil{}
+
+# what stays above a node: the unmovable conjuncts when the node allows moving, else all
+def Opt.hold(ok: Bool, ps: List<&2, X.Expr>, kept: List<&2, X.Expr>) -> List<&2, X.Expr>:
+  match ok:
+    case True{}:
+      kept
+    case False{}:
+      ps
+
+# a Filter whose predicate may not move (fallible or a reduction) stays, with the
+# pending conjuncts above it; a movable one joins them
+def Opt.push.f(ok: Bool, e: X.Expr, ps: List<&2, X.Expr>, inner: Plan) -> Plan:
+  match ok:
+    case True{}:
+      inner
+    case False{}:
+      Opt.wrap(ps, Filter{e, inner})
+
 # sink the pending conjuncts `ps` (to be applied on top of p) as deep as they go
 def Opt.push(p: Plan, +ps: List<&2, X.Expr>) -> Plan:
   match p:
@@ -469,12 +569,15 @@ def Opt.push(p: Plan, +ps: List<&2, X.Expr>) -> Plan:
       Opt.wrap(ps, ScanCsv{path, o, s})
     case Source{n, s}:
       Opt.wrap(ps, Source{n, s})
-    case Select{+es, x}:
-      Opt.wrap(Opt.sel.keep(ps, Opt.rens.outs(Opt.rens(es))), Select{es, Opt.push(x, Opt.sel.move(ps, Opt.rens(es)))})
-    case WithColumns{+es, x}:
-      Opt.wrap(Opt.wc.keep(ps, Opt.names(es)), WithColumns{es, Opt.push(x, Opt.wc.move(ps, Opt.names(es)))})
-    case Filter{e, x}:
-      Opt.push(x, Opt.conj(e, ps))
+    case Select{+es, +x}:
+      +ok = Opt.sel_ok(es, Plan.schema(x))
+      Opt.wrap(Opt.hold(ok, ps, Opt.sel.keep(ps, Opt.rens.outs(Opt.rens(es)))), Select{es, Opt.push(x, Opt.gate(ok, Opt.sel.move(ps, Opt.rens(es))))})
+    case WithColumns{+es, +x}:
+      +ok = Opt.wc_ok(es, Plan.schema(x))
+      Opt.wrap(Opt.hold(ok, ps, Opt.wc.keep(ps, Opt.names(es))), WithColumns{es, Opt.push(x, Opt.gate(ok, Opt.wc.move(ps, Opt.names(es))))})
+    case Filter{+e, +x}:
+      +ok = Opt.pred_ok(e, Plan.schema(x))
+      Opt.push.f(ok, e, ps, Opt.push(x, Opt.gate(ok, Opt.conj(e, ps))))
     case Sort{ks, x}:
       Sort{ks, Opt.push(x, ps)}
     case GroupBy{ks, as, mo, x}:
@@ -500,17 +603,37 @@ def Opt.hwrap(n: Maybe<&2, U32>, x: Plan) -> Plan:
     case Some{k}:
       Head{k, x}
 
-# sink the pending row limit `n` (to be applied on top of p)
+# the limit that moves below a certified node (all of it, or none)
+def Opt.hpass(ok: Bool, n: Maybe<&2, U32>) -> Maybe<&2, U32>:
+  match ok:
+    case True{}:
+      n
+    case False{}:
+      None{}
+
+# the limit that stays above it
+def Opt.hstop(ok: Bool, n: Maybe<&2, U32>) -> Maybe<&2, U32>:
+  match ok:
+    case True{}:
+      None{}
+    case False{}:
+      n
+
+# sink the pending row limit `n` (to be applied on top of p): below a
+# Select/WithColumns only when the analysis certifies it height preserving
+# (Opt.sinks); every other node keeps the limit above it
 def Opt.head(p: Plan, +n: Maybe<&2, U32>) -> Plan:
   match p:
     case ScanCsv{path, o, s}:
       Opt.hwrap(n, ScanCsv{path, o, s})
     case Source{nm, s}:
       Opt.hwrap(n, Source{nm, s})
-    case Select{es, x}:
-      Select{es, Opt.head(x, n)}
-    case WithColumns{es, x}:
-      WithColumns{es, Opt.head(x, n)}
+    case Select{+es, +x}:
+      +ok = Opt.sinks(es, Plan.schema(x))
+      Opt.hwrap(Opt.hstop(ok, n), Select{es, Opt.head(x, Opt.hpass(ok, n))})
+    case WithColumns{+es, +x}:
+      +ok = Opt.sinks(es, Plan.schema(x))
+      Opt.hwrap(Opt.hstop(ok, n), WithColumns{es, Opt.head(x, Opt.hpass(ok, n))})
     case Filter{e, x}:
       Opt.hwrap(n, Filter{e, Opt.head(x, None{})})
     case Sort{ks, x}:
@@ -665,19 +788,56 @@ def Opt.proj(p: Plan, +need: List<&2, String>, top: Bool) -> Plan:
     case Head{n, x}:
       Head{n, Opt.proj(x, need, top)}
 
-# ---- Plan.optimize -----------------------------------------------------------------------------
+# ---- Optimize.release / Plan.optimize_full ------------------------------------------------------
 
-def Plan.optimize.k(r: E.Res(List<&2, S.Field>), p: Plan) -> Plan:
+def Optimize.release.k(r: E.Res(List<&2, S.Field>), p: Plan) -> Plan:
   match r:
     case Fail{e}:
       p
     case Done{s}:
-      Opt.proj(Opt.head(Opt.push(Opt.merge(p), Nil{}), None{}), S.Schema.names(s), False{})
+      Opt.head(p, None{})
 
-# rewrite a well-typed plan into an equivalent cheaper one (same schema, same
-# result); an ill-typed plan comes back unchanged
-def Plan.optimize(+p: Plan) -> Plan:
-  Plan.optimize.k(Plan.schema(p), p)
+# the default optimizer (DF.optimize, collect): only the certified rewrites
+# (DESIGN.md 15.2.8): Head merging and the analysis-restricted Head sink. An
+# ill-typed plan comes back unchanged.
+def Optimize.release(+p: Plan) -> Plan:
+  Optimize.release.k(Plan.schema(p), p)
+
+def Plan.optimize_full.k(r: E.Res(List<&2, S.Field>), +p: Plan) -> Plan:
+  match r:
+    case Fail{e}:
+      p
+    case Done{s}:
+      Opt.proj(Opt.head(Opt.push(Opt.merge_if(Opt.fsafe(p), p), Nil{}), None{}), S.Schema.names(s), False{})
+
+# the four passes (filter merge, pushdown, head, projection), opt-in
+# (DF.optimize_full, DF.collect_full), outside the release guarantee; an
+# ill-typed plan comes back unchanged
+def Plan.optimize_full(+p: Plan) -> Plan:
+  Plan.optimize_full.k(Plan.schema(p), p)
+
+# every Source name of a plan in postfix order (Exec's order), with repeats,
+# prepended to acc (DESIGN.md 15.7)
+def Plan.sources(p: Plan, acc: List<&2, String>) -> List<&2, String>:
+  match p:
+    case ScanCsv{path, o, s}:
+      acc
+    case Source{n, s}:
+      n <> acc
+    case Select{es, x}:
+      Plan.sources(x, acc)
+    case WithColumns{es, x}:
+      Plan.sources(x, acc)
+    case Filter{e, x}:
+      Plan.sources(x, acc)
+    case Sort{ks, x}:
+      Plan.sources(x, acc)
+    case GroupBy{ks, as, mo, x}:
+      Plan.sources(x, acc)
+    case Join{how, lo, ro, l, r}:
+      Plan.sources(l, Plan.sources(r, acc))
+    case Head{n, x}:
+      Plan.sources(x, acc)
 
 # ---- Plan.explain ----------------------------------------------------------------------------------
 
@@ -796,6 +956,55 @@ def Env.take(env: Env, +name: String) -> Env & Maybe<&1, C.Frame>:
   match env:
     case Env{fs}:
       Env.take.k(Env.take.go(fs, name))
+
+def Env.clone.k(+n: String, cc: C.Frame & C.Frame, r: List<&1, Named.Frame> & Maybe<&1, C.Frame>) -> List<&1, Named.Frame> & Maybe<&1, C.Frame>:
+  (a, b) = cc
+  (rest, m) = r
+  (NF{n, a} <> rest, Some{b})
+
+def Env.clone.pick(hit: Bool, +n: String, f: C.Frame, r: List<&1, Named.Frame> & Maybe<&1, C.Frame>) -> List<&1, Named.Frame> & Maybe<&1, C.Frame>:
+  match hit:
+    case True{}:
+      Env.clone.k(n, C.Frame.clone(f), r)
+    case False{}:
+      (rest, m) = r
+      (NF{n, f} <> rest, m)
+
+def Env.clone.go(fs: List<&1, Named.Frame>, +name: String) -> List<&1, Named.Frame> & Maybe<&1, C.Frame>:
+  match fs:
+    case Nil{}:
+      (Nil{}, None{})
+    case NF{+n, f} <> t:
+      Env.clone.pick(String.eq(n, name), n, f, Env.clone.go(t, name))
+
+# a copy of the first frame of that name (Frame.clone, column order kept); the
+# frame stays in env (a Source used again later, DESIGN.md 15.7)
+def Env.clone(env: Env, +name: String) -> Env & Maybe<&1, C.Frame>:
+  match env:
+    case Env{fs}:
+      Env.take.k(Env.clone.go(fs, name))
+
+def Env.info.k(+n: String, r: C.Frame & List<&2, S.Field>, rest: List<&1, Named.Frame> & List<&2, Bind>) -> List<&1, Named.Frame> & List<&2, Bind>:
+  (f, s) = r
+  (fs, bs) = rest
+  (NF{n, f} <> fs, Bind{n, s} <> bs)
+
+def Env.info.go(fs: List<&1, Named.Frame>) -> List<&1, Named.Frame> & List<&2, Bind>:
+  match fs:
+    case Nil{}:
+      (Nil{}, Nil{})
+    case NF{+n, f} <> t:
+      Env.info.k(n, S.Frame.schema(f), Env.info.go(t))
+
+def Env.info.fin(r: List<&1, Named.Frame> & List<&2, Bind>) -> Env & List<&2, Bind>:
+  (fs, bs) = r
+  (Env{fs}, bs)
+
+# the name and schema of every frame, in env order; env comes back untouched
+def Env.info(env: Env) -> Env & List<&2, Bind>:
+  match env:
+    case Env{fs}:
+      Env.info.fin(Env.info.go(fs))
 
 # ---- Lazy.scan_csv: the schema from the header + the first infer_rows rows ----------------------
 

@@ -1,4 +1,3 @@
-#! xfail B04-j
 # B04-j: once cast is strict, a filter merge / pushdown or a head sink across a fallible
 # cast changes which rows reach it, hence whether (and at which row) it fails. DESIGN.md
 # 15.3.2 design note i: Cast of a fallible pair is a barrier for every rewrite that can

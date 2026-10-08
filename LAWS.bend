@@ -16,6 +16,7 @@ import ./src/kernels.bend as K
 import ./src/column.bend as C
 import ./src/schema.bend as S
 import ./src/expr.bend as X
+import ./src/analysis.bend as A
 import ./src/sort.bend as O
 import ./src/plan.bend as P
 
@@ -402,14 +403,14 @@ law head_keeps_schema:
   for n: U32
   {P.Plan.schema(P.Head{n, p}) == P.Plan.schema(p) : E.Res(List<&2, S.Field>)}
 
-# LAW: a filter by a non-aggregating bool predicate keeps the schema
+# LAW: a filter by a bool predicate keeps the schema (the predicate's dtype is
+# the shared analysis' (A.Ana.type); reductions are allowed, DESIGN.md 15.4)
 law filter_keeps_schema:
   for p: P.Plan
   for +s: List<&2, S.Field>
   for e: X.Expr
   for ok: {P.Plan.schema(p) == Done{s} : E.Res(List<&2, S.Field>)}
-  for t: {X.Expr.type(e, s) == Done{D.TBool{}} : E.Res(D.DType)}
-  for na: {X.Expr.is_agg(e) == False{} : Bool}
+  for t: {A.Ana.type(e, s) == Done{D.TBool{}} : E.Res(D.DType)}
   {P.Plan.schema(P.Filter{e, p}) == Done{s} : E.Res(List<&2, S.Field>)}
 
 # LAW: whenever a filter's schema resolves, it is the input's schema (no
@@ -477,8 +478,9 @@ law with_column_keeps_width:
 # 4. Optimizer soundness at the schema level (src/plan.bend, Plan.optimize passes)
 # =====================================================================================
 
-# LAW: the head pass (Head merging and sinking) never changes the schema of
-# any plan, for any pending row limit
+# LAW: the head pass (Head merging, and sinking below the Select/WithColumns
+# the analysis certifies) never changes the schema of any plan, for any
+# pending row limit
 law head_pass_keeps_schema:
   for p: P.Plan
   for +n: Maybe<&2, U32>

@@ -44,7 +44,7 @@ def q2(src: P.Plan) -> P.Plan:
 def run(+name: String, +p: P.Plan) -> IO(Unit):
   do IO<Unit>:
     IO.print("-- " ++ name)
-    IO.print(P.Plan.explain(P.Plan.optimize(p)))
+    IO.print(P.Plan.explain(P.Optimize.release(p)))
     r : E.ResT(C.Frame) <- Q.Lazy.collect(p, P.Env.empty())
     IO.print(table(r))
 
@@ -73,8 +73,7 @@ def main() -> IO(Unit):
 #|-- q1
 #|SELECT [col("id"), col("region"), col("price")]
 #|  FILTER (col("ok") & (col("qty") > lit(50)))
-#|    SELECT [col("id"), col("region"), col("qty"), col("price"), col("ok")]
-#|      SCAN CSV bench/fixtures/tiny.csv [id:u32, region:str, product:str, qty:u32, price:f32, discount:f32, ok:bool]
+#|    SCAN CSV bench/fixtures/tiny.csv [id:u32, region:str, product:str, qty:u32, price:f32, discount:f32, ok:bool]
 #|shape: (4, 3)
 #|+-----+---------+--------+
 #|| id  | region  | price  |
@@ -87,12 +86,11 @@ def main() -> IO(Unit):
 #|| 18  | coastal | 190.93 |
 #|+-----+---------+--------+
 #|-- q2
-#|WITH_COLUMNS [(col("qty").cast(f32) * col("price")).alias("revenue")]
-#|  SELECT [col("id"), col("region"), col("qty"), col("price")]
-#|    HEAD 2
-#|      FILTER (col("region") == lit("south"))
-#|        SELECT [col("id"), col("region"), col("qty"), col("price")]
-#|          SCAN CSV bench/fixtures/tiny.csv [id:u32, region:str, product:str, qty:u32, price:f32, discount:f32, ok:bool]
+#|HEAD 2
+#|  FILTER (col("region") == lit("south"))
+#|    WITH_COLUMNS [(col("qty").cast(f32) * col("price")).alias("revenue")]
+#|      SELECT [col("id"), col("region"), col("qty"), col("price")]
+#|        SCAN CSV bench/fixtures/tiny.csv [id:u32, region:str, product:str, qty:u32, price:f32, discount:f32, ok:bool]
 #|shape: (2, 5)
 #|+-----+--------+-----+--------+----------+
 #|| id  | region | qty | price  | revenue  |

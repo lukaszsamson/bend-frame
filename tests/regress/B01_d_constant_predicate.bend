@@ -1,4 +1,3 @@
-#! xfail B01-d
 # B01-d: a constant (KScalar) predicate over a literal projection. DESIGN.md 15.4 C18-C20:
 # a scalar predicate broadcasts to the input height in every API. Polars' LAZY engine
 # answers (1, 1) for select(lit 1).filter(lit false) (it does not apply a 1-row scalar
