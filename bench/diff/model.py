@@ -678,13 +678,31 @@ def s_unique(p, ins):
     return list(ins[0])
 
 
+def concat_differs(i, s, s0):
+    return invalid(f"concat_vertical: input {i} schema [{schema_show(s)}] differs from input 0's [{schema_show(s0)}]")
+
+
 def s_concat(p, ins):
     if not ins:
         raise invalid("concat_vertical: no inputs")
     for i, s in enumerate(ins[1:], 1):
         if s != ins[0]:
-            raise invalid(f"concat_vertical: input {i} schema [{schema_show(s)}] differs from input 0's [{schema_show(ins[0])}]")
+            raise concat_differs(i, s, ins[0])
     return list(ins[0])
+
+
+def concat_schema(kids, schema_of):
+    """concat_vertical's static checks input by input (DESIGN.md 14 "M3 table verbs": the lazy
+    plan is a chain of binary Concat nodes): input i's own errors, then its schema against input
+    0's, then input i + 1. schema_of(kid) types one input (raises TErr)."""
+    if not kids:
+        raise invalid("concat_vertical: no inputs")
+    s0 = schema_of(kids[0])
+    for i, k in enumerate(kids[1:], 1):
+        s = schema_of(k)
+        if s != s0:
+            raise concat_differs(i, s, s0)
+    return list(s0)
 
 
 def schema_show(s):
@@ -713,6 +731,8 @@ def plan_schema(pl: Pl, sources: dict):
     """Output schema of a plan or raises TErr. sources: name -> schema."""
     if pl.verb == "source":
         return list(sources[pl.p[0]])
+    if pl.verb == "concat_vertical":
+        return concat_schema(pl.kids, lambda k: plan_schema(k, sources))
     ins = [plan_schema(k, sources) for k in pl.kids]
     return VERBS[pl.verb].sch(pl.p, ins)
 

@@ -224,5 +224,125 @@ def e_left_join(l: E.ResT(C.Frame), r: E.ResT(C.Frame), lo: List<&2, String>, ro
     case Done{fl}:
       e_left_join.k(fl, r, lo, ro)
 
+def e_semi_join.k(l: C.Frame, r: E.ResT(C.Frame), lo: List<&2, String>, ro: List<&2, String>) -> E.ResT(C.Frame):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{fr}:
+      DF.semi_join(l, fr, lo, ro)
+
+def e_semi_join(l: E.ResT(C.Frame), r: E.ResT(C.Frame), lo: List<&2, String>, ro: List<&2, String>) -> E.ResT(C.Frame):
+  match l:
+    case Fail{e}:
+      Fail{e}
+    case Done{fl}:
+      e_semi_join.k(fl, r, lo, ro)
+
+def e_anti_join.k(l: C.Frame, r: E.ResT(C.Frame), lo: List<&2, String>, ro: List<&2, String>) -> E.ResT(C.Frame):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{fr}:
+      DF.anti_join(l, fr, lo, ro)
+
+def e_anti_join(l: E.ResT(C.Frame), r: E.ResT(C.Frame), lo: List<&2, String>, ro: List<&2, String>) -> E.ResT(C.Frame):
+  match l:
+    case Fail{e}:
+      Fail{e}
+    case Done{fl}:
+      e_anti_join.k(fl, r, lo, ro)
+
+def e_drop(r: E.ResT(C.Frame), ns: List<&2, String>) -> E.ResT(C.Frame):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{fr}:
+      DF.drop(fr, ns)
+
+def e_rename(r: E.ResT(C.Frame), ps: List<&2, DF.RenamePair()>) -> E.ResT(C.Frame):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{fr}:
+      DF.rename(fr, ps)
+
+def e_slice(r: E.ResT(C.Frame), off: U32, len: U32) -> E.ResT(C.Frame):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{fr}:
+      DF.slice(fr, off, len)
+
+def e_tail(r: E.ResT(C.Frame), n: U32) -> E.ResT(C.Frame):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{fr}:
+      DF.tail(fr, n)
+
+def e_unique(r: E.ResT(C.Frame), ns: List<&2, String>) -> E.ResT(C.Frame):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{fr}:
+      DF.unique(fr, ns)
+
+def e_concat_vertical.chk(same: Bool, f: C.Frame, +i: U32, s: List<&2, S.Field>, s0: List<&2, S.Field>, acc: List<&1, C.Frame>) -> E.ResT(List<&1, C.Frame>):
+  match same:
+    case True{}:
+      Done{f <> acc}
+    case False{}:
+      Fail{E.InvalidOperation{"concat_vertical: input " ++ U32.show(i) ++ " schema [" ++ S.Schema.show(s) ++ "] differs from input 0's [" ++ S.Schema.show(s0) ++ "]"}}
+
+def e_concat_vertical.sch(r: C.Frame & List<&2, S.Field>, +i: U32, +s0: List<&2, S.Field>, acc: List<&1, C.Frame>) -> E.ResT(List<&1, C.Frame>):
+  (f, +s) = r
+  e_concat_vertical.chk(S.Schema.eq(s, s0), f, i, s, s0, acc)
+
+def e_concat_vertical.put(h: E.ResT(C.Frame), +i: U32, +s0: List<&2, S.Field>, acc: List<&1, C.Frame>) -> E.ResT(List<&1, C.Frame>):
+  match h:
+    case Fail{e}:
+      Fail{e}
+    case Done{f}:
+      e_concat_vertical.sch(S.Frame.schema(f), i, s0, acc)
+
+def e_concat_vertical.step(st: E.ResT(List<&1, C.Frame>), h: E.ResT(C.Frame), +i: U32, +s0: List<&2, S.Field>) -> E.ResT(List<&1, C.Frame>):
+  match st:
+    case Fail{e}:
+      Fail{e}
+    case Done{acc}:
+      e_concat_vertical.put(h, i, s0, acc)
+
+def e_concat_vertical.go(rs: List<&1, E.ResT(C.Frame)>, +i: U32, +s0: List<&2, S.Field>, st: E.ResT(List<&1, C.Frame>)) -> E.ResT(List<&1, C.Frame>):
+  match rs:
+    case Nil{}:
+      st
+    case h <> t:
+      e_concat_vertical.go(t, U32.inc(i), s0, e_concat_vertical.step(st, h, i, s0))
+
+def e_concat_vertical.fin(r: E.ResT(List<&1, C.Frame>)) -> E.ResT(C.Frame):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{acc}:
+      DF.concat_vertical(List.reverse(&1, C.Frame, acc))
+
+def e_concat_vertical.first(r: C.Frame & List<&2, S.Field>, t: List<&1, E.ResT(C.Frame)>) -> E.ResT(C.Frame):
+  (f, +s0) = r
+  e_concat_vertical.fin(e_concat_vertical.go(t, 1, s0, Done{f <> Nil{}}))
+
+def e_concat_vertical.k(h: E.ResT(C.Frame), t: List<&1, E.ResT(C.Frame)>) -> E.ResT(C.Frame):
+  match h:
+    case Fail{e}:
+      Fail{e}
+    case Done{f}:
+      e_concat_vertical.first(S.Frame.schema(f), t)
+
+def e_concat_vertical(rs: List<&1, E.ResT(C.Frame)>) -> E.ResT(C.Frame):
+  match rs:
+    case Nil{}:
+      DF.concat_vertical(Nil{})
+    case h <> t:
+      e_concat_vertical.k(h, t)
+
 def main() -> IO(Unit):
   IO.pure(Unit, Unit{})

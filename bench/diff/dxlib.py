@@ -189,27 +189,66 @@ def e_{verb}(l: E.ResT(C.Frame), r: E.ResT(C.Frame){ps}) -> E.ResT(C.Frame):
     case Done{{fl}}:
       e_{verb}.k(fl, r{", " + args if args else ""})
 '''
-    # variadic (concat_vertical): collect the frames, the first Fail wins
-    return '''def e_concat_vertical.go(rs: List<&1, E.ResT(C.Frame)>, acc: List<&1, C.Frame>) -> E.ResT(List<&1, C.Frame>):
-  match rs:
-    case Nil{}:
-      Done{List.reverse(&1, C.Frame, acc)}
-    case h <> t:
-      e_concat_vertical.step(h, t, acc)
+    # variadic (concat_vertical): input by input, as the lazy chain of binary Concat nodes types it
+    # (DESIGN.md 14 "M3 table verbs"): input i's error, then its schema against input 0's
+    # (InvalidOperation "concat_vertical: input <i> schema [..] differs from input 0's [..]"), then
+    # input i + 1; when every input is a frame of input 0's schema, DF.concat_vertical (row cap)
+    return '''def e_concat_vertical.chk(same: Bool, f: C.Frame, +i: U32, s: List<&2, S.Field>, s0: List<&2, S.Field>, acc: List<&1, C.Frame>) -> E.ResT(List<&1, C.Frame>):
+  match same:
+    case True{}:
+      Done{f <> acc}
+    case False{}:
+      Fail{E.InvalidOperation{"concat_vertical: input " ++ U32.show(i) ++ " schema [" ++ S.Schema.show(s) ++ "] differs from input 0's [" ++ S.Schema.show(s0) ++ "]"}}
 
-def e_concat_vertical.step(h: E.ResT(C.Frame), t: List<&1, E.ResT(C.Frame)>, acc: List<&1, C.Frame>) -> E.ResT(List<&1, C.Frame>):
+def e_concat_vertical.sch(r: C.Frame & List<&2, S.Field>, +i: U32, +s0: List<&2, S.Field>, acc: List<&1, C.Frame>) -> E.ResT(List<&1, C.Frame>):
+  (f, +s) = r
+  e_concat_vertical.chk(S.Schema.eq(s, s0), f, i, s, s0, acc)
+
+def e_concat_vertical.put(h: E.ResT(C.Frame), +i: U32, +s0: List<&2, S.Field>, acc: List<&1, C.Frame>) -> E.ResT(List<&1, C.Frame>):
   match h:
     case Fail{e}:
       Fail{e}
-    case Done{fr}:
-      e_concat_vertical.go(t, fr <> acc)
+    case Done{f}:
+      e_concat_vertical.sch(S.Frame.schema(f), i, s0, acc)
 
-def e_concat_vertical(rs: List<&1, E.ResT(C.Frame)>) -> E.ResT(C.Frame):
-  match e_concat_vertical.go(rs, Nil{}):
+def e_concat_vertical.step(st: E.ResT(List<&1, C.Frame>), h: E.ResT(C.Frame), +i: U32, +s0: List<&2, S.Field>) -> E.ResT(List<&1, C.Frame>):
+  match st:
     case Fail{e}:
       Fail{e}
-    case Done{fs}:
-      DF.concat_vertical(fs)
+    case Done{acc}:
+      e_concat_vertical.put(h, i, s0, acc)
+
+def e_concat_vertical.go(rs: List<&1, E.ResT(C.Frame)>, +i: U32, +s0: List<&2, S.Field>, st: E.ResT(List<&1, C.Frame>)) -> E.ResT(List<&1, C.Frame>):
+  match rs:
+    case Nil{}:
+      st
+    case h <> t:
+      e_concat_vertical.go(t, U32.inc(i), s0, e_concat_vertical.step(st, h, i, s0))
+
+def e_concat_vertical.fin(r: E.ResT(List<&1, C.Frame>)) -> E.ResT(C.Frame):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{acc}:
+      DF.concat_vertical(List.reverse(&1, C.Frame, acc))
+
+def e_concat_vertical.first(r: C.Frame & List<&2, S.Field>, t: List<&1, E.ResT(C.Frame)>) -> E.ResT(C.Frame):
+  (f, +s0) = r
+  e_concat_vertical.fin(e_concat_vertical.go(t, 1, s0, Done{f <> Nil{}}))
+
+def e_concat_vertical.k(h: E.ResT(C.Frame), t: List<&1, E.ResT(C.Frame)>) -> E.ResT(C.Frame):
+  match h:
+    case Fail{e}:
+      Fail{e}
+    case Done{f}:
+      e_concat_vertical.first(S.Frame.schema(f), t)
+
+def e_concat_vertical(rs: List<&1, E.ResT(C.Frame)>) -> E.ResT(C.Frame):
+  match rs:
+    case Nil{}:
+      DF.concat_vertical(Nil{})
+    case h <> t:
+      e_concat_vertical.k(h, t)
 '''
 
 

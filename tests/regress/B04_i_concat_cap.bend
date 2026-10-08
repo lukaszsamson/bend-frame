@@ -1,4 +1,4 @@
-# PENDING (M3 API: DF.concat_vertical). Rename to tests/regress/B04_i_concat_cap.bend when it lands.
+# Activated in M3 (table verbs: DF.concat_vertical). The lazy chain's cap is tests/table_concat_cap.bend.
 # B04-i (DESIGN.md 15.8): Concat sums the input heights before any gather; the sum is checked
 # for wrap (a sum past 2^32 - 1 is over the cap by definition and shows as 4294967295, as the
 # join's saturating count does) and refused with "too many rows: <n> exceeds 8388608". Zero-column
