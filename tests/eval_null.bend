@@ -1,5 +1,6 @@
-# Eval null semantics (DESIGN.md section 5): comparisons, boolean ops,
-# is_null, fill_null, filter with null predicates, the null-slot invariant.
+# Eval null semantics (DESIGN.md section 5): comparisons, boolean ops (Kleene
+# and/or, like Polars), is_null, fill_null, filter with null predicates, the
+# null-slot invariant.
 import Base
 import ./../src/dtype.bend as D
 import ./../src/err.bend as E
@@ -83,6 +84,10 @@ def pos(v: U32) -> D.Scalar:
 def base() -> E.ResT(C.Frame):
   C.Frame.from_columns([mk("a", [D.SU32{1}, D.SU32{2}, D.SNull{}, D.SU32{4}, D.SU32{5}], D.TU32{}), mk("s", [D.SStr{"pear"}, D.SStr{"fig"}, D.SStr{"apple"}, D.SNull{}, D.SStr{"fig"}], D.TStr{}), mk("p", [D.SBool{True{}}, D.SBool{False{}}, D.SNull{}, D.SBool{True{}}, D.SBool{False{}}], D.TBool{}), mk("b", [D.SF32{0.5}, D.SNull{}, D.SF32{2.5}, D.SNull{}, D.SF32{4.5}], D.TF32{})])
 
+# a, b: the 9 combinations of true / false / null
+def kl() -> E.ResT(C.Frame):
+  C.Frame.from_columns([mk("a", [D.SBool{True{}}, D.SBool{True{}}, D.SBool{True{}}, D.SBool{False{}}, D.SBool{False{}}, D.SBool{False{}}, D.SNull{}, D.SNull{}, D.SNull{}], D.TBool{}), mk("b", [D.SBool{True{}}, D.SBool{False{}}, D.SNull{}, D.SBool{True{}}, D.SBool{False{}}, D.SNull{}, D.SBool{True{}}, D.SBool{False{}}, D.SNull{}], D.TBool{})])
+
 # the raw data slots of a result (validity ignored): null slots hold the default
 def raw.go(n: Nat, +i: U32, r: C.Column & D.Scalar) -> List<&2, String>:
   match n:
@@ -142,6 +147,16 @@ def rs(r: E.Res(D.Scalar)) -> String:
 def raw(e: X.Expr) -> String:
   on(f => raw.r(V.Eval.expr(f, e)))
 
+# over the 9-row truth-table frame
+def exk(e: X.Expr) -> String:
+  on.k(f => ex.k(V.Eval.expr(f, e)), kl())
+
+def rawk(e: X.Expr) -> String:
+  on.k(f => raw.r(V.Eval.expr(f, e)), kl())
+
+def nullb() -> X.Expr:
+  X.Cast{X.Lit{D.SNull{}}, D.TBool{}}
+
 def main() -> IO(Unit):
   do IO<Unit>:
     # comparisons: null in, null out
@@ -153,7 +168,7 @@ def main() -> IO(Unit):
     IO.print(ex(bin(X.Le{}, col("b"), X.Lit{D.SF32{2.5}})))
     IO.print(ex(bin(X.Eq{}, col("p"), lb(True{}))))
     IO.print(ex(bin(X.Lt{}, col("p"), lb(True{}))))
-    # boolean ops: null in, null out (not Kleene)
+    # boolean ops over mixed validity (see the truth tables below)
     IO.print(ex(bin(X.And{}, col("p"), bin(X.Gt{}, col("a"), lu(1)))))
     IO.print(ex(bin(X.Or{}, col("p"), X.Un{X.IsNull{}, col("b")})))
     IO.print(ex(X.Un{X.Not{}, col("p")}))
@@ -180,6 +195,19 @@ def main() -> IO(Unit):
     IO.print(on(f => fr(V.Eval.filter(f, lb(False{})))))
     # 2 rows kept (a power of two) followed by dropped rows
     IO.print(on(f => fr(V.Eval.filter(f, bin(X.Lt{}, col("a"), lu(3))))))
+    # Kleene logic (Polars): false & null = false, true | null = true, otherwise null
+    IO.print(exk(bin(X.And{}, col("a"), col("b"))))
+    IO.print(exk(bin(X.Or{}, col("a"), col("b"))))
+    IO.print(exk(X.Un{X.Not{}, bin(X.And{}, col("a"), col("b"))}))
+    IO.print(rawk(bin(X.And{}, col("a"), col("b"))))
+    IO.print(rawk(bin(X.Or{}, col("a"), col("b"))))
+    # a dense side against a null literal / a masked side
+    IO.print(ex(bin(X.And{}, col("p"), nullb())))
+    IO.print(ex(bin(X.Or{}, col("p"), nullb())))
+    IO.print(ex(bin(X.And{}, lb(False{}), col("p"))))
+    IO.print(ex(bin(X.Or{}, lb(True{}), col("p"))))
+    IO.print(ex(bin(X.And{}, lb(True{}), col("p"))))
+    IO.print(ex(bin(X.Or{}, lb(False{}), col("p"))))
 #|bool=[false, true, null, false, false]
 #|bool=[true, false, null, true, true]
 #|bool=[false, true, true, null, true]
@@ -209,3 +237,14 @@ def main() -> IO(Unit):
 #|h=5 a:u32=[1, 2, null, 4, 5] | s:str=[pear, fig, apple, null, fig] | p:bool=[true, false, null, true, false] | b:f32=[0.5, null, 2.5, null, 4.5]
 #|h=0 a:u32=[] | s:str=[] | p:bool=[] | b:f32=[]
 #|h=2 a:u32=[1, 2] | s:str=[pear, fig] | p:bool=[true, false] | b:f32=[0.5, null]
+#|bool=[true, false, null, false, false, false, null, false, null]
+#|bool=[true, true, true, true, false, null, true, null, null]
+#|bool=[false, true, null, true, true, true, null, true, null]
+#|raw=[true, false, false, false, false, false, false, false, false]
+#|raw=[true, true, true, true, false, false, true, false, false]
+#|bool=[null, false, null, null, false]
+#|bool=[true, null, null, true, null]
+#|bool=[false, false, false, false, false]
+#|bool=[true, true, true, true, true]
+#|bool=[true, false, null, true, false]
+#|bool=[true, false, null, true, false]

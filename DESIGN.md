@@ -488,7 +488,7 @@ law Eval.scalar: for e: Expr                 Res(Scalar)            # constant f
   `Scalar.show` strings), skipping invalid rows (fold over `(value, valid)`
   pairs: zip the mask in, or fold with the mask as a second array through a
   dedicated `Kernel.fold2`). Empty input: `Sum=0`, `Count=0`, `Len=0`, `Mean/Min/
-  Max/First/Last = null`, `NUnique=0`. Polars `pl.len()` is `Agg{Len, Lit{SU32{1}}}`.
+  Max/First/Last = null`, `NUnique=0` (see section 5 and 14 for the null rules). Polars `pl.len()` is `Agg{Len, Lit{SU32{1}}}`.
 - Error strings use `DType.show` for `want/got` and the op's lowercase name.
 
 ### 4.8 src/sort.bend [opus]
@@ -715,12 +715,14 @@ imported file, so sub-modules are importable by path).
 
 ## 5. Null semantics (explicit)
 
-A row is null iff its validity word is `0`. Arithmetic, comparisons, boolean
-ops, casts, `Neg/Not/Abs/Sqrt`: null in → null out (mask AND). `IsNull`,
+A row is null iff its validity word is `0`. Arithmetic, comparisons, casts,
+`Neg/Not/Abs/Sqrt`: null in → null out (mask AND). Boolean `And/Or` are Kleene
+(`false & null = false`, `true | null = true`, else null). `IsNull`,
 `IsNotNull`, `Count`, `NUnique`: never null. `FillNull(e, v)`: `e` where
 valid, `v` otherwise (both masks combine: result null only where both null).
-Aggregations skip nulls; `Mean` of no valid rows is null; `Sum` of none is
-`0`. Sorting: nulls first by default (`nulls_last = False{}`), stable among
+Aggregations skip nulls, except `NUnique` (null counts as one value) and
+`First/Last` (the first/last row, null included); `Mean` of no valid rows is
+null; `Sum` of none is `0`. Sorting: nulls first by default (`nulls_last = False{}`), stable among
 themselves. Group keys: nulls form one group. Join keys: null never matches.
 CSV: empty field ↔ null. `Fmt.show`: empty cell. Kernels compute over the
 default slot value of null rows (`0`, `0.0`, `""`): never a crash, always
@@ -1052,31 +1054,40 @@ conventions later modules must follow:
    `sum(col a) + lit 1` (1 row) all work. `Eval.expr`: a `KLit` result is
    broadcast to the height, a `KAgg` result stays 1 row. `Eval.full(f, e)`
    (new) broadcasts both. An aggregation over a literal aggregates the
-   literal broadcast to the height (`Agg{Len, lit 1}` = height as 4.7 wants,
-   but `sum(lit 2)` = 2*height where Polars says 2). `Eval.kind(e)` gives
-   the kind statically.
+   1-row literal, as Polars (`sum(lit 2)` = 2, `mean`/`count`/`n_unique`/
+   `first` likewise). The one exception is `Len`: `pl.len()` is encoded as
+   `Agg{Len, lit 1}` and must count rows, so only `Len` over a literal
+   broadcasts it to the frame height (Polars' own `lit(2).len()` = 1 is
+   thereby not reproduced; nothing can tell the two apart in `Expr`).
+   `Eval.kind(e)` gives the kind statically. Inside group_by, `Eval.full`
+   broadcasts the aggregate's INPUT, so there `sum(lit 2)` is 2*group size
+   (Polars: 2); group_by owns that.
 3. **Eager ops added to eval.bend** (what `frame.bend`/`Exec` call):
    `Eval.select(f, es)`, `Eval.with_columns(f, es)`, `Eval.filter(f, pred)`,
    all `-> ResT(Frame)` consuming `f`. Each type checks EVERY expression
    against `Frame.schema(f)` before evaluating anything (first error in list
-   order). `select`: output height = h if any expr is `KFull`, else 1 if any
-   is `KAgg` (agg-select), else h (literal-only; Polars gives 1 row); 1-row
-   outputs are broadcast; names `Expr.name`; `DuplicateColumn` /
+   order). `select`: output height = h if any expr is `KFull`, else 1
+   (agg-select or literal-only, as Polars); 1-row outputs are broadcast; names `Expr.name`; `DuplicateColumn` /
    `ShapeMismatch` from `Frame.from_columns`. `with_columns`: every expr sees
    the INPUT frame (Polars), 1-row results broadcast to h, then
    `Frame.replace` in order; repeated output names are `DuplicateColumn`
    (Polars), checked after type errors. `filter`: `TypeMismatch{"filter",
    "bool", got}`; a null predicate row is dropped; a 1-row predicate
    broadcasts.
-4. **Null semantics choices** (section 5 applied literally): `And/Or` are
-   NOT Kleene (`false & null = null`; Polars says `false`); `First/Last`
-   skip nulls (first/last VALID value, null if none; Polars returns the
-   first/last row even when null); `NUnique` counts distinct VALID values
-   (Polars counts null as one value). `Count` = valid rows, `Len` = rows.
-   Empty or all-null input: `Sum 0`, `Count 0`, `Len` rows, `NUnique 0`,
-   others null. Every op result over a `Mask` column has its null slots reset
-   to `DType.default` (`Eval.fix`, a pass only when a mask exists), so the
-   4.4 slot invariant holds for every eval result.
+4. **Null semantics choices** (section 5, with Polars' exceptions):
+   `And/Or` are Kleene (`false & null = false`, `true | null = true`,
+   `true & null = null`, `false | null = null`); when both sides are
+   `AllValid` the plain word op runs (no extra passes), otherwise each side
+   is encoded as a state word (0 null, 2 false, 3 true), combined by one zip
+   and split back into value + validity by `Kernel.map_maybe`; the result is
+   `AllValid` if no row is null. `First/Last` return row 0 / row n-1 as is,
+   null included (Polars; null of the dtype when the input is empty).
+   `NUnique` counts null as one distinct value (`[1, null, 1, null]` = 2,
+   all-null = 1, empty = 0). `Count` = valid rows, `Len` = rows. Empty or
+   all-null input: `Sum 0`, `Count 0`, `Len` rows, `Mean/Min/Max` null.
+   Every op result over a `Mask` column has its null slots reset to
+   `DType.default` (`Eval.fix`, a pass only when a mask exists), so the 4.4
+   slot invariant holds for every eval result.
 5. **Numerics.** U32 `+ - *` and `Sum` wrap mod 2^32; I32 wraps two's
    complement (`MIN / -1 = MIN`, `abs(MIN) = MIN`); `U32/I32` `/` by 0 is
    0, `%` by 0 is the dividend (Base); F32 is IEEE (`x/0 = inf`, `-x/0 =

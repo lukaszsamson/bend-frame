@@ -1,6 +1,8 @@
 # Eval aggregations: sum/mean/min/max/count/len/first/last/n_unique over
-# columns with nulls (nulls skipped), an all-null column, an empty frame,
-# aggregations of expressions and literals, compensated F32 sums.
+# columns with nulls (sum/mean/min/max/count skip nulls; first/last return the
+# first/last ROW even when null; n_unique counts null as one value, all like
+# Polars), an all-null column, an empty frame, aggregations of expressions and
+# literals (aggregating a literal does not broadcast it), compensated F32 sums.
 import Base
 import ./../src/dtype.bend as D
 import ./../src/err.bend as E
@@ -84,6 +86,10 @@ def pos(v: U32) -> D.Scalar:
 def base() -> E.ResT(C.Frame):
   C.Frame.from_columns([mk("a", [D.SU32{3}, D.SNull{}, D.SU32{1}, D.SU32{3}, D.SU32{5}, D.SNull{}], D.TU32{}), mk("f", [D.SF32{2.5}, D.SNull{}, D.SF32{F32.neg(1.0)}, D.SF32{2.5}, D.SF32{0.5}, D.SNull{}], D.TF32{}), mk("i", [neg(4), D.SNull{}, pos(2), neg(4), pos(9), D.SNull{}], D.TI32{}), mk("s", [D.SStr{"pear"}, D.SNull{}, D.SStr{"apple"}, D.SStr{"pear"}, D.SStr{"fig"}, D.SNull{}], D.TStr{}), mk("b", [D.SBool{True{}}, D.SNull{}, D.SBool{False{}}, D.SBool{True{}}, D.SBool{True{}}, D.SNull{}], D.TBool{}), mk("n", [D.SNull{}, D.SNull{}, D.SNull{}, D.SNull{}, D.SNull{}, D.SNull{}], D.TU32{})])
 
+# first row null, last row valid, one distinct value twice
+def edge() -> E.ResT(C.Frame):
+  C.Frame.from_columns([mk("x", [D.SNull{}, D.SU32{7}, D.SU32{7}, D.SU32{9}], D.TU32{}), mk("y", [D.SU32{7}, D.SU32{7}, D.SU32{9}, D.SU32{9}], D.TU32{}), mk("z", [D.SStr{"b"}, D.SNull{}, D.SStr{"b"}, D.SNull{}], D.TStr{})])
+
 def tenths() -> E.ResT(C.Frame):
   C.Frame.from_columns([mk("x", [D.SF32{0.1}, D.SF32{0.1}, D.SF32{0.1}, D.SF32{0.1}, D.SF32{0.1}, D.SF32{0.1}, D.SF32{0.1}, D.SF32{0.1}, D.SF32{0.1}, D.SF32{0.1}], D.TF32{})])
 
@@ -126,6 +132,9 @@ def fsel.k(es: List<&2, X.Expr>, r: E.ResT(C.Frame)) -> String:
 def fsel(pred: X.Expr, es: List<&2, X.Expr>) -> String:
   on(f => fsel.k(es, V.Eval.filter(f, pred)))
 
+def esel(es: List<&2, X.Expr>) -> String:
+  on.k(f => fr(V.Eval.select(f, es)), edge())
+
 def main() -> IO(Unit):
   do IO<Unit>:
     # every aggregation over each dtype, nulls skipped
@@ -134,7 +143,7 @@ def main() -> IO(Unit):
     IO.print(sel(every("i")))
     IO.print(sel(nonnum("s")))
     IO.print(sel(nonnum("b")))
-    # an all-null column: sum 0, count 0, n_unique 0, the rest null
+    # an all-null column: sum 0, count 0, n_unique 1 (null is a value), the rest null
     IO.print(sel(every("n")))
     # an empty frame (a filter that keeps nothing): same, and len 0
     IO.print(fsel(X.Bin{X.Gt{}, col("a"), lu(100)}, every("a")))
@@ -152,19 +161,39 @@ def main() -> IO(Unit):
     IO.print(on(f => ex.k(V.Eval.expr(f, X.Agg{X.Min{}, col("f")}))))
     # compensated F32 summation: ten 0.1 sum to exactly 1
     IO.print(on.k(f => fr(V.Eval.select(f, [named(X.Sum{}, "x"), named(X.Mean{}, "x")])), tenths()))
-#|h=1 sum:u32=[12] | mean:f32=[3] | min:u32=[1] | max:u32=[5] | count:u32=[4] | len:u32=[6] | first:u32=[3] | last:u32=[5] | n_unique:u32=[3]
-#|h=1 sum:f32=[4.5] | mean:f32=[1.125] | min:f32=[-1] | max:f32=[2.5] | count:u32=[4] | len:u32=[6] | first:f32=[2.5] | last:f32=[0.5] | n_unique:u32=[3]
-#|h=1 sum:i32=[3] | mean:f32=[0.75] | min:i32=[-4] | max:i32=[9] | count:u32=[4] | len:u32=[6] | first:i32=[-4] | last:i32=[9] | n_unique:u32=[3]
-#|h=1 min:str=[apple] | max:str=[pear] | count:u32=[4] | len:u32=[6] | first:str=[pear] | last:str=[fig] | n_unique:u32=[3]
-#|h=1 min:bool=[false] | max:bool=[true] | count:u32=[4] | len:u32=[6] | first:bool=[true] | last:bool=[true] | n_unique:u32=[2]
-#|h=1 sum:u32=[0] | mean:f32=[null] | min:u32=[null] | max:u32=[null] | count:u32=[0] | len:u32=[6] | first:u32=[null] | last:u32=[null] | n_unique:u32=[0]
+    # first / last return the row as is, null included; n_unique counts null as a value
+    IO.print(esel([named(X.First{}, "x"), named(X.Last{}, "x"), named(X.NUnique{}, "x"), named(X.Count{}, "x"), named(X.Len{}, "x")]))
+    IO.print(esel([named(X.First{}, "y"), named(X.Last{}, "y"), named(X.NUnique{}, "y")]))
+    IO.print(esel([named(X.First{}, "z"), named(X.Last{}, "z"), named(X.NUnique{}, "z")]))
+    # literals: an aggregate of a literal is the literal's own (Polars: lit(2).sum() = 2);
+    # len(lit) is the frame height (that is how pl.len() is encoded)
+    IO.print(sel([X.Alias{X.Agg{X.Sum{}, lu(2)}, "s"}, X.Alias{X.Agg{X.Mean{}, lu(2)}, "m"}, X.Alias{X.Agg{X.Count{}, lu(2)}, "c"}, X.Alias{X.Agg{X.NUnique{}, lu(2)}, "u"}, X.Alias{X.Agg{X.First{}, lu(2)}, "f"}, X.Alias{X.Agg{X.Len{}, lu(1)}, "n"}]))
+    # a literal-only select has 1 row; a column in the select makes literals broadcast
+    IO.print(sel([X.Alias{lu(2), "two"}, X.Alias{X.Bin{X.Add{}, lu(2), lu(3)}, "five"}]))
+    IO.print(sel([X.Alias{lu(2), "two"}, col("a")]))
+    IO.print(sel([X.Alias{X.Agg{X.Sum{}, lu(2)}, "s"}, X.Alias{lu(3), "t"}]))
+    IO.print(sel([X.Alias{X.Bin{X.Add{}, X.Agg{X.Sum{}, lu(2)}, col("a")}, "x"}]))
+#|h=1 sum:u32=[12] | mean:f32=[3] | min:u32=[1] | max:u32=[5] | count:u32=[4] | len:u32=[6] | first:u32=[3] | last:u32=[null] | n_unique:u32=[4]
+#|h=1 sum:f32=[4.5] | mean:f32=[1.125] | min:f32=[-1] | max:f32=[2.5] | count:u32=[4] | len:u32=[6] | first:f32=[2.5] | last:f32=[null] | n_unique:u32=[4]
+#|h=1 sum:i32=[3] | mean:f32=[0.75] | min:i32=[-4] | max:i32=[9] | count:u32=[4] | len:u32=[6] | first:i32=[-4] | last:i32=[null] | n_unique:u32=[4]
+#|h=1 min:str=[apple] | max:str=[pear] | count:u32=[4] | len:u32=[6] | first:str=[pear] | last:str=[null] | n_unique:u32=[4]
+#|h=1 min:bool=[false] | max:bool=[true] | count:u32=[4] | len:u32=[6] | first:bool=[true] | last:bool=[null] | n_unique:u32=[3]
+#|h=1 sum:u32=[0] | mean:f32=[null] | min:u32=[null] | max:u32=[null] | count:u32=[0] | len:u32=[6] | first:u32=[null] | last:u32=[null] | n_unique:u32=[1]
 #|h=1 sum:u32=[0] | mean:f32=[null] | min:u32=[null] | max:u32=[null] | count:u32=[0] | len:u32=[0] | first:u32=[null] | last:u32=[null] | n_unique:u32=[0]
 #|h=1 min:str=[null] | max:str=[null] | count:u32=[0] | len:u32=[0] | first:str=[null] | last:str=[null] | n_unique:u32=[0]
 #|error: TypeMismatch in sum: expected numeric, got str
 #|error: TypeMismatch in mean: expected numeric, got bool
 #|error: DuplicateColumn: a
 #|h=1 a:u32=[24] | m:f32=[4.125]
-#|h=1 s2:u32=[12] | literal:u32=[6] | mz:str=[z]
+#|h=1 s2:u32=[2] | literal:u32=[6] | mz:str=[z]
 #|h=1 a:u32=[1]
 #|f32=[-1]
 #|h=1 sum:f32=[1] | mean:f32=[0.1]
+#|h=1 first:u32=[null] | last:u32=[9] | n_unique:u32=[3] | count:u32=[3] | len:u32=[4]
+#|h=1 first:u32=[7] | last:u32=[9] | n_unique:u32=[2]
+#|h=1 first:str=[b] | last:str=[null] | n_unique:u32=[2]
+#|h=1 s:u32=[2] | m:f32=[2] | c:u32=[1] | u:u32=[1] | f:u32=[2] | n:u32=[6]
+#|h=1 two:u32=[2] | five:u32=[5]
+#|h=6 two:u32=[2, 2, 2, 2, 2, 2] | a:u32=[3, null, 1, 3, 5, null]
+#|h=1 s:u32=[2] | t:u32=[3]
+#|h=6 x:u32=[5, null, 3, 5, 7, null]

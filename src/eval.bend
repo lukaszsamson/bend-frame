@@ -15,8 +15,12 @@
 # side's length (KFull wins), so `col a > lit 3` and `col a - mean(col a)` work
 # and `sum(col a) + lit 1` stays 1 row. `Eval.expr` broadcasts a KLit result
 # to the frame height (literals broadcast) and keeps a KAgg result at 1 row.
+# An aggregate of a literal aggregates the 1-row literal (`sum(lit 2)` = 2),
+# except Len, which counts the frame's rows (pl.len()). `select` of only
+# literals/aggregates is 1 row (Polars).
 #
-# Nulls (DESIGN.md section 5): validity masks are ANDed by every op; the
+# Nulls (DESIGN.md section 5): validity masks are ANDed by every op (bool and/or
+# are Kleene; first/last keep a null row; n_unique counts null as a value); the
 # result of an op over a Mask column has its null slots reset to the dtype
 # default (`Eval.fix`), so the column invariant "an invalid slot holds
 # DType.default" is kept by every result.
@@ -438,12 +442,84 @@ def Eval.bin.t(cmp: Bool, t: D.DType) -> D.DType:
     case False{}:
       t
 
+# ---- Kleene and/or ---------------------------------------------------------------------------
+# A bool cell is encoded as a 2-bit state word: 0 null, 2 false, 3 true (valid*2 + value, the
+# value forced to 0 on a null row). false & null = false, true | null = true, otherwise a null
+# operand makes the result null (Polars). Used only when a side has a validity mask.
+
+# a mask (popcount answer) as a validity; AllValid if every row is set (cast parses, Kleene)
+def Eval.cast.allv(+n: U32, r: Array<U32> & U32) -> C.Valid:
+  (m, k) = r
+  Bool.pick(C.Valid, U32.is_eq(k, n), C.AllValid{}, C.Mask{m})
+
+def Eval.kl.cell(+v: U32, +w: U32) -> U32:
+  U32.add(U32.add(v, v), U32.and(w, v))
+
+def Eval.kl.enc(+n: U32, +d: Nat, v: C.Valid, x: Array<U32>) -> Array<U32>:
+  match v:
+    case C.AllValid{}:
+      K.Kernel.map(~U32, ~U32, ~(w => U32.or(w, 2)), n, d, x, 0)
+    case C.Mask{m}:
+      K.Kernel.zip(~U32, ~U32, ~U32, ~(a => w => Eval.kl.cell(a, w)), n, d, m, x, 0)
+
+def Eval.kl.and(+a: U32, +b: U32) -> U32:
+  Bool.pick(U32, Bool.or(U32.is_eq(a, 2), U32.is_eq(b, 2)), 2, Bool.pick(U32, Bool.and(U32.is_eq(a, 3), U32.is_eq(b, 3)), 3, 0))
+
+def Eval.kl.or(+a: U32, +b: U32) -> U32:
+  Bool.pick(U32, Bool.or(U32.is_eq(a, 3), U32.is_eq(b, 3)), 3, Bool.pick(U32, Bool.and(U32.is_eq(a, 2), U32.is_eq(b, 2)), 2, 0))
+
+def Eval.kl.st(is_and: Bool, +n: U32, +d: Nat, a: Array<U32>, b: Array<U32>) -> Array<U32>:
+  match is_and:
+    case True{}:
+      K.Kernel.zip(~U32, ~U32, ~U32, ~(x => y => Eval.kl.and(x, y)), n, d, a, b, 0)
+    case False{}:
+      K.Kernel.zip(~U32, ~U32, ~U32, ~(x => y => Eval.kl.or(x, y)), n, d, a, b, 0)
+
+def Eval.kl.some.b(known: Bool, +r: U32) -> Maybe<&2, U32>:
+  match known:
+    case True{}:
+      Some{U32.and(r, 1)}
+    case False{}:
+      None{}
+
+# state word -> value if known (valid), else None
+def Eval.kl.some(+r: U32) -> Maybe<&2, U32>:
+  Eval.kl.some.b(U32.is_ge(r, 2), r)
+
+def Eval.kl.fin(+n: U32, +d: Nat, r: Array<U32> & Array<U32>) -> C.Column:
+  (x, ok) = r
+  C.CBool{n, d, Eval.cast.allv(n, K.Kernel.popcount(n, ok)), x}
+
+def Eval.kleene(is_and: Bool, +n: U32, +d: Nat, va: C.Valid, vb: C.Valid, xa: Array<U32>, xb: Array<U32>) -> C.Column:
+  Eval.kl.fin(n, d, K.Kernel.map_maybe(~U32, ~U32, ~(r => Eval.kl.some(r)), n, d, Eval.kl.st(is_and, n, d, Eval.kl.enc(n, d, va, xa), Eval.kl.enc(n, d, vb, xb)), 0))
+
+# and/or: both sides dense -> the plain word op, else Kleene
+def Eval.bin.logic(is_and: Bool, op: X.BinOp, +n: U32, +d: Nat, va: C.Valid, vb: C.Valid, xa: Array<U32>, xb: Array<U32>) -> E.ResT(C.Column):
+  match va vb:
+    case C.AllValid{} C.AllValid{}:
+      Eval.bin.w(D.TBool{}, n, d, C.AllValid{}, Eval.zip.u(op, n, d, xa, xb))
+    case C.AllValid{} C.Mask{mb}:
+      Done{Eval.kleene(is_and, n, d, C.AllValid{}, C.Mask{mb}, xa, xb)}
+    case C.Mask{ma} C.AllValid{}:
+      Done{Eval.kleene(is_and, n, d, C.Mask{ma}, C.AllValid{}, xa, xb)}
+    case C.Mask{ma} C.Mask{mb}:
+      Done{Eval.kleene(is_and, n, d, C.Mask{ma}, C.Mask{mb}, xa, xb)}
+
+def Eval.bin.bool(+op: X.BinOp, +n: U32, +d: Nat, va: C.Valid, vb: C.Valid, xa: Array<U32>, xb: Array<U32>) -> E.ResT(C.Column):
+  match op:
+    case X.And{}:
+      Eval.bin.logic(True{}, op, n, d, va, vb, xa, xb)
+    case X.Or{}:
+      Eval.bin.logic(False{}, op, n, d, va, vb, xa, xb)
+    case _:
+      Eval.bin.w(D.TBool{}, n, d, Eval.vand(n, d, va, vb), Eval.zip.u(op, n, d, xa, xb))
+
 # a op b over two columns of the same dtype and length n (the depth of a is
-# the output's); validity = AND of both
+# the output's); validity = AND of both (Kleene for bool and/or)
 def Eval.bin(+op: X.BinOp, a: C.Column, b: C.Column) -> E.ResT(C.Column):
   match a b:
     case C.CBool{+n, +d, va, xa} C.CBool{n2, d2, vb, xb}:
-      Eval.bin.w(D.TBool{}, n, d, Eval.vand(n, d, va, vb), Eval.zip.u(op, n, d, xa, xb))
+      Eval.bin.bool(op, n, d, va, vb, xa, xb)
     case C.CU32{+n, +d, va, xa} C.CU32{n2, d2, vb, xb}:
       Eval.bin.w(Eval.bin.t(Eval.is_cmp(op), D.TU32{}), n, d, Eval.vand(n, d, va, vb), Eval.zip.u(op, n, d, xa, xb))
     case C.CI32{+n, +d, va, xa} C.CI32{n2, d2, vb, xb}:
@@ -505,11 +581,6 @@ def Eval.fill(a: C.Column, b: C.Column) -> E.ResT(C.Column):
 
 def Eval.cast.err(t: D.DType, +to: D.DType) -> E.ResT(C.Column):
   Fail{E.TypeMismatch{"cast", "castable to " ++ D.DType.show(to), D.DType.show(t)}}
-
-# the validity of a parse: ok AND the input validity; AllValid if every row parsed
-def Eval.cast.allv(+n: U32, r: Array<U32> & U32) -> C.Valid:
-  (m, k) = r
-  Bool.pick(C.Valid, U32.is_eq(k, n), C.AllValid{}, C.Mask{m})
 
 def Eval.cast.pv(+n: U32, +d: Nat, v: C.Valid, ok: Array<U32>) -> C.Valid:
   match v:
@@ -768,6 +839,39 @@ def Eval.agg.len(r: C.Column & U32) -> C.Column:
   (c, n) = r
   Eval.unit(D.SU32{n}, D.TU32{})
 
+# n_unique (Polars): the distinct valid values, plus one when any row is null
+def Eval.nu.s(+nulls: U32, r: C.Column & D.Scalar) -> E.ResT(C.Column):
+  (c, s) = r
+  match s:
+    case D.SU32{k}:
+      Done{Eval.unit(D.SU32{U32.add(k, Bool.to_u32(U32.is_ne(nulls, 0)))}, D.TU32{})}
+    case _:
+      Fail{Eval.bug("n_unique")}
+
+def Eval.nu.r(+nulls: U32, r: E.ResT(C.Column)) -> E.ResT(C.Column):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{c}:
+      Eval.nu.s(nulls, C.Column.cell(c, 0))
+
+def Eval.nu.c(r: C.Column & U32) -> E.ResT(C.Column):
+  (c, +nulls) = r
+  Eval.nu.r(nulls, Eval.agg.dense(X.NUnique{}, Eval.dropnull(c)))
+
+# first / last (Polars): row 0 / row n-1 as is, null included; null of the dtype when empty
+def Eval.pick.c(+t: D.DType, +empty: Bool, r: C.Column & D.Scalar) -> C.Column:
+  (c, s) = r
+  Eval.unit(Bool.pick(D.Scalar, empty, D.SNull{}, s), t)
+
+def Eval.pick.b(+empty: Bool, +i: U32, r: C.Column & D.DType) -> C.Column:
+  (c, +t) = r
+  Eval.pick.c(t, empty, C.Column.cell(c, i))
+
+def Eval.pick.a(last: Bool, r: C.Column & U32) -> C.Column:
+  (c, +n) = r
+  Eval.pick.b(U32.is_zero(n), Bool.pick(U32, last, U32.sub(n, 1), 0), C.Column.dtype(c))
+
 # a 1-row column: Len counts rows, Count valid rows, the others skip nulls
 # (DESIGN.md 4.7 / section 5). The column is consumed.
 def Eval.agg(op: X.AggOp, c: C.Column) -> E.ResT(C.Column):
@@ -776,6 +880,12 @@ def Eval.agg(op: X.AggOp, c: C.Column) -> E.ResT(C.Column):
       Done{Eval.agg.len(C.Column.len(c))}
     case X.Count{}:
       Done{Eval.agg.count(C.Column.len(c))}
+    case X.NUnique{}:
+      Eval.nu.c(C.Column.null_count(c))
+    case X.First{}:
+      Done{Eval.pick.a(False{}, C.Column.len(c))}
+    case X.Last{}:
+      Done{Eval.pick.a(True{}, C.Column.len(c))}
     case other:
       Eval.agg.dense(other, Eval.dropnull(c))
 
@@ -882,11 +992,20 @@ def Eval.fit(k: SKind, c: C.Column, +n: U32) -> C.Column:
     case _:
       Eval.bcast(c, n)
 
-# an aggregation over a literal aggregates the literal broadcast to the height
-def Eval.fit_agg(k: SKind, c: C.Column, +h: U32) -> C.Column:
+def Eval.fit_len(k: SKind, c: C.Column, +h: U32) -> C.Column:
   match k:
     case KLit{}:
       Eval.bcast(c, h)
+    case _:
+      c
+
+# An aggregation over a literal aggregates the 1-row literal (Polars:
+# `pl.lit(2).sum()` = 2). The one exception is Len: `pl.len()` is encoded as
+# `Agg{Len, Lit 1}` and must count the frame's rows, so only Len broadcasts.
+def Eval.fit_agg(op: X.AggOp, k: SKind, c: C.Column, +h: U32) -> C.Column:
+  match op:
+    case X.Len{}:
+      Eval.fit_len(k, c, h)
     case _:
       c
 
@@ -896,8 +1015,8 @@ def Eval.do1(+h: U32, i: Instr, k: SKind, c: C.Column) -> E.ResT(Slot):
       Eval.wrap(k, Eval.un(op, c))
     case ICast{to}:
       Eval.wrap(k, Eval.cast(to, c))
-    case IAgg{op}:
-      Eval.wrap(KAgg{}, Eval.agg(op, Eval.fit_agg(k, c, h)))
+    case IAgg{+op}:
+      Eval.wrap(KAgg{}, Eval.agg(op, Eval.fit_agg(op, k, c, h)))
     case _:
       Fail{Eval.bug("instruction")}
 
@@ -1108,10 +1227,10 @@ def Eval.any_kind(~p: SKind -> Bool, es: List<&2, X.Expr>) -> Bool:
     case e <> t:
       Bool.or(p(Eval.kind(e)), Eval.any_kind(~p, t))
 
-# select's height: h if any output is a real column, else 1 if any is an
-# aggregation (an "agg-select"), else h (literals only)
+# select's height (Polars): h if any output is a real column, else 1 (an
+# agg-select, or literals only)
 def Eval.target(+es: List<&2, X.Expr>, +h: U32) -> U32:
-  Bool.pick(U32, Eval.any_kind(~(k => SKind.is_full(k)), es), h, Bool.pick(U32, Eval.any_kind(~(k => SKind.is_agg(k)), es), 1, h))
+  Bool.pick(U32, Eval.any_kind(~(k => SKind.is_full(k)), es), h, 1)
 
 def Eval.many.out(name: String, s: Slot) -> Out:
   match s:
