@@ -1,7 +1,6 @@
-#! xfail B03-d
 # B03-d (Fable B1): integer % by zero answers the dividend (and / by zero 0).
 # DESIGN.md 15.5.1: mod by zero is null (u32 and i32); integer / is refused (B03-f) and
-# floor_div by zero is null (M1 API: tests/regress/pending/B03_d_floor_div.bend.txt).
+# floor_div by zero is null (M1 API: tests/regress/B03_d_floor_div.bend).
 # Polars 2.0.0: 7 % 0 = null (regress_expect.py).
 import Base
 import ./../../frame.bend as DF

@@ -1,4 +1,3 @@
-#! xfail B03-o
 # B03-o: i32 % takes the dividend's sign (truncating). DESIGN.md 15.5.1: the result has
 # the divisor's sign (floor modulo, consistent with floor_div):
 #   7 % 2 = 1, -7 % 2 = 1, 7 % -2 = -1, -7 % -2 = -1, 6 % -3 = 0, -1 % 5 = 4,

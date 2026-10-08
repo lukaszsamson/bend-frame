@@ -55,7 +55,8 @@ def is_cmp(op: X.BinOp) -> Bool:
     case _:
       False{}
 
-# the arithmetic operators that keep their operand type (+ - * /)
+# the arithmetic operators that keep any numeric operand type (+ - *; `/` is f32-only and
+# `//` integer-only since DESIGN.md 15.5.1)
 def is_arith(op: X.BinOp) -> Bool:
   match op:
     case X.Add{}:
@@ -63,8 +64,6 @@ def is_arith(op: X.BinOp) -> Bool:
     case X.Sub{}:
       True{}
     case X.Mul{}:
-      True{}
-    case X.Div{}:
       True{}
     case _:
       False{}

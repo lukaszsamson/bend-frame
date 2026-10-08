@@ -17,10 +17,13 @@
 #     first row (`first`).
 #  4. key output columns = the key columns gathered at `first`; every
 #     aggregation is one scatter over the rows into an n_groups accumulator
-#     array (U32/I32 sums: wrapping word adds; F32 sum: plain SEQUENTIAL f32
-#     adds, Grp.nsum, no compensation; mean: Kahan-compensated, Grp.kahan;
-#     (seen, value) min/max, counts, first/last row indices then a gather,
-#     n_unique by first occurrences of (group, value) codes). Results equal Eval.agg applied to each group's rows in order.
+#     array (U32/I32 sums: wrapping word adds; F32 sum and every mean: the
+#     Neumaier step with the non-finite guard of DESIGN.md 15.5.3, Grp.nm =
+#     K.Kernel.nm.add, the rows of a group visited in ascending row order;
+#     (seen, value) min/max with K.Kernel.fmin/fmax for f32, counts,
+#     first/last row indices then a gather, n_unique by first occurrences of
+#     (group, value) codes, the f32 codes being the 15.5.2 sort words). Results
+#     equal Eval.agg applied to each group's rows in order, bit for bit.
 #
 # Output order: first appearance for maintain_order = True{} AND False{}
 # (v1 does not use the flag; the contract of DESIGN.md 7 only promises first
@@ -49,8 +52,8 @@ type Groups is Type:
 type MM is Data:
   MM{mn: U32, mx: U32}
 
-# accumulators: running sum s, Kahan compensation c (only Grp.kahan, i.e. mean, updates it;
-# Grp.nsum leaves it 0) and valid count k; (seen, value)
+# accumulators: running sum s, Neumaier compensation c and valid count k (Grp.nm, for
+# both f32 sum and mean); (seen, value)
 type KS is Data:
   KS{s: F32, c: F32, k: U32}
 
@@ -342,27 +345,22 @@ def Grp.combine(+n: U32, +d: Nat, g: Codes, c: Codes) -> Codes:
 
 # ---- accumulator steps ------------------------------------------------------------------------
 
-# a Kahan-compensated sum step (the one Kernel.fsum takes), used by mean; unchanged when v = 0
-def Grp.kahan(acc: KS, +y0: F32, +v: U32) -> KS:
+def Grp.nm.k(+skip: Bool, +s: F32, +c: F32, k: U32, +v: U32, r: K.NS) -> KS:
+  match r:
+    case K.NS{s2, c2}:
+      KS{Bool.pick(F32, skip, s, s2), Bool.pick(F32, skip, c, c2), U32.add(k, v)}
+
+# the 15.5.3 step of Kernel.fsum (Neumaier, non-finite guard) on a group's state, the
+# group_by f32 sum and every mean; unchanged when v = 0 (a null row)
+def Grp.nm(acc: KS, +x: F32, +v: U32) -> KS:
   match acc:
     case KS{+s, +c, k}:
-      +y = F32.sub(y0, c)
-      +t = F32.add(s, y)
-      +skip = U32.is_zero(v)
-      KS{Bool.pick(F32, skip, s, t), Bool.pick(F32, skip, c, F32.sub(F32.sub(t, s), y)), U32.add(k, v)}
-
-# a plain sequential f32 add, the group_by F32 sum today: no compensation, so the error grows
-# with the group size (~1e-5 relative at 1M rows against Polars' ~3e-7, bench/README.md);
-# unchanged when v = 0
-def Grp.nsum(acc: KS, +y0: F32, +v: U32) -> KS:
-  match acc:
-    case KS{+s, c, k}:
-      KS{Bool.pick(F32, U32.is_zero(v), s, F32.add(s, y0)), c, U32.add(k, v)}
+      Grp.nm.k(U32.is_zero(v), s, c, k, v, K.Kernel.nm.add(s, c, x))
 
 def Grp.ks_s(a: KS) -> F32:
   match a:
-    case KS{s, c, k}:
-      s
+    case KS{+s, +c, k}:
+      K.Kernel.nm.result(s, c)
 
 def Grp.ks_ok(a: KS) -> U32:
   match a:
@@ -371,8 +369,8 @@ def Grp.ks_ok(a: KS) -> U32:
 
 def Grp.ks_mean(a: KS) -> F32:
   match a:
-    case KS{s, c, +k}:
-      Bool.pick(F32, U32.is_zero(k), 0.0, F32.div(s, U32.to_f32(k)))
+    case KS{+s, +c, +k}:
+      Bool.pick(F32, U32.is_zero(k), 0.0, F32.div(K.Kernel.nm.result(s, c), U32.to_f32(k)))
 
 # (seen, value) steps: the first valid value, then op(value, x) (Eval's fold1)
 def Grp.mw(~op: U32 -> U32 -> U32, acc: MW, +x: U32, +v: U32) -> MW:
@@ -494,9 +492,9 @@ def Grp.agg.w(op: X.AggOp, +t: D.DType, +n: U32, +ng: U32, +dg: Nat, gids: Array
     case X.Sum{} _:
       Grp.wrap.w(t, ng, dg, first, Grp.scat(~U32, ~U32, ~(a => w => v => U32.add(a, U32.and(w, U32.sub(0, v)))), n, gids, x, m, Array.new(U32, dg, 0)))
     case X.Mean{} D.TI32{}:
-      Grp.wrap.mean(ng, dg, first, Grp.scat(~U32, ~KS, ~(a => w => v => Grp.kahan(a, Grp.i2f(w), v)), n, gids, x, m, Array.new(KS, dg, KS{0.0, 0.0, 0})))
+      Grp.wrap.mean(ng, dg, first, Grp.scat(~U32, ~KS, ~(a => w => v => Grp.nm(a, Grp.i2f(w), v)), n, gids, x, m, Array.new(KS, dg, KS{0.0, 0.0, 0})))
     case X.Mean{} _:
-      Grp.wrap.mean(ng, dg, first, Grp.scat(~U32, ~KS, ~(a => w => v => Grp.kahan(a, U32.to_f32(w), v)), n, gids, x, m, Array.new(KS, dg, KS{0.0, 0.0, 0})))
+      Grp.wrap.mean(ng, dg, first, Grp.scat(~U32, ~KS, ~(a => w => v => Grp.nm(a, U32.to_f32(w), v)), n, gids, x, m, Array.new(KS, dg, KS{0.0, 0.0, 0})))
     case X.Min{} D.TI32{}:
       Grp.wrap.mw(t, ng, dg, first, Grp.scat(~U32, ~MW, ~(a => w => v => Grp.mw(~(p => q => V.Eval.i32_min(p, q)), a, w, v)), n, gids, x, m, Array.new(MW, dg, MW{0, 0})))
     case X.Min{} _:
@@ -511,13 +509,14 @@ def Grp.agg.w(op: X.AggOp, +t: D.DType, +n: U32, +ng: U32, +dg: Nat, gids: Array
 def Grp.agg.f(op: X.AggOp, +n: U32, +ng: U32, +dg: Nat, gids: Array<U32>, first: Array<U32>, m: Array<U32>, x: Array<F32>) -> Groups & E.ResT(C.Column):
   match op:
     case X.Sum{}:
-      Grp.wrap.fsum(ng, dg, first, Grp.scat(~F32, ~KS, ~(a => w => v => Grp.nsum(a, w, v)), n, gids, x, m, Array.new(KS, dg, KS{0.0, 0.0, 0})))
+      Grp.wrap.fsum(ng, dg, first, Grp.scat(~F32, ~KS, ~(a => w => v => Grp.nm(a, w, v)), n, gids, x, m, Array.new(KS, dg, KS{0.0, 0.0, 0})))
     case X.Mean{}:
-      Grp.wrap.mean(ng, dg, first, Grp.scat(~F32, ~KS, ~(a => w => v => Grp.kahan(a, w, v)), n, gids, x, m, Array.new(KS, dg, KS{0.0, 0.0, 0})))
+      Grp.wrap.mean(ng, dg, first, Grp.scat(~F32, ~KS, ~(a => w => v => Grp.nm(a, w, v)), n, gids, x, m, Array.new(KS, dg, KS{0.0, 0.0, 0})))
     case X.Min{}:
-      Grp.wrap.mf(ng, dg, first, Grp.scat(~F32, ~MF, ~(a => w => v => Grp.mf(~(p => q => F32.min(p, q)), a, w, v)), n, gids, x, m, Array.new(MF, dg, MF{0, 0.0})))
+      Grp.wrap.mf(ng, dg, first, Grp.scat(~F32, ~MF, ~(a => w => v => Grp.mf(~(p => q => K.Kernel.fmin(p, q)), a, w, v)), n, gids, x, m, Array.new(MF, dg, MF{0, 0.0})))
     case X.Max{}:
-      Grp.wrap.mf(ng, dg, first, Grp.scat(~F32, ~MF, ~(a => w => v => Grp.mf(~(p => q => F32.max(p, q)), a, w, v)), n, gids, x, m, Array.new(MF, dg, MF{0, 0.0})))
+      Grp.wrap.mf(ng, dg, first, Grp.scat(~F32, ~MF, ~(a => w => v => Grp.mf(~(p => q => K.Kernel.fmax(p, q)), a, w, v)), n, gids, x, m, Array.new(MF, dg, MF{0, 0.0})))
+
     case _:
       Grp.wrap.err(ng, gids, first, Grp.bug("aggregation over an f32 column"))
 

@@ -1,9 +1,8 @@
-#! xfail B03-f
 # B03-f (Fable B3): / on integer columns truncates and keeps the integer dtype.
 # DESIGN.md 15.5.1, 15.3.1: Bin{Div} is f32 x f32 -> f32 only; TypeMismatch{"div", "f32",
 # <left>} when the left is not f32, else {"div", "f32", <right>}: a static error, so
 # collect_schema reports it too. f32 / f32 is IEEE (x/0 = +-inf, 0/0 = NaN; Polars same).
-# floor_div is M1 API (pending/B03_d_floor_div.bend.txt).
+# floor_div is M1 API (tests/regress/B03_d_floor_div.bend).
 import Base
 import ./../../frame.bend as DF
 import ./../../src/dtype.bend as D

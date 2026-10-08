@@ -1,5 +1,6 @@
-# Eval: the cast table at runtime (DESIGN.md 4.6), nulls through casts,
-# the lenient Str -> number/bool parse, the typed null literal.
+# Eval: the cast table at runtime (DESIGN.md 15.5.5): strict cast (the first failing valid
+# cell is an error), try_cast (failing cells become null), Str parses of the text as is,
+# nulls through casts, the typed null literal.
 import Base
 import ./../src/dtype.bend as D
 import ./../src/err.bend as E
@@ -121,68 +122,91 @@ def rs(r: E.Res(D.Scalar)) -> String:
     case Done{v}:
       D.Scalar.show(v)
 
+def try_cast(e: X.Expr, t: D.DType) -> X.Expr:
+  X.TryCast{e, t}
+
+def li(v: U32) -> X.Expr:
+  X.Lit{pos(v)}
+
 def main() -> IO(Unit):
   do IO<Unit>:
-    # Str -> numbers / bool: trimmed text, a failed parse is null (lenient)
-    IO.print(ex(cast(col("s"), D.TF32{})))
-    IO.print(ex(cast(col("s"), D.TU32{})))
-    IO.print(ex(cast(col("s"), D.TI32{})))
-    IO.print(ex(cast(col("s"), D.TBool{})))
+    # Str -> numbers / bool with try_cast: the text as is (no trimming), a failure is null
+    IO.print(ex(try_cast(col("s"), D.TF32{})))
+    IO.print(ex(try_cast(col("s"), D.TU32{})))
+    IO.print(ex(try_cast(col("s"), D.TI32{})))
+    IO.print(ex(try_cast(col("s"), D.TBool{})))
     IO.print(ex(cast(col("s"), D.TStr{})))
-    # I32: bits to U32, values to F32, text
+    # strict cast: the first valid cell that does not read is the error
+    IO.print(ex(cast(col("s"), D.TF32{})))
+    IO.print(ex(cast(col("s"), D.TBool{})))
+    # I32 -> U32: negatives fail (cast) or become null (try_cast); values to F32, text
     IO.print(ex(cast(col("i"), D.TU32{})))
+    IO.print(ex(try_cast(col("i"), D.TU32{})))
     IO.print(ex(cast(col("i"), D.TStr{})))
-    IO.print(ex(cast(cast(col("i"), D.TU32{}), D.TI32{})))
-    IO.print(ex(cast(bin(X.Div{}, col("i"), X.Lit{pos(1000000)}), D.TF32{})))
-    # F32: truncation toward zero; negatives to U32 are 0
+    IO.print(ex(cast(try_cast(col("i"), D.TU32{}), D.TI32{})))
+    IO.print(ex(cast(X.Bin{X.FloorDiv{}, col("i"), li(1000000)}, D.TF32{})))
+    # F32 -> I32: truncation toward zero (in range); F32 -> U32: -2.7 fails, -0.5 is 0
     IO.print(ex(cast(col("f"), D.TI32{})))
     IO.print(ex(cast(col("f"), D.TU32{})))
+    IO.print(ex(try_cast(col("f"), D.TU32{})))
     IO.print(ex(cast(col("f"), D.TStr{})))
     # Bool -> 0/1 and text
     IO.print(ex(cast(col("b"), D.TU32{})))
     IO.print(ex(cast(col("b"), D.TI32{})))
     IO.print(ex(cast(col("b"), D.TF32{})))
     IO.print(ex(cast(col("b"), D.TStr{})))
-    # U32: bits to I32 (no range check), to F32 through I32, text
+    # U32 -> I32: 2^32-1 fails (cast) or is null (try_cast); to F32 through I32, text
     IO.print(ex(cast(col("a"), D.TI32{})))
-    IO.print(ex(cast(cast(col("a"), D.TI32{}), D.TF32{})))
+    IO.print(ex(try_cast(col("a"), D.TI32{})))
+    IO.print(ex(cast(try_cast(col("a"), D.TI32{}), D.TF32{})))
     IO.print(ex(cast(col("a"), D.TStr{})))
     # round trip through text
     IO.print(ex(cast(cast(col("f"), D.TStr{}), D.TF32{})))
-    # the typed null literal broadcasts as an all-null column
+    # the typed null literal broadcasts as an all-null column (cast and try_cast)
     IO.print(ex(cast(X.Lit{D.SNull{}}, D.TStr{})))
+    IO.print(ex(try_cast(X.Lit{D.SNull{}}, D.TI32{})))
     IO.print(ex(X.FillNull{col("a"), cast(X.Lit{D.SNull{}}, D.TU32{})}))
-    # identity casts and a refused one
+    # identity casts and refused ones
     IO.print(ex(cast(col("b"), D.TBool{})))
     IO.print(ex(cast(col("f"), D.TBool{})))
+    IO.print(ex(try_cast(col("f"), D.TBool{})))
     # constant folding through a parse
     IO.print(rs(V.Eval.scalar(bin(X.Add{}, cast(ls("12"), D.TU32{}), lu(1)))))
     IO.print(rs(V.Eval.scalar(cast(ls("1e3"), D.TF32{}))))
     IO.print(rs(V.Eval.scalar(cast(ls("abc"), D.TI32{}))))
-#|f32=[1.5, null, 3, null, -2, null, null]
-#|u32=[null, null, 3, null, null, null, null]
-#|i32=[null, null, 3, null, -2, null, null]
+    IO.print(rs(V.Eval.scalar(try_cast(ls("abc"), D.TI32{}))))
+#|f32=[1.5, null, null, null, -2, null, null]
+#|u32=[null, null, null, null, null, null, null]
+#|i32=[null, null, null, null, -2, null, null]
 #|bool=[null, null, null, null, null, true, false]
 #|str=[1.5, x,  3, null, -2, true, False]
-#|u32=[4294967293, 7, null, 0, 2147483648, 2147483647, 4294967295]
+#|error: InvalidOperation: cast str to f32: row 1 holds "x"
+#|error: InvalidOperation: cast str to bool: row 0 holds "1.5"
+#|error: InvalidOperation: cast i32 to u32: row 0 holds -3
+#|u32=[null, 7, null, 0, null, 2147483647, null]
 #|str=[-3, 7, null, 0, -2147483648, 2147483647, -1]
-#|i32=[-3, 7, null, 0, -2147483648, 2147483647, -1]
-#|f32=[0, 0, null, 0, -2147, 2147, 0]
+#|i32=[null, 7, null, 0, null, 2147483647, null]
+#|f32=[-1, 0, null, 0, -2148, 2147, -1]
 #|i32=[2, -2, null, 0, 0, 100, 3]
-#|u32=[2, 0, null, 0, 0, 100, 3]
+#|error: InvalidOperation: cast f32 to u32: row 1 holds -2.7
+#|u32=[2, null, null, 0, 0, 100, 3]
 #|str=[2.7, -2.7, null, 0.5, -0.5, 100, 3]
 #|u32=[1, 0, null, 1, 0, 1, 0]
 #|i32=[1, 0, null, 1, 0, 1, 0]
 #|f32=[1, 0, null, 1, 0, 1, 0]
 #|str=[true, false, null, true, false, true, false]
-#|i32=[0, 1, null, -1, 7, 10, 3]
-#|f32=[0, 1, null, -1, 7, 10, 3]
+#|error: InvalidOperation: cast u32 to i32: row 3 holds 4294967295
+#|i32=[0, 1, null, null, 7, 10, 3]
+#|f32=[0, 1, null, null, 7, 10, 3]
 #|str=[0, 1, null, 4294967295, 7, 10, 3]
 #|f32=[2.7, -2.7, null, 0.5, -0.5, 100, 3]
 #|str=[null, null, null, null, null, null, null]
+#|i32=[null, null, null, null, null, null, null]
 #|u32=[0, 1, null, 4294967295, 7, 10, 3]
 #|bool=[true, false, null, true, false, true, false]
 #|error: TypeMismatch in cast: expected castable to bool, got f32
+#|error: TypeMismatch in try_cast: expected castable to bool, got f32
 #|13
 #|1000
+#|error: InvalidOperation: cast str to i32: row 0 holds "abc"
 #|null

@@ -1,4 +1,6 @@
-#! xfail B03-h
+#! xfail B04-a
+# (B03 fixed in M1: eager and grouped runs pass; the lazy select runs still refuse the
+# reduction until B04-a lands. Remove the marker with B04-a.)
 # B03-h (Fable B5, Astra 1): grouped f32 sum is a plain sequential add. DESIGN.md 15.5.3:
 # group sums use the Neumaier step of every f32 sum, rows in ascending order. Groups:
 #   1 ten 0.1 -> 0x3f800000 (1.0; sequential f32 gives 0x3f800001)

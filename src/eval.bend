@@ -51,6 +51,7 @@ type Instr is Data:
   IUn{op: X.UnOp}
   IBin{op: X.BinOp}
   ICast{to: D.DType}
+  ITry{to: D.DType}
   IFill{}
   IAgg{op: X.AggOp}
 
@@ -344,6 +345,8 @@ def Eval.zip.u(op: X.BinOp, +n: U32, +d: Nat, a: Array<U32>, b: Array<U32>) -> A
       K.Kernel.zip(~U32, ~U32, ~U32, ~(x => y => U32.mul(x, y)), n, d, a, b, 0)
     case X.Div{}:
       K.Kernel.zip(~U32, ~U32, ~U32, ~(x => y => U32.div(x, y)), n, d, a, b, 0)
+    case X.FloorDiv{}:
+      K.Kernel.zip(~U32, ~U32, ~U32, ~(x => y => U32.div(x, y)), n, d, a, b, 0)
     case X.Mod{}:
       K.Kernel.zip(~U32, ~U32, ~U32, ~(x => y => U32.mod(x, y)), n, d, a, b, 0)
     case X.Eq{}:
@@ -394,20 +397,22 @@ def Eval.zip.fa(op: X.BinOp, +n: U32, +d: Nat, a: Array<F32>, b: Array<F32>) -> 
     case _:
       K.Kernel.zip(~F32, ~F32, ~F32, ~(x => y => F32.add(x, y)), n, d, a, b, 0.0)
 
+# f32 comparisons by the total order of DESIGN.md 15.5.2 (K.Kernel.fword: NaN == NaN and
+# greatest, -0.0 == 0.0), the relation sort, group_by and n_unique use too
 def Eval.zip.fc(op: X.BinOp, +n: U32, +d: Nat, a: Array<F32>, b: Array<F32>) -> Array<U32>:
   match op:
     case X.Ne{}:
-      K.Kernel.zip(~F32, ~F32, ~U32, ~(x => y => Bool.to_u32(F32.is_ne(x, y))), n, d, a, b, 0)
+      K.Kernel.zip(~F32, ~F32, ~U32, ~(x => y => Bool.to_u32(U32.is_ne(K.Kernel.fword(x), K.Kernel.fword(y)))), n, d, a, b, 0)
     case X.Lt{}:
-      K.Kernel.zip(~F32, ~F32, ~U32, ~(x => y => Bool.to_u32(F32.is_lt(x, y))), n, d, a, b, 0)
+      K.Kernel.zip(~F32, ~F32, ~U32, ~(x => y => Bool.to_u32(U32.is_lt(K.Kernel.fword(x), K.Kernel.fword(y)))), n, d, a, b, 0)
     case X.Le{}:
-      K.Kernel.zip(~F32, ~F32, ~U32, ~(x => y => Bool.to_u32(F32.is_le(x, y))), n, d, a, b, 0)
+      K.Kernel.zip(~F32, ~F32, ~U32, ~(x => y => Bool.to_u32(U32.is_le(K.Kernel.fword(x), K.Kernel.fword(y)))), n, d, a, b, 0)
     case X.Gt{}:
-      K.Kernel.zip(~F32, ~F32, ~U32, ~(x => y => Bool.to_u32(F32.is_gt(x, y))), n, d, a, b, 0)
+      K.Kernel.zip(~F32, ~F32, ~U32, ~(x => y => Bool.to_u32(U32.is_gt(K.Kernel.fword(x), K.Kernel.fword(y)))), n, d, a, b, 0)
     case X.Ge{}:
-      K.Kernel.zip(~F32, ~F32, ~U32, ~(x => y => Bool.to_u32(F32.is_ge(x, y))), n, d, a, b, 0)
+      K.Kernel.zip(~F32, ~F32, ~U32, ~(x => y => Bool.to_u32(U32.is_ge(K.Kernel.fword(x), K.Kernel.fword(y)))), n, d, a, b, 0)
     case _:
-      K.Kernel.zip(~F32, ~F32, ~U32, ~(x => y => Bool.to_u32(F32.is_eq(x, y))), n, d, a, b, 0)
+      K.Kernel.zip(~F32, ~F32, ~U32, ~(x => y => Bool.to_u32(U32.is_eq(K.Kernel.fword(x), K.Kernel.fword(y)))), n, d, a, b, 0)
 
 def Eval.zip.s(op: X.BinOp, +n: U32, +d: Nat, a: Array<String>, b: Array<String>) -> Array<U32>:
   match op:
@@ -514,16 +519,81 @@ def Eval.bin.bool(+op: X.BinOp, +n: U32, +d: Nat, va: C.Valid, vb: C.Valid, xa: 
     case _:
       Eval.bin.w(D.TBool{}, n, d, Eval.vand(n, d, va, vb), Eval.zip.u(op, n, d, xa, xb))
 
+# ---- integer floor_div / mod (DESIGN.md 15.5.1): null on a zero divisor --------------------
+
+# a validity AND an ok mask (0 where a conversion / division failed); AllValid if every row is set
+def Eval.okv(+n: U32, +d: Nat, v: C.Valid, ok: Array<U32>) -> C.Valid:
+  match v:
+    case C.AllValid{}:
+      Eval.cast.allv(n, K.Kernel.popcount(n, ok))
+    case C.Mask{m}:
+      Eval.cast.allv(n, K.Kernel.popcount(n, K.Kernel.mask_and(n, d, ok, m)))
+
+def Eval.is_idiv(op: X.BinOp) -> Bool:
+  match op:
+    case X.FloorDiv{}:
+      True{}
+    case X.Mod{}:
+      True{}
+    case _:
+      False{}
+
+def Eval.u_fdiv(x: U32, +y: U32) -> Maybe<&2, U32>:
+  Bool.pick(Maybe<&2, U32>, U32.is_zero(y), None{}, Some{U32.div(x, y)})
+
+def Eval.u_fmod(x: U32, +y: U32) -> Maybe<&2, U32>:
+  Bool.pick(Maybe<&2, U32>, U32.is_zero(y), None{}, Some{U32.mod(x, y)})
+
+def Eval.i_fdiv(x: U32, y: U32) -> Maybe<&2, U32>:
+  Eval.i32_bits(D.I32.floor_div(D.I32{x}, D.I32{y}))
+
+def Eval.i_fmod(x: U32, y: U32) -> Maybe<&2, U32>:
+  Eval.i32_bits(D.I32.floor_mod(D.I32{x}, D.I32{y}))
+
+# (quotient or remainder words, ok words)
+def Eval.zip.ud(op: X.BinOp, +n: U32, +d: Nat, a: Array<U32>, b: Array<U32>) -> Array<U32> & Array<U32>:
+  match op:
+    case X.Mod{}:
+      K.Kernel.zip_maybe(~U32, ~U32, ~U32, ~(x => y => Eval.u_fmod(x, y)), n, d, a, b, 0)
+    case _:
+      K.Kernel.zip_maybe(~U32, ~U32, ~U32, ~(x => y => Eval.u_fdiv(x, y)), n, d, a, b, 0)
+
+def Eval.zip.id(op: X.BinOp, +n: U32, +d: Nat, a: Array<U32>, b: Array<U32>) -> Array<U32> & Array<U32>:
+  match op:
+    case X.Mod{}:
+      K.Kernel.zip_maybe(~U32, ~U32, ~U32, ~(x => y => Eval.i_fmod(x, y)), n, d, a, b, 0)
+    case _:
+      K.Kernel.zip_maybe(~U32, ~U32, ~U32, ~(x => y => Eval.i_fdiv(x, y)), n, d, a, b, 0)
+
+def Eval.bin.idiv(t: D.DType, +n: U32, +d: Nat, v: C.Valid, r: Array<U32> & Array<U32>) -> E.ResT(C.Column):
+  (x, ok) = r
+  Done{Eval.fix(C.Column.mk_w(t, n, d, Eval.okv(n, d, v, ok), x))}
+
+def Eval.bin.u(idiv: Bool, +op: X.BinOp, +n: U32, +d: Nat, v: C.Valid, xa: Array<U32>, xb: Array<U32>) -> E.ResT(C.Column):
+  match idiv:
+    case True{}:
+      Eval.bin.idiv(D.TU32{}, n, d, v, Eval.zip.ud(op, n, d, xa, xb))
+    case False{}:
+      Eval.bin.w(Eval.bin.t(Eval.is_cmp(op), D.TU32{}), n, d, v, Eval.zip.u(op, n, d, xa, xb))
+
+def Eval.bin.i(idiv: Bool, +op: X.BinOp, +n: U32, +d: Nat, v: C.Valid, xa: Array<U32>, xb: Array<U32>) -> E.ResT(C.Column):
+  match idiv:
+    case True{}:
+      Eval.bin.idiv(D.TI32{}, n, d, v, Eval.zip.id(op, n, d, xa, xb))
+    case False{}:
+      Eval.bin.w(Eval.bin.t(Eval.is_cmp(op), D.TI32{}), n, d, v, Eval.zip.i(op, n, d, xa, xb))
+
 # a op b over two columns of the same dtype and length n (the depth of a is
-# the output's); validity = AND of both (Kleene for bool and/or)
+# the output's); validity = AND of both (Kleene for bool and/or); integer
+# floor_div / mod also null the rows with a zero divisor (and i32 MIN // -1)
 def Eval.bin(+op: X.BinOp, a: C.Column, b: C.Column) -> E.ResT(C.Column):
   match a b:
     case C.CBool{+n, +d, va, xa} C.CBool{n2, d2, vb, xb}:
       Eval.bin.bool(op, n, d, va, vb, xa, xb)
     case C.CU32{+n, +d, va, xa} C.CU32{n2, d2, vb, xb}:
-      Eval.bin.w(Eval.bin.t(Eval.is_cmp(op), D.TU32{}), n, d, Eval.vand(n, d, va, vb), Eval.zip.u(op, n, d, xa, xb))
+      Eval.bin.u(Eval.is_idiv(op), op, n, d, Eval.vand(n, d, va, vb), xa, xb)
     case C.CI32{+n, +d, va, xa} C.CI32{n2, d2, vb, xb}:
-      Eval.bin.w(Eval.bin.t(Eval.is_cmp(op), D.TI32{}), n, d, Eval.vand(n, d, va, vb), Eval.zip.i(op, n, d, xa, xb))
+      Eval.bin.i(Eval.is_idiv(op), op, n, d, Eval.vand(n, d, va, vb), xa, xb)
     case C.CF32{+n, +d, va, xa} C.CF32{n2, d2, vb, xb}:
       Eval.bin.f(Eval.is_cmp(op), op, n, d, Eval.vand(n, d, va, vb), xa, xb)
     case C.CStr{+n, +d, va, xa} C.CStr{n2, d2, vb, xb}:
@@ -582,20 +652,28 @@ def Eval.fill(a: C.Column, b: C.Column) -> E.ResT(C.Column):
 def Eval.cast.err(t: D.DType, +to: D.DType) -> E.ResT(C.Column):
   Fail{E.TypeMismatch{"cast", "castable to " ++ D.DType.show(to), D.DType.show(t)}}
 
-def Eval.cast.pv(+n: U32, +d: Nat, v: C.Valid, ok: Array<U32>) -> C.Valid:
-  match v:
-    case C.AllValid{}:
-      Eval.cast.allv(n, K.Kernel.popcount(n, ok))
-    case C.Mask{m}:
-      Eval.cast.allv(n, K.Kernel.popcount(n, K.Kernel.mask_and(n, d, ok, m)))
-
+# a fallible conversion's (words, ok): failing rows become null
 def Eval.cast.pw(t: D.DType, +n: U32, +d: Nat, v: C.Valid, r: Array<U32> & Array<U32>) -> E.ResT(C.Column):
   (x, ok) = r
-  Done{Eval.fix(C.Column.mk_w(t, n, d, Eval.cast.pv(n, d, v, ok), x))}
+  Done{Eval.fix(C.Column.mk_w(t, n, d, Eval.okv(n, d, v, ok), x))}
 
 def Eval.cast.pf(+n: U32, +d: Nat, v: C.Valid, r: Array<F32> & Array<U32>) -> E.ResT(C.Column):
   (x, ok) = r
-  Done{Eval.fix(C.CF32{n, d, Eval.cast.pv(n, d, v, ok), x})}
+  Done{Eval.fix(C.CF32{n, d, Eval.okv(n, d, v, ok), x})}
+
+# u32 -> i32 and i32 -> u32 (DESIGN.md 15.5.5): the same bits when bit 31 is clear
+def Eval.lo31(+w: U32) -> Maybe<&2, U32>:
+  Bool.pick(Maybe<&2, U32>, U32.is_lt(w, 2147483648), Some{w}, None{})
+
+# f32 -> u32: trunc(x) when -1.0 < x < 4294967296.0 (both bounds exact in f32; NaN fails)
+def Eval.f2u(+x: F32) -> Maybe<&2, U32>:
+  Bool.pick(Maybe<&2, U32>, Bool.and(F32.is_gt(x, F32.neg(1.0)), F32.is_lt(x, 4294967296.0)), Some{F32.to_u32(x)}, None{})
+
+# f32 -> i32: trunc(x) toward zero when -2147483648.0 <= x < 2147483648.0 (NaN fails)
+def Eval.f2i_m(+x: F32) -> Maybe<&2, U32>:
+  Bool.pick(Maybe<&2, U32>, Bool.and(F32.is_ge(x, F32.neg(2147483648.0)), F32.is_lt(x, 2147483648.0)), Some{Eval.f2i(x)}, None{})
+
+# ---- conversions: the try_cast semantics (a failing valid cell becomes null) ------------------
 
 def Eval.cast.b(+to: D.DType, +n: U32, +d: Nat, v: C.Valid, x: Array<U32>) -> E.ResT(C.Column):
   match to:
@@ -615,7 +693,7 @@ def Eval.cast.u(+to: D.DType, +n: U32, +d: Nat, v: C.Valid, x: Array<U32>) -> E.
     case D.TU32{}:
       Done{C.CU32{n, d, v, x}}
     case D.TI32{}:
-      Done{C.CI32{n, d, v, x}}
+      Eval.cast.pw(D.TI32{}, n, d, v, K.Kernel.map_maybe(~U32, ~U32, ~(w => Eval.lo31(w)), n, d, x, 0))
     case D.TF32{}:
       Done{C.CF32{n, d, v, K.Kernel.map(~U32, ~F32, ~(w => U32.to_f32(w)), n, d, x, 0.0)}}
     case D.TStr{}:
@@ -626,7 +704,7 @@ def Eval.cast.u(+to: D.DType, +n: U32, +d: Nat, v: C.Valid, x: Array<U32>) -> E.
 def Eval.cast.i(+to: D.DType, +n: U32, +d: Nat, v: C.Valid, x: Array<U32>) -> E.ResT(C.Column):
   match to:
     case D.TU32{}:
-      Done{C.CU32{n, d, v, x}}
+      Eval.cast.pw(D.TU32{}, n, d, v, K.Kernel.map_maybe(~U32, ~U32, ~(w => Eval.lo31(w)), n, d, x, 0))
     case D.TI32{}:
       Done{C.CI32{n, d, v, x}}
     case D.TF32{}:
@@ -639,9 +717,9 @@ def Eval.cast.i(+to: D.DType, +n: U32, +d: Nat, v: C.Valid, x: Array<U32>) -> E.
 def Eval.cast.f(+to: D.DType, +n: U32, +d: Nat, v: C.Valid, x: Array<F32>) -> E.ResT(C.Column):
   match to:
     case D.TU32{}:
-      Done{C.CU32{n, d, v, K.Kernel.map(~F32, ~U32, ~(w => F32.to_u32(w)), n, d, x, 0)}}
+      Eval.cast.pw(D.TU32{}, n, d, v, K.Kernel.map_maybe(~F32, ~U32, ~(w => Eval.f2u(w)), n, d, x, 0))
     case D.TI32{}:
-      Done{C.CI32{n, d, v, K.Kernel.map(~F32, ~U32, ~(w => Eval.f2i(w)), n, d, x, 0)}}
+      Eval.cast.pw(D.TI32{}, n, d, v, K.Kernel.map_maybe(~F32, ~U32, ~(w => Eval.f2i_m(w)), n, d, x, 0))
     case D.TF32{}:
       Done{C.CF32{n, d, v, x}}
     case D.TStr{}:
@@ -649,22 +727,44 @@ def Eval.cast.f(+to: D.DType, +n: U32, +d: Nat, v: C.Valid, x: Array<F32>) -> E.
     case D.TBool{}:
       Eval.cast.err(D.TF32{}, to)
 
-# Str -> anything parses the TRIMMED text; a failed parse is null (lenient)
+# F32.read of the text as is; Base's F32.read skips LEADING whitespace (" 3" reads as 3),
+# so a cell starting with a space, TAB, CR or LF is refused here: the cast does not trim
+# (DESIGN.md 15.5.5 D:, Polars; recorded in DESIGN.md 14 B03)
+def Eval.read_f32.k(ws: Bool, s: String) -> Maybe<&2, F32>:
+  match ws:
+    case True{}:
+      None{}
+    case False{}:
+      F32.read(s)
+
+def Eval.lead_ws(s: String) -> Bool:
+  match s:
+    case SCon{Chr{+c}, t}:
+      Bool.or(Bool.or(U32.is_eq(c, 32), U32.is_eq(c, 9)), Bool.or(U32.is_eq(c, 10), U32.is_eq(c, 13)))
+    case SNil{}:
+      False{}
+
+def Eval.read_f32(+s: String) -> Maybe<&2, F32>:
+  Eval.read_f32.k(Eval.lead_ws(s), s)
+
+# Str -> number / bool reads the text AS IS (DESIGN.md 15.5.5, no trimming): U32.read,
+# I32.read, F32.read, true/false/True/False; a cell that does not read is a failure
 def Eval.cast.s(+to: D.DType, +n: U32, +d: Nat, v: C.Valid, x: Array<String>) -> E.ResT(C.Column):
   match to:
     case D.TStr{}:
       Done{C.CStr{n, d, v, x}}
     case D.TU32{}:
-      Eval.cast.pw(D.TU32{}, n, d, v, K.Kernel.map_maybe(~String, ~U32, ~(s => U32.read(String.trim(s))), n, d, x, 0))
+      Eval.cast.pw(D.TU32{}, n, d, v, K.Kernel.map_maybe(~String, ~U32, ~(s => U32.read(s)), n, d, x, 0))
     case D.TI32{}:
-      Eval.cast.pw(D.TI32{}, n, d, v, K.Kernel.map_maybe(~String, ~U32, ~(s => Eval.i32_bits(D.I32.read(String.trim(s)))), n, d, x, 0))
+      Eval.cast.pw(D.TI32{}, n, d, v, K.Kernel.map_maybe(~String, ~U32, ~(s => Eval.i32_bits(D.I32.read(s))), n, d, x, 0))
     case D.TBool{}:
-      Eval.cast.pw(D.TBool{}, n, d, v, K.Kernel.map_maybe(~String, ~U32, ~(s => Eval.read_bool(String.trim(s))), n, d, x, 0))
+      Eval.cast.pw(D.TBool{}, n, d, v, K.Kernel.map_maybe(~String, ~U32, ~(s => Eval.read_bool(s)), n, d, x, 0))
     case D.TF32{}:
-      Eval.cast.pf(n, d, v, K.Kernel.map_maybe(~String, ~F32, ~(s => F32.read(String.trim(s))), n, d, x, 0.0))
+      Eval.cast.pf(n, d, v, K.Kernel.map_maybe(~String, ~F32, ~(s => Eval.read_f32(s)), n, d, x, 0.0))
 
-# the cast table of DESIGN.md 4.6 (U32<->I32 and Bool->U32/I32 only retag)
-def Eval.cast(+to: D.DType, c: C.Column) -> E.ResT(C.Column):
+# try_cast (DESIGN.md 15.5.5): every valid cell converted, a failing one becomes null;
+# nulls pass. For a total pair (X.Cast.total) this is also what cast does.
+def Eval.try_cast(+to: D.DType, c: C.Column) -> E.ResT(C.Column):
   match c:
     case C.CBool{n, d, v, x}:
       Eval.cast.b(to, n, d, v, x)
@@ -676,6 +776,69 @@ def Eval.cast(+to: D.DType, c: C.Column) -> E.ResT(C.Column):
       Eval.cast.f(to, n, d, v, x)
     case C.CStr{n, d, v, x}:
       Eval.cast.s(to, n, d, v, x)
+
+# ---- strict cast: the first failing valid cell is an error ---------------------------------
+
+def Eval.cast.fail.c(+from: D.DType, +to: D.DType, +i: U32, r: C.Column & D.Scalar) -> E.Err:
+  (c, s) = r
+  E.InvalidOperation{"cast " ++ D.DType.show(from) ++ " to " ++ D.DType.show(to) ++ ": row " ++ U32.show(i) ++ " holds " ++ X.Expr.show.lit(s)}
+
+def Eval.cast.fail.b(+from: D.DType, +to: D.DType, src: C.Column, +i: U32) -> E.Err:
+  Eval.cast.fail.c(from, to, i, C.Column.data_cell(src, i))
+
+def Eval.cast.fail.a(+from: D.DType, +to: D.DType, +n: U32, rs: C.Column & C.Valid, rt: C.Column & C.Valid) -> E.Err:
+  (src, vs) = rs
+  (tc, vt) = rt
+  Eval.cast.fail.b(from, to, src, K.Kernel.first_drop(n, C.Valid.materialize(vs, 0n), C.Valid.materialize(vt, 0n)))
+
+def Eval.cast.fail.n(+from: D.DType, +to: D.DType, tc: C.Column, r: C.Column & U32) -> E.Err:
+  (src, +n) = r
+  Eval.cast.fail.a(from, to, n, C.Column.take_valid(src), C.Column.take_valid(tc))
+
+# InvalidOperation{"cast <from> to <to>: row <i> holds <cell>"}: i is the first row valid in
+# the source and null after the conversion, the cell as Expr.show.lit shows a literal
+def Eval.cast.fail(+from: D.DType, +to: D.DType, src: C.Column, tc: C.Column) -> E.Err:
+  Eval.cast.fail.n(from, to, tc, C.Column.len(src))
+
+def Eval.cast.cmp2(same: Bool, +from: D.DType, +to: D.DType, src: C.Column, tc: C.Column) -> E.ResT(C.Column):
+  match same:
+    case True{}:
+      Done{tc}
+    case False{}:
+      Fail{Eval.cast.fail(from, to, src, tc)}
+
+# a conversion only adds nulls: as many nulls as the source means no cell failed
+def Eval.cast.cmp(+from: D.DType, +to: D.DType, rs: C.Column & U32, rt: C.Column & U32) -> E.ResT(C.Column):
+  (src, ns) = rs
+  (tc, nt) = rt
+  Eval.cast.cmp2(U32.is_eq(ns, nt), from, to, src, tc)
+
+def Eval.cast.chk2(+from: D.DType, +to: D.DType, src: C.Column, r: E.ResT(C.Column)) -> E.ResT(C.Column):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{tc}:
+      Eval.cast.cmp(from, to, C.Column.null_count(src), C.Column.null_count(tc))
+
+def Eval.cast.chk(+from: D.DType, +to: D.DType, r: C.Column & C.Column) -> E.ResT(C.Column):
+  (c1, src) = r
+  Eval.cast.chk2(from, to, src, Eval.try_cast(to, c1))
+
+def Eval.cast.sel(total: Bool, +from: D.DType, +to: D.DType, c: C.Column) -> E.ResT(C.Column):
+  match total:
+    case True{}:
+      Eval.try_cast(to, c)
+    case False{}:
+      Eval.cast.chk(from, to, C.Column.clone(c))
+
+def Eval.cast.a(+to: D.DType, r: C.Column & D.DType) -> E.ResT(C.Column):
+  (c, +from) = r
+  Eval.cast.sel(X.Cast.total(from, to), from, to, c)
+
+# cast (DESIGN.md 15.5.5): strict. A total pair converts directly; a fallible one converts a
+# clone with try_cast and compares null counts, so the source is read again only on failure.
+def Eval.cast(+to: D.DType, c: C.Column) -> E.ResT(C.Column):
+  Eval.cast.a(to, C.Column.dtype(c))
 
 # ---- aggregations ------------------------------------------------------------------------
 
@@ -782,15 +945,15 @@ def Eval.agg.f(op: X.AggOp, +k: U32, x: Array<F32>) -> E.ResT(C.Column):
     case X.Mean{}:
       Done{Eval.unit(Eval.mean_s(k, K.Kernel.fsum(~F32, ~(w => w), k, x)), D.TF32{})}
     case X.Min{}:
-      Done{Eval.unit(Eval.nz(k, D.SF32{Eval.fold1(~F32, ~(a => b => F32.min(a, b)), k, x)}), D.TF32{})}
+      Done{Eval.unit(Eval.nz(k, D.SF32{Eval.fold1(~F32, ~(a => b => K.Kernel.fmin(a, b)), k, x)}), D.TF32{})}
     case X.Max{}:
-      Done{Eval.unit(Eval.nz(k, D.SF32{Eval.fold1(~F32, ~(a => b => F32.max(a, b)), k, x)}), D.TF32{})}
+      Done{Eval.unit(Eval.nz(k, D.SF32{Eval.fold1(~F32, ~(a => b => K.Kernel.fmax(a, b)), k, x)}), D.TF32{})}
     case X.First{}:
       Done{Eval.unit(Eval.nz(k, D.SF32{Eval.at(~F32, x, 0)}), D.TF32{})}
     case X.Last{}:
       Done{Eval.unit(Eval.nz(k, D.SF32{Eval.at(~F32, x, U32.sub(k, 1))}), D.TF32{})}
     case X.NUnique{}:
-      Done{Eval.unit(D.SU32{Eval.nuniq(~F32, ~(a => b => F32.is_le(a, b)), ~(a => b => F32.is_eq(a, b)), k, x)}, D.TU32{})}
+      Done{Eval.unit(D.SU32{Eval.nuniq(~U32, ~(a => b => U32.is_le(a, b)), ~(a => b => U32.is_eq(a, b)), k, K.Kernel.map(~F32, ~U32, ~(w => K.Kernel.fword(w)), k, K.Kernel.depth_for(k), x, 0))}, D.TU32{})}
     case _:
       Done{Eval.unit(D.SU32{k}, D.TU32{})}
 
@@ -929,6 +1092,8 @@ def Eval.kind(e: X.Expr) -> SKind:
       Eval.kind(e2)
     case X.Cast{e2, t}:
       Eval.kind(e2)
+    case X.TryCast{e2, t}:
+      Eval.kind(e2)
     case X.Un{op, e2}:
       Eval.kind(e2)
     case X.Bin{op, a, b}:
@@ -959,6 +1124,8 @@ def Eval.compile(e: X.Expr, +acc: List<&2, Instr>) -> List<&2, Instr>:
       Eval.compile(e2, acc)
     case X.Cast{+e2, +to}:
       Eval.compile.cast(X.Expr.is_null_lit(e2), to, acc, Eval.compile(e2, ICast{to} <> acc))
+    case X.TryCast{+e2, +to}:
+      Eval.compile.cast(X.Expr.is_null_lit(e2), to, acc, Eval.compile(e2, ITry{to} <> acc))
     case X.Un{op, e2}:
       Eval.compile(e2, IUn{op} <> acc)
     case X.Bin{op, a, b}:
@@ -1015,6 +1182,9 @@ def Eval.do1(+h: U32, i: Instr, k: SKind, c: C.Column) -> E.ResT(Slot):
       Eval.wrap(k, Eval.un(op, c))
     case ICast{to}:
       Eval.wrap(k, Eval.cast(to, c))
+    case ITry{to}:
+      Eval.wrap(k, Eval.try_cast(to, c))
+
     case IAgg{+op}:
       Eval.wrap(KAgg{}, Eval.agg(op, Eval.fit_agg(op, k, c, h)))
     case _:

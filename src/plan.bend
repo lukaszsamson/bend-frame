@@ -407,6 +407,8 @@ def Opt.rename(e: X.Expr, +rs: List<&2, Ren>) -> X.Expr:
       X.Alias{Opt.rename(e2, rs), n}
     case X.Cast{e2, t}:
       X.Cast{Opt.rename(e2, rs), t}
+    case X.TryCast{e2, t}:
+      X.TryCast{Opt.rename(e2, rs), t}
     case X.Un{op, e2}:
       X.Un{op, Opt.rename(e2, rs)}
     case X.Bin{op, a, b}:

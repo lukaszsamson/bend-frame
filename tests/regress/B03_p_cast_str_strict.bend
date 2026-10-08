@@ -1,10 +1,9 @@
-#! xfail B03-p
 # B03-p: str -> number cast nulls failures silently under the name cast. DESIGN.md 15.5.5:
 # cast is strict: the first valid cell that does not read is
 # InvalidOperation{"cast str to <t>: row <i> holds \"<text>\""} (strings quoted); str ->
 # bool accepts exactly true/false/True/False. Nulls pass. Polars 2.0.0 strict cast raises
 # on the same cells. try_cast (the null-ing variant) is M1 API
-# (pending/B03_e_try_cast.bend.txt).
+# (tests/regress/B03_e_try_cast.bend).
 import Base
 import ./../../frame.bend as DF
 import ./../../src/dtype.bend as D

@@ -21,6 +21,7 @@ type BinOp is Data:
   Sub{}
   Mul{}
   Div{}
+  FloorDiv{}
   Mod{}
   Eq{}
   Ne{}
@@ -47,6 +48,7 @@ type Expr is Data:
   Lit{v: D.Scalar}
   Alias{e: Expr, name: String}
   Cast{e: Expr, to: D.DType}
+  TryCast{e: Expr, to: D.DType}
   Un{op: UnOp, e: Expr}
   Bin{op: BinOp, a: Expr, b: Expr}
   FillNull{e: Expr, v: Expr}
@@ -83,6 +85,8 @@ def BinOp.name(op: BinOp) -> String:
       "mul"
     case Div{}:
       "div"
+    case FloorDiv{}:
+      "floor_div"
     case Mod{}:
       "mod"
     case Eq{}:
@@ -112,6 +116,8 @@ def BinOp.symbol(op: BinOp) -> String:
       "*"
     case Div{}:
       "/"
+    case FloorDiv{}:
+      "//"
     case Mod{}:
       "%"
     case Eq{}:
@@ -165,6 +171,8 @@ def Expr.lname(e: Expr) -> Maybe<&2, String>:
       Some{n}
     case Cast{e2, t}:
       Expr.lname(e2)
+    case TryCast{e2, t}:
+      Expr.lname(e2)
     case Un{op, e2}:
       Expr.lname(e2)
     case Bin{op, a, b}:
@@ -187,6 +195,8 @@ def Expr.refs.go(e: Expr, acc: List<&2, String>) -> List<&2, String>:
     case Alias{e2, n}:
       Expr.refs.go(e2, acc)
     case Cast{e2, t}:
+      Expr.refs.go(e2, acc)
+    case TryCast{e2, t}:
       Expr.refs.go(e2, acc)
     case Un{op, e2}:
       Expr.refs.go(e2, acc)
@@ -211,6 +221,8 @@ def Expr.is_agg(e: Expr) -> Bool:
     case Alias{e2, n}:
       Expr.is_agg(e2)
     case Cast{e2, t}:
+      Expr.is_agg(e2)
+    case TryCast{e2, t}:
       Expr.is_agg(e2)
     case Un{op, e2}:
       Expr.is_agg(e2)
@@ -262,7 +274,8 @@ def DType.is_bool(t: D.DType) -> Bool:
       False{}
 
 # the explicit cast table: T->T; U32<->I32; U32/I32/Bool->F32; F32->U32/I32;
-# Bool->U32/I32; anything->Str; Str->anything (lenient parse)
+# Bool->U32/I32; anything->Str; Str->anything. Which pairs can fail at run time is
+# Cast.total (cast errors, try_cast nulls; DESIGN.md 15.5.5)
 def Cast.ok(from: D.DType, to: D.DType) -> Bool:
   match from to:
     case D.TBool{} D.TBool{}:
@@ -283,6 +296,28 @@ def Cast.ok(from: D.DType, to: D.DType) -> Bool:
       True{}
     case D.TStr{} _:
       True{}
+
+# a pair whose conversion never fails (DESIGN.md 15.5.5): T -> T; u32 / i32 / bool -> f32;
+# bool -> u32 / i32; anything -> str. u32 <-> i32, f32 -> u32 / i32 and str -> anything
+# else are fallible: cast errors on the first failing valid cell, try_cast nulls it.
+def Cast.total(from: D.DType, to: D.DType) -> Bool:
+  match from to:
+    case _ D.TStr{}:
+      True{}
+    case D.TBool{} _:
+      True{}
+    case D.TU32{} D.TU32{}:
+      True{}
+    case D.TU32{} D.TF32{}:
+      True{}
+    case D.TI32{} D.TI32{}:
+      True{}
+    case D.TI32{} D.TF32{}:
+      True{}
+    case D.TF32{} D.TF32{}:
+      True{}
+    case _ _:
+      False{}
 
 # r when ok, else the error
 def Expr.chk(ok: Bool, e: E.Err, r: E.Res(D.DType)) -> E.Res(D.DType):
@@ -323,6 +358,16 @@ def Expr.type.cast(null_lit: Bool, +to: D.DType, r: E.Res(D.DType)) -> E.Res(D.D
     case False{} Done{+t}:
       Expr.chk(Cast.ok(t, to), E.TypeMismatch{"cast", "castable to " ++ D.DType.show(to), D.DType.show(t)}, Done{to})
 
+# TryCast: Cast.ok's table under the name "try_cast"; TryCast{Lit{SNull}, to} is a typed null
+def Expr.type.trycast(null_lit: Bool, +to: D.DType, r: E.Res(D.DType)) -> E.Res(D.DType):
+  match null_lit r:
+    case True{} _:
+      Done{to}
+    case False{} Fail{e}:
+      Fail{e}
+    case False{} Done{+t}:
+      Expr.chk(Cast.ok(t, to), E.TypeMismatch{"try_cast", "castable to " ++ D.DType.show(to), D.DType.show(t)}, Done{to})
+
 def Expr.type.un.ok(op: UnOp, +t: D.DType) -> E.Res(D.DType):
   match op:
     case Neg{}:
@@ -360,7 +405,9 @@ def Expr.type.bin.ok(op: BinOp, +a: D.DType, +b: D.DType) -> E.Res(D.DType):
     case Mul{}:
       Expr.type.arith("mul", a, b)
     case Div{}:
-      Expr.type.arith("div", a, b)
+      Expr.chk(D.DType.eq(a, D.TF32{}), E.TypeMismatch{"div", "f32", D.DType.show(a)}, Expr.chk(D.DType.eq(b, D.TF32{}), E.TypeMismatch{"div", "f32", D.DType.show(b)}, Done{D.TF32{}}))
+    case FloorDiv{}:
+      Expr.chk(DType.is_int(a), E.TypeMismatch{"floor_div", "u32 or i32", D.DType.show(a)}, Expr.chk(D.DType.eq(a, b), E.TypeMismatch{"floor_div", D.DType.show(a), D.DType.show(b)}, Done{a}))
     case And{}:
       Expr.chk(DType.is_bool(a), E.TypeMismatch{"and", "bool", D.DType.show(a)}, Expr.chk(DType.is_bool(b), E.TypeMismatch{"and", "bool", D.DType.show(b)}, Done{D.TBool{}}))
     case Or{}:
@@ -427,6 +474,8 @@ def Expr.type(e: Expr, +s: List<&2, S.Field>) -> E.Res(D.DType):
       Expr.type(e2, s)
     case Cast{+e2, to}:
       Expr.type.cast(Expr.is_null_lit(e2), to, Expr.type(e2, s))
+    case TryCast{+e2, to}:
+      Expr.type.trycast(Expr.is_null_lit(e2), to, Expr.type(e2, s))
     case Un{op, e2}:
       Expr.type.un(op, Expr.type(e2, s))
     case Bin{op, a, b}:
@@ -455,6 +504,9 @@ def Expr.show(e: Expr) -> String:
       Expr.show(e2) ++ ".alias(\"" ++ n ++ "\")"
     case Cast{e2, t}:
       Expr.show(e2) ++ ".cast(" ++ D.DType.show(t) ++ ")"
+    case TryCast{e2, t}:
+      Expr.show(e2) ++ ".try_cast(" ++ D.DType.show(t) ++ ")"
+
     case Un{op, e2}:
       Expr.show(e2) ++ "." ++ UnOp.name(op) ++ "()"
     case Bin{op, a, b}:

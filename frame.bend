@@ -74,13 +74,28 @@ def col(name: String) -> X.Expr:
 def lit_u32(v: U32) -> X.Expr:
   X.Lit{D.SU32{v}}
 
-# non-negative only (the bit pattern must be < 2^31); see lit_i32_neg
-def lit_i32(v: U32) -> X.Expr:
-  X.Lit{D.SI32{D.I32{v}}}
+# the i32 literal v for v < 2^31; a larger v builds `cast(lit_u32(v), i32)`, a strict cast that
+# fails when evaluated ("cast u32 to i32: row 0 holds <v>"): no silent wrap (DESIGN.md 15.2.1 D:)
+def lit_i32(+v: U32) -> X.Expr:
+  Bool.pick(X.Expr, U32.is_lt(v, 2147483648), X.Lit{D.SI32{D.I32{v}}}, X.Cast{X.Lit{D.SU32{v}}, D.TI32{}})
 
-# -v
-def lit_i32_neg(v: U32) -> X.Expr:
-  X.Lit{D.SI32{D.I32.neg(D.I32{v})}}
+# -v for v <= 2^31 (lit_i32_neg(2147483648) is MIN); a larger v builds the negation of the
+# failing cast above
+def lit_i32_neg(+v: U32) -> X.Expr:
+  Bool.pick(X.Expr, U32.is_le(v, 2147483648), X.Lit{D.SI32{D.I32.neg(D.I32{v})}}, X.Un{X.Neg{}, X.Cast{X.Lit{D.SU32{v}}, D.TI32{}}})
+
+# a checked i32 value: v < 2^31, else InvalidOperation{"i32 out of range: <v>"} (D.I32.checked);
+# D.I32.from_bits(w) is the explicit, unchecked reinterpretation
+def i32(v: U32) -> E.Res(D.I32):
+  D.I32.checked(v)
+
+# -v as a checked i32: v <= 2^31
+def i32_neg(v: U32) -> E.Res(D.I32):
+  D.I32.checked_neg(v)
+
+# the null literal of dtype t
+def lit_null(t: D.DType) -> X.Expr:
+  X.Cast{X.Lit{D.SNull{}}, t}
 
 def lit_f32(v: F32) -> X.Expr:
   X.Lit{D.SF32{v}}
@@ -94,8 +109,14 @@ def lit_bool(b: Bool) -> X.Expr:
 def alias(e: X.Expr, name: String) -> X.Expr:
   X.Alias{e, name}
 
+# strict (DESIGN.md 15.5.5): the first valid cell that does not convert is
+# InvalidOperation{"cast <from> to <to>: row <i> holds <cell>"}
 def cast(e: X.Expr, t: D.DType) -> X.Expr:
   X.Cast{e, t}
+
+# the same conversion with failing cells set to null (never an error at run time)
+def try_cast(e: X.Expr, t: D.DType) -> X.Expr:
+  X.TryCast{e, t}
 
 def cast_f32(e: X.Expr) -> X.Expr:
   X.Cast{e, D.TF32{}}
@@ -114,11 +135,19 @@ def sub(a: X.Expr, b: X.Expr) -> X.Expr:
 def mul(a: X.Expr, b: X.Expr) -> X.Expr:
   X.Bin{X.Mul{}, a, b}
 
+# f32 / f32 only (IEEE: x/0 = +-inf); cast integers to f32 first
 def div(a: X.Expr, b: X.Expr) -> X.Expr:
   X.Bin{X.Div{}, a, b}
 
+# u32 // u32, i32 // i32: floor toward -inf; null for a zero divisor and for i32 MIN // -1
+def floor_div(a: X.Expr, b: X.Expr) -> X.Expr:
+  X.Bin{X.FloorDiv{}, a, b}
+
+# u32 % u32, i32 % i32: the result has the divisor's sign (consistent with floor_div); null
+# for a zero divisor
 def mod(a: X.Expr, b: X.Expr) -> X.Expr:
   X.Bin{X.Mod{}, a, b}
+
 
 def eq(a: X.Expr, b: X.Expr) -> X.Expr:
   X.Bin{X.Eq{}, a, b}
