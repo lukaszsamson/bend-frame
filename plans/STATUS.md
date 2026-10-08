@@ -1,4 +1,4 @@
-# v0.1 plan status (paused after M1)
+# v0.1 plan status
 
 Plan: plans/M_01.txt. Contract: DESIGN.md §15. Agent brief: plans/AGENT_BRIEF.md.
 
@@ -21,21 +21,11 @@ Plan: plans/M_01.txt. Contract: DESIGN.md §15. Agent brief: plans/AGENT_BRIEF.m
     `make diff SEED=1 N=1000` has 0 failing cases (2 inadmissible under the
     §15.9 rule). `make diff-reduce` has no findings.
 
-## Paused, not merged
-- **M2** is complete on branch `worktree-agent-a1636193807aae7bf`, based on
-  0fef7cc. It needs a merge with master, which has moved since.
-  - Proved: 71 laws. R1 (head merge) is proven end to end against
-    `Exec.run_pure`. The default optimizer's result equivalence is proven for
-    the merge-only fragment. String.eq is proven, P0 well-formedness is
-    defined, and gather/compact are proven per step (the full content theorems
-    are blocked on a distinct-paths bit-vector lemma). Exec is factored into
-    `Exec.run_pure`. The proof files are split.
-  - Decisions needed before merging:
-    1. Exec error order: scans are now read before any operator runs, so a
-       scan error beats an earlier runtime operator error (DESIGN §14 M2
-       item 2).
-    2. G6 wording until M5: the optimizer theorem covers the head-merge
-       fragment; the head sink below certified nodes is tested but not proved.
+## M2 (merged 2026-10-09)
+- Merged from `worktree-agent-a1636193807aae7bf`. 71 laws; R1 is proven end to end over
+  `Exec.run_pure`, the merge-only fragment of the default optimizer is proven, and String.eq
+  and P0 are proven. Both decisions are recorded in DESIGN.md: the scan-first error order
+  (§15.9 note) and the G6 interim claim (§8).
 
 ## Next (per plan §7)
 After M2 merges: M3 (minimum API) and M4 (string experiment) in parallel

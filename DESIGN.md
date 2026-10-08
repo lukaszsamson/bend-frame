@@ -857,6 +857,15 @@ with the tails' comparison as a parameter; template kernels are proven by
 template proof defs, and a law about a template is stated at a concrete
 instance when `--verdict` must accept it.
 
+
+**G6 interim claim (decided after M2, 2026-10-09; to be widened by M5).** The default
+optimizer's result-equivalence theorem over the production runner (`release_merge_only`,
+checked by `--verdict`) covers the head-merge fragment: plans in which every
+Select/WithColumns acts as a Head barrier. Head sinking below analysis-certified nodes (R3)
+is tested (regressions, differential generator) but not yet proved. Until M5 closes R2–R5,
+README and release notes must state the claim this narrowly.
+
+
 ## 9. Idiom checklist for implementers (copy into every module's header)
 
 1. Helpers above callers. No forward calls, no mutual recursion.
@@ -2491,6 +2500,14 @@ non-number) is **inadmissible for T2.1**: eager reports the data error, lazy the
 both are contract-conformant. The differential generator computes both answers in its oracle and
 counts such programs apart (`inadmissible_for_T2.1`, bench/diff/README.md);
 `tests/regress/NEW_1_static_checks_first.bend` pins one (`15.9-inadmissible`).
+
+
+**Decided after M2 (2026-10-09): lazy error order with scans.** `Exec.run` validates the plan
+(`Plan.schema`, then `Exec.validate`), then reads every `ScanCsv` in plan order, then runs the
+pure runner `Exec.run_pure`. So a scan's IO, parse or frozen-schema error is reported before
+any runtime operator error, even one that the old postfix interleaving would have reached
+first. Eager programs read their files where the program reads them; the §15.9 admissibility
+rule already exempts such multi-verb programs from eager-vs-lazy error agreement.
 
 ### 15.10 Defect table (both reviews; one regression test per row, `#! xfail <ID>` until fixed)
 
