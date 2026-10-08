@@ -104,24 +104,25 @@ def sep(-T: Data, d: Nat, a: Array<T>, +n: U32, +i: U32, +v: T, zi: Bool, wf: La
 
 def set_other_k2(-T: Data, +d: Nat, -b: Array<T>, +i: U32, +v: T,
   w: &c: Array<T> -> &o: T -> {Array.swap.go(T, b, U32.shln(1, d), U32.and(i, U32.sub(U32.shln(1, d), 1)), v, U32.is_lt(U32.and(i, U32.sub(U32.shln(1, d), 1)), U32.shr(U32.shln(1, d)))) == (c, o) : Array<T> & T} & Laws.WFArray(T, d, c) & (@j: U32 -> @zj: Bool -> {Laws.rd(T, c, U32.shln(1, d), j, zj) == Bool.pick(T, Laws.same_d(d, U32.shln(1, d), U32.and(i, U32.sub(U32.shln(1, d), 1)), U32.is_lt(U32.and(i, U32.sub(U32.shln(1, d), 1)), U32.shr(U32.shln(1, d))), j, zj), v, Laws.rd(T, b, U32.shln(1, d), j, zj)) : T}))
-  -> &c2: Array<T> -> {Array.set.fin(T, Array.swap.at(T, i, v, (b, U32.shln(1, d)))) == c2 : Array<T>} & Laws.WFArray(T, d, c2) & (@j: U32 -> {Laws.rdN(T, d, c2, j) == Bool.pick(T, Laws.same_at(d, i, j), v, Laws.rd_size(T, j, (b, U32.shln(1, d)))) : T}):
+  -> &c2: Array<T> -> {Array.set.fin(T, Array.swap.at(T, i, v, (b, U32.shln(1, d)))) == c2 : Array<T>} & Laws.WFArray(T, d, c2) & (@j: U32 -> {Laws.rdN(T, d, c2, j) == Bool.pick(T, Laws.same_at(d, i, j), v, Laws.rdN(T, d, b, j)) : T}) & (@j: U32 -> {Laws.rd_size(T, j, (b, U32.shln(1, d))) == Laws.rdN(T, d, b, j) : T}):
   (c, o, eq, wc, fj) = w
-  (c, (%Equal.sym(Array<T> & T, Array.swap.go(T, b, U32.shln(1, d), U32.and(i, U32.sub(U32.shln(1, d), 1)), v, U32.is_lt(U32.and(i, U32.sub(U32.shln(1, d), 1)), U32.shr(U32.shln(1, d)))), (c, o), eq) : {Array.set.fin(T, _) == c : Array<T>}; {==}), wc, +j => fj(U32.and(j, U32.sub(U32.shln(1, d), 1)), U32.is_lt(U32.and(j, U32.sub(U32.shln(1, d), 1)), U32.shr(U32.shln(1, d)))))
+  (c, (%Equal.sym(Array<T> & T, Array.swap.go(T, b, U32.shln(1, d), U32.and(i, U32.sub(U32.shln(1, d), 1)), v, U32.is_lt(U32.and(i, U32.sub(U32.shln(1, d), 1)), U32.shr(U32.shln(1, d)))), (c, o), eq) : {Array.set.fin(T, _) == c : Array<T>}; {==}), wc, +j => fj(U32.and(j, U32.sub(U32.shln(1, d), 1)), U32.is_lt(U32.and(j, U32.sub(U32.shln(1, d), 1)), U32.shr(U32.shln(1, d)))), j => {==})
 
 def set_other_k1(-T: Data, +d: Nat, -a: Array<T>, +i: U32, +v: T, w: &b: Array<T> -> {b == a : Array<T>} & Laws.WFArray(T, d, b) & {Array.size(T, a) == (b, U32.shln(1, d)) : Array<T> & U32})
-  -> &c: Array<T> -> {Array.set(T, a, i, v) == c : Array<T>} & Laws.WFArray(T, d, c) & (@j: U32 -> {Laws.rdN(T, d, c, j) == Bool.pick(T, Laws.same_at(d, i, j), v, Laws.rd_at(T, a, j)) : T}):
+  -> &c: Array<T> -> {Array.set(T, a, i, v) == c : Array<T>} & Laws.WFArray(T, d, c) & (@j: U32 -> {Laws.rdN(T, d, c, j) == Bool.pick(T, Laws.same_at(d, i, j), v, Laws.rdN(T, d, a, j)) : T}) & (@j: U32 -> {Laws.rd_at(T, a, j) == Laws.rdN(T, d, a, j) : T}):
   (b, eb, wb, es) = w
-  %Equal.sym(Array<T> & U32, Array.size(T, a), (b, U32.shln(1, d)), es) : &c: Array<T> -> {Array.set.fin(T, Array.swap.at(T, i, v, _)) == c : Array<T>} & Laws.WFArray(T, d, c) & (@j: U32 -> {Laws.rdN(T, d, c, j) == Bool.pick(T, Laws.same_at(d, i, j), v, Laws.rd_size(T, j, _)) : T})
+  %Equal.sym(Array<T> & U32, Array.size(T, a), (b, U32.shln(1, d)), es) : &c: Array<T> -> {Array.set.fin(T, Array.swap.at(T, i, v, _)) == c : Array<T>} & Laws.WFArray(T, d, c) & (@j: U32 -> {Laws.rdN(T, d, c, j) == Bool.pick(T, Laws.same_at(d, i, j), v, Laws.rdN(T, d, a, j)) : T}) & (@j: U32 -> {Laws.rd_size(T, j, _) == Laws.rdN(T, d, a, j) : T})
+  %eb : &c: Array<T> -> {Array.set.fin(T, Array.swap.at(T, i, v, (b, U32.shln(1, d)))) == c : Array<T>} & Laws.WFArray(T, d, c) & (@j: U32 -> {Laws.rdN(T, d, c, j) == Bool.pick(T, Laws.same_at(d, i, j), v, Laws.rdN(T, d, _, j)) : T}) & (@j: U32 -> {Laws.rd_size(T, j, (b, U32.shln(1, d))) == Laws.rdN(T, d, _, j) : T})
   set_other_k2(T, d, b, i, v, sep(T, d, b, U32.shln(1, d), U32.and(i, U32.sub(U32.shln(1, d), 1)), v, U32.is_lt(U32.and(i, U32.sub(U32.shln(1, d), 1)), U32.shr(U32.shln(1, d))), wb))
 
 # Array.set(a, i, v) on a well-formed array of depth d: the written array (well formed) and every
 # cell afterwards: v where the masked paths of i and j agree, the old cell elsewhere
 def set_other_w(-T: Data, +d: Nat, a: Array<T>, +i: U32, +v: T, wf: Laws.WFArray(T, d, a))
-  -> &c: Array<T> -> {Array.set(T, a, i, v) == c : Array<T>} & Laws.WFArray(T, d, c) & (@j: U32 -> {Laws.rdN(T, d, c, j) == Bool.pick(T, Laws.same_at(d, i, j), v, Laws.rd_at(T, a, j)) : T}):
+  -> &c: Array<T> -> {Array.set(T, a, i, v) == c : Array<T>} & Laws.WFArray(T, d, c) & (@j: U32 -> {Laws.rdN(T, d, c, j) == Bool.pick(T, Laws.same_at(d, i, j), v, Laws.rdN(T, d, a, j)) : T}) & (@j: U32 -> {Laws.rd_at(T, a, j) == Laws.rdN(T, d, a, j) : T}):
   set_other_k1(T, d, a, i, v, wf_size(T, d, a, wf))
 
-def wf_set_fin(-T: Data, +d: Nat, -a: Array<T>, +i: U32, +v: T, w: &c: Array<T> -> {Array.set(T, a, i, v) == c : Array<T>} & Laws.WFArray(T, d, c) & (@j: U32 -> {Laws.rdN(T, d, c, j) == Bool.pick(T, Laws.same_at(d, i, j), v, Laws.rd_at(T, a, j)) : T})) -> Laws.WFArray(T, d, Array.set(T, a, i, v)):
-  (c, ec, wc, fj) = w
+def wf_set_fin(-T: Data, +d: Nat, -a: Array<T>, +i: U32, +v: T, w: &c: Array<T> -> {Array.set(T, a, i, v) == c : Array<T>} & Laws.WFArray(T, d, c) & (@j: U32 -> {Laws.rdN(T, d, c, j) == Bool.pick(T, Laws.same_at(d, i, j), v, Laws.rdN(T, d, a, j)) : T}) & (@j: U32 -> {Laws.rd_at(T, a, j) == Laws.rdN(T, d, a, j) : T})) -> Laws.WFArray(T, d, Array.set(T, a, i, v)):
+  (c, ec, wc, fj, cv) = w
   %Equal.sym(Array<T>, Array.set(T, a, i, v), c, ec) : Laws.WFArray(T, d, _)
   wc
 
@@ -215,3 +216,43 @@ def Laws.paths_distinct(d, i, j, hi, hj, h):
   match i j:
     case U32{+x} U32{+y}:
       paths_k(d, x, y, lt_shln_zabove(d, x)(hi), lt_shln_zabove(d, x)(hi), lt_shln_zabove(d, y)(hj), lt_shln_zabove(d, y)(hj), z => shln_nz(d, x)(z)(hi))(h)
+
+# ---- Laws.array_set_other ---------------------------------------------------------------------
+
+# the same leaf for i and i (rd's descent is deterministic)
+def same_d_refl(d: Nat, +n: U32, +i: U32, zi: Bool) -> {Laws.same_d(d, n, i, zi, i, zi) == True{} : Bool}:
+  match d zi:
+    case 0n _:
+      {==}
+    case 1n+p True{}:
+      same_d_refl(p, U32.shr(n), i, U32.is_lt(i, U32.shr(U32.shr(n))))
+    case 1n+p False{}:
+      same_d_refl(p, U32.shr(n), U32.sub(i, U32.shr(n)), U32.is_lt(U32.sub(i, U32.shr(n)), U32.shr(U32.shr(n))))
+
+def same_at_refl(+d: Nat, +i: U32) -> {Laws.same_at(d, i, i) == True{} : Bool}:
+  same_d_refl(d, U32.shln(1, d), U32.and(i, U32.sub(U32.shln(1, d), 1)), U32.is_lt(U32.and(i, U32.sub(U32.shln(1, d), 1)), U32.shr(U32.shln(1, d))))
+
+# same_at(d, i, j) == False for distinct i, j below 2^d: the value s = same_at(d, i, j) is a parameter
+def same_false_k(s: Bool, +d: Nat, +i: U32, +j: U32, +hi: {U32.is_lt(i, U32.shln(1, d)) == True{} : Bool}, +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}, ne: {i == j : U32} -> Empty, e: {Laws.same_at(d, i, j) == s : Bool}) -> {Laws.same_at(d, i, j) == False{} : Bool}:
+  match s:
+    case True{}:
+      Empty.absurd({Laws.same_at(d, i, j) == False{} : Bool}, ne(Laws.paths_distinct(d, i, j, hi, hj, e)))
+    case False{}:
+      e
+
+def same_false(+d: Nat, +i: U32, +j: U32, +hi: {U32.is_lt(i, U32.shln(1, d)) == True{} : Bool}, +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}, ne: {i == j : U32} -> Empty) -> {Laws.same_at(d, i, j) == False{} : Bool}:
+  same_false_k(Laws.same_at(d, i, j), d, i, j, hi, hj, ne, {==})
+
+def set_other_fin(-T: Data, +d: Nat, -a: Array<T>, +i: U32, +j: U32, +v: T, +hi: {U32.is_lt(i, U32.shln(1, d)) == True{} : Bool}, +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}, ne: {i == j : U32} -> Empty,
+  w: &c: Array<T> -> {Array.set(T, a, i, v) == c : Array<T>} & Laws.WFArray(T, d, c) & (@j2: U32 -> {Laws.rdN(T, d, c, j2) == Bool.pick(T, Laws.same_at(d, i, j2), v, Laws.rdN(T, d, a, j2)) : T}) & (@j2: U32 -> {Laws.rd_at(T, a, j2) == Laws.rdN(T, d, a, j2) : T}))
+  -> {Laws.rd_at(T, Array.set(T, a, i, v), j) == Laws.rd_at(T, a, j) : T}:
+  (c, ec, wc, fj, cv) = w
+  %Equal.sym(Array<T>, Array.set(T, a, i, v), c, ec) : {Laws.rd_at(T, _, j) == Laws.rd_at(T, a, j) : T}
+  %Equal.sym(T, Laws.rd_at(T, c, j), Laws.rdN(T, d, c, j), Laws.rd_at_wf(T, d, c, j, wc)) : {_ == Laws.rd_at(T, a, j) : T}
+  %Equal.sym(T, Laws.rdN(T, d, c, j), Bool.pick(T, Laws.same_at(d, i, j), v, Laws.rdN(T, d, a, j)), fj(j)) : {_ == Laws.rd_at(T, a, j) : T}
+  %cv(j) : {Bool.pick(T, Laws.same_at(d, i, j), v, _) == Laws.rd_at(T, a, j) : T}
+  %Equal.sym(Bool, Laws.same_at(d, i, j), False{}, same_false(d, i, j, hi, hj, ne)) : {Bool.pick(T, _, v, Laws.rd_at(T, a, j)) == Laws.rd_at(T, a, j) : T}
+  {==}
+
+def Laws.array_set_other(T, d, a, i, j, v, wf, hi, hj, ne):
+  set_other_fin(T, d, a, i, j, v, hi, hj, ne, set_other_w(T, d, a, i, v, wf))

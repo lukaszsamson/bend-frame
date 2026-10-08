@@ -1161,4 +1161,5 @@ law gather_keeps_perm:
   for src: Array<U32>
   for perm: Array<U32>
   for +z: U32
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
   {Pair.snd(Array<U32>, Array<U32>, K.Kernel.gather(~U32, n, d, src, perm, z)) == perm : Array<U32>}
