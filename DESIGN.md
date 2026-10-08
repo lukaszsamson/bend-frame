@@ -1413,3 +1413,706 @@ Join.run makes first). Differences:
    `tests/golden_q1..q6.bend` run them over `tiny.csv`/`products.csv` (scans
    with an inferred schema) and compare `Csv.render(.., Some{4})` with the
    golden files byte for byte; `tests/fmt_describe.bend` covers mixed dtypes.
+
+### M0 (test runner, toolchain, CI)
+
+1. **`scripts/test.sh` summary**: `PASS: p / total, XFAIL: x`, where `total` counts the
+   tests not marked `#! xfail` (green iff `p == total`). An XPASS counts as a failure.
+   Recursive (`tests/regress/`, `tests/diff/` included) and `TEST_JOBS=n` (default 1).
+2. **`bench/pyproject.toml`**: `polars==2.0.0`, `numpy==2.5.3` (both pinned exactly),
+   `requires-python >=3.12` (numpy 2.5.3 needs it; was `>=3.10`). `bench/uv.lock` refreshed.
+3. **`make check`** also checks `frame.bend`, `examples/*.bend` and `bench/*.bend`.
+   `make ci` = `toolchain-check check test proofs verdict bench-check`.
+4. **`bench-check`** = `BENCH_MODE=check scripts/bench.sh`: correctness at 1k and 100k only.
+5. **`TOOLCHAIN`** pins Bend 2.0.36, Lean 4.34.0, Polars 2.0.0, numpy 2.5.3, uv 0.12.23,
+   Python 3.14.3; `make toolchain-check` fails on drift. CI installs these (see
+   `.github/workflows/ci.yml`; macOS arm64 and Linux x86_64).
+
+### M0 T1 / B05 (dump, comparator)
+
+- `DF.dump` is implemented in `src/dump.bend` (`Dump.frame_k(f) -> Frame & String`, `Dump.frame`,
+  `Dump.result`), not in `src/fmt.bend` as 15.1 sketches: the module is new and nothing else in
+  fmt.bend changes. The facade has `DF.dump(r: ResT(Frame))` exactly as 15.1 and an extra
+  `DF.dump_frame(f: Frame)` for an unwrapped frame. Grammar and rules are 15.1 verbatim (TAB
+  separated, `0x` + 8 hex digits for f32, `\xHH` for C0 controls and U+007F, code points >= 128 raw).
+- `bench/check.py` has two modes (typed CSV compare; `--dump` compare of two dumps) and
+  `bench/dump_polars.py` writes the same text from a Polars DataFrame. The CSV mode types a column
+  from the golden side, so `100000` vs `100001` and `nan` vs an integer fail; floats are exact unless
+  `--ulp N` / `--rtol R` is given. scripts/bench.sh still passes `--rtol` (1e-5, 5e-5 at 1M) because
+  `group_by` F32 sums are sequential adds.
+- Stale "Kahan" comments in src/groupby.bend (`group_by` F32 sum is sequential, mean is
+  compensated) were corrected; no behaviour change.
+
+## 15. v0.1 contract (frozen)
+
+The exact semantics every M1-M6 agent codes and tests against. Tables over prose;
+"Polars" means Polars 2.0.0 as pinned in `bench/` (snippets recorded where a row is
+not obvious). Where the plan (`plans/M_01.txt` section 2) left a choice open, the
+decision and its one-line reason are marked **D:**. Deviations found while
+implementing go to section 14, never silently into code.
+
+Conventions used below. `ResT(Frame)` is `E.ResT(C.Frame)`; `Res(X)` is `E.Res(X)`.
+Error rows name the constructor and the exact `what`/`op`/`want`/`got` strings;
+`Err.show` renders them as in `src/err.bend`. "h" is the input height. "Eager" means a
+`Frame -> ResT(Frame)` facade def over `src/`; "lazy" means a `Plan` node with a
+`Plan.schema` rule, an `Exec` rule and an `explain` line. A verb listed as both has one
+data semantics; the eager def and the lazy node call the same `src` function.
+
+### 15.1 DF.dump: the typed oracle text (T1)
+
+`DF.dump(r: ResT(Frame)) -> String` (facade, consumes `r`) over `Fmt.dump(f: Frame)
+-> Frame & String` (src/fmt.bend, hands the frame back like `Fmt.show`). All
+differential tests (T2) compare dumps, never CSV or `Fmt.show` text.
+
+Grammar (lines end in `\n`; fields inside a line are separated by one TAB, `\t`;
+no trailing whitespace; the final line also ends in `\n`):
+
+```
+dump     := frame | error
+error    := "error" TAB errtext NL                 -- errtext = E.Err.show(e), verbatim
+frame    := "frame" NL
+            "height" TAB u32 NL                    -- Frame.height
+            "width" TAB u32 NL                     -- number of columns
+            col*                                   -- one per column, frame order
+            row*                                   -- one per row, row order; none when width = 0
+col      := "col" TAB dtype TAB qstr NL            -- dtype = D.DType.show: bool u32 i32 f32 str
+row      := "row" (TAB cell){width} NL
+cell     := "null" | "true" | "false" | u32 | i32 | f32bits | qstr
+u32      := U32.show                               -- decimal, no sign, no padding
+i32      := I32.show                               -- decimal, "-" when negative
+f32bits  := "0x" hex{8}                            -- F32.bits(x), lowercase, zero-padded
+qstr     := '"' ( esc | any code point except '"' '\' and U+0000..U+001F, U+007F )* '"'
+esc      := '\"' | '\\' | '\n' | '\r' | '\t' | '\x' hex{2}   -- \xHH for the other C0 controls and U+007F
+```
+
+Rules:
+
+| # | Rule |
+|---|------|
+| 1 | A null cell prints `null` whatever the dtype. Validity is observable only through `null`; the slot value under a null is never printed (slot invariant: it is `DType.default`). |
+| 2 | A valid Str cell always prints quoted, so the empty string is `""` and is distinct from `null`. Names are quoted the same way (a name may contain TAB, quote or newline). |
+| 3 | F32 prints its exact bit pattern: `1.0` is `0x3f800000`, `-0.0` is `0x80000000`, `0.0` is `0x00000000`, `+inf` `0x7f800000`, `-inf` `0xff800000`. NaN prints the stored bits. **D:** the comparator (bench/check.py and tests) treats any two NaN cells as equal; NaN payload is outside the contract (15.4) and differs between the interpreter and the native backend. Everything else is byte-exact, including `-0.0` vs `0.0`. |
+| 4 | Bool prints `true`/`false`; U32 and I32 print as `Scalar.show` does (decimal). |
+| 5 | `width 0` prints no `row` lines; the height is still `height h` (so eager `select([])` and a lazy `Select{[]}` are told apart by this line, B01-c). |
+| 6 | Row lines carry exactly `width` cells; a dump is parsed with `line.split("\t")` after stripping the trailing `\n`; the only TABs are separators, because TAB inside a string is escaped. |
+| 7 | `error` dumps carry `Err.show` text verbatim (it contains no newline: every `what` string is single-line by construction, 15.9). Eager/raw-lazy/optimised-lazy agreement (G2) is "equal dump text", for errors too. |
+| 8 | The comparator is itself tested with intentional mismatches (T1): a changed cell, a changed name, a changed dtype, a changed height, `""` vs `null`, `0x80000000` vs `0x00000000`, and two different NaN payloads (must compare equal). |
+
+Example (3 rows, u32/f32/str; second row has two nulls, third string holds a TAB):
+
+```
+frame
+height	3
+width	3
+col	u32	"id"
+col	f32	"x"
+col	str	"s"
+row	1	0x3f800000	""
+row	2	null	null
+row	3	0x80000000	"a\tb"
+```
+
+Implementation notes for T1: `F32.bits` exists (used by `Sort.fword`, `Fmt.fixed`);
+Base has no hex printer, so `Fmt.hex8(w: U32) -> String` is written in fmt.bend
+(8 nibbles, MSB first, `0123456789abcdef`). `Fmt.dump` walks `Column.to_scalars`
+per column and transposes to rows, or reads `Column.cell` row by row; either is
+fine for tests (dumps are for frames of at most a few thousand rows).
+
+### 15.2 API table (G4: every verb eager and lazy, one data semantics)
+
+Legend. **Facade** is the `DF.` name in `frame.bend`; **src** is `module.Def` the
+facade wraps; **E/L**: eager def / lazy Plan node (`lazy_<verb>` builds the node;
+`Exec` runs the same src def). "Row order" is the output order. Errors are listed in
+the order they are detected; `collect_schema` reports exactly the rows marked
+*static*; data-dependent rows are *runtime* (15.7 says which `collect` adds).
+Names of new Plan nodes and Expr nodes are normative; helper names inside src are
+suggestions in the existing style.
+
+Nullability, schema and order rules shared by every verb: no implicit coercion;
+output names are `Expr.name` (15.3); a repeated output name is
+`DuplicateColumn{name}` (first repeated name in output order) after type errors;
+`maintain_order=False{}` is accepted and ignored (output is first-appearance /
+left-row order anyway).
+
+#### 15.2.1 Construction and results
+
+| Facade (new unless marked) | src | Semantics | Errors |
+|---|---|---|---|
+| `DF.column(t: D.DType, xs: List<&2, D.Scalar>) -> ResT(Column)` | `C.Column.from_scalars(xs, t)` | checked nullable column; `SNull` is a null row | `TypeMismatch{"from_scalars", <t>, <scalar dtype or "null">}` on the first misfit; row cap 15.8 |
+| `DF.t_bool() .. DF.t_str() -> D.DType`; `DF.s_null() / s_bool(b) / s_u32(v) / s_i32(i: D.I32) / s_f32(x) / s_str(s) -> D.Scalar` | constructors | dtype and scalar builders without a `src/` import | none |
+| `DF.i32(v: U32) -> Res(D.I32)`, `DF.i32_neg(v: U32) -> Res(D.I32)` | `D.I32.checked(v)`, `D.I32.checked_neg(v)` | `v < 2^31` (`v <= 2^31` for neg) else error; `D.I32.from_bits(w)` is the explicit, unchecked reinterpretation (renamed from `I32.from_u32`, kept as an alias) | `InvalidOperation{"i32 out of range: <v>"}` |
+| `DF.lit_i32(v: U32)` (exists), `DF.lit_i32_neg(v: U32)` (exists) `-> Expr` | `X.Lit{D.SI32{..}}` | **D:** stay total builders: for `v < 2^31` (`<= 2^31` neg) the literal; otherwise the expression `X.Cast{X.Lit{D.SU32{v}}, D.TI32{}}` (resp. its `Neg`), a strict cast that fails loudly when evaluated and is marked fallible by the analysis. Reason: a `Res`-returning literal cannot be nested inside an expression tree; the plan's goal (no silent wrap) holds. Deviation from plan 2.2d wording, recorded in 14 by M1. | runtime `InvalidOperation{"cast u32 to i32: row 0 holds <v>"}` |
+| `DF.lit_null(t: D.DType) -> Expr` | `X.Cast{X.Lit{D.SNull{}}, t}` | the typed null literal (exists as an idiom; now named) | none |
+| `DF.clone(f) -> Frame & Frame` | `C.Frame.clone` | O(n) deep copy, same order | none |
+| `DF.schema(f) -> Frame & Schema`, `DF.height(f) -> Frame & U32` | `S.Frame.schema`, `C.Frame.height` | | none |
+| `DF.then(r: ResT(Frame), k: Frame -> ResT(Frame)) -> ResT(Frame)` | facade | and_then: `Fail` passes through | |
+| `DF.then_io(r: ResT(Frame), k: Frame -> IO(ResT(Frame))) -> IO(ResT(Frame))` | facade | and_then into IO (`write_csv`, `collect` chains) | |
+| `DF.collect_show(p: Plan, env: Env) -> IO(String)` | `Q.Lazy.collect` + `DF.show` | the "DF.show for a Plan" of 2.1: collect, then the table or `error: ..` | as collect |
+| `DF.dump(r: ResT(Frame)) -> String` | `F.Fmt.dump` | 15.1 | none |
+
+#### 15.2.2 Sources and environments (B04, 15.7)
+
+| Facade | src | Semantics | Errors |
+|---|---|---|---|
+| `DF.empty_env()` (exists), `DF.source(name, f) -> Env & Plan` (exists) | `P.Env.empty`, `P.Lazy.source` | | |
+| `DF.add_source(env, name, f) -> Env & Plan` | `P.Env.add` | several named frames in one Env; the Plan is `Source{name, Frame.schema(f)}` | none here (duplicates reported by validate_bindings / collect) |
+| `DF.validate_bindings(p: Plan, env: Env) -> Env & Res(Unit)` | `Q.Exec.validate(p, env)` | checks every `Source` of `p` against `env`: present, bound once, same schema; hands `env` back untouched | *static*: `InvalidOperation{"source not in env: <name>"}`, `InvalidOperation{"source bound twice in env: <name>"}`, `InvalidOperation{"source <name>: data schema [<env>] differs from the plan's [<plan>]"}` (first offending Source in plan postfix order) |
+| `DF.collect(p, env)` (exists) | `Q.Lazy.collect` = `Exec.run(Optimize.release(p), env)` | validate_bindings first (its error wins over nothing else: `Plan.schema` errors come first, then bindings, then execution); a Source used k times clones k-1 times (15.7) | as above plus runtime errors |
+| `DF.collect_raw(p, env)`, `DF.collect_full(p, env) -> IO(ResT(Frame))` | `Q.Exec.run(p, env)`, `Q.Exec.run(P.Plan.optimize_full(p), env)` | unoptimised / fully optimised execution (T2.1 compares the three) | same |
+
+#### 15.2.3 Selection
+
+| Verb | E/L: facade, node | Output schema | Null rule | Errors (static) | Order |
+|---|---|---|---|---|---|
+| select (exists) | `DF.select(f, es)`; `Select{exprs, input}` | fields `(Expr.name e_i, dtype e_i)` in list order; height by 15.4 | per expression | per expr in list order: typing (15.3), `nested aggregation` ; then `DuplicateColumn`; `select([])` is `(0, 0)` in both APIs | input order |
+| with_columns (exists) | `DF.with_columns(f, es)`; `WithColumns{exprs, input}` | input fields, each output replacing the same-named field in place (dtype may change) or appended in list order; height = h always (scalars and reductions broadcast; on h = 0 they are empty columns) | per expression | typing in list order, `nested aggregation`, then `DuplicateColumn` among the OUTPUT names (`[lit 1 as x, lit 2 as x]`) | input order |
+| filter (exists) | `DF.filter(f, pred)`; `Filter{pred, input}` | input schema | a null predicate row is dropped (Kleene) | pred typing, then `TypeMismatch{"filter", "bool", <got>}`, then `nested aggregation`; reductions inside `pred` are computed over the whole input (15.4) | input order, stable |
+| head (exists) | `DF.head(f, n)`; `Head{n, input}` | input | | none | first `min(n, h)` rows |
+| sort (exists) | `DF.sort(f, keys)`; `Sort{keys, input}` | input | nulls first unless `nulls_last`, independent of `descending`; among themselves nulls keep input order | `ColumnNotFound` for the first missing key; `sort(f, [])` is the identity | by keys, stable; F32 by the 15.5 order; Str by code points; Bool false < true |
+| drop | `DF.drop(f, names)`; `Drop{names, input}` | input minus `names`, order kept; dropping every column keeps the height (`(h, 0)`, Polars) | | `ColumnNotFound{n}` for the first name not present (list order); a name repeated in `names` is allowed (Polars) | input |
+| rename | `DF.rename(f, pairs: List<&2, String & String>)`; `Rename{pairs, input}` (`pairs` are `(from, to)`) | simultaneous: every `from` becomes its `to`, positions unchanged; swaps allowed; `(a, a)` allowed | | `ColumnNotFound{from}` (first missing, list order); `DuplicateColumn{from}` when a `from` repeats in `pairs`; `DuplicateColumn{name}` for the first repeated OUTPUT name in frame order (collision with an unrenamed column or two `to`s equal) | input |
+| slice | `DF.slice(f, offset: U32, len: U32)`; `Slice{offset, len, input}` | input | | none; rows `[min(offset, h), min(offset, h) + min(len, h - min(offset, h)))`, i.e. `start = U32.min(offset, h)`, `count = U32.min(len, U32.sub(h, start))`: no overflow possible (U32 only, no negative offsets: **D** Polars' negative offsets are not offered) | input |
+| tail | `DF.tail(f, n)`; `Tail{n, input}` | input | | none; `= slice(h - min(n, h), min(n, h))` | input |
+
+#### 15.2.4 Combination and distinct
+
+| Verb | E/L | Output schema | Row rule | Errors (static, in order) | Order |
+|---|---|---|---|---|---|
+| inner / left join (exist) | `DF.inner_join / left_join(l, r, left_on, right_on)`; `Join{how, left_on, right_on, left, right}` | left fields, then right fields minus `right_on`, a right name equal to ANY left name gets `_right` | keys compare by the 15.5 relation; null keys never match; left: unmatched left rows get null right columns | `InvalidOperation{"join: no key columns"}`, `InvalidOperation{"join: left_on and right_on must have the same length"}`, per pair `ColumnNotFound{left}` / `ColumnNotFound{right}` / `TypeMismatch{"join", <l>, <r>}` (no coercion), `DuplicateColumn`; row cap 15.8 (runtime) | left row order; a left row's matches in right row order |
+| semi join | `DF.semi_join(l, r, left_on, right_on)`; `Join{J.Semi{}, ..}` | left fields only (no right columns, hence no `_right`, no right-side `DuplicateColumn`) | each left row at most once, kept iff some right row has equal (non-null) keys | the key errors above (same checks, same texts) | left row order |
+| anti join | `DF.anti_join(..)`; `Join{J.Anti{}, ..}` | left fields only | kept iff no right row matches; a left row with a null key is KEPT (it matches nothing, Polars) | same | left row order |
+| concat_vertical | `DF.concat_vertical(fs: List<&1, Frame>)`; `Concat{inputs: List<&2, Plan>}` | input 0's schema | all rows of input 0, then input 1, ... ; zero-column inputs concatenate heights (`(h1 + h2, 0)`) | `InvalidOperation{"concat_vertical: no inputs"}`; `InvalidOperation{"concat_vertical: input <i> schema [<s_i>] differs from input 0's [<s_0>]"}` (first i, names AND dtypes AND order must be equal; **D** no diagonal/relaxed mode); row cap 15.8 (runtime, sum of heights) | inputs in order |
+| unique | `DF.unique(f, subset: List<&2, String>)`; `Unique{subset, input}` | input | keep first: row i is kept iff no earlier row has equal key tuple under the 15.5 relation (nulls equal nulls, as group_by); **D** `subset = []` means every column (Polars `subset=None`); a frame with no columns keeps `min(h, 1)` rows (Polars `(1, 0)`) | `ColumnNotFound{n}` for the first missing subset name; a repeated subset name is allowed (Polars) | input order (stable) |
+| group_by (exists) | `DF.group_by(f, keys, aggs)`; `GroupBy{keys, aggs, maintain_order, input}` | key fields (named `Expr.name`), then agg fields | one group per distinct key tuple under the 15.5 relation, null keys form a group | `G.Grp.validate`: key typing, agg typing, `InvalidOperation{"group_by needs at least one key"}`, `InvalidOperation{"group_by key is an aggregation: <show>"}`, `InvalidOperation{"agg expects an aggregation: <show>"}`, `InvalidOperation{"nested aggregation in agg: <show>"}`; then `DuplicateColumn`. Agg shape stays `Alias*(Agg{op, row-wise e})`; `sum(x)/sum(y)` is two named aggs then a `with_columns` (2.1) | first appearance |
+
+#### 15.2.5 Aggregation (reducers) and global reductions
+
+All reducers are `X.Agg{op, e}` with `e` row-wise or scalar; they are allowed at any
+depth of a `select` / `with_columns` / `filter` expression (eager AND lazy, 15.4)
+and only at the root (under aliases) of a `group_by` agg. A reducer over a reducer
+is `InvalidOperation{"nested aggregation: <Expr.show e>"}` (expression context) /
+`{"nested aggregation in agg: <show>"}` (group_by). Input dtype `t`.
+
+| op (`AggOp`) | facade | allowed `t` | result dtype | result on 0 valid rows | null/NaN rule |
+|---|---|---|---|---|---|
+| Sum | `DF.sum` | u32, i32, f32 | `t` | `0` (never null) | nulls skipped; ints wrap mod 2^32; f32 by 15.5.3 (NaN in -> NaN) |
+| Mean | `DF.mean` | u32, i32, f32 | f32 | null | nulls skipped; 15.5.3; int inputs converted to f32 first (documented departure: Polars f64) |
+| Min / Max | `DF.min / DF.max` | any | `t` | null | nulls skipped; f32: NaN skipped (all-NaN -> NaN), `min` prefers `-0.0`, `max` prefers `0.0` (15.5.2); Str by code points; Bool false < true |
+| Count | `DF.count` | any | u32 | `0` | valid rows |
+| Len | `DF.len()` | (`Agg{Len, lit 1}`) | u32 | `0` | rows, nulls included |
+| First / Last | `DF.first / DF.last` | any | `t` | null | row 0 / row h-1 as is, null included |
+| NUnique | `DF.n_unique` | any | u32 | `0` | distinct values under the 15.5 relation (all NaN one value, `-0.0 = 0.0`, both eager and grouped: fixes B03-k), plus one if any null |
+| Std, Var (new) | `DF.std / DF.var` | u32, i32, f32 | f32 | null; also null when fewer than 2 valid rows | ddof = 1, 15.5.4; any NaN or inf among the values -> NaN (Polars) |
+| Median (new) | `DF.median` | u32, i32, f32 | f32 | null | nulls skipped; 15.5.4 (NaN sorts greatest, as Polars) |
+
+Typing errors: `TypeMismatch{<op name>, "numeric", <t>}` for Sum/Mean/Std/Var/Median
+over bool/str (`AggOp.name`: `"std"`, `"var"`, `"median"`). **D:** `sum` over Bool
+stays refused (not in 2.1; Polars allows it).
+
+#### 15.2.6 Expressions
+
+| Node (new unless marked) | facade | typing (15.3) | value rule | null rule | fallible |
+|---|---|---|---|---|---|
+| `Cast{e, to}` (exists; semantics change) | `DF.cast(e, t)`, `cast_f32`, `cast_u32` | `Cast.ok` table (15.3) | 15.5.5: every valid cell converted; first failing cell is an error | null -> null | yes for the fallible pairs of 15.5.5 |
+| `TryCast{e, to}` | `DF.try_cast(e, t)` | same table | failing cells become null | null -> null | no |
+| `Bin{Div, a, b}` (exists; typing change) | `DF.div` | f32 x f32 -> f32 only: `TypeMismatch{"div", "f32", <left>}` when the left is not f32, else `{"div", "f32", <right>}` | IEEE: `x/0 = ±inf`, `0/0 = NaN` | null -> null | no |
+| `Bin{FloorDiv, a, b}` | `DF.floor_div` | u32 x u32 -> u32, i32 x i32 -> i32; `TypeMismatch{"floor_div", "u32 or i32", <left>}` / `{"floor_div", <left>, <right>}` | floor toward -inf (15.5.1) | null when either is null, when `b = 0`, and for i32 `MIN // -1` | no (null, not error) |
+| `Bin{Mod, a, b}` (exists; semantics change) | `DF.mod` | u32/i32 same type (unchanged texts: `"mod"`, `"u32 or i32"`) | result has the divisor's sign (15.5.1); `MIN % -1 = 0` | null when either null or `b = 0` | no |
+| `Bin{Add/Sub/Mul}` (exist) | | numeric same type | u32 wraps mod 2^32; i32 two's complement wrap; f32 IEEE | null -> null | no |
+| comparisons `Eq..Ge` (exist; f32 semantics change) | | same dtype -> bool | 15.5.2 total order for f32 (`NaN == NaN`, `NaN > x`, `-0.0 == 0.0`); Str code points; Bool false < true | null -> null (no Kleene for `==`) | no |
+| `And/Or/Not/IsNull/IsNotNull/FillNull/Neg/Abs/Sqrt` (exist) | | as today (`Neg/Abs`: i32 or f32; `Sqrt`: f32) | `abs(MIN) = MIN`, `neg(MIN) = MIN`, `sqrt(x<0) = NaN` | section 5 | no |
+| `When{cond, a, b}` | `DF.when(cond, then, otherwise)` | `cond` bool else `TypeMismatch{"when", "bool", <got>}`; `a`, `b` same dtype else `TypeMismatch{"when", <a>, <b>}`; result dtype of `a` | row i = `a_i` where `cond_i` is true, else `b_i` (a null `cond_i` picks `b_i`, Polars) | result null iff the chosen branch is null | no |
+| `IsIn{e, vals: List<&2, D.Scalar>}` | `DF.is_in(e, vals)` | every scalar's dtype equals `e`'s else `TypeMismatch{"is_in", <e dtype>, <scalar dtype or "null">}` (an `SNull` in the list is refused) | true iff some `v` equals the cell under the 15.5 relation; `vals = []` -> all false | null -> null | no |
+| `Clip{e, lo: D.Scalar, hi: D.Scalar}` | `DF.clip(e, lo, hi)` | `e` numeric else `TypeMismatch{"clip", "numeric", <got>}`; `lo`, `hi` of `e`'s dtype else `TypeMismatch{"clip", <e dtype>, <bound dtype or "null">}` | `lo` if `x < lo`, else `hi` if `x > hi`, else `x`, with IEEE `<`/`>` for f32 so NaN passes through and `-0.0` is not clipped by `0.0`; `lo > hi` therefore gives `lo` for `x < lo` and `hi` otherwise (Polars `clip(8, 2)` of `[1, 5, 10]` = `[8, 8, 2]`) | null -> null | no |
+| is_between (sugar, no node) | `DF.is_between(e, lo, hi)` (both closed), `DF.is_between_closed(e, lo, hi, c: X.Closed)` with `X.Closed = Both{} \| Left{} \| Right{} \| Neither{}` and `DF.closed_both() ..` | builds `And{cmp_lo, cmp_hi}` with `Ge/Gt` and `Le/Lt`; typing is the comparisons' (`"ge"`, `"le"`, ..) | `lo > hi` -> all false | Kleene: a null `e` gives null | no |
+| `Un{LenChars, e}` | `DF.len_chars(e)` | str -> u32 else `TypeMismatch{"len_chars", "str", <got>}` | code points (`String.length`), `"" -> 0` | null -> null | no |
+| `StrPred{op: StrPredOp, e, pat: String}`, `StrPredOp = Contains{} \| StartsWith{} \| EndsWith{}` | `DF.contains_literal(e, pat)`, `DF.starts_with(e, pat)`, `DF.ends_with(e, pat)` | str -> bool else `TypeMismatch{"contains_literal" / "starts_with" / "ends_with", "str", <got>}` | literal, case-sensitive, code-point equality, no normalisation; empty `pat` -> true; **D** the pattern is a literal String, not an Expr | null -> null | no |
+
+`Expr.show` for new nodes (used by `explain` and error texts): `e.try_cast(t)`,
+`(a // b)`, `when(c).then(a).otherwise(b)`, `e.is_in([v1, v2])`, `e.clip(lo, hi)`,
+`e.str.len_chars()`, `e.str.contains_literal("p")`, `e.str.starts_with("p")`,
+`e.str.ends_with("p")`, `e.std()`, `e.var()`, `e.median()`.
+
+#### 15.2.7 IO
+
+| Facade | src | Semantics | Errors |
+|---|---|---|---|
+| `DF.csv_opts(sep: Char, has_header: Bool, infer_rows: U32) -> R.CsvOpts` | constructor | `Csv.default() = CsvOpts{',', True{}, 100}`; `infer_rows = 0` means every row | |
+| `DF.read_csv(path)` (exists), `DF.read_csv_opts(path, opts)`, `DF.read_csv_schema(path, opts, dtypes: List<&2, D.DType>) -> IO(ResT(Frame))` | `R.Csv.read`, `R.Csv.read_with` | whole file read once; 15.6 | `IoError{code, text}`; `ParseError{0, "malformed csv"}`; `ParseError{line, "expected <k> fields, got <g>"}`; `InvalidOperation{"csv schema: <d> dtypes for <k> columns"}`; `ParseError{line, "column <name>: cannot parse \"<text>\" as <dtype>"}`; row cap |
+| `DF.scan_csv(path)` (exists), `DF.scan_csv_opts(path, opts) -> IO(Res(Plan))` | `P.Lazy.scan_csv` | reads a bounded prefix (15.6.4) to infer `ScanCsv.schema`; collect reads the whole file once, strictly, with the frozen schema | as read, plus at collect `InvalidOperation{"scan_csv <path>: data schema [<file>] differs from the plan's [<plan>]"}` |
+| `DF.scan_csv_schema(path, opts, schema: Schema) -> Plan` | `P.ScanCsv{path, opts, schema}` | pure: no IO at plan time; the header must match `schema`'s names at collect | the frozen-schema error above (names), `ParseError` (values) |
+| `DF.write_csv(r, path)` (exists), `DF.write_csv_opts(r, path, w: R.CsvWriteOpts)`; `DF.write_opts(sep: Char, include_header: Bool, float_precision: Maybe<&2, U32>) -> R.CsvWriteOpts` | `R.Csv.write`, `R.Csv.write_with`; `Csv.render_with` | 15.6.3 | `IoError` |
+
+#### 15.2.8 Introspection
+
+| Facade | Semantics |
+|---|---|
+| `DF.collect_schema(p)` (exists) | `P.Plan.schema`: every *static* error of 15.2 and nothing else (not IO, not bindings, not data-dependent cast failures; 15.7 has `validate_bindings` for bindings) |
+| `DF.explain(p)` (exists) | `P.Plan.explain`; new lines: `SLICE <offset> <len>`, `TAIL <n>`, `DROP [a, b]`, `RENAME [a -> b, c -> d]`, `UNIQUE [a, b]` (`UNIQUE []` for all columns), `CONCAT` with every input indented below it, `SEMI JOIN ON [..]`, `ANTI JOIN ON [..]` |
+| `DF.optimize(p)` (exists; meaning changes) | `P.Optimize.release`: the certified fragment only (R1 merge heads; R2-R5 as they are proven in M5; until then only R1 and the restricted head sink of B01). Nodes it does not know (Sort movement, GroupBy/Join pushdown, Unique, Concat, Semi/Anti, Slice, Tail, Drop, Rename, fallible or reduction expressions) are barriers: the pass recurses into their inputs but never moves anything across them. `collect` uses this. |
+| `DF.optimize_full(p)` | `P.Plan.optimize_full`: today's four passes (merge, pushdown, head, projection), opt-in, excluded from the G6 guarantee, with the B01 head rule applied; `DF.collect_full` runs it |
+| `DF.err_show`, `DF.schema_show`, `DF.show` (exist) | unchanged |
+
+### 15.3 Typing additions and the expression analysis record (P2)
+
+#### 15.3.1 Typing table additions (`Expr.type`, strict, left-to-right, first error wins)
+
+| node | operands | result | error (constructor, op, want, got) |
+|---|---|---|---|
+| `Bin{Div}` | f32, f32 | f32 | `TypeMismatch{"div", "f32", <a>}` if `a != f32`; else `{"div", "f32", <b>}` if `b != f32` |
+| `Bin{FloorDiv}` | u32,u32 / i32,i32 | same | `{"floor_div", "u32 or i32", <a>}`; `{"floor_div", <a>, <b>}` |
+| `Bin{Mod}` | u32,u32 / i32,i32 | same | unchanged: `{"mod", "u32 or i32", <a>}`; `{"mod", <a>, <b>}` |
+| `TryCast{e, to}` | `Cast.ok(t, to)` | `to` | `{"try_cast", "castable to <to>", <t>}`; `TryCast{Lit{SNull}, to}` is the typed null like `Cast` |
+| `When{c, a, b}` | c bool; a, b same | dtype(a) | `{"when", "bool", <c>}`; `{"when", <a>, <b>}` |
+| `IsIn{e, vals}` | every `v` has dtype(e) | bool | `{"is_in", <e>, <v dtype or "null">}` (first offending scalar) |
+| `Clip{e, lo, hi}` | e numeric; lo, hi of dtype(e) | dtype(e) | `{"clip", "numeric", <e>}`; `{"clip", <e>, <lo or hi dtype or "null">}` (lo checked before hi) |
+| `Un{LenChars}` | str | u32 | `{"len_chars", "str", <t>}` |
+| `StrPred{op, e, pat}` | str | bool | `{"contains_literal" / "starts_with" / "ends_with", "str", <t>}` |
+| `Agg{Std / Var / Median}` | numeric | f32 | `{"std" / "var" / "median", "numeric", <t>}` |
+| `Agg{op, e}` with `Expr.is_agg(e)` | | | `InvalidOperation{"nested aggregation: <Expr.show (Agg{op, e})>"}` (new: today `Expr.type` accepts `sum(sum(x))`; group_by keeps its own text) |
+
+`Cast.ok` is unchanged (T->T; u32<->i32; u32/i32/bool->f32; f32->u32/i32; bool->u32/i32;
+anything->str; str->anything except... `Cast.ok(str, bool)` stays accepted with the
+`true/false/True/False` spellings). Which pairs are *fallible* is in 15.5.5.
+
+`Expr.name` (output column name) additions: `When{c, a, b}` -> `Expr.lname(a)` else
+`"literal"` (Polars names the `then` branch); `TryCast`, `IsIn`, `Clip`, `Un{LenChars}`,
+`StrPred`, `Agg{Std/Var/Median}` -> the name of `e`. `Expr.refs`: union of the
+operands' refs left to right (`IsIn`, `Clip`, `StrPred` add none for their literals).
+
+#### 15.3.2 The analysis record
+
+One analysis serves `Eval` (eager), `Plan.schema` (lazy), `Optimize.release` (barrier
+and height rules) and `GroupBy`:
+
+```
+# src/expr.bend
+type AKind is Data:          # ("Kind" is a Bend keyword)
+  KRow{}                     # one value per input row; result height = h
+  KScalar{}                  # built from literals only; 1 row, broadcastable to any height
+  KRed{}                     # a reduction of the input; 1 row, computed over all h rows
+
+type Ana is Data:
+  Ana{dtype: D.DType, refs: List<&2, String>, kind: AKind, total: Bool}
+
+# the dtype / refs / kind / totality of e over schema s, or the first typing error
+def Expr.analyse(e: Expr, +s: List<&2, S.Field>) -> E.Res(Ana)
+```
+
+`Expr.type(e, s) = Res.map(dtype, Expr.analyse(e, s))` and `Expr.refs`, `Expr.is_agg`
+stay as cheap projections that agree with the record (a law in LAWS.bend: for a
+well-typed `e`, `Expr.refs(e)` equals the record's `refs` and `Expr.is_agg(e)` iff
+`kind = KRed`).
+
+Kind join `k1 ⊔ k2`: `KRow ⊔ _ = KRow`; `KRed ⊔ KScalar = KRed`; `KScalar ⊔ KScalar =
+KScalar` (this is today's `SKind.comb`). Rules per node (dtype as 15.3.1; refs is the
+left-to-right union):
+
+| node | kind | total |
+|---|---|---|
+| `Col{n}` | KRow | yes |
+| `Lit{v}` | KScalar | yes |
+| `Alias{e, n}` | kind(e) | total(e) |
+| `Cast{e, to}` | kind(e) | total(e) ∧ `Cast.total(dtype(e), to)` (15.5.5) |
+| `TryCast{e, to}` | kind(e) | total(e) |
+| `Un{op, e}` (all ops incl. LenChars) | kind(e) | total(e) |
+| `Bin{op, a, b}` (all ops) | kind(a) ⊔ kind(b) | total(a) ∧ total(b) (FloorDiv/Mod null on zero, Div is IEEE: all total) |
+| `FillNull{e, v}` | kind(e) ⊔ kind(v) | both |
+| `When{c, a, b}` | kind(c) ⊔ kind(a) ⊔ kind(b) | all three |
+| `IsIn`, `Clip`, `StrPred` | kind(e) | total(e) |
+| `Agg{op, e}` with kind(e) ∈ {KRow, KScalar} | KRed | total(e) |
+| `Agg{op, e}` with kind(e) = KRed | error (nested aggregation) | |
+
+Design notes for P2. (i) Totality is syntactic and conservative: `total = True{}`
+means `Eval` of the node over a well-formed frame never answers `Fail` whatever the
+data; a fallible node (`Cast` of a fallible pair, and nothing else) is a barrier for
+every rewrite that can change which rows reach it (filter merge/pushdown, head sink) or
+drop it (projection pruning) (section 6, R2-R5). (ii) `KScalar` vs `KRed` are kept
+apart because a scalar is height-independent (a rewrite may evaluate it under a
+different height) while a reduction is not; `Len` over a scalar is `KRed` (it counts
+rows). (iii) The soundness theorem (P2) reads: for well-formed `f` with
+`Frame.schema(f) = s` and `Expr.analyse(e, s) = Done{Ana{t, rs, k, tot}}`:
+`Eval.full(f, e)` answers `(f', Done{c})` with `Column.dtype(c) = t`,
+`Column.len(c) = h` when `k ∈ {KRow, KScalar}` and `1` when `k = KRed`, whenever
+`tot` holds; when `tot` does not hold the same conclusions hold for every `Done`
+answer, and a `Fail` is one of the 15.5.5 cast errors. `Eval` reads only the
+columns in `rs`. The proof is by induction over `Eval.compile`'s postfix code with the
+stack invariant "slot i carries the record of its subexpression".
+
+### 15.4 Cardinality (2.2b): decision table
+
+`h` = input height; `k` = the join of the kinds of the expressions of the node.
+Polars column = Polars 2.0.0, same program (`uv run python`, snippets in
+`bench/contract/cardinality.py` to be added by M0's regression author; results
+recorded here).
+
+| # | program | eager | lazy (raw and optimised) | Polars 2.0.0 (observed) |
+|---|---|---|---|---|
+| C1 | `select([])` | `(0, 0)` | `(0, 0)` | `(0, 0)` both APIs |
+| C2 | `select([lit 1 as one])`, h = 3 | `(1, 1)` | same | `(1, 1)` |
+| C3 | `select([lit 1 as one])`, h = 0 | `(1, 1)` | same | `(1, 1)` |
+| C4 | `head(0)` then `select([lit 1])` | `(1, 1)` | `(1, 1)` (B01-a: the optimiser must not sink `head(0)` below the literal select) | `(1, 1)` |
+| C5 | `select([lit 1])` then `head(0)` | `(0, 1)` | `(0, 1)` | `(0, 1)` |
+| C6 | `select([sum(a)])` | `(1, 1)` | `(1, 1)` (lazy now accepts reductions) | `(1, 1)` |
+| C7 | `select([sum(a)])`, h = 0 | `(1, 1)` = `[0]`; `mean/min/max/first/last` -> `[null]`; `count/len/n_unique` -> `[0]` | same | `[0]`, `[null]`, `[0]` |
+| C8 | `select([lit 1 as x, sum(a)])` | `(1, 2)` | same | `(1, 2)` |
+| C9 | `select([col a, lit 1 as x])` | `(h, 2)`, `x` broadcast | same | `(3, 2)` |
+| C10 | `select([col a, sum(a) as s])` | `(h, 2)`, `s` broadcast; h = 0 gives `(0, 2)` | same | `(3, 2)`, `(0, 2)` |
+| C11 | `select([a - mean(a)])` | `(h, 1)` KRow | same | `(3, 1)` |
+| C12 | `select([sum(a) + lit 1])` | `(1, 1)` KRed | same | `(1, 1)` |
+| C13 | `with_columns([sum(a) as s])` | `(h, w+1)`, broadcast; h = 0 -> `(0, w+1)` | same | `(3, 2)`, `(0, 2)` |
+| C14 | `with_columns([lit 1 as s])`, h = 0 | `(0, w+1)` | same | `(0, 2)` |
+| C15 | `with_columns([])` | `(h, w)` unchanged | same | unchanged |
+| C16 | `filter(a > mean(a))` | reduction over all h rows, then the row-wise comparison | same (lazy now accepts) | `[3]` of `[1,2,3]` |
+| C17 | `filter(sum(a) > 5)` (KRed predicate) | broadcast: all rows or none | same | all / none |
+| C18 | `filter(lit true)` / `filter(lit false)` (KScalar) | all rows / no rows (`(0, w)`) | same | same |
+| C19 | `filter(lit false)` over `select([lit 1])` | `(0, 1)` | `(0, 1)` **D:** Polars' lazy engine answers `(1, 1)` here (a 1-row scalar predicate is not applied); eager Polars answers `(0, 1)`. We follow the eager answer: a scalar predicate broadcasts to the input height everywhere. Intended departure, listed in README. | eager `(0, 1)`, lazy `(1, 1)` |
+| C20 | `filter(lit null::bool)` | `(0, w)` | same | `(0, 1)` |
+| C21 | `filter(..)`, h = 0 | `(0, w)` | same | `(0, 1)` |
+| C22 | zero-column frame of height h (from `drop` of every column): `with_columns([lit 1 as o])` | `(h, 1)` | same | `(6, 1)` |
+| C23 | zero-column, height h: `select([len()])` / `select([lit 1])` | `(1, 1)` = `[h]` / `[1]` | same | `[6]` / `[1]` |
+| C24 | zero-column, height h: `head(2)`, `filter(lit true)`, `unique([])`, `concat([z, z])` | `(2, 0)`, `(h, 0)`, `(min(h,1), 0)`, `(2h, 0)` | same | `(2,0)`, `(6,0)`, `(1,0)`, `(12,0)` |
+| C25 | `select([lit 2 .len()])` i.e. `Agg{Len, lit}` | `[h]` (our `len()` encoding; Polars' `lit(2).len()` = 1 is not reproducible, DESIGN 14 M2.2) | same | `[1]` (known, documented) |
+| C26 | `group_by` on h = 0 | `(0, keys + aggs)` | same | `(0, 2)` |
+| C27 | `select([a, a])` / two unaliased literals | `DuplicateColumn{"a"}` / `DuplicateColumn{"literal"}` | same (static) | DuplicateError |
+
+Rule behind the table: `select` height = `h` if any expression is `KRow`, else `1`;
+every 1-row output is broadcast to the height; `with_columns` and `filter` always
+evaluate at height `h` (reductions over the full input first, then broadcast); a
+zero-column frame keeps its height through every verb (`Frame{h, []}`); `select([])`
+answers `Frame{0, []}`. Row preservation for the optimiser is the P2 fact "every
+expression of the node is `KRow` and total, and the list is non-empty" (not "no `Agg`
+node"): a `Select` all of whose expressions are `KScalar`/`KRed` is a *height barrier*
+(C4), one that mixes is height-preserving.
+
+### 15.5 Numeric policy (2.2c-e)
+
+#### 15.5.1 Integers
+
+| op | u32 | i32 | by zero | i32 `MIN`, `-1` |
+|---|---|---|---|---|
+| `+ - *`, `sum` | wrap mod 2^32 (documented) | two's complement wrap (`MIN - 1 = MAX`) | | |
+| `/` | refused (`TypeMismatch{"div", "f32", "u32"}`): cast to f32 first | refused | | |
+| `//` (`floor_div`) | `U32.div` | `floor(a / b)`: `q = trunc(\|a\| / \|b\|)`; if signs differ and `\|a\| mod \|b\| != 0` then `-(q + 1)` else `±q` | null | null (plan 2.2c; Polars answers `MIN`: intended departure) |
+| `%` (`mod`) | `U32.mod` | `a - b * (a // b)` with the floor quotient: the result has the divisor's sign or is 0: `7 % -2 = -1`, `-7 % 2 = 1`, `-7 % -2 = -1` (Polars) | null | `0` (Polars `0`) |
+| `abs`, `neg` | refused | `abs(MIN) = MIN`, `neg(MIN) = MIN` (wrap) | | |
+| `mean` | f32 of the exact values (15.5.3) | same | | |
+
+Polars snippet: `pl.DataFrame({'a':[7,-7,7,-7,MIN,5,0],'b':[2,2,-2,-2,-1,0,0]}, Int32)`:
+`a // b = [3,-4,-4,3,MIN,null,null]`, `a % b = [1,1,-1,-1,0,null,null]`; u32 `7 // 0 =
+null`, `7 % 0 = null`; `MIN - 1 = 2147483647`; u32 `4294967295 + 1 = 0`, `sum` wraps to `0`.
+
+#### 15.5.2 The F32 relation (one order for `== != < <= > >=`, sort, group_by, unique, is_in, join keys)
+
+Order key: `Sort.fword(x)` (sort.bend) is already the total order: `-inf < .. < -0.0 =
+0.0 < .. < +inf < NaN`, every NaN (any payload, any sign) equal to every other NaN.
+Contract: `x op y` for f32 is `Cmp op` of `U32.cmp(Sort.fword(x), Sort.fword(y))`.
+Consequences (all verified against Polars 2.0.0 on
+`x = [NaN, 1.0, -0.0, 0.0, inf, -inf, null]`): `x == x` -> all true (null row null);
+`x > 0.0` -> `[T, T, F, F, T, F, null]`; `x < NaN` -> `[F, T, T, T, T, T, null]`; `x >= NaN`
+-> `[T, F, F, F, F, F, null]`; `-0.0 == 0.0` true, `-0.0 < 0.0` false; sort ascending:
+`[null, -inf, -0.0, 0.0, 1.0, inf, NaN]` (ties keep input order); descending:
+`[null, NaN, inf, 1.0, -0.0, 0.0, -inf]`; `unique`: `[NaN, 1.0, -0.0, inf, -inf, null]`;
+`n_unique = 6`; `is_in([NaN, 0.0])` -> `[T, F, T, T, F, F, null]`; group_by keys `[NaN, NaN,
+-0.0, 0.0, null]` -> three groups `NaN, -0.0, null` (first-appearance representative).
+Validity is separate: null is never NaN and NaN is never null.
+
+Exceptions, all Polars-verified and tested as such: **min/max** skip NaN (`min/max`
+of `[NaN, 2, 1]` = `1, 2`; of `[NaN, NaN]` = `NaN`), and on a tie between `-0.0` and
+`0.0` `min` answers `-0.0`, `max` answers `0.0` (both input orders); **clip** uses
+IEEE `<`/`>` (15.2.6); **first/last** copy the cell (`first([NaN, 2]) = NaN`).
+Definition for min: `fmin(a, b) = b if isnan(a); a if isnan(b); a if a < b (IEEE); b if
+b < a; else (equal: zeros) the one with the sign bit set`; `fmax` symmetric with the
+sign-bit-clear zero.
+
+#### 15.5.3 Accumulation: Neumaier with a non-finite guard
+
+Used by `Sum`, `Mean`, `Std`, `Var` over f32 (and over u32/i32 for `Mean/Std/Var`
+after an exact `U32.to_f32` / `I32.to_f32` of each cell, which rounds above 2^24),
+eager and grouped, and by `describe`. State `(s, c)`, both f32, starting `(0.0, 0.0)`;
+step for each valid cell `x` **in ascending row order** (a group's rows in the input
+order of the frame; the grouped scatter visits rows `0..h-1` once, so each group sees
+exactly this order):
+
+```
+t = s + x
+if F32.is_finite(t):                       # finite partial sum: compensate
+  c = c + (if |s| >= |x| then (s - t) + x else (x - t) + s)
+# else: t is ±inf or NaN; c is left as it is and never used again
+s = t
+result = if F32.is_finite(s) then s + c else s
+```
+
+`is_finite(t)` is `U32.and(F32.bits(t), 0x7fffffff) < 0x7f800000`. Verified cases
+(Polars 2.0.0 answers in brackets): `mean [inf, 1] = inf` [inf], `mean [1, inf] = inf`
+[inf], `sum [inf, -inf] = NaN` [NaN], `sum [NaN, 1] = NaN` [NaN], ten `0.1` sum to
+`0x3f800000` = 1.0 (Polars eager `0x3f800001`: the departure is in Polars' favour of
+speed; T2.3 checks us against an f64 reference, not against Polars bits),
+`mean` = `s_final / U32.to_f32(count)`. Group sums use the same step (reverses the
+DESIGN 14 M5 note 2 decision; `bench/golden/q3.csv` is regenerated from the f64
+reference with the ULP rule of T2.3, not from Polars' lazy engine). Reduction order is
+part of the contract so that eager, raw-lazy and optimised-lazy agree bit for bit (G2).
+
+#### 15.5.4 std / var (ddof = 1) and median
+
+```
+n = valid count (NaN counts as valid); if n < 2: std = var = null
+m = fsum(x) / n                            # 15.5.3 over the valid cells
+v = fsum((x - m) * (x - m)) / (n - 1)      # second pass, same order, each term in f32
+var = v; std = F32.sqrt(v)                 # NaN or inf in the data -> NaN (Polars)
+median: sort the valid cells by the 15.5.2 order (NaN greatest); n = 0 -> null;
+        n odd -> cell[(n-1)/2]; n even -> lo*0.5 + hi*0.5 with lo = cell[n/2 - 1], hi = cell[n/2]
+```
+
+The even formula cannot overflow (`[-3e38, 3e38] -> 0.0`, Polars `0.0`;
+`[3e38, 3e38] -> 3e38`) and gives `NaN` for `[inf, -inf]` (Polars NaN). Known sign
+difference: `median([-0.0, 0.0])` is `0.0` here and `-0.0` in Polars (equal under
+15.5.2; the T2.2 oracle canonicalises the sign of zero for median). Verified: `std
+[1,2,4] f32 = 1.5275252`, `var = 2.3333333`; `std` of one value / empty / all-null =
+null; `median [3,1,2] = 2`, `[4,1,2,3] = 2.5`, `[1,null,3,10] = 3`, `[1,NaN,3] = 3`,
+`[] = null`. Result dtype f32 for u32/i32 inputs (Polars f64: documented).
+
+#### 15.5.5 cast and try_cast
+
+`cast` = strict (first failing valid cell -> `InvalidOperation`); `try_cast` = the same
+conversion with failing cells set to null. Nulls pass through both. A pair is *total*
+when no cell can fail (the analysis marks `Cast` of a total pair `total`).
+
+| from -> to | conversion | fails when | total |
+|---|---|---|---|
+| T -> T | identity | never | yes |
+| u32 -> i32 | same bits | `v >= 2^31` | no |
+| i32 -> u32 | same bits | negative (bit 31 set) | no |
+| u32 -> f32 | `U32.to_f32` (round to nearest even above 2^24: `4294967295 -> 4294967296.0`, Polars same) | never | yes |
+| i32 -> f32 | `I32.to_f32` | never | yes |
+| bool -> u32 / i32 / f32 | 0 / 1 | never | yes |
+| f32 -> u32 | `trunc(x)` | NaN, ±inf, `x <= -1.0`, `x >= 4294967296.0` (checks as IEEE `x > -1.0 && x < 4294967296.0`; both bounds exact f32: `-0.5 -> 0`, `4294967040 -> 4294967040`, `2^32` fails) | no |
+| f32 -> i32 | `trunc(x)` toward zero | NaN, ±inf, `x <= -2147483904.0` i.e. `x < -2147483648.0`, `x >= 2147483648.0` (`-2147483648.0 -> MIN`, `2147483520 -> 2147483520`, `2^31` fails) | no |
+| u32 / i32 / f32 / bool -> str | `U32.show`, `I32.show`, `F32.show` (`1.0 -> "1"`, `-0.0 -> "-0"`, `NaN -> "nan"`; Polars `"1.0"`, `"-0.0"`, `"NaN"`: documented departure), `"true"/"false"` | never | yes |
+| str -> u32 / i32 / f32 | `U32.read`, `I32.read`, `F32.read` of the cell **as is** (**D:** no trimming, Polars does not trim; the CSV reader trims its own numeric fields, 15.6) | the read answers `None` (`" 2 "`, `"x"`, `""`, `"+5"` for u32; `F32.read` accepts `nan`, `inf`, `-inf`, `1e3`, `.5`, `5.`, `+5`, rejects `1_0`, `0x10`, `""`) | no |
+| str -> bool | `true / false / True / False` exactly | anything else (Polars refuses the cast entirely) | no |
+| u32 / i32 / f32 -> bool | refused by typing (`Cast.ok`), as today | | |
+
+Error text (both APIs, eager and lazy identical): `InvalidOperation{"cast <from> to <to>:
+row <i> holds <cell>"}` with `<from>/<to>` as `DType.show`, `<i>` the 0-based row of
+the cell in the column being cast, `<cell>` as `Expr.show.lit` (strings quoted, f32 by
+`F32.show`). Polars 2.0.0 for reference: `conversion from `f32` to `u32` failed in
+column 'f' for 1 out of 1 values: [-1.9]`. The row index makes a cast a barrier for
+every row-changing rewrite (section 6).
+
+Current defects this table fixes: `F32 -> U32` of negatives/huge/NaN is `0`
+(`F32.to_u32`), `F32 -> I32` out of range is garbage, `U32 <-> I32` retag silently,
+`Str -> X` nulls on failure under the name `cast`.
+
+### 15.6 CSV contract (B02)
+
+#### 15.6.1 Fields: quoted empty string vs null, both directions
+
+The parser (`src/csvparse.bend`, forked from the hub parser) answers every field as
+`CsvCell{text: String, quoted: Bool}`; a record is a list of cells; quotedness is
+never dropped before the column is built. Reading, per column dtype:
+
+| dtype | field | cell |
+|---|---|---|
+| str | quoted (`""`, `" "`, `"a"`) | the content verbatim, valid (so `""` is the valid empty string) |
+| str | unquoted, empty | null |
+| str | unquoted, non-empty | verbatim, valid (never trimmed: `" s "` keeps its spaces, Polars same) |
+| u32 i32 f32 bool | content empty after trimming (quoted or not: `""`, `"  "`, empty) | null (Polars: null for both) |
+| u32 i32 f32 bool | otherwise | parsed from the **trimmed** text (`" 1 "` -> `1`; **D** Polars does not trim and would infer str: documented departure, kept because dirty exports pad numbers) ; a failed parse is `ParseError` (strict) under an explicit or frozen schema, and makes the column str under inference |
+
+Writing (`Csv.cell`): null -> empty field; valid str -> `Csv.quote`: quoted when the
+text is empty, or contains the separator, `"`, CR or LF (a `"` is doubled); otherwise
+bare. So `""` and null round-trip distinctly: `"",x` reads back `["", "x"]`, `,x` reads
+`[null, "x"]`. Header names are quoted by the same rule (Polars: `"a,b","c""d","", e `).
+Verified Polars 2.0.0 write of `['', None, 'x,y', 'q"q', ' s ', 'multi\nline']`:
+`"",1,..` / `,,..` / `"x,y"` / `"q""q"` / ` s ` / `"multi\nline"`; our output is identical
+for Str cells.
+
+#### 15.6.2 Records
+
+| case | behaviour | Polars 2.0.0 |
+|---|---|---|
+| separator | `CsvOpts.sep` (any single char; `','` default); a field holding it is quoted | same |
+| escaped quote | `""` inside a quoted field is one `"` | same |
+| multi-line field | CR/LF inside quotes belong to the field; CRLF and LF line ends both accepted | same |
+| blank line, 1 column | a null row (an empty field) | null row |
+| blank line, k > 1 columns | skipped; error line numbers still count it | an all-null row (**D** departure: a blank line is almost always a trailing newline or padding) |
+| ragged short row | `ParseError{line, "expected <k> fields, got <g>"}` (strict) | fills nulls (**D** departure: strict) |
+| ragged long row | same `ParseError` | error |
+| non-ASCII | UTF-8 text verbatim; `len_chars` counts code points (`"日本語"` = 3) | same |
+| header only | `(0, k)` frame with str columns under inference, the given dtypes under a schema | same |
+| empty file | `(0, 0)` frame (**D**; Polars `NoDataError`) | error |
+| `has_header = False{}` | names `column_0 .. column_{k-1}` | same |
+| line numbers in errors | 1-based physical line of the record's first line; the header is line 1 | |
+| malformed quoting | `ParseError{0, "malformed csv"}` | error |
+
+#### 15.6.3 Options
+
+```
+# src/csv.bend
+type CsvOpts is Data:       CsvOpts{sep: Char, has_header: Bool, infer_rows: U32}          # exists; default (',', True, 100)
+type CsvWriteOpts is Data:  CsvWriteOpts{sep: Char, include_header: Bool, float_precision: Maybe<&2, U32>}   # default (',', True, None)
+```
+
+Explicit schema: `Csv.read_with(path, opts, dtypes: List<&2, D.DType>)` by column
+position (header gives the names); `dtypes = []` means infer; a count mismatch is
+`InvalidOperation{"csv schema: <d> dtypes for <k> columns"}`. Inference: the first
+`infer_rows` records (0 = all) decide per column in the order u32, i32, f32, bool, str
+(`Csv.infer.col`); then EVERY record is checked against the inferred dtype when
+inference saw only a prefix, so a later disagreeing row is a `ParseError`, not a
+silent null (today's `check` flag; keep). F32 cells write as `F32.show` digits
+(`1` for `1.0`, `-0` for `-0.0`, `nan`, `inf`, `1e-7`) or with exactly
+`float_precision` decimals (`Fmt.fixed`, round half even). **D:** text equality with
+Polars' write_csv is NOT part of the contract (Polars writes `1.0`, `-0.0`, `NaN`,
+`1e+16`); value equality after reading both files back with the same schema is
+(T2.2 reads Polars' CSV with `F32.read` and compares dumps).
+
+#### 15.6.4 scan_csv: bounded prefix inference, one read at collect
+
+`Lazy.scan_csv(path, opts)`: open; read 64 KiB (`File.read_at`, offset 0); while the
+chunk holds fewer than `infer_rows + 1` line ends outside quotes and the file is not
+exhausted, read the next 64 KiB; cut the text at the last line end outside quotes;
+`Csv.infer` on that prefix (records that are complete within it); close. It never
+reads the whole file (unless the file is smaller than the prefix) and never builds
+columns. `collect` reads the file once (`Csv.read_with` with the frozen dtypes, 1 MiB
+chunks in M4's csvparse), strictly: a value that does not parse under the frozen dtype
+is `ParseError{line, "column <name>: cannot parse \"<text>\" as <dtype>"}`; a header
+whose names or count differ from the plan's is `InvalidOperation{"scan_csv <path>: data
+schema [<file schema>] differs from the plan's [<plan schema>]"}` (schemas shown by
+`Schema.show`: `a:u32, b:str`). `DF.scan_csv_schema(path, opts, schema)` is pure and
+skips inference. `collect_schema` of a scan is its frozen schema (never IO).
+
+#### 15.6.5 Claims
+
+No round-trip claim for numeric-looking strings under inference (`"007"`, `" 1 "`,
+`"1.0"` in a str column come back as numbers unless a schema is given): README says so
+(B02-k). Round trip IS claimed for: every dtype under an explicit schema written and
+read by bend-frame (dump equality, NaN payload excepted), and `""` vs null.
+
+### 15.7 Sources and Env (B04)
+
+```
+# src/plan.bend
+type Env is Type:  Env{frames: List<&1, Named.Frame>}          # exists; names unique by contract
+def Env.add(env, +name, f) -> Env & Plan                           # exists; prepends, total
+def Plan.sources(p: Plan, acc: List<&2, String>) -> List<&2, String>   # every Source name, postfix order, with repeats
+# src/exec.bend
+def Exec.validate(p: Plan, env: Env) -> Env & E.Res(Unit)          # DF.validate_bindings
+def Exec.run_pure(code, env) ...                                    # M2: the pure runner after source materialisation
+```
+
+| rule | text |
+|---|---|
+| presence | every `Source{name, s}` of `p` names a frame of `env`; else `InvalidOperation{"source not in env: <name>"}` |
+| uniqueness | `env` binds each name once; else `InvalidOperation{"source bound twice in env: <name>"}` (checked before presence, over the whole env) |
+| schema | `Frame.schema(frame) == s` (names, dtypes, order); else `InvalidOperation{"source <name>: data schema [<env schema>] differs from the plan's [<plan schema>]"}` (existing text) |
+| order of checks | `Plan.schema(p)` errors first (static), then uniqueness, then presence and schema per Source in postfix order; `collect` = `Plan.schema`, then `Exec.validate`, then execution |
+| use counting | `Exec.run` computes `uses(name)` = occurrences in `Plan.sources(p)`; at each `ISource` with `remaining(name) > 1` the frame is **cloned** (`Frame.clone`, column order kept) and left in `env`, `remaining` decremented; at the last use it is **taken** (`Env.take`, no copy). A self-join `Join{.., Source{t}, Source{t}}` therefore works and sees two identical frames |
+| unused frames | frames of `env` not named by `p` stay in `env` and are dropped when `collect` returns (nothing is reported) |
+| ownership | `collect(p, env)` consumes `env`; a caller who needs the frames afterwards clones them before building the env (`DF.clone`) |
+| `collect_schema` | never looks at `env` (bindings are not static schema); README stops saying "collect refuses exactly what collect_schema refuses" and says "collect_schema predicts the static schema and type errors; validate_bindings predicts the binding errors; the rest is IO and data" |
+| optimizer | `Optimize.release` runs after validation conceptually but is a pure plan rewrite; it never duplicates or removes a `Source` node, so `Plan.sources` (as a multiset) is invariant under it (a lemma in M5) |
+
+### 15.8 Row cap 2^23 (2.2g)
+
+`Kernel.max_rows() = 8388608` (2^23); `Kernel.check_rows(n: U32) -> Maybe<&2, E.Err>`
+answers `Some{InvalidOperation{"too many rows: <n> exceeds 8388608"}}` when `n >
+8388608`. `Kernel.depth_for` is capped at 23 and is **not** the guard. Every path that
+allocates a frame or column of a height that is not bounded by an existing frame's
+height calls the guard **before** allocating:
+
+| path | guarded quantity | where |
+|---|---|---|
+| CSV parse (`Csv.rows`) | number of data records | before `Csv.cols` builds any column |
+| `Column.from_scalars` (facade construction) | list length | before `Kernel.from_list` |
+| `Join.run` (inner/left) | output row count = sum over left rows of `max(1, matches)` for left, matches for inner (computed from the CSR counts before gathering) | before `perm_l/perm_r` allocation; semi/anti never exceed the left height (unguarded) |
+| `Concat` | sum of input heights (U32 add is checked for wrap: a sum that wraps is over the cap by definition) | before any gather |
+| `GroupBy.run` | number of groups `ng <= h` | not needed (bounded), the cap is asserted anyway in the densify step for the proof invariant |
+| `Eval.bcast`, `filter`, `gather`, `slice`, `head`, `unique`, `sort` | bounded by an input height | unguarded (a well-formed input is already under the cap) |
+| `Env.add` / `Source` | frames come from guarded constructors | unguarded |
+
+Tests exercise the guard function directly (`check_rows(8388608)` = `None`,
+`check_rows(8388609)` = `Some`) and each path with a cheap over-cap request: a CSV
+parse is tested through a `Csv.rows` entry taking a record count, a join of
+2900 x 2900 equal keys (8.41 M output rows, refused before allocation), a concat whose
+heights sum past the cap built from `Frame{h, []}` zero-column frames (no data), and
+`from_scalars` through a counted-list entry. No test allocates 8 M rows.
+
+### 15.9 Error catalogue (every text is one line; `Err.show` renders them)
+
+| constructor | fields | raised by |
+|---|---|---|
+| `ColumnNotFound{name}` | | `Col` typing, `select_names`, sort keys, join keys (left first), `drop`, `rename` (from), `unique` subset |
+| `DuplicateColumn{name}` | first repeated name | `select`/`with_columns`/`group_by`/`join`/`rename` outputs; `rename` repeated `from`; `from_columns`; `describe` (`statistic`) |
+| `TypeMismatch{op, want, got}` | `op` = lowercase op name (`BinOp.name`, `UnOp.name`, `AggOp.name`, `"cast"`, `"try_cast"`, `"filter"`, `"join"`, `"when"`, `"is_in"`, `"clip"`, `"lit"`, `"from_scalars"`, `"fill_null"`) | typing (15.3); `"lit"` wants `"a typed literal"` got `"null"` for an untyped `Lit{SNull}` |
+| `ShapeMismatch{want, got}` | heights | `Frame.put/replace`, a binary op over two full columns of different length (internal; unreachable from the facade) |
+| `ParseError{line, text}` | `"malformed csv"` (line 0); `"expected <k> fields, got <g>"`; `"column <name>: cannot parse \"<text>\" as <dtype>"` | CSV |
+| `InvalidOperation{what}` | `"aggregation in select (v1: use group_by)"` and its `with_columns`/`filter` twins are **removed** (reductions are accepted); `"nested aggregation: <show>"`; `"group_by needs at least one key"`; `"group_by key is an aggregation: <show>"`; `"agg expects an aggregation: <show>"`; `"nested aggregation in agg: <show>"`; `"join: no key columns"`; `"join: left_on and right_on must have the same length"`; `"concat_vertical: no inputs"`; `"concat_vertical: input <i> schema [..] differs from input 0's [..]"`; `"cast <from> to <to>: row <i> holds <cell>"`; `"i32 out of range: <v>"`; `"csv schema: <d> dtypes for <k> columns"`; `"scan_csv <path>: data schema [..] differs from the plan's [..]"`; `"source <name>: data schema [..] differs from the plan's [..]"`; `"source not in env: <name>"` (replaces `"source not in env (or used twice): <name>"`); `"source bound twice in env: <name>"`; `"too many rows: <n> exceeds 8388608"`; `"exec: malformed plan (stack underflow)"`, `"exec: malformed plan (not one result)"`, `"eval: unexpected .."` (internal, unreachable from well-typed plans) | |
+| `IoError{code, text}` | OS code and message | `File.*` |
+
+Any text that embeds user data (`<show>`, `<cell>`, `<name>`, `<path>`, `<text>`) may
+contain a newline only through that data; the dump's `error` line is still the whole
+`Err.show` string, and comparisons are exact.
+
+### 15.10 Defect table (both reviews; one regression test per row, `#! xfail <ID>` until fixed)
+
+| ID | defect (one line) | contract row | milestone |
+|---|---|---|---|
+| B01-a | `Head{0}` sunk below a literal-only `Select` yields one row (Astra A) | 15.4 C4/C5, 15.2.8 optimize barrier | M1 |
+| B01-b | lazy `Select{[]}` keeps the input height, eager gives `(0,0)` (Astra E) | 15.4 C1 | M1 |
+| B01-c | hidden height of a zero-column frame becomes visible in a later `with_columns`/literal (Astra E) | 15.4 C1, C22-C24 | M1 |
+| B01-d | constant predicate over a literal projection; Polars' lazy quirk documented as a departure | 15.4 C18-C19 | M1 |
+| B01-e | zero-row inputs through literal-only / reduction / mixed selects and with_columns | 15.4 C3, C7, C10, C13, C14, C21, C26 | M1 |
+| B01-f | `Opt.head` sinks below every Select/WithColumns regardless of kind; must use the analysis (KRow, total, non-empty) | 15.3.2, 15.4 rule | M1 (restricted), M5 (proven) |
+| B02-a | reading `"",x` gives null for the quoted empty string (Astra B) | 15.6.1 | M1 |
+| B02-b | writing a valid `""` emits an empty field, indistinguishable from null (Astra B) | 15.6.1 | M1 |
+| B02-c | `scan_csv` reads and parses the whole file at plan build, again at collect (Astra G3, Fable 4) | 15.6.4 | M1 (prefix), M4 (chunked read) |
+| B02-d | `write_csv` quoting of fields with separator / quote / newline untested (Fable 2) | 15.6.1 | M0 test |
+| B02-e | separators other than `,` and write options not reachable from the facade | 15.2.7, 15.6.3 | M3 |
+| B02-f | blank line handling differs between 1 and k columns and from Polars; undocumented | 15.6.2 | M1 doc+test |
+| B02-g | ragged rows: short rows are errors here, null-filled in Polars; undocumented | 15.6.2 | M0 test, M1 doc |
+| B02-h | non-ASCII fields, multi-line fields, escaped quotes not in the differential suite | 15.6.2 | M0 test |
+| B02-i | explicit schema only via `src/` (`Csv.read_with`); dtype-count error text unverified | 15.2.7 | M3 |
+| B02-j | numeric fields trimmed on read while Polars infers str for `" 1 "` | 15.6.1 (departure) | M1 doc+test |
+| B02-k | README implies inference round-trips numeric-looking strings | 15.6.5 | M1 README |
+| B03-a | grouped `mean` of `[inf, 1]` is NaN (Kahan `inf - inf`) (Astra C) | 15.5.3 | M1 |
+| B03-b | eager `Kernel.fsum` has the same `inf - inf` contamination (Astra C audit) | 15.5.3 | M1 |
+| B03-c | f32 `==`/`>` use raw IEEE: `NaN == NaN` false, `NaN > 0` false; keys use a total order (Astra D) | 15.5.2 | M1 |
+| B03-d | integer `/` by zero answers 0, `%` by zero the dividend (Fable B1) | 15.5.1 | M1 |
+| B03-e | `cast` f32 -> u32 of negative / huge / NaN answers 0 (Fable B2, Astra G5) | 15.5.5 | M1 |
+| B03-f | `/` on integer columns truncates and keeps the integer dtype (Fable B3) | 15.5.1 (`div` refused, `floor_div`) | M1 |
+| B03-g | `mean` of integers is f32: documented but missing from README differences (Fable B4) | 15.2.5 | M1 README |
+| B03-h | grouped f32 `sum` is a plain sequential add; 1k-row q3 cells differ from Polars (Fable B5, Astra 1) | 15.5.3 | M1 |
+| B03-i | `lit_i32(v)` with `v >= 2^31` is silently negative (Fable minor, plan 2.2d) | 15.2.1 | M1 |
+| B03-j | u32 `+ - *` and `sum` wrap silently and undocumented (Fable minor) | 15.5.1 | M1 README |
+| B03-k | top-level `n_unique` counts each NaN apart, grouped counts NaN once (DESIGN 14 M5.5) | 15.2.5 NUnique | M1 |
+| B03-l | i32 `MIN // -1` and `MIN % -1` follow wrapping, contract says null / 0 | 15.5.1 | M1 |
+| B03-m | f32 -> i32 out of range is garbage; u32 <-> i32 casts retag silently (Astra G5) | 15.5.5 | M1 |
+| B03-n | f32 `min`/`max` depend on NaN position (`F32.min(NaN,1) = 1`, `F32.min(1,NaN) = NaN`) and on the sign of zero | 15.5.2 exceptions | M1 |
+| B03-o | i32 `%` takes the dividend's sign (truncating); Polars and the contract: the divisor's | 15.5.1 | M1 |
+| B03-p | str -> number `cast` nulls failures silently under the name `cast` | 15.5.5 | M1 |
+| B03-q | str -> number `cast` trims; Polars does not | 15.5.5 | M1 |
+| B04-a | eager accepts reductions in select/with_columns/filter, lazy refuses them (Fable B6, Astra G1) | 15.2.5, 15.4 | M1 |
+| B04-b | a Source used twice (self-join) passes `collect_schema` and fails `collect` (Fable B8, Astra G4) | 15.7 use counting | M1 |
+| B04-c | no facade for several named frames in one Env (Astra G4) | 15.2.2 `add_source` | M1 |
+| B04-d | missing / duplicate bindings detected only during execution; `Env.take` silently drops an older duplicate | 15.7 `validate_bindings` | M1 |
+| B04-e | frozen scan schema vs a changed file: error text names the file (exists, untested) | 15.6.4 | M0 test |
+| B04-f | README: "collect refuses exactly what collect_schema refuses" is false (Fable B8) | 15.7 | M1 README |
+| B04-g | join drops the right key even when `left_on`/`right_on` differ: undocumented (Fable B7) | 15.2.4 | M1 README |
+| B04-h | `sum(x)/sum(y)` is not an accepted group_by agg; the surface is narrower than "nine reducers" suggests (Astra G2) | 15.2.4 group_by | M1 doc, M3 example |
+| B04-i | the 2^23 row cap exists only as a comment (DESIGN 14 M1.7, Fable 2) | 15.8 | M1 |
+| B04-j | once `cast` is strict, filter merge/pushdown and head sinking across a cast change which rows can fail (new hazard) | 15.3.2 totality barrier | M1 |
+| B04-k | `maintain_order=False{}` is silently ignored | 15.2 shared rules | M1 README |
+| B05-a | `bench/check.py` accepts `100001` vs `100000` (float tolerance applied to ints) (Astra F) | 15.1 rule 3 (exact non-floats) | M0 |
+| B05-b | `check.py` accepts NaN vs an integer (`rel > tol` is false for NaN) (Astra F) | 15.1 rule 3 | M0 |
+| B05-c | `check.py` splits on `,` instead of parsing CSV; quoted commas break it (Astra F) | 15.1 (dumps, not CSV) | M0 |
+| B05-d | `scripts/bench.sh` `\|\| true` swallows mismatches and missing outputs (Astra F) | plan B05 | M0 |
+| B05-e | stale "Kahan" comments in `check.py`, README, `groupby.bend` (Astra F) | 15.5.3 | M1 |
+| B05-f | no CI workflow; `make check` excludes the facade and proofs (Astra 2) | plan T7 | M0 |
+| B05-g | no test that eager, raw-lazy and optimised-lazy agree on the same data (both reviews) | plan T2.1, 15.1 rule 7 | M0 |
+| B05-h | the proof negative check (`2^(d+1)` slots) is not a kept test (Fable 6) | plan T5 | M0 |
+| B05-i | README overclaims: "byte-identical", "48 laws" without the schema/shape caveat (Fable 8, Astra 5) | plan G7 | M6 |
+
+Rows marked M0 are fixed in M0 itself (harness and tests); every other row gets an
+`#! xfail <ID>` regression in M0 (eager, raw-lazy and optimised-lazy where
+applicable) and loses the marker when fixed.
