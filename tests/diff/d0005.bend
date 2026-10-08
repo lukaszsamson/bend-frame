@@ -22,10 +22,10 @@ def f_t() -> DF.ResT(DF.Frame()):
   DX.frame([DX.cbool("y", [DX.b(False{}), DX.b(False{}), DX.n(), DX.b(True{}), DX.b(False{}), DX.b(False{}), DX.b(True{}), DX.b(False{})]), DX.cf32("a", [DX.f(F32.neg(1.125)), DX.f(0.875), DX.f(0.1), DX.f(DX.ninf()), DX.f(0.2), DX.f(3.0), DX.f(4294967300.0), DX.f(4294967000.0)])])
 
 def eager() -> DF.ResT(DF.Frame()):
-  DX.e_filter(DX.e_select(f_t(), [DF.ne(DF.gt(DF.sub(DF.col("a"), DF.col("a")), DF.sum(DF.col("a"))), DF.lt(DF.neg(DF.col("a")), DF.neg(DF.col("a")))), DF.alias(DF.try_cast(DF.sum(DF.col("a")), DX.t_f32()), "n")]), DF.eq(DX.abs(DF.col("n")), DX.abs(DF.col("n"))))
+  DX.e_filter(DX.e_select(f_t(), [DF.ne(DF.gt(DF.sub(DF.col("a"), DF.col("a")), DF.sum(DF.col("a"))), DF.lt(DF.neg(DF.col("a")), DF.neg(DF.col("a")))), DF.alias(DF.try_cast(DF.sum(DF.col("a")), DX.t_f32()), "n")]), DF.eq(DF.abs(DF.col("n")), DF.abs(DF.col("n"))))
 
 def plan() -> DF.Plan():
-  DF.lazy_filter(DF.lazy_select(DX.src("t", f_t()), [DF.ne(DF.gt(DF.sub(DF.col("a"), DF.col("a")), DF.sum(DF.col("a"))), DF.lt(DF.neg(DF.col("a")), DF.neg(DF.col("a")))), DF.alias(DF.try_cast(DF.sum(DF.col("a")), DX.t_f32()), "n")]), DF.eq(DX.abs(DF.col("n")), DX.abs(DF.col("n"))))
+  DF.lazy_filter(DF.lazy_select(DX.src("t", f_t()), [DF.ne(DF.gt(DF.sub(DF.col("a"), DF.col("a")), DF.sum(DF.col("a"))), DF.lt(DF.neg(DF.col("a")), DF.neg(DF.col("a")))), DF.alias(DF.try_cast(DF.sum(DF.col("a")), DX.t_f32()), "n")]), DF.eq(DF.abs(DF.col("n")), DF.abs(DF.col("n"))))
 
 def main() -> IO(Unit):
   do IO<Unit>:
