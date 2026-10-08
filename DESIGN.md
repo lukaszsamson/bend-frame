@@ -756,80 +756,106 @@ therefore sequential inside a column and parallel ACROSS independent work:
 | join inner/left           | left order; ties: right row order                   |
 | describe                  | fixed statistic order                               |
 
-## 8. Laws v1 (`LAWS.bend`) and how they are proven (`PROOF.bend`) [opus]
+## 8. Laws (`LAWS.bend`) and how they are proven (`PROOF*.bend`) [opus]
 
-Status (M6): `LAWS.bend` states 48 laws over `src/`; `PROOF.bend` proves all
-of them (`bend PROOF.bend` prints ALL PROOFS CHECK in ~0.45 s; `make proofs`).
-No `@unsafe`, no foreign code. `bend PROOF.bend --verdict` also prints ALL
-PROOFS CHECK under the independent BendTT kernel (~1 s; `make verdict`). A deliberately false claim (2^(d+1) slots) fails with
-the expected/observed terms, so the claims are load-bearing. The miniature
-probes p08/p20 remain as the pattern references.
+Status (M2 checkpoint): `LAWS.bend` states 71 laws over `src/`; `PROOF.bend`
+imports `PROOF_lib`, `PROOF_schema`, `PROOF_expr`, `PROOF_plan`,
+`PROOF_kernels` and `PROOF_exec` (one file per area; `L.*` is the shared
+toolkit) and proves all of them: `bend PROOF.bend` prints ALL PROOFS CHECK in
+~1.0 s (`make proofs`), `bend PROOF.bend --verdict` prints it again under the
+independent BendTT kernel in ~1.1 s (`make verdict`). No `@unsafe`, no foreign
+code, no open law, no axiom. Two negative fixtures in `tests/proof_negative/`
+(plan M_01 T5) show the claims are load-bearing: a slots law falsified to
+2^(d+1), and a mutated copy of the production head rule `Opt.hmin` (the outer
+limit wins) that the real R1 proof term is refused for, with the mutated and
+the real limit in the checker's `expected` / `observed`.
 
-Proven (`law x` in LAWS.bend, `def Laws.x` in PROOF.bend):
+Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 
-| group | laws |
+| group (file) | laws |
 |-------|------|
-| Schema (schema.bend) | `project_nil`, `project_length`, `project_names` (a successful `Schema.project` has exactly the requested names, in order), `with_existing_keeps_width`, `with_new_appends` |
-| Expr typing (expr.bend) | `dtype_eq_refl`, `alias_name`, `col_name`, `alias_type`, `alias_is_agg`, `agg_is_agg`, `col_refs`, `lit_type`, `col_type`, `cmp_type_bool` (any of `== != < <= > >=` over one dtype is bool), `arith_type` (`+ - * /` over one numeric dtype keep it), `mod_type`, `logic_type` (`& |` over bools), `cast_type` (an allowed cast has the target dtype), `is_null_type`, `is_not_null_type`, `counting_type` (count/len/n_unique are u32), `keeping_agg_type` (min/max/first/last keep the dtype), `sum_type`, `mean_type` (f32) |
-| Plan.schema (plan.bend) | `source_schema`, `head_keeps_schema`, `filter_keeps_schema` (bool, non-aggregating predicate; the `Expr.is_agg(e) == False{}` hypothesis of section 14/M4), `filter_schema_is_input` (whenever a Filter resolves, it is the input schema: no side condition), `sort_keeps_schema` (keys exist, stated with `Laws.keys_exist`), `sort_schema_is_input`, `select_cols_is_project` (a Select of plain `Col`s IS `Schema.project`, errors included), `select_cols_names`, `with_column_keeps_width` (one expression whose name the input has) |
-| Optimizer (plan.bend) | `head_pass_keeps_schema` (`Opt.head(p, n)` keeps the schema of EVERY plan, any pending limit), `merge_pass_keeps_schema` (`Opt.merge` keeps the schema of every well-typed plan), `merge_head_keeps_schema` (their composition), `merge_pass_merges` (after the pass no Filter sits on a Filter), `merge_fixed_point`, `merge_idempotent`, `head_pass_merges` (no Head sits on a Head) |
-| Columns (column.bend) | `head_len` (`head(c, n)` has `min(n, len)` rows), `head_dtype` |
-| Kernels (kernels.bend) | `mask_not_slots` (`Kernel.map`), `mask_and_slots` (`Kernel.zip`), `iota_slots` (`Kernel.iota_from`): the output array has exactly 2^d slots, through a pure model `Laws.slots` of `Array.size` |
-| I32 (dtype.bend) | `i32_add_comm` (via Base's `U32.add_comm`), `i32_bits_roundtrip` |
+| 1 Schema (`PROOF_schema`) | `project_nil`, `project_length`, `project_names`, `with_existing_keeps_width`, `with_new_appends` |
+| 2 Expr typing (`PROOF_expr`) | `dtype_eq_refl`, `alias_name`, `col_name`, `alias_type`, `alias_is_agg`, `agg_is_agg`, `col_refs`, `lit_type`, `col_type`, `cmp_type_bool`, `arith_type`, `mod_type`, `logic_type`, `cast_type`, `is_null_type`, `is_not_null_type`, `counting_type`, `keeping_agg_type`, `sum_type`, `mean_type` |
+| 3 Plan.schema (`PROOF_plan`) | `source_schema`, `head_keeps_schema`, `filter_keeps_schema`, `filter_schema_is_input`, `sort_keeps_schema`, `sort_schema_is_input`, `select_cols_is_project`, `select_cols_names`, `with_column_keeps_width` |
+| 4 Optimizer, schema level (`PROOF_plan`) | `head_pass_keeps_schema`, `merge_pass_keeps_schema`, `merge_head_keeps_schema`, `merge_pass_merges`, `merge_fixed_point`, `merge_idempotent`, `head_pass_merges` |
+| 5/5b Columns, kernel shape (`PROOF_kernels`) | `head_len`, `head_dtype`, `mask_not_slots`, `mask_and_slots`, `iota_slots` (2^d slots through the model `Laws.slots` of `Array.size`) |
+| 6 I32 (`PROOF_lib`) | `i32_add_comm`, `i32_bits_roundtrip` |
+| 7 Names and numbers (`PROOF_lib`) | `u32_min_comm`, `u32_min_assoc` (from Word.cmp antisymmetry and transitivity, by induction over the 32-bit word), `str_eq_refl`, `str_eq_sound` (the runtime `String.eq` is reflexive and equal names are the same string: the P0 name-equality spike closed, no local `Str.eq` was needed), `names_has_head` |
+| 8 The production runner (`PROOF_exec`) | `frame_head_head`, `head_step`, `head_merge_run` (R1 as a rule: `Exec.run_pure(Head{n, Head{m, x}}, env) == Exec.run_pure(Head{Opt.hmin(m, Some n), x}, env)` for every plan x, env, n, m), `head_pass_keeps_sources`, `head_pass_run` (R1 as the pass: `Opt.head` on the merge-only fragment, any pending limit, suffix code and runner state), `release_merge_only` (`Exec.run_pure(Optimize.release(p), env) == Exec.run_pure(p, env)` for every well-typed merge-only plan), `release_merge_only_obs` (the same through `DF.dump`) |
+| 9 P0 well-formedness (`PROOF_kernels`) | `u32_min_le`, `wf_new`, `wf_new_words`, `wf_frame_empty`, `wf_column_head`, `wf_frame_head` over the Type-valued predicates `WFArray`, `WFWords`, `WFMaskedW/T`, `WFValidW/T`, `WFColumn`, `WFColumnH`, `WFCols`, `WFFrame` (len <= 2^depth, perfect trees, 0/1 mask and bool words, null slots at the default, equal heights, unique names, the zero-column convention) |
+| 10 Buffer contents (`PROOF_kernels`) | `array_get_pure` (`Array.get(a, i) == (a, rd_at(a, i))`: the real getter is pure and reads the model `rd`, which makes the production halving decisions), `array_set_get` (read-after-write at the same index through the real `Array.set`), `gather_step`, `compact_step`, `compact_step_cell` (one iteration of the production `Kernel.gather.go` / `compact.go`, at the U32 instance) |
+
+### 8.1 Assurance matrix (plan M_01 section 6: theorem -> production function -> assumptions -> checker)
+
+| theorem | production function(s) it constrains | assumptions / scope | checkers |
+|---|---|---|---|
+| `release_merge_only(_obs)` | `Optimize.release`, `Opt.head`, `Exec.run_pure` (= `Exec.compile`, `Exec.mark`, `Exec.loop`, `Exec.step*`, `Exec.fin`), `Frame.head`, `Column.head` | `Plan.schema(p) == Done{s}` and `merge_only(p)`: every Select/WithColumns of p is a Head barrier (`Opt.sinks` False), so the pass only merges adjacent Heads. Any env (bindings are not validated by `run_pure`; `Exec.run` validates first and feeds the same env). Result equality of `E.ResT(C.Frame)`, frames included; errors included. | bend, --verdict |
+| `head_merge_run` | the same, as the local rule, for EVERY plan x (certified or not, scans included: both sides fail alike) | none | bend, --verdict |
+| `head_pass_run` | `Opt.head(p, n)` vs `p` with the pending limit `n` and a suffix in the hypothesis | `merge_only(p)`; suffixes with the same Sources that run alike | bend, --verdict |
+| `head_pass_keeps_sources` | `Opt.head`, `Exec.compile`, `Exec.later` (the last-use marks) | none (all plans) | bend, --verdict |
+| `frame_head_head`, `head_step` | `Frame.head`, `Cols.head`, `Column.head`, `Exec.step` | none (`U32.min` associativity from Base's Word) | bend, --verdict |
+| `str_eq_refl`, `str_eq_sound` | Base `String.eq` as used by `Names.has`, `Schema.find`, `Env.take/clone`, `Exec.later`, `Opt.ren.find` | none | bend, --verdict |
+| `wf_*` | `Array.new` (= `Kernel.const`, the kernels' output allocation), `Frame.empty`, `Column.head`, `Frame.head` | the P0 predicates; the other verbs' preservation is M5 (P1) | bend, --verdict |
+| `array_get_pure`, `array_set_get` | Base `Array.get`, `Array.set` as every kernel calls them | none (all indices; the masking `i & (n-1)` is in the model) | bend, --verdict |
+| `gather_step`, `compact_step(_cell)` | `Kernel.gather.go`, `Kernel.compact.go`, `Kernel.gather.put`, `Kernel.compact.put` | one iteration (fuel 1); U32 instance (BendTT refuses the template at a quantified type) | bend, --verdict |
+| sections 1-5b (schema, typing, plan schema, optimizer schema level, slots) | as listed in the table above | as stated per law | bend, --verdict |
+
+What the R1 chain does NOT cover, stated exactly:
+
+- Head sinking below a certified Select/WithColumns (`Opt.sinks` True, i.e. R3) is
+  not proven; plans containing such a node under a Head are outside
+  `merge_only`. For them `Optimize.release` may rewrite more than merges, and no
+  result theorem exists yet. It needs the analysis soundness of P2 (`A.Ana`
+  `preserving` implies `Eval.select` / `Eval.with_columns` commute with
+  `Frame.head`).
+- `Exec.run_pure` is the runner after validation and scan materialisation; the
+  theorem quantifies over any env, so it covers the validated env `Exec.run`
+  hands over and the scan frames `Exec.mat` binds. The IO reads themselves
+  (`Csv.read_with`) are outside the proof (plan M_01 section 6 "IO boundary").
+- The remaining release-optimizer claim (G6 "the default optimizer's
+  result-equivalence theorem") therefore holds today for the merge-only
+  fragment; the full claim needs R3 (M5).
 
 Not provable or not true as stated, recorded here instead of as open laws:
 
-- `Plan.schema(Plan.optimize(p)) == Plan.schema(p)` for the FULL pipeline:
-  the predicate-pushdown (`Opt.push`) and projection-pushdown (`Opt.proj`)
-  passes rename and filter column names through `String.eq` / `Names.has`;
-  `String.eq` goes through `String.cmp` and `Char` comparison, so even
-  `String.eq(n, n) == True{}` has no computational proof, and every fact of
-  the form "the renamed predicate still types" or "`Opt.fkeep(s, names(s))
-  == s`" is out of reach. Future: a `String.eq` reflexivity/soundness lemma
-  in Base (or a `law` on `Names.has`) would unlock both passes. The two
-  passes that do not touch names (merge, head) are fully proven.
-- `Opt.merge` does NOT keep the schema of an ill-typed plan: `Filter{e,
-  Filter{q, x}}` with `q : u32` fails with `TypeMismatch{"filter", "bool",
-  "u32"}` while the merged `Filter{q & e, x}` fails with `TypeMismatch{"and",
-  "bool", "u32"}`. This is why `Plan.optimize` guards on `Plan.schema(p)`
-  (section 14/M4) and why the law carries the `Plan.schema(p) == Done{s}`
-  hypothesis. Not a bug: the error text differs, never a Done schema.
-- `with_columns_height` (eager, from the v1 sketch): `Eval.with_columns`
-  runs in IO-free but Array-heavy code over `Frame`; a height law needs a
-  model of every kernel (as `Laws.slots` models `Array.size`). Future.
-- I32 `neg` involution, `add` zero/associativity: `U32.sub` is `Word.adc(..,
-  True, True)`; Base proves only `Word.add_comm`. Bit-vector carry lemmas
-  are future work (Base-level).
-- `Kernel.compact` count `<= n` (filter length): a U32 inequality over
-  `Word`s, same reason. The slots laws cover map/zip/iota; `compact` and
-  `gather` would need an `Array.get` witness lemma (a copy of `swap_ex`).
-- Fmt/Csv round trips: `F32.show`/`U32.show`/`F32.read` are primitives.
-- Group_by/Join schema laws: `Grp.validate`/`Join.schema` go through
-  `Names.has` (String.eq) for duplicate and clash checks. Future with the
-  String.eq lemma above.
+- `Plan.schema(Plan.optimize_full(p)) == Plan.schema(p)`: pushdown and
+  projection rename through `Names.has` / `Opt.rename`; with `str_eq_refl` /
+  `str_eq_sound` now proven the blocker is gone, but `optimize_full` is opt-in
+  and outside the guarantee, so these laws are not scheduled.
+- `Opt.merge` does NOT keep the schema of an ill-typed plan (the error text
+  differs); hence the `Plan.schema(p) == Done{s}` hypothesis.
+- Full `gather` / `compact` contents (`out[i] == in[index[i]]` for all i < n;
+  the order-preserving subsequence and `count == length`): the per-step lemmas
+  of section 10 compose to them once "writes at distinct indices below 2^d
+  take distinct paths" is proven; that is a bit-vector fact about
+  `Word.and / shr / sub / is_lt` on 32-bit words (M5, P1). `compact`'s count is
+  the popcount of the mask (the per-step `k + bit` is proven).
+- Null slots after kernels, `fill_null`, `when`, the U32 fold, the grouped
+  scatter invariant (P1), `Eval` typing soundness and the analysis soundness
+  (P2), R2-R5 (P3): M5.
+- Floating error bounds, hash-join and radix-sort correctness, CSV: not v0.1
+  proof deliverables (tested).
 
-Proof toolkit (verified in PROOF.bend; see its header comment): unfold one
-step with `{==}`; `%e : P` rewrites with `e : {a == b}` where `_` in P marks
-b and becomes a (so flip hypotheses with `Equal.sym` before replacing a
-computed term by its value); `Done`/`Some` injectivity via `Equal.cong` +
-`Result.default`/`Maybe.default` (the payload itself as the default avoids
-needing an inhabitant); refute `Fail == Done`, `False == True`, `True ==
-False` through a motive and `Empty.absurd`; a value the code computes (a
-dtype lookup, a sub-plan's schema, a kernel's read pair) is passed to a lemma
-as a PARAMETER and matched there (p08); a hypothesis that must be rewritten
-moves into the goal as a function type `H -> G`, is rewritten there and taken
-back with `h => ...`; a schema rule over an input result is abstracted as a
-function parameter `f` with a `fails: @e -> {f(Fail{e}) == Fail{e}}` witness
-(`unary` in PROOF.bend) instead of one lemma per node; `match` on a `+x`
-pattern binder when the proof spends it twice (law binders too: `for +s`);
-Type-kinded values (arrays, columns) can be matched once and never copied,
-so every array lemma hands the rewritten array back as a Sigma witness
-(`&b: Array<T> -> {.. == b} & {slots(b) == k}`) and the next lemma takes it
-as a parameter; template kernels are proven by template proof defs
-(`map_go_slots(~T, ~U, ~f, ..)`) with the induction hypothesis passed as a
-lambda to the step lemma (no mutual recursion). A `case other:` fallback
-does not refine the scrutinee, so a goal that must compute on "any other
-constructor" lists the constructors.
+Proof toolkit (verified in PROOF_*.bend; see PROOF_lib.bend's header): unfold
+one step with `{==}`; `%e : P` with `e : {a == b}` rewrites a goal that is
+`P[_ := b]` into `P[_ := a]` (so to replace a term X in the goal by Y, use
+`e : {Y == X}` with `_` at X: flip computed-term hypotheses with `Equal.sym`
+first); `Done`/`Some` injectivity via `Equal.cong` + `Result.default`/
+`Maybe.default`; refute `Fail == Done`, `False == True`, `LT == EQ` etc.
+through a motive and `Empty.absurd`; a value the code computes is passed to a
+lemma as a PARAMETER and matched there (p08); a hypothesis that must be
+rewritten moves into the goal as `H -> G`; a schema rule over an input result
+is abstracted as a function parameter (`unary`); Type-kinded values (arrays,
+columns, frames, runner states) are affine: a lemma takes one once, and a lemma
+that rewrites one hands it back as a Sigma witness beside the equations
+(`&b: Array<T> -> {.. == b} & {..}`, `col_head_w`, `head_step_w`, `size_same`,
+`swap_rd`); a computed witness is taken apart only in a helper's PARAMETER,
+never in a let; two codes run from ONE state by a parallel induction that
+consumes the state once and carries a continuation hypothesis for the suffix
+(`loop_pre`, `head_pass_run`); Word lemmas are inductions over the word length
+with the tails' comparison as a parameter; template kernels are proven by
+template proof defs, and a law about a template is stated at a concrete
+instance when `--verdict` must accept it.
 
 ## 9. Idiom checklist for implementers (copy into every module's header)
 
@@ -1744,6 +1770,67 @@ Join.run makes first). Differences:
 4. `Std/Var/Median` AggOps do not exist yet; the checks for them are in `reduce_ref.py`/`reduce.py` and
    switch on when `frame.bend` defines `DF.std`, `DF.var`, `DF.median`. describe's "50%" is the nearest
    rank, not the 15.5.4 median for even counts (see 3; checked as the nearest rank).
+
+### M2 (proof feasibility: P0, name equality, Exec.run_pure, R1)
+
+1. **Exec is factored into IO scan materialisation plus a pure runner** (plan M_01
+   section 6 P2). `Exec.loop` is a pure, structural loop over the compiled code
+   (`Exec.step` / `Exec.step.r` / `Exec.step.pure`); `Exec.run_code(code, env)` and
+   `Exec.run_pure(p, env)` (= compile, mark, run) are the ONE physical runner, and
+   the proofs of LAWS.bend section 8 quantify over `Exec.run_pure`. `Exec.run` =
+   `Plan.schema`, then `Exec.validate`, then `Exec.mat` (reads every `ScanCsv` of the
+   compiled code in postfix order with `Csv.read_with`, checks the frozen schema with
+   the same text as before, binds the frame in env under `"#scan<k>"`), then
+   `Exec.run_pure(Exec.unscan(p, 0), env)` where `Exec.unscan` replaces each `ScanCsv`
+   by `Source{"#scan<k>", s}` (a Join's left scans first, as `Exec.compile` orders
+   them). 4.14's "ScanCsv -> Csv.read at its position" is therefore no longer literal.
+2. **Error order with scans changed**: every scan is read before any operator runs, so
+   an `IoError` / `ParseError` / frozen-schema error of a scan is reported even when an
+   operator that `Exec.compile` orders earlier would have failed (before M2 the earlier
+   operator's error won and the file was never read). Static (`Plan.schema`) and
+   binding (`Exec.validate`) errors still come first. No existing test observed the
+   old order; 15.2.8's "static error first, then bindings, then execution" still holds
+   with "execution" now meaning "scans, then the pure run".
+3. **Reserved names**: `"#scan0"`, `"#scan1"`, ... are the materialised scans' Source
+   names; a user frame registered under such a name is shadowed by the scan during
+   that collect (Env.add prepends). Documented, not checked.
+4. **`Exec.run_pure` on a plan that still holds a `ScanCsv`** answers
+   `InvalidOperation{"exec: scan_csv not materialised: <path>"}` (it cannot do IO);
+   production never hits it (`Exec.unscan` runs first), and the R1 theorems cover it
+   trivially (both sides fail alike).
+5. **Name equality decision (P0)**: the spike CLOSED. `String.eq` reflexivity and
+   soundness are proven from Base's `String.cmp` / `Char.cmp` / `Word.cmp` by
+   induction over the 32-bit word (LAWS 7 `str_eq_refl`, `str_eq_sound`), so the
+   runtime lookups keep `String.eq` and no local `Str.eq` exists in src. Base's
+   `U32.min` is proven commutative and associative the same way (`u32_min_comm`,
+   `u32_min_assoc`), which is what two Heads in a row compute.
+6. **P0 predicates are Type-valued and live in LAWS.bend section 9**, not in src:
+   `WFArray`, `WFWords`, `WFMaskedW/T`, `WFValidW/T`, `WFColumn`, `WFColumnH`,
+   `WFCols`, `WFFrame`. What Bend cannot hide: there is no module privacy, so
+   `CU32{..}`, `Frame{..}`, `ALeaf`/`ANode` can be written by any importer; building
+   columns, frames or arrays directly is UNSUPPORTED and outside every law. Supported
+   constructors are `Column.from_scalars`, `Csv.read*`, `Frame.from_columns`,
+   `Frame.put/replace` and the verbs; of these only `Array.new` (every kernel's output
+   allocation), `Frame.empty`, `Column.head` and `Frame.head` carry a proof so far (M5
+   covers the rest, P1). Proofs of `WFColumn(c)` are evidence terms, not runtime checks:
+   nothing in src computes them.
+7. **R1 is proven as two theorems plus a corollary** (LAWS 8): the rule
+   (`head_merge_run`, every plan) and the pass on the merge-only fragment
+   (`head_pass_run`, hence `release_merge_only(_obs)`: `Optimize.release` preserves
+   `Exec.run_pure`'s result for every well-typed plan whose Select/WithColumns are all
+   Head barriers). The sink through a certified node (R3) is NOT covered; see section
+   8 "What the R1 chain does NOT cover".
+8. **Gather / compact contents (P1, the M2 part)**: `array_get_pure`, `array_set_get`
+   and the one-step `gather_step` / `compact_step(_cell)` are proven over the real
+   Array code; the full "out[i] == in[index[i]]" and subsequence theorems need the
+   distinct-paths bit-vector lemma (section 8). The step laws are stated at the U32
+   instance because BendTT's `--verdict` kernel refuses a template kernel applied to a
+   quantified cell type ("mismatch between the TypeScript implementation and the
+   formalized BendTT kernel"); the TypeScript checker accepts the generic form.
+9. **PROOF.bend is split** into `PROOF_lib/schema/expr/plan/kernels/exec.bend`;
+   `PROOF.bend` only imports them. `tests/proof_negative/mask_not_slots_doubled.bend`
+   imports `PROOF_kernels.bend` for its lemmas; the new
+   `tests/proof_negative/head_rule_outer_wins.bend` is the T5 mutation of the head rule.
 
 ## 15. v0.1 contract (frozen)
 

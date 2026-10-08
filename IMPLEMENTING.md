@@ -578,3 +578,74 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
   own def with a Bool parameter, and a helper must be defined above its caller (no mutual recursion).
 - bench/diff: the oracle's `Expr.show` of a typed null literal is Bend's `lit(null).cast(<t>)`
   (`Cast{Lit{SNull}, t}`), not `lit(null)`.
+
+## M2 proofs (P0, name equality, Exec.run_pure, R1)
+
+- **The rewrite rule, once and for all**: `%e : P` with `e : {a == b : T}` needs the
+  current goal to be `P[_ := b]` and leaves `P[_ := a]`. So to replace a term X in the
+  goal by Y you need `e : {Y == X}` and `_` at X. With `h : {X == Y}` you can only
+  replace Y by X (`%h : {.. _ ..}` with `_` at Y); to replace X by Y flip it:
+  `%Equal.sym(T, X, Y, h)`. The checker's `expected` is the goal, `observed` is
+  `P[_ := b]`; when they differ only at the rewritten spot, flip. (Most of this
+  milestone's checker iterations were this one mistake.)
+- **Base `U32` is `Word(32n)`**, a 32-bit little-endian word of `Bool`s (`WCon{bit,
+  tail}`, head = least significant), and `Word.cmp` compares the tail first. Lemmas
+  about `U32.min`, `is_le`, `String.eq` are inductions on the word length: `match n:
+  case 0n / case 1n++p: match x y: case WCon{+a, +t} WCon{+b, +u}` with the tails'
+  comparison passed as a parameter `c: Cmp` plus `e: {Word.cmp(p, t, u) == c}` and
+  matched (`+` on everything used twice, including `p`). `cmp_eq` (EQ means equal) and
+  `cmp_flip` (comparing the other way gives the opposite verdict) make the rest
+  derivable without new inductions (`gt_trans` from `lt_trans` through flip).
+- **`String.eq` IS provable**: `Char.cmp(Chr{U32{x}}, Chr{U32{y}})` computes to
+  `((Chr{U32{x}}, Chr{U32{y}}), Word.cmp(32n, x, y))` once the chars are matched three
+  deep (`case SCon{Chr{U32{+x}}, +t1} SCon{Chr{U32{+y}}, +t2}`), and `String.cmp.fin` /
+  `.rec` destructure literal pairs by computation. Pass `Word.cmp(32n, x, y)` and
+  `String.cmp(t1, t2)` as parameters, match / destructure them in helpers.
+- **A `-` (erased) parameter can be used in a rewrite but not matched**: "a live
+  scrutinee (a - scrutinee matches only in a dead region)". A Type-kinded value
+  (array, column, frame, runner state `Q.St`) can therefore be passed to exactly ONE
+  lemma that matches it. Consequences:
+  - a lemma that case-splits on such a value and whose conclusion the caller must
+    combine with another lemma hands the value back as a Sigma witness with an equation
+    to the original: `head_step_w(n, m, st) -> &s: Q.St -> {s == st} & {step(.., s) ==
+    ..}`; the caller rewrites its goal from `st` to `s` with the first component (types
+    are erased, so `st` may still appear there) and passes `s` on. The witness cascade
+    goes all the way down (`col_head_w` -> `cols_head_w` -> `frame_head_w` ->
+    `head_step_w`), rebuilding the value from its matched fields (`{==}` proves the
+    rebuilt value equals the matched one).
+  - two codes run from one state are compared by a parallel induction that consumes
+    the state once per step and carries a continuation hypothesis for the suffix
+    (`loop_pre(w, b1, b2, st, h: @s -> {loop(b1, s) == loop(b2, s)})`); never rewrite
+    the two sides separately with the same state.
+  - helper lemmas whose subject appears only in equations take it erased (`-st`,
+    `-a`): then the caller can pass the same value live to the one lemma that needs it.
+- **A computed witness cannot be destructured in a let**: "a match cannot scrutinize a
+  computed value: give it its own def". `(c2, ec, hc) = col_head_w(col, n, m)` is
+  refused; pass `col_head_w(col, n, m)` as a parameter `w` to a helper and destructure
+  `w` there (`cols_head_cons`, `set_get_k3`). Pairs of equalities too: split
+  `pass_barrier` into two one-equation lemmas rather than destructure a computed pair.
+- **Law binders may be function types and erased types**: `for rf: @s: Q.St -> {.. :
+  Q.St}` and `for -T: Data` parse and check (`head_pass_run`, `wf_new`,
+  `array_get_pure`); a law may have no binders at all (`wf_frame_empty`).
+- **`match` order again**: a nested match on an EARLIER parameter after matching a
+  later one is refused; write one multi-scrutinee match in parameter order (`match bits
+  d:` with all four rows).
+- **Templates under --verdict**: a law or lemma whose type applies a template kernel
+  (`K.Kernel.gather.go(~T, ..)`) to a quantified `-T: Data` is accepted by `bend
+  PROOF.bend` but `--verdict` answers "mismatch between the TypeScript implementation,
+  and the formalized BendTT kernel" and validates nothing. State such laws at a concrete
+  instance (`~U32`). Generic laws over Base `Array.get`/`Array.set` (not templates) are
+  fine.
+- **Type-valued predicates** (`def WFColumn(c: C.Column) -> Type`) may match affine
+  values and use a parameter once per branch like any def; `Unit` / `Empty` / `A & B`
+  / `{a == b : T}` are the connectives; proofs are tuples (`(hl, hv)`) and `Unit{}`.
+- **Importing a module that fills laws**: `PROOF.bend` importing `PROOF_schema.bend`
+  etc. counts their `def Laws.x` as filling `LAWS.bend`'s laws (same file, imported by
+  each). A fixture that uses a lemma from a split file must import THAT file
+  (`PROOF_kernels.bend as Pf`): `PROOF.bend` does not re-export its imports (the call
+  parses as a non-template and fails on `~`).
+- **Negative fixtures**: the expected block includes a source excerpt with line numbers;
+  keep a blank line after the failing def and generate the `#|` block from the actual
+  output after checking by eye that the failure is the theorem's (mutated rule in
+  `expected`, real rule in `observed`), not a parse error.
+- Full check of 71 laws: `bend PROOF.bend` ~1.0 s wall (1.3 s CPU), `--verdict` ~1.1 s wall.

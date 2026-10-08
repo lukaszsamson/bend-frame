@@ -2,14 +2,18 @@
 #
 # Shape (the M2 lesson for interpreters that thread a Type-kinded state): the
 # plan tree is compiled into postfix `Instr` code (pure Data, plain structural
-# recursion), then ONE tail-recursive IO loop runs the code over the state
-# `St{env, ResT(stack of frames)}`. A leaf pushes a frame (`Source` takes it
-# out of the Env, `ScanCsv` reads the file), a unary node pops one frame and
-# pushes the result, `Join` pops two. Errors short-circuit as `Fail`. No
-# mutual recursion, no destructured call results.
+# recursion), then ONE tail-recursive PURE loop (`Exec.loop`, the physical
+# runner behind `Exec.run_pure`) runs the code over the state `St{env,
+# ResT(stack of frames)}`. A leaf pushes a frame (`Source` takes it out of the
+# Env), a unary node pops one frame and pushes the result, `Join` pops two.
+# Errors short-circuit as `Fail`. No mutual recursion, no destructured call
+# results. IO happens only before the loop: `Exec.mat` reads every ScanCsv
+# into env (plan M_01 section 6 P2: IO source materialisation, then the pure
+# runner; the proofs in PROOF_exec.bend quantify over `Exec.run_pure`).
 #
-#   ScanCsv  -> Csv.read_with(path, opts, the plan's dtypes) (strict), then the
-#               file's schema must equal the plan's (names included)
+#   ScanCsv  -> before the run: Csv.read_with(path, opts, the plan's dtypes)
+#               (strict), then the file's schema must equal the plan's (names
+#               included); the frame is bound as Source "#scan<k>" (Exec.unscan)
 #   Source   -> use counting (DESIGN.md 15.7): `Exec.mark` flags every ISource
 #               that is the LAST use of its name in the code; earlier uses
 #               clone the frame and leave it in the env (Env.clone), the last
@@ -23,7 +27,8 @@
 #
 # Exec.run = Plan.schema (its static error first), then Exec.validate (the
 # bindings: uniqueness over the whole env, then presence and schema per Source
-# in postfix order; DF.validate_bindings), then execution.
+# in postfix order; DF.validate_bindings), then every scan is read (Exec.mat,
+# first scan error wins), then Exec.run_pure (compile, mark, loop).
 # Lazy.collect(p, env) = Exec.run(Optimize.release(p), env).
 #
 # Idioms (DESIGN.md section 9): helpers above callers; match only on params;
@@ -208,8 +213,12 @@ def Exec.source.get(last: Bool, env: P.Env, +n: String) -> P.Env & Maybe<&1, C.F
     case False{}:
       P.Env.clone(env, n)
 
+# one instruction of the pure runner. An IScan never reaches it: Exec.run
+# materialises every scan into env first (Exec.mat), so here it is an error
 def Exec.step.pure(i: Instr, env: P.Env, stack: List<&1, C.Frame>) -> St:
   match i:
+    case IScan{path, o, s}:
+      St{env, Fail{E.InvalidOperation{"exec: scan_csv not materialised: " ++ path}}}
     case ISource{+n, s, last}:
       Exec.source(n, s, Exec.source.get(last, env, n), stack)
     case IJoin{how, lo, ro}:
@@ -217,54 +226,25 @@ def Exec.step.pure(i: Instr, env: P.Env, stack: List<&1, C.Frame>) -> St:
     case other:
       St{env, Exec.unary.pop(other, stack)}
 
-def Exec.dtypes(s: List<&2, S.Field>) -> List<&2, D.DType>:
-  match s:
-    case Nil{}:
-      Nil{}
-    case S.Field{n, t} <> rest:
-      t <> Exec.dtypes(rest)
-
-def Exec.scan.k(+path: String, s: List<&2, S.Field>, r: E.ResT(C.Frame), stack: List<&1, C.Frame>) -> E.ResT(List<&1, C.Frame>):
+def Exec.step.r(i: Instr, env: P.Env, r: E.ResT(List<&1, C.Frame>)) -> St:
   match r:
     case Fail{e}:
-      Fail{e}
-    case Done{f}:
-      Exec.push(Exec.check("scan_csv " ++ path, s, S.Frame.schema(f)), stack)
-
-def Exec.scan(+path: String, opts: R.CsvOpts, +s: List<&2, S.Field>, stack: List<&1, C.Frame>) -> IO(E.ResT(List<&1, C.Frame>)):
-  do IO<E.ResT(List<&1, C.Frame>)>:
-    r : E.ResT(C.Frame) <- R.Csv.read_with(path, opts, Exec.dtypes(s))
-    return Exec.scan.k(path, s, r, stack)
-
-def Exec.step.i(i: Instr, env: P.Env, stack: List<&1, C.Frame>) -> IO(St):
-  match i:
-    case IScan{path, o, s}:
-      do IO<St>:
-        r : E.ResT(List<&1, C.Frame>) <- Exec.scan(path, o, s, stack)
-        return St{env, r}
-    case other:
-      IO.pure(St, Exec.step.pure(other, env, stack))
-
-def Exec.step.r(i: Instr, env: P.Env, r: E.ResT(List<&1, C.Frame>)) -> IO(St):
-  match r:
-    case Fail{e}:
-      IO.pure(St, St{env, Fail{e}})
+      St{env, Fail{e}}
     case Done{stack}:
-      Exec.step.i(i, env, stack)
+      Exec.step.pure(i, env, stack)
 
-def Exec.step(i: Instr, st: St) -> IO(St):
+def Exec.step(i: Instr, st: St) -> St:
   match st:
     case St{env, r}:
       Exec.step.r(i, env, r)
 
-def Exec.loop(code: List<&2, Instr>, st: St) -> IO(St):
+# the ONE runner (plan M_01 P2 "Exec.run_pure"): pure, structural on the code
+def Exec.loop(code: List<&2, Instr>, st: St) -> St:
   match code:
     case Nil{}:
-      IO.pure(St, st)
+      st
     case i <> t:
-      do IO<St>:
-        st2 : St <- Exec.step(i, st)
-        Exec.loop(t, st2)
+      Exec.loop(t, Exec.step(i, st))
 
 def Exec.fin.s(stack: List<&1, C.Frame>) -> E.ResT(C.Frame):
   match stack:
@@ -284,6 +264,123 @@ def Exec.fin(st: St) -> E.ResT(C.Frame):
   match st:
     case St{env, r}:
       Exec.fin.r(r)
+
+# run compiled (and marked) code over env: the physical runner
+def Exec.run_code(code: List<&2, Instr>, env: P.Env) -> E.ResT(C.Frame):
+  Exec.fin(Exec.loop(code, St{env, Done{Nil{}}}))
+
+# run a plan over the frames of env with no IO and no checks: compile, mark
+# the last uses, run. The pure physical runner the proofs (PROOF_exec.bend)
+# quantify over; Exec.run calls it after validation and scan materialisation.
+# A ScanCsv node left in p is the error "exec: scan_csv not materialised".
+def Exec.run_pure(+p: P.Plan, env: P.Env) -> E.ResT(C.Frame):
+  Exec.run_code(Exec.mark(Exec.compile(p, Nil{})), env)
+
+# ---- scan materialisation (the IO boundary) --------------------------------------------------
+#
+# Every ScanCsv of a plan is read before anything runs: scan k (postfix order)
+# is read with Csv.read_with (strict, the plan's dtypes), its schema must equal
+# the plan's, and it is bound in env under the reserved name "#scan<k>"
+# (Exec.mat); the plan is rewritten with Source{"#scan<k>", s} in its place
+# (Exec.unscan). The first failing scan is the result. Names starting with
+# "#scan" are reserved for this (DESIGN.md 14).
+
+def Exec.dtypes(s: List<&2, S.Field>) -> List<&2, D.DType>:
+  match s:
+    case Nil{}:
+      Nil{}
+    case S.Field{n, t} <> rest:
+      t <> Exec.dtypes(rest)
+
+def Exec.scan_name(+k: U32) -> String:
+  "#scan" ++ U32.show(k)
+
+# the number of ScanCsv nodes of a plan
+def Exec.nscans(p: P.Plan) -> U32:
+  match p:
+    case P.ScanCsv{path, o, s}:
+      1
+    case P.Source{n, s}:
+      0
+    case P.Select{es, x}:
+      Exec.nscans(x)
+    case P.WithColumns{es, x}:
+      Exec.nscans(x)
+    case P.Filter{e, x}:
+      Exec.nscans(x)
+    case P.Sort{ks, x}:
+      Exec.nscans(x)
+    case P.GroupBy{ks, as, mo, x}:
+      Exec.nscans(x)
+    case P.Join{how, lo, ro, l, r}:
+      U32.add(Exec.nscans(l), Exec.nscans(r))
+    case P.Head{n, x}:
+      Exec.nscans(x)
+
+# ScanCsv -> Source{"#scan<k>", s}, numbered in postfix order from k (a Join's
+# left scans come first, as in Exec.compile)
+def Exec.unscan(p: P.Plan, +k: U32) -> P.Plan:
+  match p:
+    case P.ScanCsv{path, o, s}:
+      P.Source{Exec.scan_name(k), s}
+    case P.Source{n, s}:
+      P.Source{n, s}
+    case P.Select{es, x}:
+      P.Select{es, Exec.unscan(x, k)}
+    case P.WithColumns{es, x}:
+      P.WithColumns{es, Exec.unscan(x, k)}
+    case P.Filter{e, x}:
+      P.Filter{e, Exec.unscan(x, k)}
+    case P.Sort{ks, x}:
+      P.Sort{ks, Exec.unscan(x, k)}
+    case P.GroupBy{ks, as, mo, x}:
+      P.GroupBy{ks, as, mo, Exec.unscan(x, k)}
+    case P.Join{how, lo, ro, +l, r}:
+      P.Join{how, lo, ro, Exec.unscan(l, k), Exec.unscan(r, U32.add(k, Exec.nscans(l)))}
+    case P.Head{n, x}:
+      P.Head{n, Exec.unscan(x, k)}
+
+# the env being filled, and the first scan error
+type Mat is Type:
+  Mat{env: P.Env, err: Maybe<&2, E.Err>}
+
+def Exec.mat.put(r: P.Env & P.Plan) -> Mat:
+  (env, p) = r
+  Mat{env, None{}}
+
+def Exec.mat.add(+k: U32, env: P.Env, r: E.ResT(C.Frame)) -> Mat:
+  match r:
+    case Fail{e}:
+      Mat{env, Some{e}}
+    case Done{f}:
+      Exec.mat.put(P.Env.add(env, Exec.scan_name(k), f))
+
+# the file's schema must equal the plan's (names included)
+def Exec.scan.k(+path: String, s: List<&2, S.Field>, r: E.ResT(C.Frame)) -> E.ResT(C.Frame):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{f}:
+      Exec.check("scan_csv " ++ path, s, S.Frame.schema(f))
+
+def Exec.mat.read(+path: String, opts: R.CsvOpts, +s: List<&2, S.Field>, +k: U32, env: P.Env) -> IO(Mat):
+  do IO<Mat>:
+    r : E.ResT(C.Frame) <- R.Csv.read_with(path, opts, Exec.dtypes(s))
+    return Exec.mat.add(k, env, Exec.scan.k(path, s, r))
+
+# read every IScan of the code in order into env (stopping at the first error)
+def Exec.mat(code: List<&2, Instr>, +k: U32, m: Mat) -> IO(Mat):
+  match code m:
+    case Nil{} _:
+      IO.pure(Mat, m)
+    case i <> t Mat{env, Some{e}}:
+      IO.pure(Mat, Mat{env, Some{e}})
+    case IScan{path, o, s} <> t Mat{env, None{}}:
+      do IO<Mat>:
+        m2 : Mat <- Exec.mat.read(path, o, s, k, env)
+        Exec.mat(t, U32.inc(k), m2)
+    case i <> t Mat{env, None{}}:
+      Exec.mat(t, k, Mat{env, None{}})
 
 # ---- bindings (DESIGN.md 15.7, DF.validate_bindings) ---------------------------------------
 
@@ -346,6 +443,13 @@ def Exec.validate(+p: P.Plan, env: P.Env) -> P.Env & E.Res(Unit):
 
 # ---- run / collect ---------------------------------------------------------------------------
 
+def Exec.run.m(+p: P.Plan, m: Mat) -> E.ResT(C.Frame):
+  match m:
+    case Mat{env, Some{e}}:
+      Fail{e}
+    case Mat{env, None{}}:
+      Exec.run_pure(Exec.unscan(p, 0), env)
+
 def Exec.run.v(+p: P.Plan, r: P.Env & E.Res(Unit)) -> IO(E.ResT(C.Frame)):
   (env, v) = r
   match v:
@@ -353,8 +457,8 @@ def Exec.run.v(+p: P.Plan, r: P.Env & E.Res(Unit)) -> IO(E.ResT(C.Frame)):
       IO.pure(E.ResT(C.Frame), Fail{e})
     case Done{u}:
       do IO<E.ResT(C.Frame)>:
-        st : St <- Exec.loop(Exec.mark(Exec.compile(p, Nil{})), St{env, Done{Nil{}}})
-        return Exec.fin(st)
+        m : Mat <- Exec.mat(Exec.compile(p, Nil{}), 0, Mat{env, None{}})
+        return Exec.run.m(p, m)
 
 def Exec.run.k(r: E.Res(List<&2, S.Field>), +p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
   match r:
@@ -365,8 +469,9 @@ def Exec.run.k(r: E.Res(List<&2, S.Field>), +p: P.Plan, env: P.Env) -> IO(E.ResT
 
 # run a plan as written (no optimisation) over the frames of env: the plan's
 # schema is resolved first and its error, if any, is the result; then the
-# bindings (Exec.validate); then the plan. env is consumed (frames the plan does
-# not name are dropped).
+# bindings (Exec.validate); then every scan is read (Exec.mat, the IO
+# boundary); then the pure runner (Exec.run_pure). env is consumed (frames the
+# plan does not name are dropped).
 def Exec.run(+p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
   Exec.run.k(P.Plan.schema(p), p, env)
 
