@@ -206,6 +206,22 @@ def lazy2(+tag: String, +p: P.Plan, env_raw: P.Env, env_opt: P.Env) -> IO(Unit):
     IO.print(show(tag, "raw", r1))
     IO.print(show(tag, "opt", r2))
 
+def same.k(+ref: String, +how: String, +d: String) -> String:
+  Bool.pick(String, String.eq(ref, d), how ++ "=eager", how ++ " DIFFERS:\n" ++ d)
+
+def agree.txt(+tag: String, +d0: String, r1: E.ResT(C.Frame), r2: E.ResT(C.Frame), r3: E.ResT(C.Frame)) -> String:
+  "-- " ++ tag ++ "\n" ++ d0 ++ same.k(d0, "raw", DF.dump(r1)) ++ " " ++ same.k(d0, "opt", DF.dump(r2)) ++ " " ++ same.k(d0, "full", DF.dump(r3)) ++ "\n"
+
+# the eager dump once, then whether the raw-lazy, default-optimised and fully optimised runs
+# (DF.collect_raw / DF.collect / DF.collect_full) dump the same text; a differing run prints
+# its dump. One env per lazy run (a frame is consumed by its run).
+def agree(+tag: String, eager: E.ResT(C.Frame), +p: P.Plan, env_raw: P.Env, env_opt: P.Env, env_full: P.Env) -> IO(Unit):
+  do IO<Unit>:
+    r1 : E.ResT(C.Frame) <- Q.Exec.run(p, env_raw)
+    r2 : E.ResT(C.Frame) <- DF.collect(p, env_opt)
+    r3 : E.ResT(C.Frame) <- DF.collect_full(p, env_full)
+    IO.print(agree.txt(tag, DF.dump(eager), r1, r2, r3))
+
 # collect_schema of a plan, one line: "schema <text>" or "schema error: <text>"
 def schema(+tag: String, p: P.Plan) -> String:
   "-- " ++ tag ++ " schema\n" ++ DF.schema_show(DF.collect_schema(p)) ++ "\n"
