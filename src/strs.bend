@@ -591,3 +591,18 @@ def Strs.map_p(~P: Data, ~U: Data, ~f: P -> String -> U, +n: U32, +d: Nat, s: St
       K.Kernel.map_p(~String, ~P, ~U, ~f, n, d, a, p, z)
     case SDict{codes, dict}:
       Dict.map.k(~U, n, d, codes, z, Dict.mp.t(~P, ~U, ~f, dict, p, z))
+
+# ---- concatenation (M3a concat_vertical): explicit dictionary merging ------------------------
+
+def Strs.app.m(+na: U32, +nb: U32, +db: Nat, +d: Nat, ca: Array<U32>, cb: Array<U32>, r: Dict & Dict & Array<U32>) -> Strs:
+  (dbb, da, m) = r
+  SDict{K.Kernel.append(~U32, na, nb, d, ca, Strs.fst(~U32, K.Kernel.gather(~U32, nb, db, m, cb, 0)), 0), da}
+
+# a's rows then b's rows in 2^d slots (na + nb <= 2^d): two Dictionaries merge (b's entries into
+# a's, b's codes re-coded through the merge map), anything else decodes to Raw
+def Strs.append(+na: U32, +nb: U32, +da: Nat, +db: Nat, +d: Nat, xa: Strs, xb: Strs) -> Strs:
+  match xa xb:
+    case SDict{ca, dca} SDict{cb, dcb}:
+      Strs.app.m(na, nb, db, d, ca, cb, Dict.merge(dcb, dca))
+    case a b:
+      SRaw{K.Kernel.append(~String, na, nb, d, Strs.decode(na, da, a), Strs.decode(nb, db, b), "")}

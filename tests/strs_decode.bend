@@ -160,6 +160,34 @@ def o.lazy.k(+e: Bool, x: DF.Env() & DF.Plan()) -> IO(E.ResT(C.Frame)):
 def o.edge(r0: E.ResT(C.Frame), k: C.Frame -> E.ResT(C.Frame)) -> E.ResT(C.Frame):
   DF.then(r0, k)
 
+def o.semi.k(anti: Bool, a: C.Frame, b: C.Frame) -> E.ResT(C.Frame):
+  match anti:
+    case True{}:
+      DF.anti_join(a, b, ["k"], ["key"])
+    case False{}:
+      DF.semi_join(a, b, ["k"], ["key"])
+
+
+def o.semi(l: E.ResT(C.Frame), rr: E.ResT(C.Frame), +anti: Bool) -> E.ResT(C.Frame):
+  match l rr:
+    case Done{a} Done{b}:
+      o.semi.k(anti, a, b)
+    case Fail{x} _:
+      Fail{x}
+    case _ Fail{x}:
+      Fail{x}
+
+def o.cat3(a: E.ResT(C.Frame), b: E.ResT(C.Frame), c: E.ResT(C.Frame)) -> E.ResT(C.Frame):
+  match a b c:
+    case Done{x} Done{y} Done{z}:
+      DF.concat_vertical([x, y, z])
+    case _ _ _:
+      Fail{E.InvalidOperation{"input"}}
+
+# t's (k, w) twice and r's key renamed to k (other codes, other entries)
+def o.cat(+e1: Bool, +e2: Bool) -> E.ResT(C.Frame):
+  o.cat3(DF.then(t(e1), f => DF.drop(f, ["v", "num"])), DF.then(t(e2), f => DF.drop(f, ["v", "num"])), DF.then(r(e2), f => DF.then(DF.rename(f, [("key", "k"), ("cat", "w")]), g => DF.drop(g, ["n"]))))
+
 # ---- the run ---------------------------------------------------------------------------------
 
 def k() -> DF.Expr():
@@ -221,6 +249,18 @@ def main() -> IO(Unit):
     IO.print(same("left join on w (other codes)", o.join(False{}, False{}, True{}, ["w"], ["key"]), o.join(True{}, True{}, True{}, ["w"], ["key"])))
     IO.print(same("inner join two keys", o.join(False{}, False{}, False{}, ["k", "v"], ["key", "n"]), o.join(True{}, True{}, False{}, ["k", "v"], ["key", "n"])))
     IO.print(same("inner join u32, str", o.join(False{}, False{}, False{}, ["v", "w"], ["n", "key"]), o.join(True{}, True{}, False{}, ["v", "w"], ["n", "key"])))
+    IO.print(same("drop, rename", DF.then(t(False{}), f => DF.then(DF.drop(f, ["v"]), g => DF.rename(g, [("k", "kk")]))), DF.then(t(True{}), f => DF.then(DF.drop(f, ["v"]), g => DF.rename(g, [("k", "kk")])))))
+    IO.print(same("slice, tail", DF.then(t(False{}), f => DF.then(DF.slice(f, 2, 7), g => DF.tail(g, 4))), DF.then(t(True{}), f => DF.then(DF.slice(f, 2, 7), g => DF.tail(g, 4)))))
+    IO.print(repr("slice, tail", DF.then(t(True{}), f => DF.then(DF.slice(f, 2, 7), g => DF.tail(g, 4)))))
+    IO.print(same("unique k", DF.then(t(False{}), f => DF.unique(f, ["k"])), DF.then(t(True{}), f => DF.unique(f, ["k"]))))
+    IO.print(same("unique k, w", DF.then(t(False{}), f => DF.unique(f, ["k", "w"])), DF.then(t(True{}), f => DF.unique(f, ["k", "w"]))))
+    IO.print(same("semi join", o.semi(t(False{}), r(False{}), False{}), o.semi(t(True{}), r(True{}), False{})))
+    IO.print(same("anti join", o.semi(t(False{}), r(False{}), True{}), o.semi(t(True{}), r(True{}), True{})))
+    IO.print(same("anti join dict x raw", o.semi(t(False{}), r(False{}), True{}), o.semi(t(True{}), r(False{}), True{})))
+    IO.print(same("concat dict + dict (merged)", o.cat(False{}, False{}), o.cat(True{}, True{})))
+    IO.print(repr("concat dict + dict (merged)", o.cat(True{}, True{})))
+    IO.print(same("concat dict + raw", o.cat(False{}, False{}), o.cat(True{}, False{})))
+    IO.print(same("concat then sort, group_by", DF.then(o.cat(False{}, False{}), f => DF.then(DF.sort(f, [DF.asc("k"), DF.desc("w")]), g => DF.group_by(g, [DF.col("k")], [DF.alias(DF.n_unique(DF.col("w")), "u"), DF.alias(DF.max(DF.col("w")), "m")]))), DF.then(o.cat(True{}, True{}), f => DF.then(DF.sort(f, [DF.asc("k"), DF.desc("w")]), g => DF.group_by(g, [DF.col("k")], [DF.alias(DF.n_unique(DF.col("w")), "u"), DF.alias(DF.max(DF.col("w")), "m")])))))
     IO.print(same.t("render", o.render(False{}), o.render(True{})))
     IO.print(same.t("show", DF.show(t(False{})), DF.show(t(True{}))))
     IO.print(same("describe", DF.describe(t(False{})), DF.describe(t(True{}))))
@@ -233,6 +273,7 @@ def main() -> IO(Unit):
     IO.print(same("all null: select min", o.edge(z(False{}), f => DF.select(f, [DF.min(DF.col("k")), DF.alias(DF.first(DF.col("k")), "f")])), o.edge(z(True{}), f => DF.select(f, [DF.min(DF.col("k")), DF.alias(DF.first(DF.col("k")), "f")]))))
     IO.print(same("no rows: sort, filter, min", o.edge(z0(False{}), f => DF.select(f, [DF.min(DF.col("k"))])), o.edge(z0(True{}), f => DF.select(f, [DF.min(DF.col("k"))]))))
     IO.print(same("no rows: filter", o.edge(z0(False{}), f => DF.filter(f, DF.lt(DF.col("k"), DF.lit_str("a")))), o.edge(z0(True{}), f => DF.filter(f, DF.lt(DF.col("k"), DF.lit_str("a"))))))
+
 
 
 #|dump: same
@@ -283,6 +324,18 @@ def main() -> IO(Unit):
 #|left join on w (other codes): same
 #|inner join two keys: same
 #|inner join u32, str: same
+#|drop, rename: same
+#|slice, tail: same
+#|slice, tail repr: k:dict v:raw w:dict num:dict
+#|unique k: same
+#|unique k, w: same
+#|semi join: same
+#|anti join: same
+#|anti join dict x raw: same
+#|concat dict + dict (merged): same
+#|concat dict + dict (merged) repr: k:dict w:dict
+#|concat dict + raw: same
+#|concat then sort, group_by: same
 #|render: same
 #|show: same
 #|describe: same
