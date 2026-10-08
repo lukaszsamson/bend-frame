@@ -378,3 +378,22 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
   `0x7fc00000`). x86-64 produces `0xffc00000` for invalid operations; if CI on Linux x86-64 runs the
   test suite, NaN-producing cases (B03-a/b/c/f/n, as dump_basic already) may need a NaN-canonicalising
   dump comparison.
+
+## M1 B03 (numerics)
+
+- **Base number readers**: `U32.read` refuses `"+5"`, `" 2"`, `""`, `"-0"` and overflow
+  (`"4294967296"`); `F32.read` accepts `nan`, `NaN`, `inf`, `-inf`, `1e3`, `.5`, `5.`, `+5`,
+  refuses `1_0`, `0x10`, `""`, a trailing space, but SKIPS LEADING whitespace (`" 3"` -> 3).
+- `F32.to_u32` saturates negatives to 0 and truncates (`2.9` -> 2, `4294967040.0` exact); range
+  and NaN checks must come first. `F32.show(2147483648.0)` is `"2147483600"` (shortest form).
+- **NaN bits propagate**: `F32.neg(0/0) + 1` keeps `0xffc00000`; only the dump canonicalises.
+- A `type` can be declared in the middle of a module (`K.NS` in kernels.bend); its constructor
+  from another module is `K.NS{s, c}`, also as a pattern.
+- `Bool.pick` evaluates both arms: fine for pure scalar code (`Bool.pick(Maybe<&2, U32>, ok,
+  Some{F32.to_u32(x)}, None{})`), but keep expensive or failing work behind a `match`.
+- Spec-file edits: when a scripted replacement's NEW text ends a file, it carries the file's
+  final newline; anchors that end mid-line then gain a stray line break (`bend --check-only`
+  reports `expected 'def', 'type' or 'law'`).
+- A strict operation that must report the first failing row cheaply: run the lenient one on a
+  clone, compare null counts (`Column.null_count`), and only on a mismatch walk the two validity
+  masks (`Valid.materialize(v, 0n)` gives the 1-slot all-ones array for AllValid).
