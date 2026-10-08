@@ -33,6 +33,7 @@ import ./src/fmt.bend as F
 import ./src/plan.bend as P
 import ./src/exec.bend as Q
 import ./src/dump.bend as Y
+import ./src/table.bend as TV
 
 # ---- types ----------------------------------------------------------------------------
 # Imports carry no types, so annotations name them through these aliases:
@@ -71,6 +72,10 @@ def CsvOpts() -> Data:
 
 def CsvWriteOpts() -> Data:
   R.CsvWriteOpts
+
+# a (from, to) pair of DF.rename / DF.lazy_rename, written ("a", "b")
+def RenamePair() -> Data:
+  Sigma<&2, &2, String, x => String>
 
 # ---- columns and literals -------------------------------------------------------------
 
@@ -500,6 +505,46 @@ def inner_join(left: C.Frame, right: C.Frame, left_on: List<&2, String>, right_o
 def left_join(left: C.Frame, right: C.Frame, left_on: List<&2, String>, right_on: List<&2, String>) -> E.ResT(C.Frame):
   J.Join.run(J.Left{}, left, right, left_on, right_on)
 
+# the left rows that have a match (each once, left order, left columns only; a null key
+# never matches); the key checks are the inner join's
+def semi_join(left: C.Frame, right: C.Frame, left_on: List<&2, String>, right_on: List<&2, String>) -> E.ResT(C.Frame):
+  J.Join.run(J.Semi{}, left, right, left_on, right_on)
+
+# the left rows that have no match (a row with a null key is kept: it matches nothing)
+def anti_join(left: C.Frame, right: C.Frame, left_on: List<&2, String>, right_on: List<&2, String>) -> E.ResT(C.Frame):
+  J.Join.run(J.Anti{}, left, right, left_on, right_on)
+
+# ---- eager table verbs (DESIGN.md 15.2.3, 15.2.4) ------------------------------------------
+
+# the frame without the named columns (order kept; dropping every column keeps the height);
+# ColumnNotFound for the first name not present; a name may repeat
+def drop(f: C.Frame, names: List<&2, String>) -> E.ResT(C.Frame):
+  TV.Drop.run(f, names)
+
+# rename (from, to) pairs simultaneously, positions unchanged (swaps allowed): ColumnNotFound
+# for a missing from, DuplicateColumn for a repeated from or a repeated output name
+def rename(f: C.Frame, pairs: List<&2, Sigma<&2, &2, String, x => String>>) -> E.ResT(C.Frame):
+  TV.Rename.run(f, pairs)
+
+# rows [min(offset, h), ..) at most len of them: clamped, never an error
+def slice(f: C.Frame, offset: U32, len: U32) -> E.ResT(C.Frame):
+  Done{TV.Slice.run(f, offset, len)}
+
+# the last min(n, h) rows
+def tail(f: C.Frame, n: U32) -> E.ResT(C.Frame):
+  Done{TV.Tail.run(f, n)}
+
+# the first row of every distinct key tuple over `subset` ([] = every column), input order;
+# equality is group_by's (null equals null, every NaN one value, -0.0 = 0.0)
+def unique(f: C.Frame, subset: List<&2, String>) -> E.ResT(C.Frame):
+  TV.Unique.run(f, subset)
+
+# the rows of every frame in order: names, dtypes and order must equal input 0's
+# ("concat_vertical: input <i> schema [..] differs from input 0's [..]"), [] is an error;
+# the summed height is checked against the 2^23 row cap before anything is built
+def concat_vertical(fs: List<&1, C.Frame>) -> E.ResT(C.Frame):
+  TV.Concat.frames(fs)
+
 # ---- lazy: sources and plan builders --------------------------------------------------
 
 def empty_env() -> P.Env:
@@ -577,6 +622,33 @@ def lazy_inner_join(left: P.Plan, right: P.Plan, left_on: List<&2, String>, righ
 
 def lazy_left_join(left: P.Plan, right: P.Plan, left_on: List<&2, String>, right_on: List<&2, String>) -> P.Plan:
   P.Join{J.Left{}, left_on, right_on, left, right}
+
+def lazy_semi_join(left: P.Plan, right: P.Plan, left_on: List<&2, String>, right_on: List<&2, String>) -> P.Plan:
+  P.Join{J.Semi{}, left_on, right_on, left, right}
+
+def lazy_anti_join(left: P.Plan, right: P.Plan, left_on: List<&2, String>, right_on: List<&2, String>) -> P.Plan:
+  P.Join{J.Anti{}, left_on, right_on, left, right}
+
+def lazy_drop(p: P.Plan, names: List<&2, String>) -> P.Plan:
+  P.Drop{names, p}
+
+def lazy_rename(p: P.Plan, pairs: List<&2, Sigma<&2, &2, String, x => String>>) -> P.Plan:
+  P.Rename{pairs, p}
+
+def lazy_slice(p: P.Plan, offset: U32, len: U32) -> P.Plan:
+  P.Slice{offset, len, p}
+
+def lazy_tail(p: P.Plan, n: U32) -> P.Plan:
+  P.Tail{n, p}
+
+def lazy_unique(p: P.Plan, subset: List<&2, String>) -> P.Plan:
+  P.Unique{subset, p}
+
+# the plans' rows in order: a chain of binary Concat nodes (one plan is itself; [] fails
+# collect_schema with "concat_vertical: no inputs"). Static errors come input by input: an
+# input's own errors, then its schema against input 0's (DESIGN.md 14 "M3 table verbs")
+def lazy_concat_vertical(ps: List<&2, P.Plan>) -> P.Plan:
+  P.Lazy.concat(ps)
 
 # ---- lazy: inspect and run ------------------------------------------------------------
 

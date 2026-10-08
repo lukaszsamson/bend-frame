@@ -631,6 +631,11 @@ def run_plan(pl_: Pl, srcs: dict, sources_schema):
     verbs' own typing on the way up: eager semantics)."""
     if pl_.verb == "source":
         return OF([c.clone() for c in srcs[pl_.p[0]].cols], srcs[pl_.p[0]].h)
+    if pl_.verb == "concat_vertical":
+        # input by input: an input's own errors, then its schema against input 0's (model.concat_schema)
+        kids = []
+        M.concat_schema(pl_.kids, lambda k: kids.append(run_plan(k, srcs, sources_schema)) or [(c.name, dtn(c)) for c in kids[-1].cols])
+        return o_concat(kids, pl_.p, None)
     kids = [run_plan(k, srcs, sources_schema) for k in pl_.kids]
     ins = [[(c.name, dtn(c)) for c in k.cols] for k in kids]
     out_schema = M.VERBS[pl_.verb].sch(pl_.p, ins)      # static check of THIS verb (eager)
@@ -639,8 +644,6 @@ def run_plan(pl_: Pl, srcs: dict, sources_schema):
         return UNARY[v](kids[0], pl_.p, ins[0])
     if v in JOINS:
         return JOINS[v](kids[0], kids[1], pl_.p, out_schema)
-    if v == "concat_vertical":
-        return o_concat(kids, pl_.p, ins)
     raise NotImplementedError(v)
 
 

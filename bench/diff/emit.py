@@ -152,7 +152,7 @@ VERB_DECLS = {
     "semi_join": [("lo", "List<&2, String>"), ("ro", "List<&2, String>")],
     "anti_join": [("lo", "List<&2, String>"), ("ro", "List<&2, String>")],
     "drop": [("ns", "List<&2, String>")],
-    "rename": [("ps", "List<&2, String & String>")],
+    "rename": [("ps", "List<&2, DF.RenamePair()>")],
     "unique": [("ns", "List<&2, String>")],
     "concat_vertical": [],
 }
