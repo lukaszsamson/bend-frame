@@ -35,6 +35,7 @@ import ./dtype.bend as D
 import ./err.bend as E
 import ./kernels.bend as K
 import ./column.bend as C
+import ./strs.bend as ST
 import ./schema.bend as S
 
 type JoinHow is Data:
@@ -541,7 +542,7 @@ def Key.nulls(+n: U32, +depth: Nat, codes: Array<U32>, m: Array<U32>) -> Array<U
 def Key.enc.s3(+len: U32, +depth: Nat, vv: C.Valid & C.Valid, d: Dict, r: Array<String> & Array<U32>) -> C.Column & Enc:
   (v1, v2) = vv
   (data, codes) = r
-  (C.CStr{len, depth, v1, data}, Enc{Key.nulls(len, depth, codes, C.Valid.materialize(v2, depth)), Array.new(U32, depth, 1), d})
+  (C.CStr{len, depth, v1, ST.SRaw{data}}, Enc{Key.nulls(len, depth, codes, C.Valid.materialize(v2, depth)), Array.new(U32, depth, 1), d})
 
 def Key.enc.s2(+len: U32, +depth: Nat, vv: C.Valid & C.Valid, r: SD) -> C.Column & Enc:
   match r:
@@ -566,6 +567,55 @@ def Key.enc.s(+build: Bool, +len: U32, +depth: Nat, valid: C.Valid, data: Array<
     case False{}:
       Key.enc.sp(len, depth, valid, data, d)
 
+# ---- a Dictionary key column (M4): the string table is built over the RIGHT dictionary's
+# entries (k_r inserts, so an entry's id is its code) and probed with the LEFT dictionary's
+# entries (k_l probes); each row's id is then its code's id, one gather. Equal strings with
+# different codes on the two sides meet in the table, never by comparing codes.
+
+def Key.ids.row.k(r: Array<U32> & Array<U32>) -> Array<U32>:
+  (out, codes) = r
+  out
+
+# out[i] = ids[codes[i]]
+def Key.ids.row(+n: U32, +d: Nat, ids: Array<U32>, codes: Array<U32>) -> Array<U32>:
+  Key.ids.row.k(K.Kernel.gather(~U32, n, d, ids, codes, 0))
+
+def Key.enc.dg(+len: U32, +depth: Nat, vv: C.Valid & C.Valid, dict: ST.Dict, cc: Array<U32> & Array<U32>, r: Array<U32> & Dict) -> C.Column & Enc:
+  (v1, v2) = vv
+  (c1, c2) = cc
+  (ids, t) = r
+  (C.CStr{len, depth, v1, ST.SDict{c1, dict}}, Enc{Key.nulls(len, depth, Key.ids.row(len, depth, ids, c2), C.Valid.materialize(v2, depth)), Array.new(U32, depth, 1), t})
+
+# build: ids over the entries in a fresh table; probe: the entries looked up in d
+def Key.ids.b(r: SD) -> Array<U32> & Dict:
+  match r:
+    case SD{strs, DC{ids, t}}:
+      (ids, t)
+
+def Key.ids.p(+g: U32, r: Array<String> & Array<U32>) -> Array<U32> & Dict:
+  (strs, ids) = r
+  (ids, Dict.stub(g))
+
+def Key.ids(+build: Bool, +k: U32, +dd: Nat, strs: Array<String>, d: Dict) -> Array<U32> & Dict:
+  match build d:
+    case True{} _:
+      Key.ids.b(Dict.go(U32.to_nat(k), 0, True{}, DC{Array.new(U32, dd, 0), Dict.new(k)}, Array.get(String, strs, 0)))
+    case False{} Dict{+fuel, +mask, +pw, +g, slots}:
+      Key.ids.p(g, Probe.fork(Probe.levels(k, dd, fuel), dd, k, 0, Dict.clone(Dict{fuel, mask, pw, g, slots}), strs))
+
+def Key.enc.de(+build: Bool, +len: U32, +depth: Nat, valid: C.Valid, codes: Array<U32>, d: Dict, r: ST.Dict & ST.Ents) -> C.Column & Enc:
+  (dict, en) = r
+  match en:
+    case ST.Ents{+k, +dd, strs}:
+      Key.enc.dg(len, depth, C.Valid.clone(valid), dict, Array.clone(U32, codes), Key.ids(build, k, dd, strs, d))
+
+def Key.enc.st(+build: Bool, +len: U32, +depth: Nat, valid: C.Valid, x: ST.Strs, d: Dict) -> C.Column & Enc:
+  match x:
+    case ST.SRaw{a}:
+      Key.enc.s(build, len, depth, valid, a, d)
+    case ST.SDict{codes, dict}:
+      Key.enc.de(build, len, depth, valid, codes, d, ST.Dict.entries(dict))
+
 # the codes of a key column (build: the right side, makes the string table;
 # probe: the left side, uses it); the column comes back untouched
 def Key.enc(+build: Bool, c: C.Column, d: Dict) -> C.Column & Enc:
@@ -579,7 +629,7 @@ def Key.enc(+build: Bool, c: C.Column, d: Dict) -> C.Column & Enc:
     case C.CF32{+len, +depth, valid, data}:
       Key.enc.f(len, depth, C.Valid.clone(valid), Array.clone(F32, data), d)
     case C.CStr{+len, +depth, valid, data}:
-      Key.enc.s(build, len, depth, valid, data, d)
+      Key.enc.st(build, len, depth, valid, data, d)
 
 # walk the columns; the named one is encoded in place (order kept)
 def Cols.enc.put(n: String, rest: List<&1, C.Named>, r: C.Column & Enc) -> List<&1, C.Named> & Slot:
@@ -799,7 +849,7 @@ def Join.fix.f2(+n: U32, +d: Nat, r: Array<F32> & Array<U32>) -> C.Column:
   (x, m) = r
   C.CF32{n, d, C.Mask{m}, x}
 
-def Join.fix.s2(+n: U32, +d: Nat, r: Array<String> & Array<U32>) -> C.Column:
+def Join.fix.s2(+n: U32, +d: Nat, r: ST.Strs & Array<U32>) -> C.Column:
   (x, m) = r
   C.CStr{n, d, C.Mask{m}, x}
 
@@ -822,7 +872,7 @@ def Join.fix(c: C.Column, m: Array<U32>) -> C.Column:
     case C.CF32{+n, +d, v, x}:
       Join.fix.f2(n, d, K.Kernel.mask_data(~F32, n, x, Join.fix.v(n, d, v, m), 0.0))
     case C.CStr{+n, +d, v, x}:
-      Join.fix.s2(n, d, K.Kernel.mask_data(~String, n, x, Join.fix.v(n, d, v, m), ""))
+      Join.fix.s2(n, d, ST.Strs.fix(n, x, Join.fix.v(n, d, v, m)))
 
 def Gat.nul.k(n: String, acc: List<&1, C.Named>, perm: Array<U32>, c: C.Column, r: Array<U32> & Array<U32>) -> GS:
   (vr, m) = r

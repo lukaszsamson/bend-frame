@@ -36,6 +36,7 @@ import ./dtype.bend as D
 import ./err.bend as E
 import ./kernels.bend as K
 import ./column.bend as C
+import ./strs.bend as ST
 import ./schema.bend as S
 import ./expr.bend as X
 import ./eval.bend as V
@@ -293,6 +294,18 @@ def Grp.enc.str(+n: U32, v: C.Valid, r: Array<String> & Array<U32> & SO.CS) -> C
     case SO.CS{m, k}:
       Codes{k, Grp.zero(n, codes, v)}
 
+# a Dictionary column's codes are dense already (M4): code + 1, null rows 0, k = entries + 1
+def Grp.enc.dict(+n: U32, +d: Nat, v: C.Valid, codes: Array<U32>, r: ST.Dict & U32) -> Codes:
+  (dict, +k) = r
+  Codes{U32.inc(k), Grp.zero(n, SO.Sort.xmap(~U32, ~(w => U32.inc(w)), n, d, 0, codes), v)}
+
+def Grp.enc.s(+n: U32, +d: Nat, v: C.Valid, x: ST.Strs) -> Codes:
+  match x:
+    case ST.SRaw{a}:
+      Grp.enc.str(n, v, SO.Sort.str_codes_par(n, d, 1, a))
+    case ST.SDict{codes, dict}:
+      Grp.enc.dict(n, d, v, codes, ST.Dict.size(dict))
+
 # dense codes of a column (null = 0); the column is consumed
 def Grp.encode(c: C.Column) -> Codes:
   match c:
@@ -305,17 +318,33 @@ def Grp.encode(c: C.Column) -> Codes:
     case C.CF32{+n, +d, v, x}:
       Grp.enc.num(n, d, SO.Sort.words(C.CF32{n, d, v, x}, False{}))
     case C.CStr{+n, +d, v, x}:
-      Grp.enc.str(n, v, SO.Sort.str_codes_par(n, d, 1, x))
+      Grp.enc.s(n, d, v, x)
 
 def Grp.enc.strk.b(+n: U32, +d: Nat, strs: Array<String>, +k: U32, r: Array<U32> & C.Valid) -> C.Column & Codes:
   (codes, v) = r
-  (C.CStr{n, d, v, strs}, Codes{k, codes})
+  (C.CStr{n, d, v, ST.SRaw{strs}}, Codes{k, codes})
 
 def Grp.enc.strk(+n: U32, +d: Nat, v: C.Valid, r: Array<String> & Array<U32> & SO.CS) -> C.Column & Codes:
   (strs, codes, cs) = r
   match cs:
     case SO.CS{m, +k}:
       Grp.enc.strk.b(n, d, strs, k, SO.Sort.words.z(n, codes, v))
+
+def Grp.enc.dk.b(+n: U32, +d: Nat, codes: Array<U32>, dict: ST.Dict, +k: U32, r: Array<U32> & C.Valid) -> C.Column & Codes:
+  (w, v) = r
+  (C.CStr{n, d, v, ST.SDict{codes, dict}}, Codes{U32.inc(k), w})
+
+def Grp.enc.dk.a(+n: U32, +d: Nat, v: C.Valid, cc: Array<U32> & Array<U32>, r: ST.Dict & U32) -> C.Column & Codes:
+  (c1, c2) = cc
+  (dict, +k) = r
+  Grp.enc.dk.b(n, d, c1, dict, k, SO.Sort.words.z(n, SO.Sort.xmap(~U32, ~(w => U32.inc(w)), n, d, 0, c2), v))
+
+def Grp.enc.sk(+n: U32, +d: Nat, v: C.Valid, x: ST.Strs) -> C.Column & Codes:
+  match x:
+    case ST.SRaw{a}:
+      Grp.enc.strk(n, d, v, SO.Sort.str_codes_par(n, d, 1, a))
+    case ST.SDict{codes, dict}:
+      Grp.enc.dk.a(n, d, v, Array.clone(U32, codes), ST.Dict.size(dict))
 
 def Grp.enc.cl(r: C.Column & C.Column) -> C.Column & Codes:
   (c1, c2) = r
@@ -326,7 +355,7 @@ def Grp.enc.cl(r: C.Column & C.Column) -> C.Column & Codes:
 def Grp.encode_keep(c: C.Column) -> C.Column & Codes:
   match c:
     case C.CStr{+n, +d, v, x}:
-      Grp.enc.strk(n, d, v, SO.Sort.str_codes_par(n, d, 1, x))
+      Grp.enc.sk(n, d, v, x)
     case other:
       Grp.enc.cl(C.Column.clone(other))
 
@@ -472,7 +501,7 @@ def Grp.wrap.mf(+ng: U32, +dg: Nat, first: Array<U32>, r: Array<U32> & Array<MF>
 
 def Grp.wrap.ms.b(+ng: U32, +dg: Nat, first: Array<U32>, gids: Array<U32>, aa: Array<MS> & Array<MS>) -> Groups & E.ResT(C.Column):
   (a1, a2) = aa
-  (Groups{ng, gids, first}, Done{C.CStr{ng, dg, Grp.valid(ng, K.Kernel.map(~MS, ~U32, ~(a => Grp.ms.s(a)), ng, dg, a1, 0)), K.Kernel.map(~MS, ~String, ~(a => Grp.ms.m(a)), ng, dg, a2, "")}})
+  (Groups{ng, gids, first}, Done{C.CStr{ng, dg, Grp.valid(ng, K.Kernel.map(~MS, ~U32, ~(a => Grp.ms.s(a)), ng, dg, a1, 0)), ST.SRaw{K.Kernel.map(~MS, ~String, ~(a => Grp.ms.m(a)), ng, dg, a2, "")}}})
 
 def Grp.wrap.ms(+ng: U32, +dg: Nat, first: Array<U32>, r: Array<U32> & Array<MS>) -> Groups & E.ResT(C.Column):
   (gids, acc) = r
@@ -540,8 +569,8 @@ def Grp.agg.v(op: X.AggOp, +ng: U32, +dg: Nat, gids: Array<U32>, first: Array<U3
       Grp.agg.w(op, D.TI32{}, n, ng, dg, gids, first, C.Valid.materialize(v, 0n), x)
     case C.CF32{n, d, v, x}:
       Grp.agg.f(op, n, ng, dg, gids, first, C.Valid.materialize(v, 0n), x)
-    case C.CStr{n, d, v, x}:
-      Grp.agg.s(op, n, ng, dg, gids, first, C.Valid.materialize(v, 0n), x)
+    case C.CStr{+n, +d, v, x}:
+      Grp.agg.s(op, n, ng, dg, gids, first, C.Valid.materialize(v, 0n), ST.Strs.decode(n, d, x))
 
 # Len: rows per group
 def Grp.agg.len(+ng: U32, +dg: Nat, gids: Array<U32>, first: Array<U32>, r: C.Column & U32) -> Groups & E.ResT(C.Column):

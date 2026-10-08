@@ -14,6 +14,7 @@ import Base
 import ./dtype.bend as D
 import ./err.bend as E
 import ./kernels.bend as K
+import ./strs.bend as ST
 
 # validity as 0/1 words, one per row, so it is also what comparisons yield
 type Valid is Type:
@@ -21,13 +22,16 @@ type Valid is Type:
   Mask{m: Array<U32>}
 
 # len rows live in an array of 2^depth slots (len <= 2^depth); Bool and I32
-# share the U32 word buffer (0/1 words; two's complement bits)
+# share the U32 word buffer (0/1 words; two's complement bits). A Str column's
+# data is one of two storages (src/strs.bend, M4): ST.SRaw{Array<String>} or
+# ST.SDict{codes, dict} (Dictionary); both decode to the same rows, and every
+# operation answers the same values for both (tests/strs_decode.bend).
 type Column is Type:
   CBool{len: U32, depth: Nat, valid: Valid, data: Array<U32>}
   CU32{len: U32, depth: Nat, valid: Valid, data: Array<U32>}
   CI32{len: U32, depth: Nat, valid: Valid, data: Array<U32>}
   CF32{len: U32, depth: Nat, valid: Valid, data: Array<F32>}
-  CStr{len: U32, depth: Nat, valid: Valid, data: Array<String>}
+  CStr{len: U32, depth: Nat, valid: Valid, data: ST.Strs}
 
 type Named is Type:
   Named{name: String, col: Column}
@@ -225,7 +229,7 @@ def Column.cell.f(len: U32, depth: Nat, valid: Valid, r: Array<F32> & F32) -> Co
   (data, x) = r
   (CF32{len, depth, valid, data}, D.SF32{x})
 
-def Column.cell.s(len: U32, depth: Nat, valid: Valid, r: Array<String> & String) -> Column & D.Scalar:
+def Column.cell.s(len: U32, depth: Nat, valid: Valid, r: ST.Strs & String) -> Column & D.Scalar:
   (data, x) = r
   (CStr{len, depth, valid, data}, D.SStr{x})
 
@@ -241,7 +245,7 @@ def Column.data_cell(c: Column, +i: U32) -> Column & D.Scalar:
     case CF32{len, depth, valid, data}:
       Column.cell.f(len, depth, valid, Array.get(F32, data, i))
     case CStr{len, depth, valid, data}:
-      Column.cell.s(len, depth, valid, Array.get(String, data, i))
+      Column.cell.s(len, depth, valid, ST.Strs.get(data, i))
 
 def Column.cell.c(ok: Bool, +i: U32, c: Column) -> Column & D.Scalar:
   match ok:
@@ -457,7 +461,7 @@ def Column.fs.f(valid: Valid, r: U32 & Array<F32>) -> Column:
 
 def Column.fs.s(valid: Valid, r: U32 & Array<String>) -> Column:
   (+len, data) = r
-  CStr{len, K.Kernel.depth_for(len), valid, data}
+  CStr{len, K.Kernel.depth_for(len), valid, ST.SRaw{data}}
 
 def Column.fs.build(t: D.DType, +xs: List<&2, D.Scalar>) -> Column:
   match t:
@@ -508,7 +512,7 @@ def Column.clone.f(+len: U32, +depth: Nat, vv: Valid & Valid, dd: Array<F32> & A
   (d1, d2) = dd
   (CF32{len, depth, v1, d1}, CF32{len, depth, v2, d2})
 
-def Column.clone.s(+len: U32, +depth: Nat, vv: Valid & Valid, dd: Array<String> & Array<String>) -> Column & Column:
+def Column.clone.s(+len: U32, +depth: Nat, vv: Valid & Valid, dd: ST.Strs & ST.Strs) -> Column & Column:
   (v1, v2) = vv
   (d1, d2) = dd
   (CStr{len, depth, v1, d1}, CStr{len, depth, v2, d2})
@@ -525,7 +529,7 @@ def Column.clone(c: Column) -> Column & Column:
     case CF32{len, depth, valid, data}:
       Column.clone.f(len, depth, Valid.clone(valid), Array.clone(F32, data))
     case CStr{len, depth, valid, data}:
-      Column.clone.s(len, depth, Valid.clone(valid), Array.clone(String, data))
+      Column.clone.s(len, depth, Valid.clone(valid), ST.Strs.clone(data))
 
 # a result column of n rows in 2^d slots with no validity, plus the index/mask
 # array the kernel handed back (shared by gather and compact)
@@ -537,7 +541,7 @@ def Column.out.f(+n: U32, +d: Nat, r: Array<F32> & Array<U32>) -> Column & Array
   (out, ix) = r
   (CF32{n, d, AllValid{}, out}, ix)
 
-def Column.out.s(+n: U32, +d: Nat, r: Array<String> & Array<U32>) -> Column & Array<U32>:
+def Column.out.s(+n: U32, +d: Nat, r: ST.Strs & Array<U32>) -> Column & Array<U32>:
   (out, ix) = r
   (CStr{n, d, AllValid{}, out}, ix)
 
@@ -553,7 +557,7 @@ def Column.gather.data(c: Column, perm: Array<U32>, +n: U32, +d: Nat) -> Column 
     case CF32{len, depth, valid, data}:
       Column.out.f(n, d, K.Kernel.gather(~F32, n, d, data, perm, 0.0))
     case CStr{len, depth, valid, data}:
-      Column.out.s(n, d, K.Kernel.gather(~String, n, d, data, perm, ""))
+      Column.out.s(n, d, ST.Strs.gather(data, perm, n, d))
 
 def Column.gather.d(v: Valid, r: Column & Array<U32>) -> Column & Array<U32>:
   (c, perm) = r
@@ -584,7 +588,7 @@ def Column.compact.data(c: Column, mask: Array<U32>, +kept: U32, +d: Nat) -> Col
     case CF32{+len, depth, valid, data}:
       Column.out.f(kept, d, K.Kernel.compact_keep(~F32, len, d, data, mask, 0.0))
     case CStr{+len, depth, valid, data}:
-      Column.out.s(kept, d, K.Kernel.compact_keep(~String, len, d, data, mask, ""))
+      Column.out.s(kept, d, ST.Strs.compact(data, mask, len, d))
 
 def Column.compact.c(c: Column, +kept: U32, +d: Nat, r: Valid & Array<U32>) -> Column & Array<U32>:
   (v, mask) = r
@@ -621,6 +625,57 @@ def Column.slice.a(+off: U32, +n: U32, r: Column & U32) -> Column:
 
 def Column.slice(c: Column, +off: U32, +n: U32) -> Column:
   Column.slice.a(off, n, Column.len(c))
+
+# ---- Str storage (M4: Raw / Dictionary) --------------------------------------------
+# The dtype is Str either way; every other dtype passes through unchanged.
+
+# is the column a Dictionary-encoded Str column? (the column comes back)
+def Column.is_dict.k(+n: U32, +d: Nat, v: Valid, r: ST.Strs & Bool) -> Column & Bool:
+  (x, b) = r
+  (CStr{n, d, v, x}, b)
+
+def Column.is_dict(c: Column) -> Column & Bool:
+  match c:
+    case CStr{+n, +d, v, x}:
+      Column.is_dict.k(n, d, v, ST.Strs.is_dict(x))
+    case other:
+      (other, False{})
+
+# the Dictionary form of a Str column (an already encoded one is kept)
+def Column.encode(c: Column) -> Column:
+  match c:
+    case CStr{+n, +d, v, x}:
+      CStr{n, d, v, ST.Strs.encode(n, d, x)}
+    case other:
+      other
+
+# the Raw form of a Str column (decoded: one gather)
+def Column.decode(c: Column) -> Column:
+  match c:
+    case CStr{+n, +d, v, x}:
+      CStr{n, d, v, ST.Strs.raw(n, d, x)}
+    case other:
+      other
+
+def Column.recode(dict: Bool, c: Column) -> Column:
+  match dict:
+    case True{}:
+      Column.encode(c)
+    case False{}:
+      Column.decode(c)
+
+def Cols.encode(cols: List<&1, Named>, +dict: Bool) -> List<&1, Named>:
+  match cols:
+    case Nil{}:
+      Nil{}
+    case Named{n, c} <> rest:
+      Named{n, Column.recode(dict, c)} <> Cols.encode(rest, dict)
+
+# every Str column of the frame in the Dictionary form (dict) or the Raw form (not dict)
+def Frame.encode(f: Frame, +dict: Bool) -> Frame:
+  match f:
+    case Frame{h, cols}:
+      Frame{h, Cols.encode(cols, dict)}
 
 # ---- Names (List<&2, String>) ---------------------------------------------------
 

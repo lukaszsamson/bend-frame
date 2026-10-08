@@ -14,6 +14,7 @@ import ./src/dtype.bend as D
 import ./src/err.bend as E
 import ./src/kernels.bend as K
 import ./src/column.bend as C
+import ./src/strs.bend as ST
 import ./src/schema.bend as S
 import ./src/expr.bend as X
 import ./src/analysis.bend as A
@@ -837,6 +838,60 @@ def WFValidT(-T: Data, +z: T, d: Nat, v: C.Valid, a: Array<T>) -> Type:
     case C.Mask{m}:
       WFMaskedT(T, z, d, m, a)
 
+# M4 (src/strs.bend): a Dictionary-encoded Str column's codes. Every code is below k (in
+# range); with a mask, a null row holds code 0, which is the entry "" (the dictionary's slot
+# 0), so a null row decodes to the default as a Raw null slot does.
+def WFBelow(+k: U32, d: Nat, a: Array<U32>) -> Type:
+  match d a:
+    case 0n ALeaf{+x}:
+      {U32.is_lt(x, k) == True{} : Bool}
+    case 1n+p ANode{xs, ys}:
+      WFBelow(k, p, xs) & WFBelow(k, p, ys)
+    case _ _:
+      Empty
+
+def WFMaskedBelow(+k: U32, d: Nat, m: Array<U32>, a: Array<U32>) -> Type:
+  match d m a:
+    case 0n ALeaf{+w} ALeaf{+x}:
+      {U32.is_le(w, 1) == True{} : Bool} & NullDef(U32, 0, w, x) & {U32.is_lt(x, k) == True{} : Bool}
+    case 1n+p ANode{ms, mt} ANode{xs, ys}:
+      WFMaskedBelow(k, p, ms, xs) & WFMaskedBelow(k, p, mt, ys)
+    case _ _ _:
+      Empty
+
+def WFCodesV(+k: U32, d: Nat, v: C.Valid, codes: Array<U32>) -> Type:
+  match v:
+    case C.AllValid{}:
+      WFBelow(k, d, codes)
+    case C.Mask{m}:
+      WFMaskedBelow(k, d, m, codes)
+
+# the entry buffer: depth dd, slot 0 the empty string
+def WFEntries(d: Nat, a: Array<String>) -> Type:
+  match d a:
+    case 0n ALeaf{x}:
+      {x == "" : String}
+    case 1n+p ANode{xs, ys}:
+      WFEntries(p, xs) & WFArray(String, p, ys)
+    case _ _:
+      Empty
+
+# k <= 2^dd entries (the index and the pairwise distinctness of the entries are not stated
+# here: they are what src/strs.bend's builders maintain, tests/strs_decode.bend checks them
+# through decode equivalence)
+def WFDictCodes(+d: Nat, v: C.Valid, codes: Array<U32>, dict: ST.Dict) -> Type:
+  match dict:
+    case ST.Dict{+k, +dd, strs, b, slots, tag}:
+      {U32.is_le(k, U32.shln(1, dd)) == True{} : Bool} & WFEntries(dd, strs) & WFCodesV(k, d, v, codes)
+
+# a Str column's storage: Raw as before; a Dictionary: codes in range, entries well formed
+def WFStrs(d: Nat, v: C.Valid, s: ST.Strs) -> Type:
+  match s:
+    case ST.SRaw{a}:
+      WFValidT(String, "", d, v, a)
+    case ST.SDict{codes, dict}:
+      WFDictCodes(d, v, codes, dict)
+
 # a well-formed column: len <= 2^depth, buffers of that depth, mask words 0/1,
 # bool words 0/1, null slots holding the default (0, 0.0, ""); the dtype is the
 # constructor, so dtype/storage agreement is by construction
@@ -851,7 +906,7 @@ def WFColumn(c: C.Column) -> Type:
     case C.CF32{len, +depth, valid, data}:
       {U32.is_le(len, U32.shln(1, depth)) == True{} : Bool} & WFValidT(F32, 0.0, depth, valid, data)
     case C.CStr{len, +depth, valid, data}:
-      {U32.is_le(len, U32.shln(1, depth)) == True{} : Bool} & WFValidT(String, "", depth, valid, data)
+      {U32.is_le(len, U32.shln(1, depth)) == True{} : Bool} & WFStrs(depth, valid, data)
 
 # a well-formed column of exactly h rows
 def WFColumnH(+h: U32, c: C.Column) -> Type:
