@@ -550,3 +550,31 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
   does exactly that (tests/diff/r0006.bend pins it).
 - Neumaier's `c` is an f32: `[1e8, 1e16, 1, .5, -1e8, -1e16, .25]` sums to 0.25, not 1.75 (the bound
   `gamma^2 * sum|x|` allows ~2.6e3). It is the specified result, not a defect.
+
+## M1 cleanup (describe min/max, CSV stack safety, oracle null text)
+
+- **A tail loop is not free natively**: turning `Csv.conv` (`scalar(h) <> conv(tl)`) into accumulate +
+  `List.reverse` made the 100k-row native parse of sales_100000.csv ~30% slower (~340 -> ~440 ms), and the
+  write of 1M rows ~20% slower. The non-tail cons recursion compiles to something cheaper than a loop
+  with an accumulator and a second pass. Nothing hid in the interpreter's stack either: the JS lane
+  overflows at about 2^15 nested non-tail calls, so a plain recursion over 100,000 rows crashes.
+- **Unrolling is the cheap compromise**: a per-row recursion that matches 16 list cells per call
+  (`case x0 <> x1 <> .. <> x15 <> tl: f(x0) <> .. <> f(x15) <> go(tl)`, a one-cell `go1` for the
+  remainder via `case other`) keeps the native speed (parse +1..2%, write +8%) and the depth at n/16.
+  Used in `Csv.conv`, `Csv.rec_lines`, `Csv.cells`, `Csv.zip`, `Csv.zip_pre`, `Csv.join`. Use real tail
+  loops where the loop is not on the hot path (`Csv.take_rows`, `Csv.drop_blank`, now skipped when
+  `Csv.any_blank` finds no blank record).
+- **A `+s: String` parameter used once per row overflows the interpreter's stack**, whatever the
+  unrolling: `zip_pre(a, b, +pre: String)` with `pre ++ x ++ y` crashed a 100k-row render. Pass the
+  separator as a `U32` and build `SCon{Chr{sep}, x ++ y}` instead.
+- **Keeping the record list alive costs ~7% natively**: passing `data` (the CsvRec list) down to
+  `Csv.col.chk` for its error lines (instead of the small `rec_lines` list) held every record until
+  the columns were built. Keep the lines list.
+- **Measure native parse with interleaved runs** (`build/bench file.csv parse`, read_ms + first_walk_ms,
+  15-25 runs, compare medians): the noise of one run is +-10%.
+- describe: min/max come from `Eval.agg Min/Max` (K.Kernel.fmin/fmax, 15.5.2), the quantile rows stay
+  the stable sort's nearest rank, which is Polars `describe` (interpolation="nearest" is its default).
+  A `match` cannot scrutinise a computed value (`match U32.is_eq(..)` is refused): give the test its
+  own def with a Bool parameter, and a helper must be defined above its caller (no mutual recursion).
+- bench/diff: the oracle's `Expr.show` of a typed null literal is Bend's `lit(null).cast(<t>)`
+  (`Cast{Lit{SNull}, t}`), not `lit(null)`.

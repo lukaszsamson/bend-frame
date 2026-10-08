@@ -1,7 +1,7 @@
 # T2.3 regression (bench/diff/reduce_regress.py, minimised by reduce.py --shrink): expectation = the contract
 # (reduce_ref.py step model, DESIGN.md 15.5.3 / 15.5.4), never Bend's output. Kind: pin desc std
 # describe of [1, null, 2, 4, null]: mean 7/3, std by the two-pass step model (15.5.4). Note DESIGN.md 15.5.4 quotes the correctly rounded
-# std 1.5275252 / var 2.3333333; the specified algorithm (squares rounded to f32) gives 1.5275253 (0x3fc385f3), one ulp above, inside bound (3).
+# std 1.5275252 / var 2.3333333 as the correctly rounded values; the specified algorithm (squares rounded to f32) gives 1.5275253 (0x3fc385f3), one ulp above, inside bound (3).
 #
 import Base
 import ./../../frame.bend as DF

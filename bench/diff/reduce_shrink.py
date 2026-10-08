@@ -102,12 +102,10 @@ def expected(c, tag, extra=()):
         return s
     if tag == "desc":
         n, nv = len(bits), len(allv)
-        fin = [b for b in allv if not R.is_nan(b)]
         q = R.model_quantiles(allv) or [None] * 5
-        if fin:
+        if allv:
             q = list(q)
-            q[0] = min(fin, key=lambda b: (R.fword_key(b), b >> 31 == 0))
-            q[4] = max(fin, key=lambda b: (R.fword_key(b), b >> 31 != 0))
+            q[0], q[4] = R.model_minmax(allv)
         rows = [("count", R.f2b(R.F(nv))), ("null_count", R.f2b(R.F(n - nv))), ("mean", R.model_mean(allv)),
                 ("std", R.model_std(allv))] + list(zip(("min", "25%", "50%", "75%", "max"), q))
         s = 'frame\nheight\t9\nwidth\t2\ncol\tstr\t"statistic"\ncol\tf32\t"x"\n'

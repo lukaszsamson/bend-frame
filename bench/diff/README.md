@@ -204,13 +204,14 @@ errors are huge by construction (the answer may be 1 against inputs of 1e8), onl
 Also checked: raw-lazy and optimised-lazy text equals the eager text (`lazy`), grouped result rows are in
 first-appearance order with the right keys and height (`order`/`shape`), a group of all-null rows
 has sum 0.0 / mean null, describe's `count`/`null_count`, its min/25/50/75/max against the
-stable-sorted valid cells at nearest ranks (`order`), and describe's min/max against the min/max rule of
-15.5.2 (`minmax`, an observation until fixed: NEW-T23-1/2). `--selftest` also runs the checker over
+stable-sorted valid cells at nearest ranks (`order`, the 25/50/75% rows: Polars `describe` is nearest rank), and
+describe's min/max against the min/max rule of 15.5.2 (`minmax`: NaN skipped, `-0.0` before `0.0` on a tie;
+NEW-T23-1/2, fixed). `--selftest` also runs the checker over
 fake outputs from mutants (naive f32 sum, Kahan without Neumaier's branch, an f64 accumulator, Neumaier
 without the guard): the faithful model produces no finding, each weaker sum is flagged, and the f64
 accumulator violates only the bit-exact model check, never the bound, as it should.
 
-Exit status is 1 on a `bound`, `special`, `null`, `err`, `lazy`, `order`, `shape`, `model` or `tight` finding, a
+Exit status is 1 on a `bound`, `special`, `null`, `err`, `lazy`, `order`, `shape`, `model`, `tight` or `minmax` finding, a
 crash or an infrastructure error (a `model` mismatch means Bend did not follow the contract's reduction
-order: the selftest asserts the faithful model gives none). `minmax` findings (describe's min/max versus
-15.5.2) are printed but do not fail the run while NEW-T23-1/2 are open (the xfail tests pin them).
+order: the selftest asserts the faithful model gives none; `minmax` is describe's min/max versus 15.5.2,
+which tests/diff/r0001.bend and r0002.bend pin).

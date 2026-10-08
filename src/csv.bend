@@ -2,7 +2,9 @@
 # DESIGN.md 4.11 and 15.6. Reading goes through src/csvparse.bend (a fork of the hub
 # parser that keeps quotedness and physical line numbers), writing is ours.
 # Everything is linear: records are transposed into column cell lists in one pass,
-# strings are only ever appended on their right-nested side (String.concat/join).
+# strings are only ever appended on their right-nested side (Csv.join). Per-row loops are stack safe in
+# the interpreter (JS lane: ~2^15 nested non-tail calls): tail loops, or 16 rows per call (Csv.conv,
+# Csv.cells, Csv.zip, Csv.join; IMPLEMENTING.md "M1 cleanup").
 # Idioms: helpers above callers; a match on a parameter; loop state in parameters.
 import Base
 import ./csvparse.bend as H
@@ -220,12 +222,24 @@ def Csv.scalar(+t: D.DType, c: H.CsvCell) -> D.Scalar:
     case H.CsvCell{f, q}:
       Csv.scalar.c(t, q, f)
 
-def Csv.conv(xs: List<&2, H.CsvCell>, +t: D.DType) -> List<&2, D.Scalar>:
+# The interpreter (the JS lane) overflows its stack at ~2^15 nested non-tail calls (IMPLEMENTING.md,
+# "M1 diff fixes"): a plain `scalar(h) <> conv(tl)` over the 100,000 cells of a column crashes a read
+# there. A tail loop (accumulate, reverse) is safe but ~30% slower natively (the parse of
+# sales_100000.csv), so the recursion converts 16 cells per call: depth n / 16 (a 500k-row column
+# fits), and the native build keeps its speed.
+def Csv.conv1(xs: List<&2, H.CsvCell>, +t: D.DType) -> List<&2, D.Scalar>:
   match xs:
     case Nil{}:
       Nil{}
     case h <> tl:
-      Csv.scalar(t, h) <> Csv.conv(tl, t)
+      Csv.scalar(t, h) <> Csv.conv1(tl, t)
+
+def Csv.conv(xs: List<&2, H.CsvCell>, +t: D.DType) -> List<&2, D.Scalar>:
+  match xs:
+    case c0 <> c1 <> c2 <> c3 <> c4 <> c5 <> c6 <> c7 <> c8 <> c9 <> c10 <> c11 <> c12 <> c13 <> c14 <> c15 <> tl:
+      Csv.scalar(t, c0) <> Csv.scalar(t, c1) <> Csv.scalar(t, c2) <> Csv.scalar(t, c3) <> Csv.scalar(t, c4) <> Csv.scalar(t, c5) <> Csv.scalar(t, c6) <> Csv.scalar(t, c7) <> Csv.scalar(t, c8) <> Csv.scalar(t, c9) <> Csv.scalar(t, c10) <> Csv.scalar(t, c11) <> Csv.scalar(t, c12) <> Csv.scalar(t, c13) <> Csv.scalar(t, c14) <> Csv.scalar(t, c15) <> Csv.conv(tl, t)
+    case other:
+      Csv.conv1(other, t)
 
 # ---- strict check: the first cell that does not parse under t --------------------------------
 
@@ -348,13 +362,20 @@ def Csv.tr(rows: List<&2, H.CsvRec>, accs: List<&2, List<&2, H.CsvCell>>) -> Lis
     case H.CsvRec{l, cs} <> rt:
       Csv.tr(rt, Csv.tr.row(cs, accs))
 
-# the physical line each record starts on
-def Csv.rec_lines(rows: List<&2, H.CsvRec>) -> List<&2, U32>:
+# the physical line each record starts on (16 records per call, see Csv.conv)
+def Csv.rec_lines1(rows: List<&2, H.CsvRec>) -> List<&2, U32>:
   match rows:
     case Nil{}:
       Nil{}
     case H.CsvRec{l, cs} <> rt:
-      l <> Csv.rec_lines(rt)
+      l <> Csv.rec_lines1(rt)
+
+def Csv.rec_lines(rows: List<&2, H.CsvRec>) -> List<&2, U32>:
+  match rows:
+    case H.CsvRec{l0, _} <> H.CsvRec{l1, _} <> H.CsvRec{l2, _} <> H.CsvRec{l3, _} <> H.CsvRec{l4, _} <> H.CsvRec{l5, _} <> H.CsvRec{l6, _} <> H.CsvRec{l7, _} <> H.CsvRec{l8, _} <> H.CsvRec{l9, _} <> H.CsvRec{l10, _} <> H.CsvRec{l11, _} <> H.CsvRec{l12, _} <> H.CsvRec{l13, _} <> H.CsvRec{l14, _} <> H.CsvRec{l15, _} <> rt:
+      l0 <> l1 <> l2 <> l3 <> l4 <> l5 <> l6 <> l7 <> l8 <> l9 <> l10 <> l11 <> l12 <> l13 <> l14 <> l15 <> Csv.rec_lines(rt)
+    case other:
+      Csv.rec_lines1(other)
 
 # the texts of a record's cells (the header names)
 def Csv.names(cs: List<&2, H.CsvCell>) -> List<&2, String>:
@@ -371,16 +392,20 @@ def Csv.gen_names(n: Nat, +i: Nat) -> List<&2, String>:
     case 1n+p:
       ("column_" ++ Nat.show(i)) <> Csv.gen_names(p, Nat.add(i, 1n))
 
-def Csv.take_rows(k: Nat, rows: List<&2, H.CsvRec>) -> List<&2, H.CsvRec>:
+def Csv.take_rows.go(k: Nat, rows: List<&2, H.CsvRec>, acc: List<&2, H.CsvRec>) -> List<&2, H.CsvRec>:
   match k:
     case 0n:
-      Nil{}
+      acc
     case 1n+p:
       match rows:
         case Nil{}:
-          Nil{}
+          acc
         case r <> rt:
-          r <> Csv.take_rows(p, rt)
+          Csv.take_rows.go(p, rt, r <> acc)
+
+# the first k records (k may be every record: tail recursive)
+def Csv.take_rows(k: Nat, rows: List<&2, H.CsvRec>) -> List<&2, H.CsvRec>:
+  List.reverse(&2, H.CsvRec, Csv.take_rows.go(k, rows, Nil{}))
 
 # first record whose cell count is not n (its own physical line in the error)
 def Csv.ragged.pick(found: Maybe<&2, E.Err>, +got: Nat, +want: Nat, line: U32) -> Maybe<&2, E.Err>:
@@ -437,24 +462,47 @@ def Csv.is_blank(r: List<&2, H.CsvCell>) -> Bool:
     case h <> t:
       Csv.blank.t(Csv.blank.c(h), t)
 
-def Csv.drop.k(b: Bool, r: H.CsvRec, rest: List<&2, H.CsvRec>) -> List<&2, H.CsvRec>:
+def Csv.drop.k(b: Bool, r: H.CsvRec, acc: List<&2, H.CsvRec>) -> List<&2, H.CsvRec>:
   match b:
     case True{}:
-      rest
+      acc
     case False{}:
-      r <> rest
+      r <> acc
 
-def Csv.drop.r(r: H.CsvRec, rest: List<&2, H.CsvRec>) -> List<&2, H.CsvRec>:
+def Csv.drop.r(r: H.CsvRec, acc: List<&2, H.CsvRec>) -> List<&2, H.CsvRec>:
   match r:
     case H.CsvRec{+l, +cs}:
-      Csv.drop.k(Csv.is_blank(cs), H.CsvRec{l, cs}, rest)
+      Csv.drop.k(Csv.is_blank(cs), H.CsvRec{l, cs}, acc)
 
-def Csv.drop_blank(rows: List<&2, H.CsvRec>) -> List<&2, H.CsvRec>:
+def Csv.drop_blank.go(rows: List<&2, H.CsvRec>, acc: List<&2, H.CsvRec>) -> List<&2, H.CsvRec>:
   match rows:
     case Nil{}:
-      Nil{}
+      acc
     case r <> rt:
-      Csv.drop.r(r, Csv.drop_blank(rt))
+      Csv.drop_blank.go(rt, Csv.drop.r(r, acc))
+
+# some record is blank (a tail walk that allocates nothing: the usual file has none)
+def Csv.any_blank.r(r: H.CsvRec) -> Bool:
+  match r:
+    case H.CsvRec{l, cs}:
+      Csv.is_blank(cs)
+
+def Csv.any_blank(rows: List<&2, H.CsvRec>, found: Bool) -> Bool:
+  match rows:
+    case Nil{}:
+      found
+    case r <> rt:
+      Csv.any_blank(rt, Bool.or(found, Csv.any_blank.r(r)))
+
+def Csv.drop_blank.k(any: Bool, rows: List<&2, H.CsvRec>) -> List<&2, H.CsvRec>:
+  match any:
+    case True{}:
+      List.reverse(&2, H.CsvRec, Csv.drop_blank.go(rows, Nil{}))
+    case False{}:
+      rows
+
+def Csv.drop_blank(+rows: List<&2, H.CsvRec>) -> List<&2, H.CsvRec>:
+  Csv.drop_blank.k(Csv.any_blank(rows, False{}), rows)
 
 # with more than one column blank lines are skipped (the records after keep their physical lines)
 def Csv.skip_blank(multi: Bool, rows: List<&2, H.CsvRec>) -> List<&2, H.CsvRec>:
@@ -570,7 +618,7 @@ def Csv.rows.h(names: List<&2, String>, cs: List<&2, List<&2, H.CsvCell>>, ts: L
 
 # names, data records: transpose and build (the shape checks passed and the row cap held)
 def Csv.rows.g(+names: List<&2, String>, +data: List<&2, H.CsvRec>, +inf: U32, ts: List<&2, D.DType>) -> E.ResT(C.Frame):
-  Csv.rows.h(names, Csv.tr(List.reverse(&2, H.CsvRec, data), Csv.nils(List.length(&2, String, names))), ts, U32.to_nat(Csv.limit(inf)), Bool.not(Bool.or(U32.is_eq(inf, 0), U32.is_ge(inf, U32.from_nat(List.length(&2, H.CsvRec, data))))), Csv.rec_lines(data))
+  Csv.rows.h(names, Csv.tr(List.reverse(&2, H.CsvRec, data), Csv.nils(List.length(&2, String, names))), ts, U32.to_nat(Csv.limit(inf)), Bool.not(Bool.or(U32.is_eq(inf, 0), U32.is_ge(inf, K.Kernel.count(~H.CsvRec, data, 0)))), Csv.rec_lines(data))
 
 # the row cap (DESIGN.md 15.8): the number of data records is counted before any column is built
 def Csv.rows.c(over: Maybe<&2, E.Err>, +names: List<&2, String>, +data: List<&2, H.CsvRec>, +inf: U32, ts: List<&2, D.DType>) -> E.ResT(C.Frame):
@@ -585,7 +633,7 @@ def Csv.rows.p(+cap: U32, p: E.Res(Prep), inf: U32, ts: List<&2, D.DType>) -> E.
     case Fail{e}:
       Fail{e}
     case Done{Prep{names, +data}}:
-      Csv.rows.c(K.Kernel.check_rows.cap(cap, U32.from_nat(List.length(&2, H.CsvRec, data))), names, data, inf, ts)
+      Csv.rows.c(K.Kernel.check_rows.cap(cap, K.Kernel.count(~H.CsvRec, data, 0)), names, data, inf, ts)
 
 # no records (an empty file, or one of blank lines before a header): the (0, 0) frame, unless
 # dtypes were given: they must cover every column, and there are none (15.6.3)
@@ -1094,28 +1142,78 @@ def Csv.cell(sc: D.Scalar, prec: Maybe<&2, U32>, +sep: U32) -> String:
     case other:
       Csv.quote_val(D.Scalar.show(other), sep)
 
-def Csv.cells(xs: List<&2, D.Scalar>, +prec: Maybe<&2, U32>, +sep: U32) -> List<&2, String>:
+# The rendering loops run once per row. The interpreter (the JS lane) overflows its stack at ~2^15
+# nested non-tail calls (IMPLEMENTING.md, "M1 diff fixes"), and an accumulate-then-reverse tail loop
+# costs ~20% of the native write of 1M rows (3 more passes per column), so each loop handles 16 rows
+# per call: depth n / 16 (500k rows fit), the native speed is unchanged. The `1` variants finish
+# the last < 16 rows.
+def Csv.cells1(xs: List<&2, D.Scalar>, +prec: Maybe<&2, U32>, +sep: U32) -> List<&2, String>:
   match xs:
     case Nil{}:
       Nil{}
     case h <> tl:
-      Csv.cell(h, prec, sep) <> Csv.cells(tl, prec, sep)
+      Csv.cell(h, prec, sep) <> Csv.cells1(tl, prec, sep)
+
+def Csv.cells(xs: List<&2, D.Scalar>, +prec: Maybe<&2, U32>, +sep: U32) -> List<&2, String>:
+  match xs:
+    case x0 <> x1 <> x2 <> x3 <> x4 <> x5 <> x6 <> x7 <> x8 <> x9 <> x10 <> x11 <> x12 <> x13 <> x14 <> x15 <> tl:
+      Csv.cell(x0, prec, sep) <> Csv.cell(x1, prec, sep) <> Csv.cell(x2, prec, sep) <> Csv.cell(x3, prec, sep) <> Csv.cell(x4, prec, sep) <> Csv.cell(x5, prec, sep) <> Csv.cell(x6, prec, sep) <> Csv.cell(x7, prec, sep) <> Csv.cell(x8, prec, sep) <> Csv.cell(x9, prec, sep) <> Csv.cell(x10, prec, sep) <> Csv.cell(x11, prec, sep) <> Csv.cell(x12, prec, sep) <> Csv.cell(x13, prec, sep) <> Csv.cell(x14, prec, sep) <> Csv.cell(x15, prec, sep) <> Csv.cells(tl, prec, sep)
+    case other:
+      Csv.cells1(other, prec, sep)
 
 # x ++ y for each pair (right-nested appends: linear)
-def Csv.zip(a: List<&2, String>, b: List<&2, String>) -> List<&2, String>:
+def Csv.zip1(a: List<&2, String>, b: List<&2, String>) -> List<&2, String>:
   match a b:
     case x <> xt y <> yt:
-      (x ++ y) <> Csv.zip(xt, yt)
+      (x ++ y) <> Csv.zip1(xt, yt)
     case _ _:
       Nil{}
 
-# pre ++ x ++ y for each pair
-def Csv.zip_pre(a: List<&2, String>, b: List<&2, String>, +pre: String) -> List<&2, String>:
+def Csv.zip(a: List<&2, String>, b: List<&2, String>) -> List<&2, String>:
+  match a b:
+    case x0 <> x1 <> x2 <> x3 <> x4 <> x5 <> x6 <> x7 <> x8 <> x9 <> x10 <> x11 <> x12 <> x13 <> x14 <> x15 <> xt y0 <> y1 <> y2 <> y3 <> y4 <> y5 <> y6 <> y7 <> y8 <> y9 <> y10 <> y11 <> y12 <> y13 <> y14 <> y15 <> yt:
+      (x0 ++ y0) <> (x1 ++ y1) <> (x2 ++ y2) <> (x3 ++ y3) <> (x4 ++ y4) <> (x5 ++ y5) <> (x6 ++ y6) <> (x7 ++ y7) <> (x8 ++ y8) <> (x9 ++ y9) <> (x10 ++ y10) <> (x11 ++ y11) <> (x12 ++ y12) <> (x13 ++ y13) <> (x14 ++ y14) <> (x15 ++ y15) <> Csv.zip(xt, yt)
+    case p q:
+      Csv.zip1(p, q)
+
+# the separator, x, y for each pair. The separator is passed as a U32, not as a String: a `+pre: String`
+# dup'd once per row overflowed the interpreter's stack at 100,000 rows, however many rows a call took
+def Csv.zip_pre1(a: List<&2, String>, b: List<&2, String>, +sep: U32) -> List<&2, String>:
   match a b:
     case x <> xt y <> yt:
-      (pre ++ x ++ y) <> Csv.zip_pre(xt, yt, pre)
+      SCon{Chr{sep}, x ++ y} <> Csv.zip_pre1(xt, yt, sep)
     case _ _:
       Nil{}
+
+def Csv.zip_pre(a: List<&2, String>, b: List<&2, String>, +sep: U32) -> List<&2, String>:
+  match a b:
+    case x0 <> x1 <> x2 <> x3 <> x4 <> x5 <> x6 <> x7 <> x8 <> x9 <> x10 <> x11 <> x12 <> x13 <> x14 <> x15 <> xt y0 <> y1 <> y2 <> y3 <> y4 <> y5 <> y6 <> y7 <> y8 <> y9 <> y10 <> y11 <> y12 <> y13 <> y14 <> y15 <> yt:
+      SCon{Chr{sep}, x0 ++ y0} <> SCon{Chr{sep}, x1 ++ y1} <> SCon{Chr{sep}, x2 ++ y2} <> SCon{Chr{sep}, x3 ++ y3} <> SCon{Chr{sep}, x4 ++ y4} <> SCon{Chr{sep}, x5 ++ y5} <> SCon{Chr{sep}, x6 ++ y6} <> SCon{Chr{sep}, x7 ++ y7} <> SCon{Chr{sep}, x8 ++ y8} <> SCon{Chr{sep}, x9 ++ y9} <> SCon{Chr{sep}, x10 ++ y10} <> SCon{Chr{sep}, x11 ++ y11} <> SCon{Chr{sep}, x12 ++ y12} <> SCon{Chr{sep}, x13 ++ y13} <> SCon{Chr{sep}, x14 ++ y14} <> SCon{Chr{sep}, x15 ++ y15} <> Csv.zip_pre(xt, yt, sep)
+    case p q:
+      Csv.zip_pre1(p, q, sep)
+
+# n lines "\n" (the end of each row)
+def Csv.nls(n: Nat, acc: List<&2, String>) -> List<&2, String>:
+  match n:
+    case 0n:
+      acc
+    case 1n+p:
+      Csv.nls(p, "\n" <> acc)
+
+# the lines, in row order, joined by right-nested appends (each copies one short line), 16 lines per call
+def Csv.join1(lines: List<&2, String>) -> String:
+  match lines:
+    case Nil{}:
+      ""
+    case h <> tl:
+      h ++ Csv.join1(tl)
+
+def Csv.join(lines: List<&2, String>) -> String:
+  match lines:
+    case l0 <> l1 <> l2 <> l3 <> l4 <> l5 <> l6 <> l7 <> l8 <> l9 <> l10 <> l11 <> l12 <> l13 <> l14 <> l15 <> tl:
+      l0 ++ l1 ++ l2 ++ l3 ++ l4 ++ l5 ++ l6 ++ l7 ++ l8 ++ l9 ++ l10 ++ l11 ++ l12 ++ l13 ++ l14 ++ l15 ++ Csv.join(tl)
+    case other:
+      Csv.join1(other)
 
 def Csv.col_cells.b(+name: String, prec: Maybe<&2, U32>, +sep: U32, r: C.Column & List<&2, D.Scalar>) -> C.Named & List<&2, String>:
   (c, xs) = r
@@ -1127,29 +1225,29 @@ def Csv.col_cells(nc: C.Named, +h: U32, prec: Maybe<&2, U32>, sep: U32) -> C.Nam
       Csv.col_cells.b(name, prec, sep, C.Column.scalars(col, 0, h))
 
 # the lines of columns 1.. : every cell is preceded by the separator, the line ends in "\n"
-def Csv.rest.k(sp: String, r1: C.Named & List<&2, String>, r2: List<&1, C.Named> & List<&2, String>) -> List<&1, C.Named> & List<&2, String>:
+def Csv.rest.k(sep: U32, r1: C.Named & List<&2, String>, r2: List<&1, C.Named> & List<&2, String>) -> List<&1, C.Named> & List<&2, String>:
   (nc, cells) = r1
   (cols, lines) = r2
-  (nc <> cols, Csv.zip_pre(cells, lines, sp))
+  (nc <> cols, Csv.zip_pre(cells, lines, sep))
 
-def Csv.rest(cols: List<&1, C.Named>, +h: U32, +prec: Maybe<&2, U32>, +sep: U32, +sp: String) -> List<&1, C.Named> & List<&2, String>:
+def Csv.rest(cols: List<&1, C.Named>, +h: U32, +prec: Maybe<&2, U32>, +sep: U32) -> List<&1, C.Named> & List<&2, String>:
   match cols:
     case Nil{}:
-      (Nil{}, List.replicate(String, U32.to_nat(h), "\n"))
+      (Nil{}, Csv.nls(U32.to_nat(h), Nil{}))
     case nc <> t:
-      Csv.rest.k(sp, Csv.col_cells(nc, h, prec, sep), Csv.rest(t, h, prec, sep, sp))
+      Csv.rest.k(sep, Csv.col_cells(nc, h, prec, sep), Csv.rest(t, h, prec, sep))
 
 def Csv.lines.k(r1: C.Named & List<&2, String>, r2: List<&1, C.Named> & List<&2, String>) -> List<&1, C.Named> & List<&2, String>:
   (nc, cells) = r1
   (cols, lines) = r2
   (nc <> cols, Csv.zip(cells, lines))
 
-def Csv.lines(cols: List<&1, C.Named>, +h: U32, +prec: Maybe<&2, U32>, +sep: U32, +sp: String) -> List<&1, C.Named> & List<&2, String>:
+def Csv.lines(cols: List<&1, C.Named>, +h: U32, +prec: Maybe<&2, U32>, +sep: U32) -> List<&1, C.Named> & List<&2, String>:
   match cols:
     case Nil{}:
       (Nil{}, Nil{})
     case nc <> t:
-      Csv.lines.k(Csv.col_cells(nc, h, prec, sep), Csv.rest(t, h, prec, sep, sp))
+      Csv.lines.k(Csv.col_cells(nc, h, prec, sep), Csv.rest(t, h, prec, sep))
 
 def Csv.header.rest(names: List<&2, String>, +sep: U32, +sp: String) -> String:
   match names:
@@ -1174,12 +1272,12 @@ def Csv.render.txt(hdr: Bool, hd: String, body: String) -> String:
 
 def Csv.render.t(+h: U32, hdr: Bool, hd: String, r: List<&1, C.Named> & List<&2, String>) -> C.Frame & String:
   (cols, lines) = r
-  (C.Frame{h, cols}, Csv.render.txt(hdr, hd, String.concat(lines)))
+  (C.Frame{h, cols}, Csv.render.txt(hdr, hd, Csv.join(lines)))
 
 def Csv.render.m(f: C.Frame, names: List<&2, String>, hdr: Bool, prec: Maybe<&2, U32>, +sep: U32, +sp: String) -> C.Frame & String:
   match f:
     case C.Frame{+h, cols}:
-      Csv.render.t(h, hdr, Csv.header(names, sep, sp), Csv.lines(cols, h, prec, sep, sp))
+      Csv.render.t(h, hdr, Csv.header(names, sep, sp), Csv.lines(cols, h, prec, sep))
 
 def Csv.render.k(r: C.Frame & List<&2, String>, hdr: Bool, prec: Maybe<&2, U32>, sep: U32, sp: String) -> C.Frame & String:
   (f, names) = r

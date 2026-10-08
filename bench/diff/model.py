@@ -174,6 +174,8 @@ def show(e: Ex) -> str:
     if o == "col":
         return f'col("{e.p[0]}")'
     if o == "lit":
+        if e.p[1] is None:     # the typed null literal is `Cast{Lit{SNull}, t}` (DF.lit_null): Bend shows the cast
+            return f"lit(null).cast({e.p[0]})"
         return f"lit({show_lit(*e.p)})"
     if o == "alias":
         return f'{show(e.args[0])}.alias("{e.p[0]}")'

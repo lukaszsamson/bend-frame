@@ -228,6 +228,15 @@ def model_quantiles(xs):
     return [s[i] for i in quantile_idx(len(xs))]
 
 
+def model_minmax(xs):
+    """(min, max) bits per 15.5.2: NaN skipped (all NaN -> NaN), on a -0.0 / 0.0 tie min answers -0.0 and max 0.0."""
+    fin = [b for b in xs if not is_nan(b)]
+    if not fin:
+        return NAN_BITS, NAN_BITS
+    return (min(fin, key=lambda b: (fword_key(b), b >> 31 == 0)),
+            max(fin, key=lambda b: (fword_key(b), b >> 31 == 0)))
+
+
 # ---- IEEE-order-independent expectations for non-finite data ------------------------------
 
 def special_sum(xs):

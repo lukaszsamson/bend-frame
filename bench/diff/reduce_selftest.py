@@ -136,7 +136,9 @@ def fake_got(c, sumfn):
     n, nv = len(bits), len(allv)
     desc = "frame\nheight\t9\nwidth\t2\ncol\tstr\t\"statistic\"\ncol\tf32\t\"x\"\n"
     q = R.model_quantiles(allv)
-    fin = [b for b in allv if not R.is_nan(b)]
+    if q is not None:
+        q = list(q)
+        q[0], q[4] = R.model_minmax(allv)
     rows = [("count", R.f2b(F(nv))), ("null_count", R.f2b(F(n - nv))), ("mean", m_mean(allv)), ("std", R.model_std(allv) if nv > 1 else None)]
     rows += [(nm, None if q is None else v) for nm, v in zip(("min", "25%", "50%", "75%", "max"), q or [None] * 5)]
     for nm, v in rows:
@@ -151,13 +153,13 @@ def test_mutants(n=400, seed=3):
         stats, findings = RD.Stats(), []
         for c in cases:
             RD.check_case(c, fake_got(c, fn), stats, findings, [])
-        kinds = collections.Counter(f["kind"] for f in findings if f["kind"] != "minmax")
-        flagged = {f["id"] for f in findings if f["kind"] != "minmax"}
+        kinds = collections.Counter(f["kind"] for f in findings)
+        flagged = {f["id"] for f in findings}
         flagged_bound = {f["id"] for f in findings if f["kind"] in ("bound", "special")}
         bycls = collections.Counter(f["cls"] for f in findings if f["kind"] in ("bound", "special"))
         print(f"  {name:15} kinds {dict(kinds)}; cases flagged {len(flagged)}; by bound/special {len(flagged_bound)} {dict(bycls)}")
         if name == "faithful":
-            assert not flagged, [f for f in findings if f["kind"] != "minmax"][:3]
+            assert not flagged, findings[:3]
         elif name == "f64 accumulate":
             assert not flagged_bound or True      # more accurate than the bound: only the bit-exact model check may flag it
             assert not any(f["kind"] == "bound" for f in findings), "a more accurate sum must not violate the bound"

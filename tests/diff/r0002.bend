@@ -1,8 +1,7 @@
-#! xfail NEW-T23-2
 # T2.3 regression (bench/diff/reduce_regress.py, minimised by reduce.py --shrink): expectation = the contract
 # (reduce_ref.py step model, DESIGN.md 15.5.3 / 15.5.4), never Bend's output. Kind: minmax desc min
-# describe min of [0.0, -0.0] must be -0.0 (15.5.2: on a tie min answers -0.0, max 0.0, either input order; Polars the same).
-# Bend answers the first of the tied rows (0.0).
+# describe of [0.0, -0.0]: min must be -0.0 and max 0.0 (15.5.2: on a tie min answers -0.0, max 0.0, either input order; Polars the same).
+# Fixed (NEW-T23-2): the extremes come from K.Kernel.fmin/fmax, not from the first / last of the stable sort.
 #
 import Base
 import ./../../frame.bend as DF
@@ -49,4 +48,4 @@ def main() -> IO(Unit):
 #|row	"25%"	0x00000000
 #|row	"50%"	0x80000000
 #|row	"75%"	0x80000000
-#|row	"max"	0x80000000
+#|row	"max"	0x00000000

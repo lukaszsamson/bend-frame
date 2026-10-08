@@ -41,7 +41,7 @@ import reduce_ref as R  # noqa: E402
 
 HDR = re.compile(r"^-- (c\d+) (\w+)$", re.M)
 TAGS = ("in", "sel_e", "sel_r", "sel_f", "grp_e", "grp_r", "grp_f", "desc")
-DEFECT_KINDS = ("bound", "special", "null", "err", "lazy", "order", "shape", "model", "tight")   # "minmax" = known (NEW-T23-1/2)
+DEFECT_KINDS = ("bound", "special", "null", "err", "lazy", "order", "shape", "model", "tight", "minmax")
 
 
 # ---- running ------------------------------------------------------------------------------
@@ -343,9 +343,12 @@ def check_case(c, got, stats, findings, extra):
     if nv:
         J.judge("mean", "desc", "all", valid, rows["mean"], cache)
         J.judge("std", "desc", "all", valid, rows["std"], cache)
-        # order statistics
+        # the quantile rows: nearest rank over the 15.5.2-sorted valid cells (min and max follow 15.5.2's
+        # min/max rule instead, checked below)
         qv = R.model_quantiles(valid)
         for nm, exp in zip(("min", "25%", "50%", "75%", "max"), qv):
+            if nm in ("min", "max"):
+                continue
             gb = cell_bits(rows[nm])
             ok = gb == R.canon(exp) or (gb is not None and (gb & 0x7FFFFFFF) == 0 and (exp & 0x7FFFFFFF) == 0)
             stats.add(("order", nm, "desc"), bad=not ok)
@@ -353,10 +356,8 @@ def check_case(c, got, stats, findings, extra):
                 J.find("order", "desc", nm, "all", f"got {fmt_bits(gb)} expected {fmt_bits(R.canon(exp))} (nearest rank, 15.5.2 order) n={nv}")
             elif gb != R.canon(exp):
                 stats.add(("order-zero-sign", nm, "desc"), bad=False)
-        # describe min/max vs the contract's min/max aggregation (NaN skipped, -0.0 < 0.0 on ties)
-        fin = [b for b in valid if not R.is_nan(b)]
-        cmin = min(fin, key=lambda b: (R.fword_key(b), b >> 31 == 0)) if fin else R.NAN_BITS
-        cmax = max(fin, key=lambda b: (R.fword_key(b), b >> 31 != 0)) if fin else R.NAN_BITS
+        # describe min/max = the contract's min/max aggregation (NaN skipped, -0.0 < 0.0 on ties, 15.5.2)
+        cmin, cmax = R.model_minmax(valid)
         for nm, e in (("min", cmin), ("max", cmax)):
             gb = cell_bits(rows[nm])
             if gb != R.canon(e):

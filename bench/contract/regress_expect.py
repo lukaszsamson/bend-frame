@@ -943,6 +943,39 @@ def _():
             + three("NEW-2 self-join-sort-head", frame(jcols, top)))
 
 
+# NEW-2 (CSV): render / write / read of a 50,000-row frame in the interpreter. The CSV text is built
+# here the way Csv.render writes it (quote a field holding a comma, quote, CR or LF; an empty string is
+# `""`, a null is an empty field; f32 shortest digits, here quarters), and the dump of the frame that
+# is written and read back (the inferred dtypes are the original ones).
+@spec("NEW_2_interp_csv_large")
+def _():
+    n = 50000
+    rows = []
+    for i in range(n):
+        s = None if i % 17 == 3 else (f'a,b"c{i}' if i % 13 == 5 else f"r{i}")
+        v = None if i % 7 == 3 else i - 25000
+        rows.append([i, s, np.float32(i) / np.float32(4.0), v, i % 3 == 0])
+    cols = [("u32", "id"), ("str", "s"), ("f32", "x"), ("i32", "v"), ("bool", "b")]
+
+    def fld(x):
+        if x is None:
+            return ""
+        if x == "" or any(c in x for c in ',"\r\n'):
+            return '"' + x.replace('"', '""') + '"'
+        return x
+
+    def num(x):
+        x = float(x)
+        return str(int(x)) if x == int(x) else repr(x)
+
+    text = "id,s,x,v,b\n" + "".join(
+        ",".join([str(r[0]), fld(r[1]), num(r[2]), "" if r[3] is None else str(r[3]), "true" if r[4] else "false"]) + "\n"
+        for r in rows)
+    d = summary(frame(cols, rows))
+    return [("-- NEW-2 csv-50000 render text", summary(text)), ("-- NEW-2 csv-50000 write frame", d),
+            ("-- NEW-2 csv-50000 read eager", d), ("-- NEW-2 csv-50000 read raw", d), ("-- NEW-2 csv-50000 read opt", d)]
+
+
 def main(argv) -> int:
     write = "--write" in argv
     pats = [a for a in argv if not a.startswith("--")]

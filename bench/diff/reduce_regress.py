@@ -1,6 +1,6 @@
 """Writes the hand-picked T2.3 regressions tests/diff/r0001..r0006.bend (python diff/reduce_regress.py).
 
-Two are minimised defects found by `reduce.py --shrink` (xfail), four are pins of contract examples
+Two are minimised defects found by `reduce.py --shrink` (fixed, NEW-T23-1/2; no xfail), four are pins of contract examples
 that pass today (cancellation, non-finite data and the overflow guard, ten 0.1, describe std).
 Expectations come from reduce_ref.py (the contract's step model, checked in the selftest against the
 examples quoted in DESIGN.md 15.5.3/15.5.4), not from Bend's output.
@@ -29,12 +29,12 @@ def case(xs, keys=None, valid=None):
 
 
 REGS = [
-    ("r0001", "NEW-T23-1", ("minmax", "desc", "max"), case([NAN, 1.0, 2.0]), ["desc"],
+    ("r0001", None, ("minmax", "desc", "max"), case([NAN, 1.0, 2.0]), ["desc"],
      "describe max of [NaN, 1, 2] must be 2 (and min 1): the min/max rule of 15.5.2 skips NaN; Polars 2.0.0 describe agrees.\n"
-     "Bend answers max = NaN (describe reads the extremes off the NaN-greatest sort)."),
-    ("r0002", "NEW-T23-2", ("minmax", "desc", "min"), case([0.0, -0.0]), ["desc"],
-     "describe min of [0.0, -0.0] must be -0.0 (15.5.2: on a tie min answers -0.0, max 0.0, either input order; Polars the same).\n"
-     "Bend answers the first of the tied rows (0.0)."),
+     "Fixed (NEW-T23-1): describe takes min/max from Eval.agg Min/Max (K.Kernel.fmin/fmax), not from the NaN-greatest sort."),
+    ("r0002", None, ("minmax", "desc", "min"), case([0.0, -0.0]), ["desc"],
+     "describe of [0.0, -0.0]: min must be -0.0 and max 0.0 (15.5.2: on a tie min answers -0.0, max 0.0, either input order; Polars the same).\n"
+     "Fixed (NEW-T23-2): the extremes come from K.Kernel.fmin/fmax, not from the first / last of the stable sort."),
     ("r0003", None, ("pin", "sel+grp", "sum"),
      case([1e8, 1e16, 1.0, 0.5, -1e8, -1e16, 0.25, 7.0], keys=[0, 1, 0, 1, 0, 1, 0, 1], valid=[True] * 7 + [False]),
      ["sel_e", "sel_r", "sel_f", "grp_e", "grp_r", "grp_f"],
@@ -55,7 +55,7 @@ REGS = [
      case([1.0, 99.0, 2.0, 4.0, 3.0], valid=[True, False, True, True, False]),
      ["desc"],
      "describe of [1, null, 2, 4, null]: mean 7/3, std by the two-pass step model (15.5.4). Note DESIGN.md 15.5.4 quotes the correctly rounded\n"
-     "std 1.5275252 / var 2.3333333; the specified algorithm (squares rounded to f32) gives 1.5275253 (0x3fc385f3), one ulp above, inside bound (3)."),
+     "std 1.5275252 / var 2.3333333 as the correctly rounded values; the specified algorithm (squares rounded to f32) gives 1.5275253 (0x3fc385f3), one ulp above, inside bound (3)."),
 ]
 
 

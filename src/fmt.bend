@@ -190,8 +190,10 @@ def Fmt.show(f: C.Frame) -> C.Frame & String:
 # DESIGN.md 15.5.3 mean (Neumaier with the non-finite guard, Eval.agg Mean), std = sample
 # std (ddof 1) = sqrt of the 15.5.3 sum of squared deviations / (count - 1), each term an
 # f32 (15.5.4; null when count < 2),
-# min/max/quantiles read from ONE stable radix sort of the valid values, quantiles
-# by NEAREST rank idx = round(p * (count - 1)), half away from zero; all null at count 0).
+# min/max = Eval.agg Min/Max (15.5.2: NaN skipped, -0.0 < 0.0 on a tie), the quantiles read from ONE
+# stable radix sort of the valid values, by NEAREST rank idx = round(p * (count - 1)), half away
+# from zero (Polars describe(interpolation="nearest"), its default, so "50%" is NOT the 15.5.4
+# median for an even count: [1,2,3,4] -> 3); all null at count 0).
 # Str/Bool inputs become Str columns: count, null_count, min, max as text, null elsewhere.
 # The input frame comes back untouched (columns are cloned, clone = refcount bump).
 
@@ -293,19 +295,32 @@ def Fmt.d.sorted.a(+k: U32, r: E.ResT(C.Frame)) -> List<&2, D.Scalar>:
 def Fmt.d.sorted(+k: U32, d: C.Column) -> List<&2, D.Scalar>:
   Fmt.d.sorted.a(k, O.Sort.frame(C.Frame{k, C.Named{"x", d} <> Nil{}}, O.SortKey{"x", False{}, False{}} <> Nil{}))
 
-def Fmt.d.assemble(+k: U32, +nn: U32, mean: D.Scalar, std: D.Scalar, qs: List<&2, D.Scalar>) -> List<&2, D.Scalar>:
+# qs = [min, 25%, 50%, 75%, max] read off the sort: only its three quantiles are used; min and max
+# come from Eval.agg Min/Max (K.Kernel.fmin/fmax: NaN skipped, -0.0 < 0.0 on ties, 15.5.2)
+def Fmt.d.assemble(+k: U32, +nn: U32, mean: D.Scalar, std: D.Scalar, mn: D.Scalar, mx: D.Scalar, qs: List<&2, D.Scalar>) -> List<&2, D.Scalar>:
   match qs:
-    case mn <> q1 <> q2 <> q3 <> mx <> Nil{}:
+    case lo <> q1 <> q2 <> q3 <> hi <> Nil{}:
       [D.SF32{U32.to_f32(k)}, D.SF32{U32.to_f32(nn)}, mean, std, mn, q1, q2, q3, mx]
     case other:
       Nil{}
 
-def Fmt.d.num.d(+k: U32, +nn: U32, mean: D.Scalar, std: D.Scalar, qs: List<&2, D.Scalar>) -> E.ResT(C.Column):
-  C.Column.from_scalars(Fmt.d.assemble(k, nn, mean, std, qs), D.TF32{})
+def Fmt.d.num.d(+k: U32, +nn: U32, mean: D.Scalar, std: D.Scalar, mn: D.Scalar, mx: D.Scalar, qs: List<&2, D.Scalar>) -> E.ResT(C.Column):
+  C.Column.from_scalars(Fmt.d.assemble(k, nn, mean, std, mn, mx, qs), D.TF32{})
+
+def Fmt.d.num.g(+k: U32, +nn: U32, mean: D.Scalar, std: D.Scalar, mn: D.Scalar, mx: D.Scalar, d: C.Column) -> E.ResT(C.Column):
+  Fmt.d.num.d(k, nn, mean, std, mn, mx, Fmt.d.sorted(k, d))
+
+def Fmt.d.num.f(+k: U32, +nn: U32, mean: D.Scalar, std: D.Scalar, mn: D.Scalar, r: C.Column & C.Column) -> E.ResT(C.Column):
+  (d2, d3) = r
+  Fmt.d.num.g(k, nn, mean, std, mn, Fmt.d.agg(X.Max{}, d2), d3)
+
+def Fmt.d.num.e(+k: U32, +nn: U32, mean: D.Scalar, std: D.Scalar, r: C.Column & C.Column) -> E.ResT(C.Column):
+  (d1, d2) = r
+  Fmt.d.num.f(k, nn, mean, std, Fmt.d.agg(X.Min{}, d1), C.Column.clone(d2))
 
 def Fmt.d.num.c(+k: U32, +nn: U32, d: C.Column, ds: C.Column, mean: D.Scalar) -> E.ResT(C.Column):
   +m = mean
-  Fmt.d.num.d(k, nn, m, Fmt.d.std(k, m, ds), Fmt.d.sorted(k, d))
+  Fmt.d.num.e(k, nn, m, Fmt.d.std(k, m, ds), C.Column.clone(d))
 
 def Fmt.d.num.b(+k: U32, +nn: U32, d: C.Column, r: C.Column & C.Column) -> E.ResT(C.Column):
   (dm, ds) = r

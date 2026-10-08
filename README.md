@@ -124,6 +124,7 @@ collect: error: TypeMismatch in filter: expected bool, got u32
 - No implicit casts: mixing dtypes in an operator is a `TypeMismatch` error value. A join on a `u32` key against an `i32` key is an error.
 - `mean` always answers `F32`, including for integer columns (Polars gives `Float64`).
 - Join output is always in left-row order, and the matches of one left row come in right-row order. Only `inner` and `left` joins exist; `outer`, `semi` and `anti` are not implemented.
+- Join output keeps every left column (keys included), then the right columns minus the right key columns, even when the key names differ (Polars coalesces the same way by default); a remaining right name that clashes with a left name gets the `_right` suffix.
 - `group_by` answers in first-appearance order. `GroupBy` carries a `maintain_order` flag, but v1 ignores it and always orders by first appearance.
 - Every `F32` `sum` and `mean` (eager, lazy, grouped, `describe`) is one compensated (Neumaier) sum in row order that switches to plain IEEE addition once the partial sum is infinite or NaN. Results are checked against the exact sum of the `F32` inputs, not against Polars' bits, which can be an ulp away.
 - `u32` and `i32` `add sub mul` and `sum` wrap around (mod 2^32). `div` refuses integers (cast to `f32` first); `floor_div` rounds toward minus infinity, `mod` has the divisor's sign, both give null for a zero divisor, and `i32` `MIN // -1` is null (Polars answers `MIN`).

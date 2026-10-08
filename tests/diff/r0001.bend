@@ -1,8 +1,7 @@
-#! xfail NEW-T23-1
 # T2.3 regression (bench/diff/reduce_regress.py, minimised by reduce.py --shrink): expectation = the contract
 # (reduce_ref.py step model, DESIGN.md 15.5.3 / 15.5.4), never Bend's output. Kind: minmax desc max
 # describe max of [NaN, 1, 2] must be 2 (and min 1): the min/max rule of 15.5.2 skips NaN; Polars 2.0.0 describe agrees.
-# Bend answers max = NaN (describe reads the extremes off the NaN-greatest sort).
+# Fixed (NEW-T23-1): describe takes min/max from Eval.agg Min/Max (K.Kernel.fmin/fmax), not from the NaN-greatest sort.
 #
 import Base
 import ./../../frame.bend as DF

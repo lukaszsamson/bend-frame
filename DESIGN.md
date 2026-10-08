@@ -1663,14 +1663,22 @@ Join.run makes first). Differences:
    (eager, raw and optimised lazy) dumps (8.46M chars) in ~1.5 s each; a 448 x 448 self join
    (200,704 rows) dumps fully; `from_scalars` of 200,000 scalars; group_by, sort, filter, select,
    with_columns and `Fmt.show` over the 202,800-row frame.
-4. **Still open (NEW-2 class, interpreter only)**: `Csv.read` of `bench/data/sales_100000.csv`
-   (already before this change) and `Csv.render` / `write_csv` of a ~2^15-row frame overflow in the
-   interpreter (`Csv.cells`, `Csv.zip`, `Csv.zip_pre`, `List.replicate`, `String.concat` in
-   `Csv.render.t`, `List.length` over records in `Csv.rows`, ...); native runs are fine.
+4. **NEW-2, CSV (fixed in the M1 cleanup)**: `Csv.read` of `bench/data/sales_100000.csv` and
+   `Csv.render` / `write_csv` of >= 2^15 rows overflowed the interpreter (`Csv.conv`, `Csv.rec_lines`,
+   `Csv.cells`, `Csv.zip`, `Csv.zip_pre`, `List.replicate`, `String.concat` in `Csv.render.t`,
+   `List.length` over records). Now: tail loops where the loop is cold (`Csv.take_rows`,
+   `Csv.drop_blank`, `K.Kernel.count` for lengths, `Csv.nls`), and a 16-rows-per-call recursion on the hot
+   per-cell / per-row loops (a plain accumulate-and-reverse loop cost ~30% of the native parse, and the
+   rest of the write ~20%; native parse of sales_100000.csv is unchanged within 2%, the 1M-row write
+   +8%). The interpreter reads the 100k file in ~2.6 s (dump FNV equal to Polars') and rewrites it
+   byte for byte; csvparse.bend's walk was already a tail call. A separator String dup'd per row
+   (`zip_pre(.., +pre: String)`) overflowed regardless: `Csv.zip_pre` takes the separator as a U32.
+   Capacity of the interpreter is now ~500k rows per column (depth n / 16).
 5. Tests: `tests/regress/NEW_1_static_checks_first.bend`, `tests/regress/NEW_2_interp_large_results.bend`
    (specs of the same names in `bench/contract/regress_expect.py`; NEW-2's expected dump summaries
    are computed there from a plain-Python join); `tests/diff/d0001.bend`, `d0002.bend` lost
-   `#! xfail NEW-1`.
+   `#! xfail NEW-1`. CSV: `tests/regress/NEW_2_interp_csv_large.bend` (50,000 rows rendered, written,
+   read back eager / raw / opt; spec `NEW_2_interp_csv_large` builds the CSV text and the dump in Python).
 
 ### M1 B03 (numerics: 15.5, rows B03-a..q)
 
@@ -1722,16 +1730,20 @@ Join.run makes first). Differences:
 1. **Result of 2 x 2000 generated cases (about 1.1M input rows each)**: sum and mean (eager `select`,
    eager and lazy `group_by`) and describe's mean/std equal the 15.5.3/15.5.4 step model bit for bit and lie
    within the derived error bound (bench/diff/README.md, "T2.3"); no numerical defect.
-2. **15.5.4's "verified" `std [1,2,4] = 1.5275252`, `var = 2.3333333` are the correctly rounded values**;
-   the specified algorithm and Bend give 1.5275253 / 2.3333335 (1 ulp above, inside the bound). The text
-   of 15.5.4 is left as is; r0006 pins the algorithm's value.
-3. **describe's min and max are not the 15.5.2 min/max** (open, `#! xfail NEW-T23-1`, `NEW-T23-2`):
-   `describe` of `[NaN, 1, 2]` answers max `NaN` (min/max and Polars 2.0.0 skip NaN: 2), and of
-   `[0.0, -0.0]` answers min `0.0` (the first tied row; min/max and Polars: `-0.0`). Cause: describe reads
-   its extremes off the stable NaN-greatest sort. `std` of a constant column is not 0 (see IMPLEMENTING.md).
+2. **15.5.4's quoted `std [1,2,4] = 1.5275252`, `var = 2.3333333` were the correctly rounded values**;
+   the specified algorithm and Bend give 1.5275253 / 2.3333335 (1 ulp above, inside the bound). 15.5.4
+   now says so (algorithm = contract); r0006 pins the algorithm's value.
+3. **describe's min and max were not the 15.5.2 min/max (fixed, NEW-T23-1/2)**: `describe` of `[NaN, 1, 2]`
+   answered max `NaN` and of `[0.0, -0.0]` min `0.0` (min/max and Polars 2.0.0: `2`, `-0.0`), because it read
+   its extremes off the stable NaN-greatest sort. `Fmt.describe` now takes min and max from
+   `Eval.agg Min/Max` (K.Kernel.fmin/fmax). Its quantile rows stay the sort's nearest rank, which IS
+   Polars' `describe` (`interpolation="nearest"` is its default; checked with 2.0.0: `[1,2,3,4]` gives
+   25% 2, 50% 3, 75% 3): describe's "50%" is therefore not the 15.5.4 `median` for an even count
+   (2.5 for the same data); that is intended, and documented in src/fmt.bend. `std` of a constant
+   column is not 0 (see IMPLEMENTING.md).
 4. `Std/Var/Median` AggOps do not exist yet; the checks for them are in `reduce_ref.py`/`reduce.py` and
    switch on when `frame.bend` defines `DF.std`, `DF.var`, `DF.median`. describe's "50%" is the nearest
-   rank, not the 15.5.4 median for even counts (checked as the nearest rank).
+   rank, not the 15.5.4 median for even counts (see 3; checked as the nearest rank).
 
 ## 15. v0.1 contract (frozen)
 
@@ -2157,10 +2169,20 @@ median: sort the valid cells by the 15.5.2 order (NaN greatest); n = 0 -> null;
 The even formula cannot overflow (`[-3e38, 3e38] -> 0.0`, Polars `0.0`;
 `[3e38, 3e38] -> 3e38`) and gives `NaN` for `[inf, -inf]` (Polars NaN). Known sign
 difference: `median([-0.0, 0.0])` is `0.0` here and `-0.0` in Polars (equal under
-15.5.2; the T2.2 oracle canonicalises the sign of zero for median). Verified: `std
-[1,2,4] f32 = 1.5275252`, `var = 2.3333333`; `std` of one value / empty / all-null =
+15.5.2; the T2.2 oracle canonicalises the sign of zero for median). Worked example
+`std/var [1,2,4] f32`: the correctly rounded values (exact var 7/3, std 1.5275252316..) are
+`var = 2.3333333`, `std = 1.5275252`, but the algorithm above does NOT return them: `m` rounds
+to 2.3333333, the squares `(x - m)^2` and their sum are f32, so it yields `var = 2.3333335` and
+`std = 1.5275253` (0x3fc385f3), one ulp above, inside the error bound of 15.5.3. The algorithm is
+the contract (tests/diff/r0006.bend pins it, Bend equals it bit for bit), not the correctly
+rounded value. `std` of one value / empty / all-null =
 null; `median [3,1,2] = 2`, `[4,1,2,3] = 2.5`, `[1,null,3,10] = 3`, `[1,NaN,3] = 3`,
 `[] = null`. Result dtype f32 for u32/i32 inputs (Polars f64: documented).
+`describe`'s rows are not this median: its min and max are the 15.5.2 min/max (NaN skipped, `-0.0 < 0.0`
+on a tie), and its "25%", "50%", "75%" are the NEAREST-rank quantiles `sorted[round(p * (n - 1))]`
+(half away from zero) of the 15.5.2-sorted valid cells, which is Polars `describe` with its default
+`interpolation="nearest"` (Polars 2.0.0: `[1,2,3,4]` -> 25% 2, 50% 3, 75% 3). So for an even `n` the "50%" cell is
+the upper middle value, while `DF.median` gives the interpolated `lo*0.5 + hi*0.5`.
 
 #### 15.5.5 cast and try_cast
 
@@ -2442,7 +2464,7 @@ counts such programs apart (`inadmissible_for_T2.1`, bench/diff/README.md);
 | B05-h | the proof negative check (`2^(d+1)` slots) is not a kept test (Fable 6) | plan T5 | M0 |
 | B05-i | README overclaims: "byte-identical", "48 laws" without the schema/shape caveat (Fable 8, Astra 5) | plan G7 | M6 |
 | NEW-1 | eager `select` / `group_by` evaluated data (a failing strict cast) before their static `DuplicateColumn` check, which lazy reports first; eager `sort` reported the LAST missing key; eager `group_by` checked the row cap before `DuplicateColumn` (bench/diff seed 1: tests/diff/d0001, d0002) | 15.9 order of errors | M1 (fixed) |
-| NEW-2 | the interpreter (`bend file.bend`) overflowed the host stack on results of ~2^15 rows or more: `DF.dump` and `Column.from_scalars` recursed once per row (the native binary is fine) | 15.1, 15.8 | M1 (fixed for dump / from_scalars; CSV read / write still overflow, DESIGN.md 14) |
+| NEW-2 | the interpreter (`bend file.bend`) overflowed the host stack on results of ~2^15 rows or more: `DF.dump` and `Column.from_scalars` recursed once per row (the native binary is fine) | 15.1, 15.8 | M1 (fixed for dump / from_scalars and CSV read / write, DESIGN.md 14) |
 
 Rows marked M0 are fixed in M0 itself (harness and tests); every other row gets an
 `#! xfail <ID>` regression in M0 (eager, raw-lazy and optimised-lazy where
