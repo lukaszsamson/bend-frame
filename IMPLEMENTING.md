@@ -525,3 +525,28 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
   (`Eval.static`, `Grp.static`, `Sort.miss`) placed in front of the evaluation, not edits of the
   shared ones.
 - `(f, i) = r` then `match i:` on the destructured component is accepted (`Sort.frame.b`).
+
+## T2.3 (F32 reductions vs an exact reference, bench/diff/reduce*.py)
+
+- **A literal list of ~10k elements overflows the interpreter's stack** ("machine stack overflowed
+  (a deep recursion, or a literal too large to expand)"). Build big columns from chunks of ~100
+  literals, one `def` per chunk (`def c_x0() -> List<&2, D.Scalar>: [...]`), joined by
+  `List.concat(&2, D.Scalar, [c_x0(), c_x1(), ...])`; a 10k-row frame then costs ~0.4 s per use.
+  A frame def is re-evaluated at every call, which is fine for eager/lazy runs of one case.
+- There is no `F32.from_bits`: write an f32 literal as its shortest decimal (`model.f32_text`), and put
+  an `in` dump of the frame in the same program so a parse that differs in a last bit is caught by
+  comparing the dumped bits with the intended ones (none differed in 2 x 2000 cases, subnormals and
+  3.4e38 included).
+- **`DF.dump` makes sums comparable bit for bit**: Neumaier + guard (15.5.3) is deterministic, so the
+  reference is a numpy float32 re-implementation of the algorithm plus a rigorous error bound against
+  exact integer arithmetic (every f32 is an integer multiple of 2^-149). Bend equals the model in
+  every case, eager, grouped, lazy and in describe.
+- The std of a CONSTANT column is not 0 under 15.5.4: `fsum(x)/n` rounds twice, so for
+  `n * x` not representable the mean is x +- 1 ulp and std = `sqrt(n delta^2/(n-1))` (e.g. 46 copies of
+  123456.79 -> std 0.0079). Polars answers 0.0. Within the contract; a post-pass `m = m` correction
+  would need a contract change (not made).
+- DESIGN.md 15.5.4 quotes `std [1,2,4] = 1.5275252`, `var = 2.3333333` (correctly rounded values); the
+  algorithm as specified (squares rounded to f32) gives 1.5275253 / 2.3333335, one ulp above, and Bend
+  does exactly that (tests/diff/r0006.bend pins it).
+- Neumaier's `c` is an f32: `[1e8, 1e16, 1, .5, -1e8, -1e16, .25]` sums to 0.25, not 1.75 (the bound
+  `gamma^2 * sum|x|` allows ~2.6e3). It is the specified result, not a defect.

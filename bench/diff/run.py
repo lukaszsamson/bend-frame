@@ -1,6 +1,7 @@
 """Run N generated cases for a seed against the current main and compare.
 
     cd bench && uv run python diff/run.py --seed 1 --n 1000
+    python run.py --reductions --seed 1 --n 2000   # T2.3, see reduce.py
     python run.py --seed 1 --n 1000 [--backend interp|native|both] [--batch 200] [--jobs 6]
                   [--out failures.json] [--features reductions] [--all] [--keep]
 
@@ -47,6 +48,13 @@ def _oracle_one(args):
 
 
 def main(argv=None):
+    # T2.3 (F32 reductions against an exact reference) lives in reduce.py; `run.py --reductions ...`
+    # hands the remaining arguments to it (bench/diff/README.md, "T2.3")
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if "--reductions" in argv:
+        argv.remove("--reductions")
+        import reduce as _reduce
+        return _reduce.main(argv)
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--n", type=int, default=1000)

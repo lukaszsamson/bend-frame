@@ -68,3 +68,18 @@ diff:
 # regenerate the helper module tests/diff/lib/dx.bend after frame.bend gained verbs
 diff-lib:
 	cd bench && uv run python diff/gen.py --lib
+
+# ---- T2.3: F32 reductions vs an exact reference (bench/diff/reduce.py, plans/M_01.txt T2.3) -----
+# make diff-reduce [SEED=1] [REDUCE_N=2000] [REDUCE_ARGS="--shrink --classes cancel,special"]
+# Sum/mean (eager, grouped, lazy) and describe (mean/std/quantiles) of generated F32 vectors against
+# the exactly rounded value, the contract's step model and the derived error bound; reports how
+# often Bend equals the correctly rounded f32. Exits 1 on a numerical defect (a bound or IEEE-special
+# violation, a null where none is due, lazy != eager, a wrong group order). `make diff-reduce-selftest`
+# checks the reference itself and that weaker summations (naive, Kahan, no guard) are flagged.
+.PHONY: diff-reduce diff-reduce-selftest
+REDUCE_N ?= 2000
+diff-reduce:
+	cd bench && uv run python diff/reduce.py --seed $(SEED) --n $(REDUCE_N) $(REDUCE_ARGS)
+
+diff-reduce-selftest:
+	cd bench && uv run python diff/reduce.py --selftest

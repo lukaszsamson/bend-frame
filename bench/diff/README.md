@@ -24,6 +24,7 @@ uv run python diff/gen.py --lib                          # regenerate tests/diff
 | T2.1 | eager vs raw lazy (`DF.collect_raw`); raw vs `DF.collect`; raw vs `DF.collect_full` | none: `bench/check.py` `compare_dumps`; only the contract's NaN-payload rule (15.1 rule 3). Errors and row order count. |
 | T2.2 | eager dump vs `oracle.py` | same |
 | T2.4 | interpreter vs natively compiled program (`--backend both`) | same |
+| T2.3 | F32 reductions vs an exact reference, see "T2.3" below | derived bound, not bit equality |
 
 A symptom is reported once: a lazy result equal to the eager one is not reported against the
 oracle again (same defect). Classes: `T2.2 eager`, `T2.1 eager!=raw`, `T2.1 raw!=opt`, `T2.1 raw!=full`,
@@ -51,6 +52,7 @@ eager-vs-lazy comparison and is counted apart (`inadmissible_for_T2.1`). DESIGN.
 | `classify.py` | rules mapping a minimised failure to a 15.10 defect ID; unmatched = NEW |
 | `shrink.py` | the minimiser and the writer of permanent `tests/diff/dNNNN.bend` regressions |
 | `run.py` | the driver (`make diff`) |
+| `reduce.py`, `reduce_gen.py`, `reduce_ref.py`, `reduce_shrink.py`, `reduce_regress.py`, `reduce_selftest.py` | T2.3 (`make diff-reduce`), below |
 
 ## The grammar is table driven
 
@@ -116,7 +118,99 @@ run with Bend's message (it does not bisect).
   like numpy (a double rounding could differ in a last bit for exotic literals; the pools avoid them).
 * The oracle takes -0.0 = 0.0 ties from the contract, not from Polars (Polars orders -0.0 first in a
   sort), and reductions over a scalar argument (`lit(1).sum()` is 1) as Polars does.
-* T2.3 (reductions against an f64 reference) is not part of this generator.
+* T2.3 (reductions against an exact reference) is a separate driver, `reduce.py` (below), not part of the program generator.
 * NaN payloads are not compared (contract); an x86-64 run may print other NaN bits.
 * Guessed, untested until the facade has them: the eager `concat_vertical` wrapper and the
   signatures of `drop`, `rename`, `slice`, `tail`, `unique`, `semi_join`, `anti_join`.
+
+## T2.3: F32 reductions against an exact reference
+
+```
+make diff-reduce SEED=1 REDUCE_N=2000                  # ~2.5 min: 2000 cases, ~1.1M input rows
+cd bench && uv run python diff/reduce.py --seed 1 --n 2000 --classes cancel,special   # some generator classes only
+uv run python diff/reduce.py --seed 1 --n 2000 --shrink [--write --xfail NEW-7]       # minimise one case per finding group
+uv run python diff/run.py --reductions --seed 1 --n 2000                              # the same, through run.py
+make diff-reduce-selftest                                                             # the reference's own tests + mutants
+uv run python diff/reduce_regress.py                                                  # rewrite tests/diff/r0001..r0006.bend
+```
+
+`reduce_gen.py` makes a frame `t(g: u32, x: f32)` per case (seed and index fix it): 0..10 000 rows
+(biased to 4..64, 3 % empty, ~3 % at 5k-10k), a class of values (`uniform`, `wide` exponents,
+`cancel` = `[1e8, 1, -1e8]`-style / alternating / near-pairs / ladders, `equal`, `tinyhuge` = many
+tiny and one huge, `special` = inf / -inf / NaN / -0.0 injected, `zeros`, small `ints`, `subnormal`,
+`ordered`), null rates 0 / 5 / 10 / 50 / 90 / 100 %, and a group layout (1, 2, 3, 7, 64, n/2, n
+groups; keys `mod`, random, blocks, one-big-plus-singletons, ids shuffled). Frames are built from
+literal chunks of 100 joined by `List.concat` (a 10k literal list overflows the interpreter's stack);
+the literals are shortest-decimal f32 text, and the `in` dump of every case is compared with the
+intended bits before anything else is checked (so a literal that parsed differently is an
+infrastructure error, not a reduction defect). Each case prints, through `DF.dump`:
+
+| tag | what runs |
+|-----|-----------|
+| `in` | the input frame |
+| `sel_e` / `sel_r` / `sel_f` | `select([x.sum() as s, x.mean() as m])` eager / `DF.collect_raw` / `DF.collect_full` |
+| `grp_e` / `grp_r` / `grp_f` | `group_by([g], [same])` eager / raw lazy / fully optimised |
+| `desc` | `DF.describe` of the `x` column alone (count, null_count, mean, std, min, 25/50/75 %, max) |
+
+`std`, `var` and `median` are emitted as extra aggregations (`s, m, std, var, median` columns) as
+soon as `frame.bend` defines `DF.std` / `DF.var` / `DF.median` (`reduce_gen.available_aggs`); the
+checks for them (`reduce_ref.model_std/var/median`, bounds (3)-(4)) are already in and exercised
+through describe's std. Until the AggOps land, describe is the only std source, and describe's
+"50%" is the nearest-rank quantile (idx = round(0.5 (n-1)) half away), which is NOT the contract's
+median for even n (`lo*0.5 + hi*0.5`): it is checked as the nearest rank, not as the median.
+
+### Three references, three kinds of check
+
+1. **Exact.** The inputs are f32 bit patterns; sums are Python integers in units of 2^-149 (every f32
+   is such a multiple), so sum, mean, centred sum of squares are exact rationals (`reduce_ref.Exact`)
+   and `round_f32` rounds them ONCE, to nearest even (tested against numpy, ties and the overflow tie
+   `2^128 - 2^103 -> inf` included). "`==RN`" below counts results bit-equal to that value.
+2. **Model.** DESIGN.md 15.5.3 / 15.5.4 re-implemented step by step with numpy float32 scalars
+   (Neumaier with the non-finite guard in ascending row order; two-pass var/std with every term in
+   f32; the median definition; describe's nearest ranks). The contract makes the reduction order
+   part of the semantics, so Bend must equal it bit for bit (`model` findings).
+3. **Bound.** For finite data whose guarded run stays finite, the answer must lie within a derived
+   absolute error of the exact value (`bound` findings). The derivation (full text in
+   `reduce_ref.py`'s docstring), u = 2^-24, gamma_k = ku/(1-ku), n valid cells, S the exact sum,
+   A = sum |x_i|:
+   * sum: `|res - S| <= u|S| + gamma_{n-1}^2 A` (Ogita-Rump-Oishi "Sum2", Prop. 4.4: Neumaier's
+     branch makes every step an exact Fast2Sum, `c` collects the n-1 errors in f32, then `s + c`).
+     The first term is the last rounding, the second the price of an f32 `c`. For n = 1e4
+     `gamma^2 ~ 6u`; for `[1e8, 1, -1e8]` it is ~1e-14, so the answer is exactly 1, while a naive f32
+     sum is off by 1 and violates the bound by many orders. Plus 2^-148 slack (subnormals).
+   * mean `= fl(s_hat / n)`: `(B_sum + u(|S| + B_sum)) / n` + slack.
+   * var / std (ddof 1) about the f32 mean m_hat the algorithm used: each term
+     `fl(fl(x - m_hat)^2)` has relative error <= (1+u)^3 - 1 (+ 2^-150 when it underflows), the terms
+     are non-negative so Sum2 applies with A = S, the exact sum about m_hat is the centred sum plus
+     `n (mu - m_hat)^2`, one more rounding for `/ (n-1)`; std: `|sqrt a - sqrt b| <=
+     min(|a-b| / sqrt b, sqrt|a-b|)` plus `u * std`. For a constant column (exact variance 0) the
+     answer is `sqrt` of the squared mean error, which the bound includes (below).
+   The bound is sharp: `err/bound` reaches 0.9999+ on correctly rounded results (a half-way sum
+   16777219 -> 16777220: the last rounding is a whole `u|S|`), so it is not slack in disguise.
+   *Tight tier*: if the data are well conditioned (`A <= 2|S|`) and n <= 256, sum must be within 1 ulp and
+   mean within 2 ulp of the correctly rounded value (`tight` findings; follows from the bound since
+   `u|S| <= 1 ulp`).
+   Cases where a partial sum (or a square, in std) of FINITE data overflows are "overflow": the
+   contract's guard answers inf/NaN (`[3e38, 3e38, -3e38]` -> inf though the exact sum is finite);
+   Bend must equal the model, and these are counted apart.
+
+Non-finite data ("special") are tested apart, against IEEE's order-independent answer
+(any NaN -> NaN; +inf with -inf -> NaN; else the inf; std/var of n >= 2 with any non-finite value
+-> NaN; n < 2 -> null) as well as against the model. Empty and all-null samples: sum 0.0 (`+0.0`
+bits), mean null, std null; sums of `-0.0` are `+0.0` (the accumulator starts at `+0.0`).
+Cancellation (`cancel`: conditioning A/|S| > 16 or S = 0) is reported as its own category: its ulp
+errors are huge by construction (the answer may be 1 against inputs of 1e8), only the bound applies.
+
+Also checked: raw-lazy and optimised-lazy text equals the eager text (`lazy`), grouped result rows are in
+first-appearance order with the right keys and height (`order`/`shape`), a group of all-null rows
+has sum 0.0 / mean null, describe's `count`/`null_count`, its min/25/50/75/max against the
+stable-sorted valid cells at nearest ranks (`order`), and describe's min/max against the min/max rule of
+15.5.2 (`minmax`, an observation until fixed: NEW-T23-1/2). `--selftest` also runs the checker over
+fake outputs from mutants (naive f32 sum, Kahan without Neumaier's branch, an f64 accumulator, Neumaier
+without the guard): the faithful model produces no finding, each weaker sum is flagged, and the f64
+accumulator violates only the bit-exact model check, never the bound, as it should.
+
+Exit status is 1 on a `bound`, `special`, `null`, `err`, `lazy`, `order`, `shape`, `model` or `tight` finding, a
+crash or an infrastructure error (a `model` mismatch means Bend did not follow the contract's reduction
+order: the selftest asserts the faithful model gives none). `minmax` findings (describe's min/max versus
+15.5.2) are printed but do not fail the run while NEW-T23-1/2 are open (the xfail tests pin them).

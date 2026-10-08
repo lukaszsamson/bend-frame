@@ -1717,6 +1717,22 @@ Join.run makes first). Differences:
    and grouped runs pass, the lazy `select` of a reduction still needs B04-a. B04-j's eager and
    raw-lazy runs now match the contract; only the optimised runs differ (barrier rules, B04-j).
 
+### T2.3 (F32 reductions against an exact reference; bench/diff/reduce.py)
+
+1. **Result of 2 x 2000 generated cases (about 1.1M input rows each)**: sum and mean (eager `select`,
+   eager and lazy `group_by`) and describe's mean/std equal the 15.5.3/15.5.4 step model bit for bit and lie
+   within the derived error bound (bench/diff/README.md, "T2.3"); no numerical defect.
+2. **15.5.4's "verified" `std [1,2,4] = 1.5275252`, `var = 2.3333333` are the correctly rounded values**;
+   the specified algorithm and Bend give 1.5275253 / 2.3333335 (1 ulp above, inside the bound). The text
+   of 15.5.4 is left as is; r0006 pins the algorithm's value.
+3. **describe's min and max are not the 15.5.2 min/max** (open, `#! xfail NEW-T23-1`, `NEW-T23-2`):
+   `describe` of `[NaN, 1, 2]` answers max `NaN` (min/max and Polars 2.0.0 skip NaN: 2), and of
+   `[0.0, -0.0]` answers min `0.0` (the first tied row; min/max and Polars: `-0.0`). Cause: describe reads
+   its extremes off the stable NaN-greatest sort. `std` of a constant column is not 0 (see IMPLEMENTING.md).
+4. `Std/Var/Median` AggOps do not exist yet; the checks for them are in `reduce_ref.py`/`reduce.py` and
+   switch on when `frame.bend` defines `DF.std`, `DF.var`, `DF.median`. describe's "50%" is the nearest
+   rank, not the 15.5.4 median for even counts (checked as the nearest rank).
+
 ## 15. v0.1 contract (frozen)
 
 The exact semantics every M1-M6 agent codes and tests against. Tables over prose;
