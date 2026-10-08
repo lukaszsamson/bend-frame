@@ -38,9 +38,14 @@ import ./column.bend as C
 import ./strs.bend as ST
 import ./schema.bend as S
 
+# Semi / Anti (M3, DESIGN.md 15.2.4): the left rows with / without a match, left
+# columns only, each left row at most once, in left order (a null key never matches,
+# so anti keeps it)
 type JoinHow is Data:
   Inner{}
   Left{}
+  Semi{}
+  Anti{}
 
 # one checked key pair
 type KeySpec is Data:
@@ -114,13 +119,17 @@ def JoinHow.show(h: JoinHow) -> String:
       "inner"
     case Left{}:
       "left"
+    case Semi{}:
+      "semi"
+    case Anti{}:
+      "anti"
 
 def JoinHow.is_left(h: JoinHow) -> Bool:
   match h:
-    case Inner{}:
-      False{}
     case Left{}:
       True{}
+    case _:
+      False{}
 
 def Join.dead() -> U32:
   4294967295
@@ -222,6 +231,28 @@ def Join.schema.a(ks: E.Res(List<&2, KeySpec>), +ls: List<&2, S.Field>, rs: List
 # TypeMismatch{"join", left dtype, right dtype}, DuplicateColumn
 def Join.schema(+ls: List<&2, S.Field>, +rs: List<&2, S.Field>, left_on: List<&2, String>, +right_on: List<&2, String>) -> E.Res(List<&2, S.Field>):
   Join.schema.a(Join.keys(left_on, right_on, ls, rs), ls, rs, right_on)
+
+def Join.schema.semi.k(ks: E.Res(List<&2, KeySpec>), ls: List<&2, S.Field>) -> E.Res(List<&2, S.Field>):
+  match ks:
+    case Fail{e}:
+      Fail{e}
+    case Done{k}:
+      Done{ls}
+
+# the output schema of a semi / anti join: the key checks of Join.schema (same order, same
+# texts), then the left fields alone (no right column, so no `_right` and no DuplicateColumn)
+def Join.schema.semi(+ls: List<&2, S.Field>, +rs: List<&2, S.Field>, left_on: List<&2, String>, right_on: List<&2, String>) -> E.Res(List<&2, S.Field>):
+  Join.schema.semi.k(Join.keys(left_on, right_on, ls, rs), ls)
+
+# the output schema of a join of any kind (Plan.schema and Join.run both use it)
+def Join.schema.how(how: JoinHow, +ls: List<&2, S.Field>, +rs: List<&2, S.Field>, left_on: List<&2, String>, +right_on: List<&2, String>) -> E.Res(List<&2, S.Field>):
+  match how:
+    case Semi{}:
+      Join.schema.semi(ls, rs, left_on, right_on)
+    case Anti{}:
+      Join.schema.semi(ls, rs, left_on, right_on)
+    case _:
+      Join.schema(ls, rs, left_on, right_on)
 
 # ---- strings: hash and equality -------------------------------------------------------
 
@@ -799,6 +830,8 @@ def Tot.run(+how: JoinHow, +n: U32, ms: Array<U32>) -> Array<U32> & TA:
       K.Kernel.fold(~U32, ~TA, ~(acc => m => Tot.inner(acc, m)), n, ms, TA{0, 0, 0})
     case Left{}:
       K.Kernel.fold(~U32, ~TA, ~(acc => m => Tot.left(acc, m)), n, ms, TA{0, 0, 0})
+    case _:
+      K.Kernel.fold(~U32, ~TA, ~(acc => m => Tot.inner(acc, m)), n, ms, TA{0, 0, 0})
 
 def Emit.one.k(+i: U32, +k: U32, pl: Array<U32>, pr: Array<U32>, vr: Array<U32>, r: Array<U32> & U32) -> FS:
   (rows, x) = r
@@ -984,10 +1017,44 @@ def Join.probe(+how: JoinHow, +lnames: List<&2, String>, +right_on: List<&2, Str
     case CSR{counts, starts, rows}:
       Join.probe.a(how, lnames, right_on, nl, lcols, rcols, starts, rows, K.Kernel.gather(~U32, nl, K.Kernel.depth_for(nl), counts, accl, 0))
 
+# ---- semi / anti: a 0/1 mask over the left rows from their match counts ---------------------------
+
+def Join.semi.mask(anti: Bool, +nl: U32, ms: Array<U32>) -> Array<U32>:
+  match anti:
+    case True{}:
+      K.Kernel.map(~U32, ~U32, ~(m => Bool.to_u32(U32.is_eq(m, 0))), nl, K.Kernel.depth_for(nl), ms, 0)
+    case False{}:
+      K.Kernel.map(~U32, ~U32, ~(m => Bool.to_u32(U32.is_ne(m, 0))), nl, K.Kernel.depth_for(nl), ms, 0)
+
+def Join.semi.fin(+nl: U32, lcols: List<&1, C.Named>, r: Array<U32> & U32) -> E.ResT(C.Frame):
+  (mask, +kept) = r
+  Done{C.Frame.filter_mask(C.Frame{nl, lcols}, mask, kept)}
+
+def Join.semi.b(anti: Bool, +nl: U32, lcols: List<&1, C.Named>, r: Array<U32> & Array<U32>) -> E.ResT(C.Frame):
+  (ms, accl) = r
+  Join.semi.fin(nl, lcols, K.Kernel.popcount(nl, Join.semi.mask(anti, nl, ms)))
+
+# the left rows with a match (semi) or without one (anti), left columns only, left order; m[i] =
+# counts[g] is left row i's match count (a null or missing key has the DEAD id, whose count is 0).
+# The right frame is dropped. Never more rows than the left input (no row cap needed, 15.8).
+def Join.semi(anti: Bool, +nl: U32, lcols: List<&1, C.Named>, rcols: List<&1, C.Named>, accl: Array<U32>, csr: CSR) -> E.ResT(C.Frame):
+  match csr:
+    case CSR{counts, starts, rows}:
+      Join.semi.b(anti, nl, lcols, K.Kernel.gather(~U32, nl, K.Kernel.depth_for(nl), counts, accl, 0))
+
+def Join.go.k(how: JoinHow, +lnames: List<&2, String>, +right_on: List<&2, String>, +nl: U32, lcols: List<&1, C.Named>, rcols: List<&1, C.Named>, accl: Array<U32>, csr: CSR) -> E.ResT(C.Frame):
+  match how:
+    case Semi{}:
+      Join.semi(False{}, nl, lcols, rcols, accl, csr)
+    case Anti{}:
+      Join.semi(True{}, nl, lcols, rcols, accl, csr)
+    case other:
+      Join.probe(other, lnames, right_on, nl, lcols, rcols, accl, csr)
+
 def Join.go(+how: JoinHow, +lnames: List<&2, String>, +right_on: List<&2, String>, st: JS) -> E.ResT(C.Frame):
   match st:
     case JS{first, +g, +nl, +nr, lcols, rcols, accl, accr}:
-      Join.probe(how, lnames, right_on, nl, lcols, rcols, accl, Join.csr(g, nr, accr))
+      Join.go.k(how, lnames, right_on, nl, lcols, rcols, accl, Join.csr(g, nr, accr))
 
 # ---- entry ------------------------------------------------------------------------------------------
 
@@ -1015,12 +1082,13 @@ def Join.run.b(+how: JoinHow, chk: E.Res(List<&2, S.Field>), +left_on: List<&2, 
 def Join.run.a(+how: JoinHow, +left_on: List<&2, String>, +right_on: List<&2, String>, rl: C.Frame & List<&2, S.Field>, rr: C.Frame & List<&2, S.Field>) -> E.ResT(C.Frame):
   (left, +ls) = rl
   (right, +rs) = rr
-  Join.run.b(how, Join.schema(ls, rs, left_on, right_on), left_on, right_on, ls, rs, left, right)
+  Join.run.b(how, Join.schema.how(how, ls, rs, left_on, right_on), left_on, right_on, ls, rs, left, right)
 
 # join two frames on left_on[i] == right_on[i] (equal dtypes, nulls never
 # match). Output: every left column, then the right columns minus right_on
 # (a name clashing with a left column gets `_right`); rows in left order, the
 # matches of a left row in right order; a left join keeps unmatched left rows
-# with null right columns. Errors (before any work): see Join.schema.
+# with null right columns. Semi / Anti keep the left rows with / without a match (left
+# columns only, left order, each row once). Errors (before any work): see Join.schema.how.
 def Join.run(+how: JoinHow, left: C.Frame, right: C.Frame, +left_on: List<&2, String>, +right_on: List<&2, String>) -> E.ResT(C.Frame):
   Join.run.a(how, left_on, right_on, S.Frame.schema(left), S.Frame.schema(right))

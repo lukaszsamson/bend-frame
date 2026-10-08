@@ -131,9 +131,21 @@ def no_adjacent_filters(p: P.Plan) -> Bool:
       Bool.and(Bool.not(is_filter(x)), no_adjacent_filters(x))
     case P.Sort{ks, x}:
       no_adjacent_filters(x)
+    case P.Drop{ks, x}:
+      no_adjacent_filters(x)
+    case P.Rename{ks, x}:
+      no_adjacent_filters(x)
+    case P.Slice{ks, kl, x}:
+      no_adjacent_filters(x)
+    case P.Tail{ks, x}:
+      no_adjacent_filters(x)
+    case P.Unique{ks, x}:
+      no_adjacent_filters(x)
     case P.GroupBy{ks, ags, mo, x}:
       no_adjacent_filters(x)
     case P.Join{how, lo, ro, l, r}:
+      Bool.and(no_adjacent_filters(l), no_adjacent_filters(r))
+    case P.Concat{ci, l, r}:
       Bool.and(no_adjacent_filters(l), no_adjacent_filters(r))
     case P.Head{n, x}:
       no_adjacent_filters(x)
@@ -161,9 +173,21 @@ def no_adjacent_heads(p: P.Plan) -> Bool:
       no_adjacent_heads(x)
     case P.Sort{ks, x}:
       no_adjacent_heads(x)
+    case P.Drop{ks, x}:
+      no_adjacent_heads(x)
+    case P.Rename{ks, x}:
+      no_adjacent_heads(x)
+    case P.Slice{ks, kl, x}:
+      no_adjacent_heads(x)
+    case P.Tail{ks, x}:
+      no_adjacent_heads(x)
+    case P.Unique{ks, x}:
+      no_adjacent_heads(x)
     case P.GroupBy{ks, ags, mo, x}:
       no_adjacent_heads(x)
     case P.Join{how, lo, ro, l, r}:
+      Bool.and(no_adjacent_heads(l), no_adjacent_heads(r))
+    case P.Concat{ci, l, r}:
       Bool.and(no_adjacent_heads(l), no_adjacent_heads(r))
     case P.Head{n, +x}:
       Bool.and(Bool.not(is_head(x)), no_adjacent_heads(x))
@@ -665,9 +689,21 @@ def merge_only(p: P.Plan) -> Bool:
       merge_only(x)
     case P.Sort{ks, x}:
       merge_only(x)
+    case P.Drop{ks, x}:
+      merge_only(x)
+    case P.Rename{ks, x}:
+      merge_only(x)
+    case P.Slice{ks, kl, x}:
+      merge_only(x)
+    case P.Tail{ks, x}:
+      merge_only(x)
+    case P.Unique{ks, x}:
+      merge_only(x)
     case P.GroupBy{ks, ags, mo, x}:
       merge_only(x)
     case P.Join{how, lo, ro, l, r}:
+      Bool.and(merge_only(l), merge_only(r))
+    case P.Concat{ci, l, r}:
       Bool.and(merge_only(l), merge_only(r))
     case P.Head{n, x}:
       merge_only(x)

@@ -71,9 +71,11 @@ plan verb with its static schema rule. The generator reads `frame.bend` and uses
   printing in `emit.VERB_PARAMS`/`VERB_DECLS`, a generator in `gen.Gen.verb_params`, and one function
   in `oracle.py` (`IMPL` for expressions, `UNARY`/`JOINS` for verbs)).
 
-Verb names follow the contract: eager `DF.<verb>`, lazy `DF.lazy_<verb>`. The wrappers for
-`concat_vertical` (variadic) and the guessed signatures of not-yet-landed verbs are untested until
-the facade has them.
+Verb names follow the contract: eager `DF.<verb>`, lazy `DF.lazy_<verb>`. `concat_vertical` is
+variadic: `DX.e_concat_vertical` and `model.concat_schema` check its inputs one by one (an input's
+own error, then its schema against input 0's, then the next input), which is the order the lazy
+chain of binary `Concat` nodes reports (DESIGN.md 14 "M3 table verbs"); the generator builds it from
+the current plan plus one or two inputs that are the same plan again or a short plan over a source.
 
 ## Generator
 
@@ -82,8 +84,8 @@ rows biased to 0, 1, 2^k-1, 2^k, 2^k+1; columns of the five dtypes; null rates 0
 small value domains (duplicate keys); NaN, +-inf, -0.0 and the cast edge values (2^32, -2^31,
 4294967040, ...); empty strings, tabs, quotes, non-ASCII. Expressions are well typed by
 construction (depth <= 3: arithmetic, comparisons, Kleene logic, fill_null, cast, reductions at any
-depth, ...); plans are 1..4 verbs (select, with_columns, filter, sort, group_by, head, inner/left
-join, ...) with repeated names and aliases on purpose, self joins (a source used twice, B04-b) and
+depth, ...); plans are 1..4 verbs (select, with_columns, filter, sort, group_by, head, inner/left/semi/anti
+join, drop, rename, slice, tail, unique, concat_vertical, ...) with repeated names and aliases on purpose, self joins (a source used twice, B04-b) and
 joins over different sources. About 12 % of the cases are *invalid*: injected unknown columns, wrong
 operand types, bad sort/join keys, group_by without keys, an aggregation key. The oracle gives
 their expected error text from the contract's typing rules (never from Polars).
@@ -121,8 +123,6 @@ run with Bend's message (it does not bisect).
   sort), and reductions over a scalar argument (`lit(1).sum()` is 1) as Polars does.
 * T2.3 (reductions against an exact reference) is a separate driver, `reduce.py` (below), not part of the program generator.
 * NaN payloads are not compared (contract); an x86-64 run may print other NaN bits.
-* Guessed, untested until the facade has them: the eager `concat_vertical` wrapper and the
-  signatures of `drop`, `rename`, `slice`, `tail`, `unique`, `semi_join`, `anti_join`.
 
 ## T2.3: F32 reductions against an exact reference
 
