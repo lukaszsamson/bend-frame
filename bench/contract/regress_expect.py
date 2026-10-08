@@ -811,10 +811,71 @@ def _():
 def _():
     cap = 8388608
     assert 2900 * 2900 == 8410000 > cap
-    return ([("-- B04-i guard", f"{cap}\nnone\nsome InvalidOperation: too many rows: {cap + 1} exceeds {cap}")]
-            + one("B04-i join", "eager", err(f"InvalidOperation: too many rows: 8410000 exceeds {cap}"))
-            + one("B04-i concat-zero-col", "eager", err(f"InvalidOperation: too many rows: {cap + 1} exceeds {cap}"))
-            + one("B04-i concat-at-cap", "eager", frame([], [], height=cap)))
+    assert 65536 * 65536 == 2**32  # the wrapped sum is 0: the join saturates at 2**32 - 1 instead
+    over = lambda n, c: err(f"InvalidOperation: too many rows: {n} exceeds {c}")
+    ones4 = frame([("u32", "x")], [[1]] * 4)
+    return ([("-- B04-i guard", f"{cap}\nnone\nsome InvalidOperation: too many rows: {cap + 1} exceeds {cap}\n"
+                                f"some InvalidOperation: too many rows: {2**32 - 1} exceeds {cap}\nnone\n"
+                                "some InvalidOperation: too many rows: 6 exceeds 5")]
+            + one("B04-i join", "eager", over(8410000, cap))
+            + one("B04-i left-join", "eager", over(8410000, cap))
+            + one("B04-i join-wrap", "eager", over(2**32 - 1, cap))
+            + one("B04-i join-under", "eager", frame([("u32", "k")], [[1]] * 6))
+            + one("B04-i group-by", "eager", over(cap + 1, cap))
+            + one("B04-i group-by-under", "eager", frame([("u32", "k"), ("u32", "n")], [[1, 3]]))
+            + [("-- B04-i from_scalars over", over(4, 3)), ("-- B04-i from_scalars at-cap", ones4),
+               ("-- B04-i from_scalars over-bad-dtype", over(4, 3)), ("-- B04-i from_scalars default-cap", ones4)]
+            + one("B04-i csv over", "eager", over(4, 3))
+            + one("B04-i csv at-cap", "eager", frame([("u32", "a")], [[1], [2], [3], [4]]))
+            + one("B04-i csv over-explicit-dtypes", "eager", over(4, 3))
+            + one("B04-i csv no-header", "eager", over(3, 2))
+            + one("B04-i csv blank-lines-not-counted", "eager", frame([("u32", "a"), ("u32", "b")], [[1, 2], [3, 4]]))
+            + one("B04-i csv header-only", "eager", frame([("str", "a"), ("str", "b")], []))
+            + one("B04-i csv ragged-before-cap", "eager", err("ParseError at line 3: expected 2 fields, got 1"))
+            + one("B04-i csv default-cap", "eager", frame([("u32", "a")], [[1], [2]])))
+
+
+# concat_vertical (M3) waits in pending/B04_i_concat_cap.bend.txt
+@spec("B04_i_concat_cap")
+def _():
+    cap = 8388608
+    return (one("B04-i concat-zero-col", "eager", err(f"InvalidOperation: too many rows: {cap + 1} exceeds {cap}"))
+            + one("B04-i concat-at-cap", "eager", frame([], [], height=cap))
+            + one("B04-i concat-wrap", "eager", err(f"InvalidOperation: too many rows: {2**32 - 1} exceeds {cap}")))
+
+
+# M1 B02 review leftovers (DESIGN.md 14, 15.6.2 / 15.6.3). Polars 2.0.0: `\n\na,b\n1,2\n` reads a:1 b:2
+# (leading blank lines skipped with a header; without one they are null records); the separator
+# refusal and the dtype count on an empty file are contract decisions (no Polars counterpart).
+@spec("B02_m_sep_lead_blank_empty_schema")
+def _():
+    sep = err("InvalidOperation: csv: separator must not be a double quote, CR or LF")
+    ab = frame([("u32", "a"), ("u32", "b")], [[1, 2]])
+    count = lambda d: err(f"InvalidOperation: csv schema: {d} dtypes for 0 columns")
+    return (one("B02-m lead-blank", "eager", ab)
+            + one("B02-m lead-blank-crlf", "eager", ab)
+            + one("B02-m lead-blank-only", "eager", frame([], [], height=0))
+            + one("B02-m lead-blank-one-col", "eager", frame([("u32", "1")], [[2]]))
+            + one("B02-m lead-blank-no-header", "eager", frame([("u32", "column_0")], [[None], [1], [2]]))
+            + one("B02-m inner-blank-unchanged", "eager", frame([("u32", "a")], [[None], [1]]))
+            + one("B02-m lead-blank-line-numbers", "eager", err("ParseError at line 5: expected 2 fields, got 1"))
+            + one("B02-m lead-blank-explicit", "eager", frame([("u32", "a"), ("str", "b")], [[1, "x"]]))
+            + [("-- B02-m infer-lead-blank", "a:u32 b:str ")]
+            + one("B02-m sep-quote", "eager", sep)
+            + one("B02-m sep-lf", "eager", sep)
+            + one("B02-m sep-cr", "eager", sep)
+            + one("B02-m sep-explicit-schema", "eager", sep)
+            + [("-- B02-m sep-infer", "error InvalidOperation: csv: separator must not be a double quote, CR or LF")]
+            + one("B02-m sep-tab-ok", "eager", ab)
+            + one("B02-m sep-semicolon-ok", "eager", ab)
+            + one("B02-m sep-read-file", "eager", sep)
+            + lazy2("B02-m sep-scan", sep)
+            + one("B02-m sep-write", "eager", sep)
+            + one("B02-m sep-write-cr", "eager", sep)
+            + one("B02-m empty-schema-none", "eager", frame([], [], height=0))
+            + one("B02-m empty-schema-count", "eager", count(2))
+            + one("B02-m empty-schema-count-no-header", "eager", count(1))
+            + one("B02-m blank-only-schema-count", "eager", count(1)))
 
 
 def main(argv) -> int:

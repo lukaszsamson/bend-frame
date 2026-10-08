@@ -1574,6 +1574,49 @@ Join.run makes first). Differences:
   leading blank lines); `CsvOpts.sep` is not validated (`'"'`, CR or LF as separator give unreadable
   output); a lone CR at the very end of the input is dropped as a line end (elsewhere a lone CR is
   content); `read_csv_schema` of an empty file is `(0, 0)` without the dtype-count check.
+  (Resolved in M1 B04-i / B02 leftovers below, except the (0, 0) write and the lone CR, which stay.)
+
+### M1 B04-i (row cap) and B02 leftovers
+
+1. **Row cap** (15.8): `K.Kernel.max_rows() = 8388608`, `K.Kernel.check_rows(n) -> Maybe<&2, E.Err>`
+   and `K.Kernel.check_rows.cap(cap, n)` (the same guard with the cap as a parameter, the entry the
+   tests use with a lowered cap; the text then names that cap). `src/kernels.bend` gained one
+   `import ./err.bend as E` line at the top (imports must precede defs) and an appended section.
+   `Kernel.depth_for` is unchanged (it loops to 32; the contract's "capped at 23" is not
+   implemented, the guards make it moot). Paths guarded: `Column.from_scalars` (after the dtype
+   check, before any array: `C.Column.from_scalars.cap`), `Csv.rows` (number of data records after
+   blank-line skipping and the shape checks, so a ragged or bad-dtype-count file reports that error
+   first; `Csv.rows.cap`, `Csv.parse_with.cap`; every read, `read_with` and the `scan_csv` collect go
+   through it), `Join.run` (`Join.fill.a`, from the `Tot` count of the CSR match counts, before
+   `perm_l / perm_r / valid_r`; inner and left; `Tot.sat`), `GroupBy.run` (`GroupBy.run.h`: the
+   input height, which bounds `ng`; ordered after `Grp.validate`'s static errors, before any key is
+   evaluated). **D:** the join total saturates at 2^32 - 1 instead of wrapping (a 65536 x 65536 join
+   would otherwise read 0 rows and pass), so such an error shows `4294967295` rather than the true
+   count (it does not fit a U32). `Concat` does not exist yet: its cases are
+   `tests/regress/pending/B04_i_concat_cap.bend.txt` (M3 must use `check_rows` over a saturating
+   sum). No `DF.max_rows` was added to `frame.bend` (the contract exposes it only in `Kernel`).
+2. **`CsvOpts.sep` / `CsvWriteOpts.sep`**: `"`, CR and LF are refused with
+   `InvalidOperation{"csv: separator must not be a double quote, CR or LF"}` (`Csv.sep_err`) by
+   `Csv.parse_with` (so `read`, `read_with`, `read_csv*`, `scan_csv_schema`'s collect), `Csv.infer`,
+   `Csv.scan_fields_with` (before the file is opened) and the facade `write_csv_opts` (before the file
+   is touched). The src-level `Csv.write_with` also refuses, with an `IoError 22` value (its result
+   type has no `Err` channel), and the pure `Csv.render_with` is unguarded (it has no error channel).
+   The contract said "any single char"; this narrows it (a `"` separator is ambiguous with quoting, CR
+   and LF with line ends). Other chars, including non-ASCII, are unchanged.
+3. **Leading blank lines**: with `has_header = True{}` the blank records before the header are
+   skipped (`Csv.lead`), for read, infer and scan alike; physical line numbers of the later records
+   are unchanged; a file of blank lines only is then the empty file. Without a header they stay data.
+   Polars 2.0.0 does the same (checked).
+4. **`read_csv_schema` on an empty file** (or only blank lines with a header): `Csv.rows.none` runs
+   the dtype-count check against 0 columns, so d > 0 dtypes is `"csv schema: d dtypes for 0 columns"`
+   and `[]` still gives the `(0, 0)` frame. `tests/csv_edge.bend` "schema count empty" changed to the
+   error.
+5. **Kept and documented** (README, 15.6.2): writing a `(0, 0)` frame gives `"\n"`, which reads back as
+   one column named `""` with 0 rows (Polars writes the same); a lone CR at the very end of the input
+   is dropped as a line end (elsewhere a lone CR is content).
+6. Tests: `tests/regress/B04_i_row_cap.bend` (spec `B04_i_row_cap` in `bench/contract/regress_expect.py`),
+   `tests/regress/B02_m_sep_lead_blank_empty_schema.bend` (spec of the same name),
+   `tests/regress/pending/B04_i_concat_cap.bend.txt` (spec `B04_i_concat_cap`).
 
 ### M1 B03 (numerics: 15.5, rows B03-a..q)
 
@@ -2109,16 +2152,17 @@ for Str cells.
 
 | case | behaviour | Polars 2.0.0 |
 |---|---|---|
-| separator | `CsvOpts.sep` (any single char; `','` default); a field holding it is quoted | same |
+| separator | `CsvOpts.sep` (any single char except `"`, CR and LF, which `InvalidOperation{"csv: separator must not be a double quote, CR or LF"}` refuses on read, scan and write; `','` default); a field holding it is quoted | same (Polars: one byte) |
 | escaped quote | `""` inside a quoted field is one `"` | same |
 | multi-line field | CR/LF inside quotes belong to the field; CRLF and LF line ends both accepted | same |
+| blank lines before the header (`has_header = True{}`) | skipped (physical line numbers unchanged; a file of blank lines only is the empty file); with `has_header = False{}` they are data like any blank line | skipped / null rows |
 | blank line, 1 column | a null row (an empty field) | null row |
 | blank line, k > 1 columns | skipped; error line numbers still count it | an all-null row (**D** departure: a blank line is almost always a trailing newline or padding) |
 | ragged short row | `ParseError{line, "expected <k> fields, got <g>"}` (strict) | fills nulls (**D** departure: strict) |
 | ragged long row | same `ParseError` | error |
 | non-ASCII | UTF-8 text verbatim; `len_chars` counts code points (`"日本語"` = 3) | same |
 | header only | `(0, k)` frame with str columns under inference, the given dtypes under a schema | same |
-| empty file | `(0, 0)` frame (**D**; Polars `NoDataError`) | error |
+| empty file | `(0, 0)` frame (**D**; Polars `NoDataError`); with explicit dtypes the count is checked against 0 columns (`"csv schema: <d> dtypes for 0 columns"` for d > 0) | error |
 | `has_header = False{}` | names `column_0 .. column_{k-1}` | same |
 | line numbers in errors | 1-based physical line of the record's first line; the header is line 1 | |
 | malformed quoting | `ParseError{0, "malformed csv"}` | error |
@@ -2208,6 +2252,13 @@ height calls the guard **before** allocating:
 | `GroupBy.run` | number of groups `ng <= h` | not needed (bounded), the cap is asserted anyway in the densify step for the proof invariant |
 | `Eval.bcast`, `filter`, `gather`, `slice`, `head`, `unique`, `sort` | bounded by an input height | unguarded (a well-formed input is already under the cap) |
 | `Env.add` / `Source` | frames come from guarded constructors | unguarded |
+
+Implemented (M1 B04-i): `Kernel.max_rows`, `Kernel.check_rows`, and `Kernel.check_rows.cap(cap, n)`
+(the guard with the cap as a parameter; its text names the cap it got). The paths that exist
+today: `Column.from_scalars` (list length; `Column.from_scalars.cap`), `Csv.rows` (data records after
+the shape checks; `Csv.rows.cap`, `Csv.parse_with.cap`), `Join.run` (`Join.fill.a`, the `Tot` count,
+which saturates at 2^32 - 1 instead of wrapping), `GroupBy.run` (the input height, checked after the
+type errors and before any key is evaluated: `ng <= h`). `Concat` waits for M3. See section 14 "M1 B04-i".
 
 Tests exercise the guard function directly (`check_rows(8388608)` = `None`,
 `check_rows(8388609)` = `Some`) and each path with a cheap over-cap request: a CSV

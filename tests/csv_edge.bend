@@ -297,9 +297,7 @@ def main() -> IO(Unit):
 #|error	InvalidOperation: csv schema: 1 dtypes for 2 columns
 #|
 #|-- schema count empty
-#|frame
-#|height	0
-#|width	0
+#|error	InvalidOperation: csv schema: 1 dtypes for 0 columns
 #|
 #|-- schema bool
 #|error	ParseError at line 3: column a: cannot parse ""x" as bool

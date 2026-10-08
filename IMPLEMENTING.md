@@ -463,3 +463,27 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
 - A strict operation that must report the first failing row cheaply: run the lenient one on a
   clone, compare null counts (`Column.null_count`), and only on a mismatch walk the two validity
   masks (`Valid.materialize(v, 0n)` gives the 1-slot all-ones array for AllValid).
+
+## M1 B04-i (row cap) and B02 leftovers
+
+- **`import` lines must precede every def/type** in a module: an `import ./err.bend as E` appended
+  with a section at the end of a file fails with `expected 'def', 'type' or 'law' / observed 'i'`.
+  Add imports at the top.
+- **Self-recursion must shrink an EARLIER argument first** ("arguments are read left to right: each
+  passed unchanged until one shrinks"): `Csv.lead(go: Bool, rows)` recursing on `rows` with a changed
+  `go` is refused; put the shrinking list first (`Csv.lead(rows, go)`, `match rows go`).
+- A def may not match a computed value, so `(blank, r2) = Csv.lead.is(r)` followed by a call is
+  refused as "a parameter or field scrutinee"; compute the Bool with a tiny helper called twice and
+  duplicate the record with `+r` / `+rt` in the `case`.
+- **A guard that costs nothing on the success path**: carry the `Maybe<&2, E.Err>` from
+  `K.Kernel.check_rows` as the FIRST parameter of a small `match` helper (`Column.fs.cap`,
+  `Csv.rows.c`, `Join.fill.c`, `GroupBy.run.h`) and put the allocating call in the `None` arm.
+- **Parameterise a cap for cheap tests** by threading it through the `.cap` entries (`+cap: U32`
+  first), with the public def calling the `.cap` one at `max_rows()`. A literal 65536-element list
+  built with a non-tail recursive `keys.go` overflows the machine stack (`memory fault (machine stack
+  overflow?)`); build big test columns directly (`C.CU32{65536, 16n, C.AllValid{}, Array.new(U32, 16n, 1)}`).
+- **U32 totals wrap**: the join's output-row sum is saturated (`Tot.sat`: `s = t + m; s < t -> MAX`;
+  once at MAX it stays there, MAX + m wraps below MAX) so that the cap sees it. Do the same for any
+  count that can exceed 2^32 before a guard (M3 concat).
+- A zero-column frame `C.Frame{8388609, Nil{}}` carries a height without data: the cheap way to
+  test an over-cap path that needs no column (group_by with a literal key).

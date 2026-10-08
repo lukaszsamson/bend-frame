@@ -725,15 +725,23 @@ def Join.csr(+g: U32, +nr: U32, accr: Array<U32>) -> CSR:
 
 # ---- left side: size, then fill perm_l / perm_r / valid_r ------------------------------------
 
+# the output row count saturates at 2^32 - 1 instead of wrapping: a many-to-many join of
+# 65536 x 65536 equal keys has 2^32 output rows, which a wrapped sum would read as 0 and pass
+# the row cap (DESIGN.md 15.8). Once saturated, the sum stays saturated (the wrap of
+# MAX + m is m - 1 < MAX).
+def Tot.sat(+t: U32, +m: U32) -> U32:
+  +s = U32.add(t, m)
+  Bool.pick(U32, U32.is_lt(s, t), 4294967295, s)
+
 def Tot.inner(acc: TA, +m: U32) -> TA:
   match acc:
     case TA{t, ones, miss}:
-      TA{U32.add(t, m), U32.add(ones, Bool.to_u32(U32.is_eq(m, 1))), miss}
+      TA{Tot.sat(t, m), U32.add(ones, Bool.to_u32(U32.is_eq(m, 1))), miss}
 
 def Tot.left(acc: TA, +m: U32) -> TA:
   match acc:
     case TA{t, ones, miss}:
-      TA{U32.add(t, U32.max(m, 1)), U32.add(ones, Bool.to_u32(U32.is_le(m, 1))), U32.add(miss, Bool.to_u32(U32.is_eq(m, 0)))}
+      TA{Tot.sat(t, U32.max(m, 1)), U32.add(ones, Bool.to_u32(U32.is_le(m, 1))), U32.add(miss, Bool.to_u32(U32.is_eq(m, 0)))}
 
 def Tot.run(+how: JoinHow, +n: U32, ms: Array<U32>) -> Array<U32> & TA:
   match how:
@@ -892,10 +900,21 @@ def Join.fill.b(ident: Bool, +left: Bool, +nl: U32, +dt: Nat, rows: Array<U32>, 
     case False{}:
       Fill.go(U32.to_nat(nl), 0, left, FS{0, rows, Array.new(U32, dt, 0), Array.new(U32, dt, 0), Array.new(U32, Bool.pick(Nat, left, dt, 0n), 1)}, Array.get(U32, ms, 0), Array.get(U32, ss, 0))
 
+# the row cap (DESIGN.md 15.8): the output row count t comes from the CSR match counts, so a
+# join past the cap is refused here, before perm_l / perm_r / valid_r are allocated
+def Join.fill.c(over: Maybe<&2, E.Err>, +how: JoinHow, +lnames: List<&2, String>, +right_on: List<&2, String>, +nl: U32, lcols: List<&1, C.Named>, rcols: List<&1, C.Named>, rows: Array<U32>, ss: Array<U32>, ms: Array<U32>, ta: TA) -> E.ResT(C.Frame):
+  match over:
+    case Some{e}:
+      Fail{e}
+    case None{}:
+      match ta:
+        case TA{+t, +ones, +miss}:
+          Join.out(how, lnames, right_on, nl, lcols, rcols, TA{t, ones, miss}, Join.fill.b(U32.is_eq(ones, nl), JoinHow.is_left(how), nl, K.Kernel.depth_for(t), rows, ss, ms))
+
 def Join.fill.a(+how: JoinHow, +lnames: List<&2, String>, +right_on: List<&2, String>, +nl: U32, lcols: List<&1, C.Named>, rcols: List<&1, C.Named>, rows: Array<U32>, ss: Array<U32>, ms: Array<U32>, ta: TA) -> E.ResT(C.Frame):
   match ta:
     case TA{+t, +ones, +miss}:
-      Join.out(how, lnames, right_on, nl, lcols, rcols, TA{t, ones, miss}, Join.fill.b(U32.is_eq(ones, nl), JoinHow.is_left(how), nl, K.Kernel.depth_for(t), rows, ss, ms))
+      Join.fill.c(K.Kernel.check_rows(t), how, lnames, right_on, nl, lcols, rcols, rows, ss, ms, TA{t, ones, miss})
 
 def Join.fill(+how: JoinHow, +lnames: List<&2, String>, +right_on: List<&2, String>, +nl: U32, lcols: List<&1, C.Named>, rcols: List<&1, C.Named>, rows: Array<U32>, ss: Array<U32>, r: Array<U32> & TA) -> E.ResT(C.Frame):
   (ms, ta) = r

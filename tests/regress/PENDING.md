@@ -12,7 +12,7 @@ if the defect is not fixed in the same change. Expected output (`#|` lines) come
 
 | file | rows | API it needs (DESIGN.md) | milestone |
 |---|---|---|---|
-| `B04_i_row_cap.bend.txt` | B04-i | `K.Kernel.max_rows()`, `K.Kernel.check_rows(n) -> Maybe<&2, E.Err>` (15.8), `DF.concat_vertical` (M3); the join case needs only the guard | M1 (+M3 concat) |
+| `B04_i_concat_cap.bend.txt` | B04-i (concat) | `DF.concat_vertical` (M3): the sum of the input heights is checked with `K.Kernel.check_rows` before any gather; the sum saturates at 2^32 - 1 instead of wrapping (the join's `Tot.sat` does the same), so `[Frame{2^31, []}, Frame{2^31, []}]` reads `too many rows: 4294967295 exceeds 8388608` | M3 |
 | `B01_c_zero_column_m3.bend.txt` | B01-c (C22, C24) | `DF.drop / DF.lazy_drop`, `DF.unique / DF.lazy_unique`, `DF.concat_vertical / DF.lazy_concat_vertical` (15.2.3, 15.2.4) | M3 |
 | `B05_h_proof_negative.bend.txt` | B05-h | no API: a negative proof fixture (expects `SOME PROOFS FAIL`). It runs and passes under `scripts/test.sh` today, but `make check` runs `bend --check-only` on every `tests/**/*.bend` and fails on it. Activate once `make check` skips fixtures whose expectation is `SOME PROOFS FAIL` (or move it to `tests/proof_negative/` with that exclusion, plan T5). | M0 harness |
 
@@ -28,9 +28,10 @@ implementing): the lazy builders are `DF.lazy_drop(p, names)`, `DF.lazy_unique(p
 `DF.validate_bindings` reports the first error with collect's texts; a join of 2900 x 2900
 equal keys reports `too many rows: 8410000 exceeds 8388608`.
 
-Not written (the contract does not fix the entry point): the CSV row-cap test "through a
-`Csv.rows` entry taking a record count" and the `from_scalars` test "through a counted-list
-entry" (15.8). M1 should add them with the guard.
+B04-i (M1 B04 agent): `K.Kernel.max_rows` / `check_rows` landed and `B04_i_row_cap.bend` is active (join, left join,
+group_by, `from_scalars`, CSV; the last two through lowered-cap entries `C.Column.from_scalars.cap`,
+`V.Csv.rows.cap`, `V.Csv.parse_with.cap` and `K.Kernel.check_rows.cap`). Only the concat cases wait, in
+`B04_i_concat_cap.bend.txt` (M3: add `Frame.concat` guarded by `check_rows` over the saturating height sum).
 
 ## Rows with no code regression
 

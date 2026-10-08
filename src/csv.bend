@@ -8,6 +8,7 @@ import Base
 import ./csvparse.bend as H
 import ./dtype.bend as D
 import ./err.bend as E
+import ./kernels.bend as K
 import ./column.bend as C
 import ./fmt.bend as F
 
@@ -495,6 +496,48 @@ def Csv.prep.hd(hdr: Bool, first: H.CsvRec, rest: List<&2, H.CsvRec>, ts: List<&
     case False{}:
       Csv.prep.gn(first, rest, ts)
 
+# ---- separator, leading blank lines ----------------------------------------------------------------------------
+
+# a separator that is a quote, CR or LF cannot be told from the quoting and the line ends: reads
+# and writes refuse it (DESIGN.md 15.6.2, M1 B02 review)
+def Csv.sep_bad(+u: U32) -> Bool:
+  Bool.or(U32.is_eq(u, 34), Bool.or(U32.is_eq(u, 10), U32.is_eq(u, 13)))
+
+def Csv.sep_err.k(bad: Bool) -> Maybe<&2, E.Err>:
+  match bad:
+    case True{}:
+      Some{E.InvalidOperation{"csv: separator must not be a double quote, CR or LF"}}
+    case False{}:
+      None{}
+
+def Csv.sep_err(sep: Char) -> Maybe<&2, E.Err>:
+  Csv.sep_err.k(Csv.sep_bad(Char.to_u32(sep)))
+
+# with a header, the blank lines before it are skipped (Polars; the physical line numbers of the
+# records after them are unchanged). go: the records so far were all blank. Without a header a
+# blank line is data (a null record in one column; skipped in k > 1 columns as always).
+def Csv.lead.blank(r: H.CsvRec) -> Bool:
+  match r:
+    case H.CsvRec{l, cs}:
+      Csv.is_blank(cs)
+
+# blank: the head record is blank, res: the answer for the rest (a blank head is dropped)
+def Csv.lead.k(blank: Bool, r: H.CsvRec, rt: List<&2, H.CsvRec>, res: List<&2, H.CsvRec>) -> List<&2, H.CsvRec>:
+  match blank:
+    case True{}:
+      res
+    case False{}:
+      r <> rt
+
+def Csv.lead(rows: List<&2, H.CsvRec>, +go: Bool) -> List<&2, H.CsvRec>:
+  match rows go:
+    case Nil{} _:
+      Nil{}
+    case +r <> +rt True{}:
+      Csv.lead.k(Csv.lead.blank(r), r, rt, Csv.lead(rt, Csv.lead.blank(r)))
+    case other False{}:
+      other
+
 # ---- the frame ---------------------------------------------------------------------------------------------
 
 # a row limit of 0 means every row
@@ -504,37 +547,72 @@ def Csv.limit(+inf: U32) -> U32:
 def Csv.rows.h(names: List<&2, String>, cs: List<&2, List<&2, H.CsvCell>>, ts: List<&2, D.DType>, +k: Nat, +check: Bool, lines: List<&2, U32>) -> E.ResT(C.Frame):
   Csv.fin(Csv.cols(names, cs, ts, k, check, lines))
 
-# names, data records: transpose and build (the shape checks passed)
+# names, data records: transpose and build (the shape checks passed and the row cap held)
 def Csv.rows.g(+names: List<&2, String>, +data: List<&2, H.CsvRec>, +inf: U32, ts: List<&2, D.DType>) -> E.ResT(C.Frame):
   Csv.rows.h(names, Csv.tr(List.reverse(&2, H.CsvRec, data), Csv.nils(List.length(&2, String, names))), ts, U32.to_nat(Csv.limit(inf)), Bool.not(Bool.or(U32.is_eq(inf, 0), U32.is_ge(inf, U32.from_nat(List.length(&2, H.CsvRec, data))))), Csv.rec_lines(data))
 
-def Csv.rows.p(p: E.Res(Prep), inf: U32, ts: List<&2, D.DType>) -> E.ResT(C.Frame):
+# the row cap (DESIGN.md 15.8): the number of data records is counted before any column is built
+def Csv.rows.c(over: Maybe<&2, E.Err>, +names: List<&2, String>, +data: List<&2, H.CsvRec>, +inf: U32, ts: List<&2, D.DType>) -> E.ResT(C.Frame):
+  match over:
+    case Some{e}:
+      Fail{e}
+    case None{}:
+      Csv.rows.g(names, data, inf, ts)
+
+def Csv.rows.p(+cap: U32, p: E.Res(Prep), inf: U32, ts: List<&2, D.DType>) -> E.ResT(C.Frame):
   match p:
     case Fail{e}:
       Fail{e}
-    case Done{Prep{names, data}}:
-      Csv.rows.g(names, data, inf, ts)
+    case Done{Prep{names, +data}}:
+      Csv.rows.c(K.Kernel.check_rows.cap(cap, U32.from_nat(List.length(&2, H.CsvRec, data))), names, data, inf, ts)
 
-def Csv.rows(rows: List<&2, H.CsvRec>, hdr: Bool, inf: U32, +ts: List<&2, D.DType>) -> E.ResT(C.Frame):
+# no records (an empty file, or one of blank lines before a header): the (0, 0) frame, unless
+# dtypes were given: they must cover every column, and there are none (15.6.3)
+def Csv.rows.none(bad: Maybe<&2, E.Err>) -> E.ResT(C.Frame):
+  match bad:
+    case Some{e}:
+      Fail{e}
+    case None{}:
+      Done{C.Frame.empty()}
+
+def Csv.rows.n(+cap: U32, rows: List<&2, H.CsvRec>, hdr: Bool, inf: U32, +ts: List<&2, D.DType>) -> E.ResT(C.Frame):
   match rows:
     case Nil{}:
-      Done{C.Frame.empty()}
+      Csv.rows.none(Csv.ts.err(ts, 0n))
     case first <> rest:
-      Csv.rows.p(Csv.prep.hd(hdr, first, rest, ts), inf, ts)
+      Csv.rows.p(cap, Csv.prep.hd(hdr, first, rest, ts), inf, ts)
 
-def Csv.parse.a(ans: H.Ans, hdr: Bool, inf: U32, ts: List<&2, D.DType>) -> E.ResT(C.Frame):
+# records -> frame with the row cap as a parameter (the entry the tests use with a lowered cap)
+def Csv.rows.cap(+cap: U32, rows: List<&2, H.CsvRec>, +hdr: Bool, inf: U32, ts: List<&2, D.DType>) -> E.ResT(C.Frame):
+  Csv.rows.n(cap, Csv.lead(rows, hdr), hdr, inf, ts)
+
+def Csv.rows(rows: List<&2, H.CsvRec>, hdr: Bool, inf: U32, ts: List<&2, D.DType>) -> E.ResT(C.Frame):
+  Csv.rows.cap(K.Kernel.max_rows(), rows, hdr, inf, ts)
+
+def Csv.parse.a(+cap: U32, ans: H.Ans, hdr: Bool, inf: U32, ts: List<&2, D.DType>) -> E.ResT(C.Frame):
   match ans:
     case H.Rejected{}:
       Fail{E.ParseError{0, "malformed csv"}}
     case H.Parsed{rows}:
-      Csv.rows(rows, hdr, inf, ts)
+      Csv.rows.cap(cap, rows, hdr, inf, ts)
 
 # Strict schema: dtypes by column position, a value that does not parse is a
 # ParseError (no lenient nulls); the dtype count must equal the column count.
-def Csv.parse_with(text: String, opts: CsvOpts, ts: List<&2, D.DType>) -> E.ResT(C.Frame):
+# cap: the row cap (K.Kernel.max_rows() for every real read; lowered in the tests)
+def Csv.parse_with.k(bad: Maybe<&2, E.Err>, +cap: U32, text: String, sep: Char, hdr: Bool, inf: U32, ts: List<&2, D.DType>) -> E.ResT(C.Frame):
+  match bad:
+    case Some{e}:
+      Fail{e}
+    case None{}:
+      Csv.parse.a(cap, H.parse_sep(Char.to_u32(sep), text), hdr, inf, ts)
+
+def Csv.parse_with.cap(+cap: U32, text: String, opts: CsvOpts, ts: List<&2, D.DType>) -> E.ResT(C.Frame):
   match opts:
-    case CsvOpts{sep, hdr, inf}:
-      Csv.parse.a(H.parse_sep(Char.to_u32(sep), text), hdr, inf, ts)
+    case CsvOpts{+sep, hdr, inf}:
+      Csv.parse_with.k(Csv.sep_err(sep), cap, text, sep, hdr, inf, ts)
+
+def Csv.parse_with(text: String, opts: CsvOpts, ts: List<&2, D.DType>) -> E.ResT(C.Frame):
+  Csv.parse_with.cap(K.Kernel.max_rows(), text, opts, ts)
 
 # Inferred schema (first infer_rows rows; 0 = all): bool, u32, i32, f32, str.
 def Csv.parse(text: String, opts: CsvOpts) -> E.ResT(C.Frame):
@@ -559,12 +637,15 @@ def Csv.infer.p(p: E.Res(Prep), k: U32) -> E.Res(List<&2, CsvField>):
     case Done{Prep{names, data}}:
       Done{Csv.infer.d(names, data, k)}
 
-def Csv.infer.rows(rows: List<&2, H.CsvRec>, hdr: Bool, k: U32) -> E.Res(List<&2, CsvField>):
+def Csv.infer.n(rows: List<&2, H.CsvRec>, hdr: Bool, k: U32) -> E.Res(List<&2, CsvField>):
   match rows:
     case Nil{}:
       Done{Nil{}}
     case first <> rest:
       Csv.infer.p(Csv.prep.hd(hdr, first, rest, Nil{}), k)
+
+def Csv.infer.rows(rows: List<&2, H.CsvRec>, +hdr: Bool, k: U32) -> E.Res(List<&2, CsvField>):
+  Csv.infer.n(Csv.lead(rows, hdr), hdr, k)
 
 def Csv.infer.a(ans: H.Ans, hdr: Bool, inf: U32) -> E.Res(List<&2, CsvField>):
   match ans:
@@ -575,10 +656,17 @@ def Csv.infer.a(ans: H.Ans, hdr: Bool, inf: U32) -> E.Res(List<&2, CsvField>):
 
 # The schema Csv.parse would infer, without building columns. The records are checked
 # for shape like a read (blank lines skipped, a ragged record is the same ParseError).
+def Csv.infer.k(bad: Maybe<&2, E.Err>, text: String, sep: Char, hdr: Bool, inf: U32) -> E.Res(List<&2, CsvField>):
+  match bad:
+    case Some{e}:
+      Fail{e}
+    case None{}:
+      Csv.infer.a(H.parse_sep(Char.to_u32(sep), text), hdr, inf)
+
 def Csv.infer(text: String, opts: CsvOpts) -> E.Res(List<&2, CsvField>):
   match opts:
-    case CsvOpts{sep, hdr, inf}:
-      Csv.infer.a(H.parse_sep(Char.to_u32(sep), text), hdr, inf)
+    case CsvOpts{+sep, hdr, inf}:
+      Csv.infer.k(Csv.sep_err(sep), text, sep, hdr, inf)
 
 # ---- scan_csv: the bounded prefix (DESIGN.md 15.6.4) ------------------------------------------------
 # Reads 64 KiB chunks with File.read_at (bytes) until the text holds infer_rows + 1 line
@@ -900,10 +988,23 @@ def Csv.pre.opened(opts: CsvOpts, chunk: U32, o: Result<&1, &1, U32 & String, Fi
 
 # the schema scan_csv freezes: names and dtypes inferred from a bounded prefix, reading
 # `chunk` bytes at a time (tests use tiny chunks; Csv.scan_fields uses 64 KiB)
-def Csv.scan_fields_with(path: String, opts: CsvOpts, chunk: U32) -> IO(E.Res(List<&2, CsvField>)):
+def Csv.scan_fields_open(path: String, opts: CsvOpts, chunk: U32) -> IO(E.Res(List<&2, CsvField>)):
   do IO<E.Res(List<&2, CsvField>)>:
     o : Result<&1, &1, U32 & String, File> <- File.open(path, "r")
     Csv.pre.opened(opts, chunk, o)
+
+# a refused separator is answered before the file is opened
+def Csv.scan_fields_chk(bad: Maybe<&2, E.Err>, path: String, opts: CsvOpts, chunk: U32) -> IO(E.Res(List<&2, CsvField>)):
+  match bad:
+    case Some{e}:
+      IO.pure(E.Res(List<&2, CsvField>), Fail{e})
+    case None{}:
+      Csv.scan_fields_open(path, opts, chunk)
+
+def Csv.scan_fields_with(path: String, +opts: CsvOpts, chunk: U32) -> IO(E.Res(List<&2, CsvField>)):
+  match opts:
+    case CsvOpts{+sep, hdr, inf}:
+      Csv.scan_fields_chk(Csv.sep_err(sep), path, CsvOpts{sep, hdr, inf}, chunk)
 
 def Csv.scan_fields(path: String, opts: CsvOpts) -> IO(E.Res(List<&2, CsvField>)):
   Csv.scan_fields_with(path, opts, 65536)
@@ -1152,9 +1253,23 @@ def Csv.write.go(r: C.Frame & String, path: String) -> IO(C.Frame & Result<&1, &
     o : Result<&1, &1, U32 & String, File> <- File.open(path, "w")
     Csv.write.opened(f, text, o)
 
+# the write refused for its separator: the frame comes back with an IoError value (EINVAL, 22);
+# the facade checks first and answers InvalidOperation (DF.write_csv_opts)
+def Csv.write_chk(bad: Maybe<&2, E.Err>, f: C.Frame, path: String, w: CsvWriteOpts) -> IO(C.Frame & Result<&1, &1, U32 & String, Unit>):
+  match bad:
+    case Some{e}:
+      IO.pure(C.Frame & Result<&1, &1, U32 & String, Unit>, (f, Fail{(22, E.Err.show(e))}))
+    case None{}:
+      Csv.write.go(Csv.render_with(f, w), path)
+
+def Csv.write_sep(w: CsvWriteOpts) -> Maybe<&2, E.Err>:
+  match w:
+    case CsvWriteOpts{sep, hdr, prec}:
+      Csv.sep_err(sep)
+
 # renders with the options and writes the file; the frame comes back
-def Csv.write_with(f: C.Frame, path: String, w: CsvWriteOpts) -> IO(C.Frame & Result<&1, &1, U32 & String, Unit>):
-  Csv.write.go(Csv.render_with(f, w), path)
+def Csv.write_with(f: C.Frame, path: String, +w: CsvWriteOpts) -> IO(C.Frame & Result<&1, &1, U32 & String, Unit>):
+  Csv.write_chk(Csv.write_sep(w), f, path, w)
 
 # renders with F32.show (Csv.render(f, None{})) and writes the file; the frame comes back
 def Csv.write(f: C.Frame, path: String) -> IO(C.Frame & Result<&1, &1, U32 & String, Unit>):

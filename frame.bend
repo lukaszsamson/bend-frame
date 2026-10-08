@@ -323,14 +323,22 @@ def write_csv.io(f: C.Frame, path: String, w: R.CsvWriteOpts) -> IO(E.ResT(C.Fra
 def write_opts(sep: Char, include_header: Bool, float_precision: Maybe<&2, U32>) -> R.CsvWriteOpts:
   R.CsvWriteOpts{sep, include_header, float_precision}
 
+# a separator that is a quote, CR or LF is refused (InvalidOperation) before the file is touched
+def write_csv.chk(bad: Maybe<&2, E.Err>, f: C.Frame, path: String, w: R.CsvWriteOpts) -> IO(E.ResT(C.Frame)):
+  match bad:
+    case Some{e}:
+      IO.pure(E.ResT(C.Frame), Fail{e})
+    case None{}:
+      write_csv.io(f, path, w)
+
 # writes the frame as CSV with the options (DESIGN.md 15.6.3) and answers the same frame,
 # or the write's error; an error in r passes through
-def write_csv_opts(r: E.ResT(C.Frame), path: String, w: R.CsvWriteOpts) -> IO(E.ResT(C.Frame)):
+def write_csv_opts(r: E.ResT(C.Frame), path: String, +w: R.CsvWriteOpts) -> IO(E.ResT(C.Frame)):
   match r:
     case Fail{e}:
       IO.pure(E.ResT(C.Frame), Fail{e})
     case Done{f}:
-      write_csv.io(f, path, w)
+      write_csv.chk(R.Csv.write_sep(w), f, path, w)
 
 # writes the frame as CSV (',' separator, header, F32 shortest digits) and answers the
 # same frame, or the write's error; an error in r passes through

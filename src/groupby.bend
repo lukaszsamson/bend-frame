@@ -817,9 +817,15 @@ def GroupBy.run.b(err: Maybe<&2, E.Err>, f: C.Frame, keys: List<&2, X.Expr>, agg
     case None{}:
       GroupBy.keyed(aggs, Grp.keys(keys, GSt{f, Done{Nil{}}}))
 
+# the row cap (DESIGN.md 15.8): ng <= the input height h, so h under the cap bounds every group
+# array; checked after the type errors and before any key expression is evaluated or any array built
+def GroupBy.run.h(err: Maybe<&2, E.Err>, +keys: List<&2, X.Expr>, +aggs: List<&2, X.Expr>, r: C.Frame & U32) -> E.ResT(C.Frame):
+  (f, +h) = r
+  GroupBy.run.b(Maybe.or(&2, E.Err, err, K.Kernel.check_rows(h)), f, keys, aggs)
+
 def GroupBy.run.a(+keys: List<&2, X.Expr>, +aggs: List<&2, X.Expr>, r: C.Frame & List<&2, S.Field>) -> E.ResT(C.Frame):
   (f, +s) = r
-  GroupBy.run.b(Grp.validate(keys, aggs, s), f, keys, aggs)
+  GroupBy.run.h(Grp.validate(keys, aggs, s), keys, aggs, C.Frame.height(f))
 
 # group the frame by the key expressions and aggregate: output = one row per
 # distinct key tuple (null keys form one group), key columns (named

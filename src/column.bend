@@ -465,10 +465,22 @@ def Column.fs.go(bad: Maybe<&2, D.Scalar>, +xs: List<&2, D.Scalar>, +t: D.DType)
     case None{}:
       Done{Column.fs.build(t, xs)}
 
+# the row cap (DESIGN.md 15.8): a list longer than the cap is refused before any array is built
+def Column.fs.cap(over: Maybe<&2, E.Err>, +xs: List<&2, D.Scalar>, +t: D.DType) -> E.ResT(Column):
+  match over:
+    case Some{e}:
+      Fail{e}
+    case None{}:
+      Column.fs.go(Column.fs.bad(xs, t, None{}), xs, t)
+
+# from_scalars with the cap as a parameter (the entry the tests use with a lowered cap)
+def Column.from_scalars.cap(+cap: U32, +xs: List<&2, D.Scalar>, +t: D.DType) -> E.ResT(Column):
+  Column.fs.cap(K.Kernel.check_rows.cap(cap, U32.from_nat(List.length(&2, D.Scalar, xs))), xs, t)
+
 # SNull becomes an invalid row (slot = the dtype default); a scalar of another
-# dtype is a TypeMismatch
+# dtype is a TypeMismatch; more than K.Kernel.max_rows() scalars are an InvalidOperation
 def Column.from_scalars(+xs: List<&2, D.Scalar>, +t: D.DType) -> E.ResT(Column):
-  Column.fs.go(Column.fs.bad(xs, t, None{}), xs, t)
+  Column.from_scalars.cap(K.Kernel.max_rows(), xs, t)
 
 # ---- Column: clone / gather / compact -------------------------------------------
 

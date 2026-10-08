@@ -4,6 +4,7 @@
 # result is taken apart in the NEXT step's parameter (R3); templates ~T: Data
 # (R5). Kernels consume their input arrays unless the signature hands them back.
 import Base
+import ./err.bend as E
 
 # the least depth d with 2^d >= n (n >= 1); the exit test rides as a parameter
 def Kernel.depth_for.go(f: Nat, +n: U32, +d: Nat, fits: Bool) -> Nat:
@@ -374,3 +375,18 @@ def Kernel.zip_maybe.go(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> Maybe<&2, V>
 
 def Kernel.zip_maybe(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> Maybe<&2, V>, +n: U32, +d: Nat, a: Array<T>, b: Array<U>, +z: V) -> Array<V> & Array<U32>:
   Kernel.zip_maybe.go(~T, ~U, ~V, ~f, U32.to_nat(n), 0, z, (Array.new(V, d, z), Array.new(U32, d, 0)), Array.get(T, a, 0), Array.get(U, b, 0))
+
+# ---- row cap (DESIGN.md 15.8, B04-i) ---------------------------------------------------------------
+# A frame holds at most 2^23 rows. Kernel.depth_for alone is not a guard: every path that
+# allocates a height not bounded by an existing frame calls check_rows before allocating.
+
+def Kernel.max_rows() -> U32:
+  8388608
+
+# check_rows with the cap as a parameter: the entry the tests use with a lowered cap
+# (the error text names the cap it was given); check_rows is this at max_rows()
+def Kernel.check_rows.cap(+cap: U32, +n: U32) -> Maybe<&2, E.Err>:
+  Bool.pick(Maybe<&2, E.Err>, U32.is_gt(n, cap), Some{E.InvalidOperation{"too many rows: " ++ U32.show(n) ++ " exceeds " ++ U32.show(cap)}}, None{})
+
+def Kernel.check_rows(+n: U32) -> Maybe<&2, E.Err>:
+  Kernel.check_rows.cap(Kernel.max_rows(), n)
