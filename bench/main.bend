@@ -173,11 +173,32 @@ def load.s(+keep: Bool, rs: E.ResT(C.Frame), rp: E.ResT(C.Frame)) -> E.ResT(In):
     case Done{s}:
       load.h(keep, C.Frame.height(s), rp)
 
-def load(+keep: Bool, +path: String, +ppath: String) -> IO(E.ResT(In)):
+# M4: the Str storage of the parsed frames, from the environment: BF_STR=dict encodes every Str
+# column (untimed, before `force`); unset or anything else keeps the reader's default
+def env.dict(r: Result<&1, &1, U32 & String, String>) -> Bool:
+  match r:
+    case Done{v}:
+      String.eq(v, "dict")
+    case Fail{e}:
+      False{}
+
+def load.enc(+dict: Bool, r: E.ResT(C.Frame)) -> E.ResT(C.Frame):
+  match dict r:
+    case True{} Done{f}:
+      Done{C.Frame.encode(f, True{})}
+    case _ other:
+      other
+
+def load.go(+keep: Bool, +path: String, +ppath: String, +dict: Bool) -> IO(E.ResT(In)):
   do IO<E.ResT(In)>:
     rs : E.ResT(C.Frame) <- V.Csv.read(path, V.Csv.default())
     rp : E.ResT(C.Frame) <- V.Csv.read(ppath, V.Csv.default())
-    return load.s(keep, rs, rp)
+    return load.s(keep, load.enc(dict, rs), load.enc(dict, rp))
+
+def load(+keep: Bool, +path: String, +ppath: String) -> IO(E.ResT(In)):
+  do IO<E.ResT(In)>:
+    ev : Result<&1, &1, U32 & String, String> <- IO.get_env("BF_STR")
+    load.go(keep, path, ppath, env.dict(ev))
 
 def load.push.a(i: In, acc: E.ResT(List<&1, In>)) -> E.ResT(List<&1, In>):
   match acc:
