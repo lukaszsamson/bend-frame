@@ -256,3 +256,212 @@ def set_other_fin(-T: Data, +d: Nat, -a: Array<T>, +i: U32, +j: U32, +v: T, +hi:
 
 def Laws.array_set_other(T, d, a, i, j, v, wf, hi, hj, ne):
   set_other_fin(T, d, a, i, j, v, hi, hj, ne, set_other_w(T, d, a, i, v, wf))
+
+# ---- Array.get handing the array back live (the kernels read src / perm every step) -----------
+
+def get_w_lo(-T: Data, -xs: Array<T>, ys: Array<T>, +n: U32, +i: U32, w: &b: Array<T> -> &x: T -> {b == xs : Array<T>} & {Array.get.go(T, xs, U32.shr(n), i, U32.is_lt(i, U32.shr(U32.shr(n)))) == (xs, x) : Array<T> & T} & {x == Laws.rd(T, xs, U32.shr(n), i, U32.is_lt(i, U32.shr(U32.shr(n)))) : T})
+  -> &b2: Array<T> -> &x2: T -> {b2 == ANode{xs, ys} : Array<T>} & {Array.get.go(T, ANode{xs, ys}, n, i, True{}) == (ANode{xs, ys}, x2) : Array<T> & T} & {x2 == Laws.rd(T, ANode{xs, ys}, n, i, True{}) : T}:
+  (b, +x, eb, e1, e2) = w
+  (ANode{b, ys}, x, (%eb : {ANode{b, ys} == ANode{_, ys} : Array<T>}; {==}), (%Equal.sym(Array<T> & T, Array.get.go(T, xs, U32.shr(n), i, U32.is_lt(i, U32.shr(U32.shr(n)))), (xs, x), e1) : {Array.swap.lo(T, ys, _) == (ANode{xs, ys}, x) : Array<T> & T}; {==}), e2)
+
+def get_w_hi(-T: Data, xs: Array<T>, -ys: Array<T>, +n: U32, +i: U32, w: &b: Array<T> -> &x: T -> {b == ys : Array<T>} & {Array.get.go(T, ys, U32.shr(n), U32.sub(i, U32.shr(n)), U32.is_lt(U32.sub(i, U32.shr(n)), U32.shr(U32.shr(n)))) == (ys, x) : Array<T> & T} & {x == Laws.rd(T, ys, U32.shr(n), U32.sub(i, U32.shr(n)), U32.is_lt(U32.sub(i, U32.shr(n)), U32.shr(U32.shr(n)))) : T})
+  -> &b2: Array<T> -> &x2: T -> {b2 == ANode{xs, ys} : Array<T>} & {Array.get.go(T, ANode{xs, ys}, n, i, False{}) == (ANode{xs, ys}, x2) : Array<T> & T} & {x2 == Laws.rd(T, ANode{xs, ys}, n, i, False{}) : T}:
+  (b, +x, eb, e1, e2) = w
+  (ANode{xs, b}, x, (%eb : {ANode{xs, b} == ANode{xs, _} : Array<T>}; {==}), (%Equal.sym(Array<T> & T, Array.get.go(T, ys, U32.shr(n), U32.sub(i, U32.shr(n)), U32.is_lt(U32.sub(i, U32.shr(n)), U32.shr(U32.shr(n)))), (ys, x), e1) : {Array.swap.hi(T, xs, _) == (ANode{xs, ys}, x) : Array<T> & T}; {==}), e2)
+
+def get_w_go(-T: Data, a: Array<T>, +n: U32, +i: U32, z: Bool) -> &b: Array<T> -> &x: T -> {b == a : Array<T>} & {Array.get.go(T, a, n, i, z) == (a, x) : Array<T> & T} & {x == Laws.rd(T, a, n, i, z) : T}:
+  match a z:
+    case ALeaf{+x} _:
+      (ALeaf{x}, x, {==}, {==}, {==})
+    case ANode{xs, ys} True{}:
+      get_w_lo(T, xs, ys, n, i, get_w_go(T, xs, U32.shr(n), i, U32.is_lt(i, U32.shr(U32.shr(n)))))
+    case ANode{xs, ys} False{}:
+      get_w_hi(T, xs, ys, n, i, get_w_go(T, ys, U32.shr(n), U32.sub(i, U32.shr(n)), U32.is_lt(U32.sub(i, U32.shr(n)), U32.shr(U32.shr(n)))))
+
+def get_w_at(-T: Data, -a: Array<T>, -b: Array<T>, +i: U32, +n: U32, eb: {b == a : Array<T>}, es: {Array.size(T, a) == (b, n) : Array<T> & U32},
+  w: &b2: Array<T> -> &x: T -> {b2 == b : Array<T>} & {Array.get.go(T, b, n, U32.and(i, U32.sub(n, 1)), U32.is_lt(U32.and(i, U32.sub(n, 1)), U32.shr(n))) == (b, x) : Array<T> & T} & {x == Laws.rd(T, b, n, U32.and(i, U32.sub(n, 1)), U32.is_lt(U32.and(i, U32.sub(n, 1)), U32.shr(n))) : T})
+  -> &b3: Array<T> -> &x2: T -> {b3 == a : Array<T>} & {Array.get(T, a, i) == (a, x2) : Array<T> & T} & {x2 == Laws.rd_at(T, a, i) : T}:
+  (b2, +x, eb2, e1, e2) = w
+  %Equal.sym(Array<T> & U32, Array.size(T, a), (b, n), es) : &b3: Array<T> -> &x2: T -> {b3 == a : Array<T>} & {Array.get.at(T, i, _) == (a, x2) : Array<T> & T} & {x2 == Laws.rd_size(T, i, _) : T}
+  %eb : &b3: Array<T> -> &x2: T -> {b3 == _ : Array<T>} & {Array.get.go(T, b, n, U32.and(i, U32.sub(n, 1)), U32.is_lt(U32.and(i, U32.sub(n, 1)), U32.shr(n))) == (_, x2) : Array<T> & T} & {x2 == Laws.rd_size(T, i, (b, n)) : T}
+  (b2, x, eb2, e1, e2)
+
+def get_w_k(-T: Data, -a: Array<T>, +i: U32, w: &b: Array<T> -> &n: U32 -> {b == a : Array<T>} & {Array.size(T, a) == (b, n) : Array<T> & U32} & {Laws.slots(T, b) == n : U32})
+  -> &b3: Array<T> -> &x: T -> {b3 == a : Array<T>} & {Array.get(T, a, i) == (a, x) : Array<T> & T} & {x == Laws.rd_at(T, a, i) : T}:
+  (b, n0, eb, es, sl) = w
+  +n = n0
+  get_w_at(T, a, b, i, n, eb, es, get_w_go(T, b, n, U32.and(i, U32.sub(n, 1)), U32.is_lt(U32.and(i, U32.sub(n, 1)), U32.shr(n))))
+
+# Array.get(a, i): the array back live (equal to a), the pure answer, and its model
+def get_w(-T: Data, a: Array<T>, +i: U32) -> &b: Array<T> -> &x: T -> {b == a : Array<T>} & {Array.get(T, a, i) == (a, x) : Array<T> & T} & {x == Laws.rd_at(T, a, i) : T}:
+  get_w_k(T, a, i, PK.size_same(T, a))
+
+# ---- U32 comparison helpers for the loop counters --------------------------------------------
+
+def IncLtU(b: Bool, +k: U32, +j: U32) -> Type:
+  match b:
+    case True{}:
+      {U32.is_lt(k, j) == True{} : Bool}
+    case False{}:
+      {k == j : U32}
+
+def inc_lt_u_k(b: Bool, +x: Word(32n), +y: Word(32n), s: B.IncLt(b, 32n, x, y)) -> IncLtU(b, U32{x}, U32{y}):
+  match b:
+    case True{}:
+      %Equal.sym(Cmp, Word.cmp(32n, x, y), LT{}, s) : {Cmp.is_lt(_) == True{} : Bool}
+      {==}
+    case False{}:
+      Equal.cong(Word(32n), U32, w => U32{w}, x, y, s)
+
+def inc_lt_u_fin(+x: Word(32n), +y: Word(32n), w: &b: Bool -> B.IncLt(b, 32n, x, y)) -> &b2: Bool -> IncLtU(b2, U32{x}, U32{y}):
+  (+b, s) = w
+  (b, inc_lt_u_k(b, x, y, s))
+
+# k < inc(j) is k < j or k == j
+def inc_lt_u(k: U32, j: U32, h: {U32.is_lt(k, U32.inc(j)) == True{} : Bool}) -> &b: Bool -> IncLtU(b, k, j):
+  match k j:
+    case U32{+x} U32{+y}:
+      inc_lt_u_fin(x, y, B.inc_lt(32n, x, y, B.is_lt_lt(Word.cmp(32n, x, Word.inc(32n, y)), h)))
+
+def lt_trans_u(k: U32, j: U32, m: U32, h1: {U32.is_lt(k, j) == True{} : Bool}, h2: {U32.is_lt(j, m) == True{} : Bool}) -> {U32.is_lt(k, m) == True{} : Bool}:
+  match k j m:
+    case U32{+x} U32{+y} U32{+w}:
+      %Equal.sym(Cmp, Word.cmp(32n, x, w), LT{}, L.word_lt_trans(32n, x, y, w, B.is_lt_lt(Word.cmp(32n, x, y), h1), B.is_lt_lt(Word.cmp(32n, y, w), h2))) : {Cmp.is_lt(_) == True{} : Bool}
+      {==}
+
+def lt_irrefl(k: U32, h: {U32.is_lt(k, k) == True{} : Bool}) -> Empty:
+  match k:
+    case U32{+x}:
+      L.lt_eq(Equal.trans(Cmp, LT{}, Word.cmp(32n, x, x), EQ{}, Equal.sym(Cmp, Word.cmp(32n, x, x), LT{}, B.is_lt_lt(Word.cmp(32n, x, x), h)), L.word_cmp_refl(32n, x)))
+
+# j == k and k < j cannot both hold
+def lt_ne(+j: U32, +k: U32) -> {j == k : U32} -> {U32.is_lt(k, j) == True{} : Bool} -> Empty:
+  e =>
+    %Equal.sym(U32, j, k, e) : {U32.is_lt(k, _) == True{} : Bool} -> Empty
+    h => lt_irrefl(k, h)
+
+# nothing is below 0
+def lt0(k: U32, h: {U32.is_lt(k, 0) == True{} : Bool}) -> Empty:
+  match k:
+    case U32{+x}:
+      B.lt_zero(32n, x, B.is_lt_lt(Word.cmp(32n, x, Word.zero(32n)), h))
+
+def addn_inc(+j: U32, p: Nat) -> {Laws.addn(U32.inc(j), p) == U32.inc(Laws.addn(j, p)) : U32}:
+  match p:
+    case 0n:
+      {==}
+    case 1n+q:
+      %Equal.sym(U32, Laws.addn(U32.inc(j), q), U32.inc(Laws.addn(j, q)), addn_inc(j, q)) : {U32.inc(_) == U32.inc(U32.inc(Laws.addn(j, q))) : U32}
+      {==}
+
+# same_at(d, j, k) == False for k < j < 2^d
+def same_false_lt(+d: Nat, +j: U32, +k: U32, +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}, +lt: {U32.is_lt(k, j) == True{} : Bool}) -> {Laws.same_at(d, j, k) == False{} : Bool}:
+  same_false(d, j, k, hj, lt_trans_u(k, j, U32.shln(1, d), lt, hj), e => lt_ne(j, k)(e)(lt))
+
+# ---- the gather loop: goal shapes --------------------------------------------------------------
+
+# every k < j already holds src[perm[k]] in out
+def GHyp(+j: U32, +d: Nat, -src: Array<U32>, -out: Array<U32>, -perm: Array<U32>) -> Type:
+  @k: U32 -> {U32.is_lt(k, j) == True{} : Bool} -> {Laws.rdN(U32, d, out, k) == Laws.rd_at(U32, src, Laws.rd_at(U32, perm, k)) : U32}
+
+# the result: perm back, the output well formed, every k < bound holding src[perm[k]]
+def GRes(+d: Nat, -src: Array<U32>, -perm: Array<U32>, o: Array<U32>, -pm: Array<U32>, +bound: U32) -> Type:
+  {pm == perm : Array<U32>} & Laws.WFArray(U32, d, o) & (@k: U32 -> {U32.is_lt(k, bound) == True{} : Bool} -> {Laws.rdN(U32, d, o, k) == Laws.rd_at(U32, src, Laws.rd_at(U32, perm, k)) : U32})
+
+# the loop with f steps left at counter j and the pending read r of perm[j]
+def GGoal(f: Nat, +j: U32, +d: Nat, -src: Array<U32>, -out: Array<U32>, -perm: Array<U32>, -r: Array<U32> & U32) -> Type:
+  GHyp(j, d, src, out, perm) -> &o: Array<U32> -> &pm: Array<U32> -> {K.Kernel.gather.go(~U32, f, j, (src, out), r) == (o, pm) : Array<U32> & Array<U32>} & GRes(d, src, perm, o, pm, Laws.addn(j, f))
+
+# ... after one step, with the read rs of src[perm[j]] pending
+def GMid(p: Nat, +j: U32, +d: Nat, -src: Array<U32>, -out: Array<U32>, -perm: Array<U32>, -rs: Array<U32> & U32) -> Type:
+  GHyp(j, d, src, out, perm) -> &o: Array<U32> -> &pm: Array<U32> -> {K.Kernel.gather.go(~U32, p, U32.inc(j), K.Kernel.gather.put(~U32, out, j, rs), Array.get(U32, perm, U32.inc(j))) == (o, pm) : Array<U32> & Array<U32>} & GRes(d, src, perm, o, pm, Laws.addn(j, 1n+p))
+
+# ... with the cell y written at j
+def GSet(p: Nat, +j: U32, +d: Nat, -src: Array<U32>, -out: Array<U32>, -perm: Array<U32>, +y: U32) -> Type:
+  GHyp(j, d, src, out, perm) -> &o: Array<U32> -> &pm: Array<U32> -> {K.Kernel.gather.go(~U32, p, U32.inc(j), (src, Array.set(U32, out, j, y)), Array.get(U32, perm, U32.inc(j))) == (o, pm) : Array<U32> & Array<U32>} & GRes(d, src, perm, o, pm, Laws.addn(j, 1n+p))
+
+# ... with the written array c in place and the bound as a parameter
+def GC(p: Nat, +j: U32, +d: Nat, -src: Array<U32>, -out: Array<U32>, -c: Array<U32>, -perm: Array<U32>, +bound: U32) -> Type:
+  GHyp(j, d, src, out, perm) -> &o: Array<U32> -> &pm: Array<U32> -> {K.Kernel.gather.go(~U32, p, U32.inc(j), (src, c), Array.get(U32, perm, U32.inc(j))) == (o, pm) : Array<U32> & Array<U32>} & GRes(d, src, perm, o, pm, bound)
+
+# ---- the invariant after a write at j ----------------------------------------------------------
+
+# k < j: the slot k is untouched (distinct paths) and already right
+def gnext_lt(+d: Nat, +j: U32, +k: U32, -src: Array<U32>, -perm: Array<U32>, -out: Array<U32>, -c: Array<U32>, +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}, +y: U32, g: GHyp(j, d, src, out, perm),
+  fj: @k2: U32 -> {Laws.rdN(U32, d, c, k2) == Bool.pick(U32, Laws.same_at(d, j, k2), y, Laws.rdN(U32, d, out, k2)) : U32}, +lt: {U32.is_lt(k, j) == True{} : Bool})
+  -> {Laws.rdN(U32, d, c, k) == Laws.rd_at(U32, src, Laws.rd_at(U32, perm, k)) : U32}:
+  %Equal.sym(U32, Laws.rdN(U32, d, c, k), Bool.pick(U32, Laws.same_at(d, j, k), y, Laws.rdN(U32, d, out, k)), fj(k)) : {_ == Laws.rd_at(U32, src, Laws.rd_at(U32, perm, k)) : U32}
+  %Equal.sym(Bool, Laws.same_at(d, j, k), False{}, same_false_lt(d, j, k, hj, lt)) : {Bool.pick(U32, _, y, Laws.rdN(U32, d, out, k)) == Laws.rd_at(U32, src, Laws.rd_at(U32, perm, k)) : U32}
+  g(k, lt)
+
+def gnext_b(b: Bool, +d: Nat, +j: U32, +k: U32, -src: Array<U32>, -perm: Array<U32>, -out: Array<U32>, -c: Array<U32>, +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}, +y: U32, ey: {y == Laws.rd_at(U32, src, Laws.rd_at(U32, perm, j)) : U32}, g: GHyp(j, d, src, out, perm),
+  fj: @k2: U32 -> {Laws.rdN(U32, d, c, k2) == Bool.pick(U32, Laws.same_at(d, j, k2), y, Laws.rdN(U32, d, out, k2)) : U32}, s: IncLtU(b, k, j))
+  -> {Laws.rdN(U32, d, c, k) == Laws.rd_at(U32, src, Laws.rd_at(U32, perm, k)) : U32}:
+  match b:
+    case True{}:
+      gnext_lt(d, j, k, src, perm, out, c, hj, y, g, fj, s)
+    case False{}:
+      %Equal.sym(U32, k, j, s) : {Laws.rdN(U32, d, c, _) == Laws.rd_at(U32, src, Laws.rd_at(U32, perm, _)) : U32}
+      %Equal.sym(U32, Laws.rdN(U32, d, c, j), Bool.pick(U32, Laws.same_at(d, j, j), y, Laws.rdN(U32, d, out, j)), fj(j)) : {_ == Laws.rd_at(U32, src, Laws.rd_at(U32, perm, j)) : U32}
+      %Equal.sym(Bool, Laws.same_at(d, j, j), True{}, same_at_refl(d, j)) : {Bool.pick(U32, _, y, Laws.rdN(U32, d, out, j)) == Laws.rd_at(U32, src, Laws.rd_at(U32, perm, j)) : U32}
+      ey
+
+def gnext_k(+d: Nat, +j: U32, +k: U32, -src: Array<U32>, -perm: Array<U32>, -out: Array<U32>, -c: Array<U32>, +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}, +y: U32, ey: {y == Laws.rd_at(U32, src, Laws.rd_at(U32, perm, j)) : U32}, g: GHyp(j, d, src, out, perm),
+  fj: @k2: U32 -> {Laws.rdN(U32, d, c, k2) == Bool.pick(U32, Laws.same_at(d, j, k2), y, Laws.rdN(U32, d, out, k2)) : U32}, w: &b: Bool -> IncLtU(b, k, j))
+  -> {Laws.rdN(U32, d, c, k) == Laws.rd_at(U32, src, Laws.rd_at(U32, perm, k)) : U32}:
+  (b, s) = w
+  gnext_b(b, d, j, k, src, perm, out, c, hj, y, ey, g, fj, s)
+
+# the invariant moves from j to inc(j) once slot j holds src[perm[j]]
+def gnext(+d: Nat, +j: U32, -src: Array<U32>, -perm: Array<U32>, -out: Array<U32>, -c: Array<U32>, +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}, +y: U32, +ey: {y == Laws.rd_at(U32, src, Laws.rd_at(U32, perm, j)) : U32}, g: GHyp(j, d, src, out, perm),
+  fj: @k2: U32 -> {Laws.rdN(U32, d, c, k2) == Bool.pick(U32, Laws.same_at(d, j, k2), y, Laws.rdN(U32, d, out, k2)) : U32})
+  -> GHyp(U32.inc(j), d, src, c, perm):
+  +k => hk => gnext_k(d, j, k, src, perm, out, c, hj, y, ey, g, fj, inc_lt_u(k, j, hk))
+
+# ---- the gather loop -----------------------------------------------------------------------------
+
+def gather_step3(p: Nat, +j: U32, +d: Nat, src: Array<U32>, -out: Array<U32>, perm: Array<U32>, +y: U32, +ey: {y == Laws.rd_at(U32, src, Laws.rd_at(U32, perm, j)) : U32}, +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}, room: Laws.Room(d, U32.inc(j), p),
+  ih: @src2: Array<U32> -> @c: Array<U32> -> @perm2: Array<U32> -> Laws.WFArray(U32, d, c) -> Laws.Room(d, U32.inc(j), p) -> GGoal(p, U32.inc(j), d, src2, c, perm2, Array.get(U32, perm2, U32.inc(j))),
+  w: &c: Array<U32> -> {Array.set(U32, out, j, y) == c : Array<U32>} & Laws.WFArray(U32, d, c) & (@k2: U32 -> {Laws.rdN(U32, d, c, k2) == Bool.pick(U32, Laws.same_at(d, j, k2), y, Laws.rdN(U32, d, out, k2)) : U32}) & (@k2: U32 -> {Laws.rd_at(U32, out, k2) == Laws.rdN(U32, d, out, k2) : U32}))
+  -> GSet(p, j, d, src, out, perm, y):
+  (c, ec, wc, fj, cv) = w
+  %Equal.sym(Array<U32>, Array.set(U32, out, j, y), c, ec) : GC(p, j, d, src, out, _, perm, Laws.addn(j, 1n+p))
+  %addn_inc(j, p) : GC(p, j, d, src, out, c, perm, _)
+  g => ih(src, c, perm, wc, room)(gnext(d, j, src, perm, out, c, hj, y, ey, g, fj))
+
+def gather_step2(p: Nat, +j: U32, +d: Nat, -src: Array<U32>, out: Array<U32>, perm: Array<U32>, wf: Laws.WFArray(U32, d, out), +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}, room: Laws.Room(d, U32.inc(j), p),
+  ih: @src2: Array<U32> -> @c: Array<U32> -> @perm2: Array<U32> -> Laws.WFArray(U32, d, c) -> Laws.Room(d, U32.inc(j), p) -> GGoal(p, U32.inc(j), d, src2, c, perm2, Array.get(U32, perm2, U32.inc(j))),
+  +x: U32, ex: {x == Laws.rd_at(U32, perm, j) : U32},
+  w: &b: Array<U32> -> &y: U32 -> {b == src : Array<U32>} & {Array.get(U32, src, x) == (src, y) : Array<U32> & U32} & {y == Laws.rd_at(U32, src, x) : U32})
+  -> GMid(p, j, d, src, out, perm, Array.get(U32, src, x)):
+  (src2, +y, +es, e2, ey) = w
+  %Equal.sym(Array<U32> & U32, Array.get(U32, src, x), (src, y), e2) : GMid(p, j, d, src, out, perm, _)
+  %es : GSet(p, j, d, _, out, perm, y)
+  gather_step3(p, j, d, src2, out, perm, y, Equal.trans(U32, y, Laws.rd_at(U32, src2, x), Laws.rd_at(U32, src2, Laws.rd_at(U32, perm, j)), Equal.trans(U32, y, Laws.rd_at(U32, src, x), Laws.rd_at(U32, src2, x), ey, Equal.sym(U32, Laws.rd_at(U32, src2, x), Laws.rd_at(U32, src, x), Equal.cong(Array<U32>, U32, a => Laws.rd_at(U32, a, x), src2, src, es))), Equal.cong(U32, U32, a => Laws.rd_at(U32, src2, a), x, Laws.rd_at(U32, perm, j), ex)), hj, room, ih, set_other_w(U32, d, out, j, y, wf))
+
+def gather_step1(p: Nat, +j: U32, +d: Nat, src: Array<U32>, out: Array<U32>, -perm: Array<U32>, wf: Laws.WFArray(U32, d, out), room: Laws.Room(d, j, 1n+p),
+  ih: @src2: Array<U32> -> @c: Array<U32> -> @perm2: Array<U32> -> Laws.WFArray(U32, d, c) -> Laws.Room(d, U32.inc(j), p) -> GGoal(p, U32.inc(j), d, src2, c, perm2, Array.get(U32, perm2, U32.inc(j))),
+  w: &b: Array<U32> -> &x: U32 -> {b == perm : Array<U32>} & {Array.get(U32, perm, j) == (perm, x) : Array<U32> & U32} & {x == Laws.rd_at(U32, perm, j) : U32})
+  -> GGoal(1n+p, j, d, src, out, perm, Array.get(U32, perm, j)):
+  (hj, room2) = room
+  (perm2, +x, +ep, e1, ex) = w
+  %Equal.sym(Array<U32> & U32, Array.get(U32, perm, j), (perm, x), e1) : GGoal(1n+p, j, d, src, out, perm, _)
+  %ep : GGoal(1n+p, j, d, src, out, _, (_, x))
+  gather_step2(p, j, d, src, out, perm2, wf, hj, room2, ih, x, Equal.trans(U32, x, Laws.rd_at(U32, perm, j), Laws.rd_at(U32, perm2, j), ex, Equal.sym(U32, Laws.rd_at(U32, perm2, j), Laws.rd_at(U32, perm, j), Equal.cong(Array<U32>, U32, a => Laws.rd_at(U32, a, j), perm2, perm, ep))), get_w(U32, src, x))
+
+def gather_zero(+j: U32, +d: Nat, src: Array<U32>, out: Array<U32>, -perm: Array<U32>, wf: Laws.WFArray(U32, d, out),
+  w: &b: Array<U32> -> &x: U32 -> {b == perm : Array<U32>} & {Array.get(U32, perm, j) == (perm, x) : Array<U32> & U32} & {x == Laws.rd_at(U32, perm, j) : U32})
+  -> GGoal(0n, j, d, src, out, perm, Array.get(U32, perm, j)):
+  (perm2, +x, ep, e1, ex) = w
+  %Equal.sym(Array<U32> & U32, Array.get(U32, perm, j), (perm, x), e1) : GGoal(0n, j, d, src, out, perm, _)
+  %ep : GGoal(0n, j, d, src, out, _, (_, x))
+  g => (out, perm2, {==}, {==}, wf, g)
+
+# Kernel.gather.go with f steps left at counter j, every k < j already right, the next f indices
+# fitting the output: afterwards every k < addn(j, f) holds src[perm[k]]; perm comes back
+def gather_go(f: Nat, +j: U32, +d: Nat, src: Array<U32>, out: Array<U32>, perm: Array<U32>, wf: Laws.WFArray(U32, d, out), room: Laws.Room(d, j, f)) -> GGoal(f, j, d, src, out, perm, Array.get(U32, perm, j)):
+  match f:
+    case 0n:
+      gather_zero(j, d, src, out, perm, wf, get_w(U32, perm, j))
+    case 1n++p:
+      gather_step1(p, j, d, src, out, perm, wf, room, src2 => c => perm2 => wc => room2 => gather_go(p, U32.inc(j), d, src2, c, perm2, wc, room2), get_w(U32, perm, j))
