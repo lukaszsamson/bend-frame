@@ -378,3 +378,26 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
   `0x7fc00000`). x86-64 produces `0xffc00000` for invalid operations; if CI on Linux x86-64 runs the
   test suite, NaN-producing cases (B03-a/b/c/f/n, as dump_basic already) may need a NaN-canonicalising
   dump comparison.
+
+## M1 B01/B04 (shared analysis, cardinality, sources)
+
+- **A let inside a `case` is transparent to the checker**: `+ok = Opt.sinks(es, Plan.schema(x))`
+  then `Opt.hwrap(Opt.hstop(ok, n), Select{es, Opt.head(x, Opt.hpass(ok, n))})` keeps the recursion
+  structural, and a proof about it states the goal with the let inlined
+  (`P.Opt.hstop(P.Opt.sinks(es, P.Plan.schema(x)), n)` written out). Use this to make a pass
+  decide per node without two recursive calls (computing both branches and picking one doubles the
+  work per level).
+- **Proofs over a record**: a lemma that needs the dtype of `q & e` matches `rq: E.Res(A.Ana)` with
+  nested patterns `case Done{A.Ana{D.TBool{}, rs, k, tot, loc}}:` (one case per dtype, as with
+  `Expr.type`); the remaining fields stay variables and the goal still reduces, because the dtype
+  projection never inspects them.
+- **Keep a law true by guarding its function instead of rewriting it**: restricting `Opt.merge`
+  pair by pair would break `merge_pass_merges` / `merge_fixed_point` / `merge_idempotent`; running the
+  unchanged pass only when a whole-plan check holds (`Opt.merge_if(Opt.fsafe(p), p)`) keeps all four.
+- **Height is not locality**: `x - mean(x)` has one value per row (KRow) but each value reads all
+  rows. Anything that changes which rows an expression sees (head sink, filter merge, pushdown) needs
+  "no reduction inside", not only "row-shaped".
+- **Use counting at compile time**: post-processing the postfix code (`Exec.mark`: is there a later
+  `ISource` of the same name?) is simpler than threading a counter through the IO loop's state.
+- `perl -i` over several files does not reset `$.` between them; run line-number edits one file at
+  a time.

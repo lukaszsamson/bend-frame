@@ -63,7 +63,7 @@ def report_plan(p: DF.Plan()) -> DF.Plan():
     [DF.asc("region")])
 ```
 
-`DF.explain` before and after `DF.optimize` (real output). The optimizer adds a projection under the filter, so only the columns the plan uses flow on (the CSV itself is still parsed whole, see `bench/README.md`):
+`DF.explain` before and after `DF.optimize_full` (real output). The full optimizer adds a projection under the filter, so only the columns the plan uses flow on (the CSV itself is still parsed whole, see `bench/README.md`). `DF.collect` uses `DF.optimize`, which applies only the rewrites certified so far (head merging, and a head sinking below a projection the expression analysis proves height preserving); `DF.collect_full` runs the full one:
 
 ```
 -- plan
@@ -71,7 +71,7 @@ SORT BY [col("region")]
   GROUP_BY [col("region")] AGG [col("qty").sum().alias("qty_sum"), col("price").mean().alias("price_mean"), lit(1).len().alias("count")] MAINTAIN_ORDER
     FILTER col("ok")
       SCAN CSV bench/fixtures/tiny.csv [id:u32, region:str, product:str, qty:u32, price:f32, discount:f32, ok:bool]
--- optimized plan
+-- optimized plan (optimize_full)
 SORT BY [col("region")]
   GROUP_BY [col("region")] AGG [col("qty").sum().alias("qty_sum"), col("price").mean().alias("price_mean"), lit(1).len().alias("count")] MAINTAIN_ORDER
     FILTER col("ok")
@@ -95,8 +95,8 @@ collect: error: TypeMismatch in filter: expected bool, got u32
 ### Operations
 
 - Eager (`Frame -> ResT(Frame)`, an error is a value): `select`, `with_columns`, `filter`, `sort` (multi-key, per-key `asc` / `desc` and nulls placement), `group_by` with `sum mean min max count len first last n_unique`, `inner_join` and `left_join` (multi-key), `head`, `describe`, `show`.
-- Lazy (`Plan`): `lazy_select`, `lazy_with_columns`, `lazy_filter`, `lazy_sort`, `lazy_group_by`, `lazy_head`, `lazy_inner_join`, `lazy_left_join`, with `source` / `empty_env` for in-memory frames and `scan_csv` for files.
-- Inspect and run: `collect_schema`, `schema_show`, `explain`, `optimize` (filter merge, predicate and projection pushdown, head merge), `collect`.
+- Lazy (`Plan`): `lazy_select`, `lazy_with_columns`, `lazy_filter`, `lazy_sort`, `lazy_group_by`, `lazy_head`, `lazy_inner_join`, `lazy_left_join`, with `source` / `add_source` / `empty_env` for in-memory frames (several named frames in one env; a frame may be read more than once, e.g. a self join) and `scan_csv` for files.
+- Inspect and run: `collect_schema`, `schema_show`, `explain`, `validate_bindings`, `optimize` (the certified rewrites: head merge and the analysis-restricted head sink), `optimize_full` (opt-in: filter merge, predicate and projection pushdown, head), `collect`, `collect_raw`, `collect_full`. `collect_schema` predicts the static schema and type errors; `validate_bindings` predicts the binding errors (a missing source, a name bound twice, a frame whose schema differs from the plan's); the rest (IO, data-dependent errors) shows up only at `collect`.
 - CSV: `read_csv` (types inferred per column), `scan_csv`, `write_csv` (F32 values in shortest form).
 
 ### Expressions
@@ -107,7 +107,7 @@ collect: error: TypeMismatch in filter: expected bool, got u32
 - Comparison: `eq ne lt le gt ge`.
 - Boolean: `and or not`.
 - Nulls: `is_null is_not_null fill_null`.
-- Aggregations (inside `group_by` only): `sum mean min max count len first last n_unique`.
+- Aggregations: `sum mean min max count len first last n_unique`, as `group_by` aggregations and as global reductions anywhere in `select` / `with_columns` / `filter`, eagerly and lazily. A `select` of only literals and reductions gives one row (also on an empty input); one that mixes them with a column broadcasts them; `with_columns` and `filter` compute reductions over their whole input, then broadcast. A reduction of a reduction is an error. `select([])` gives a `(0, 0)` frame.
 
 ### Null semantics
 

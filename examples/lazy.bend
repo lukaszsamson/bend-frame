@@ -1,5 +1,5 @@
 # Lazy API: scan_csv -> filter -> group_by -> sort. Prints the schema (no data
-# read), the plan before and after optimize, and the rows. Then a plan with a
+# read), the plan before and after optimize_full, and the rows. Then a plan with a
 # type error: collect_schema and collect both refuse it before any row is read.
 # Run from the repo root:  ~/.bend/bin/bend examples/lazy.bend
 import ./../frame.bend as DF
@@ -25,8 +25,8 @@ def run(+p: DF.Plan()) -> IO(Unit):
     IO.print(DF.schema_show(DF.collect_schema(p)))
     IO.print("-- plan")
     IO.print(DF.explain(p))
-    IO.print("-- optimized plan")
-    IO.print(DF.explain(DF.optimize(p)))
+    IO.print("-- optimized plan (optimize_full)")
+    IO.print(DF.explain(DF.optimize_full(p)))
     r : DF.ResT(DF.Frame()) <- DF.collect(p, DF.empty_env())
     IO.print("-- result")
     IO.print(DF.show(r))
