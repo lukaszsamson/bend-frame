@@ -708,3 +708,51 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
 - Checking expectations: the f32 bits for std / var / median came from
   `bench/diff/oracle.reduce_` (`cd bench && uv run python`), the contract's algorithm in numpy
   float32; the sales table from Polars 2.0.0 directly.
+
+## M4 (string experiment: Raw / Dictionary storage, streaming CSV reader)
+
+- **A second storage behind one constructor**: `CStr{len, depth, valid, data: ST.Strs}` with
+  `ST.Strs = SRaw{Array<String>} | SDict{codes, dict}` (src/strs.bend) kept every proof that
+  only moves `data` (head, len, dtype, the witness lemmas) unchanged; only `WFColumn`'s Str case
+  had to name the storage (`WFStrs`). A sixth Column constructor would have needed a new case in
+  every 5-way match of src/ and of the proof files. Code that reads a Str column's strings writes
+  `ST.Strs.decode(n, d, x)` (one gather) or, per value, `ST.Strs.map / map_maybe / map_p` (per
+  dictionary ENTRY for a Dictionary, then a gather by code).
+- **Code 0 is always the empty string**: a null row holds code 0, so it decodes to "" exactly as a
+  Raw null slot holds ""; `decode` is a plain gather and `fix` (null slots to the default) is
+  `mask_data` on the codes. Null stays validity, never an entry.
+- **Bend has no global counter**: a dictionary's `tag` can only be a fingerprint (FNV mix of
+  the entries in code order); equal tags are verified entry by entry (`Dict.same`) before two
+  columns' codes are compared directly; otherwise the smaller dictionary is re-coded into the
+  larger (`Dict.recode`, a miss is `Dict.miss()`, never equal to a code).
+- **Ordering through ranks**: Base `Map.to_list` walks the crit-bit trie in code-point order with
+  a prefix first, the order `String.is_lt` implements, so `Dict.ranks` (k Map inserts) gives sort
+  words, min / max and `<` over two dictionaries (merge one into the other, rank the merged
+  entries once). Checked by `tests/strs_decode.bend` against the Raw paths.
+- **`col == lit` without n string comparisons**: `Eval.do2` broadcasts a 1-row Str side as a
+  one-entry Dictionary when the other side is a Dictionary column (`Eval.fitd`), so the generic
+  Dictionary x Dictionary comparison re-codes the 2-entry literal dictionary (2 probes) and
+  compares codes; next to a Raw column the old broadcast is kept (no cost in the Raw default).
+- **The native allocator punishes chunked work**: free lists are LIFO per lane, so memory freed by
+  one chunk is handed out scattered to the next; per-chunk time of the same parse rose from 65 ms
+  to ~200 ms over 40 x 1 MiB pieces (and from 34 to ~220 ms re-parsing ONE 1 MiB chunk 40 times in
+  a pure loop), while one big piece runs at the first piece's speed. Strings built by Bend (a byte
+  list decoded with `Csv.u8`) degrade worse than the strings `File.read` returns (fresh C-side
+  allocation): read pieces with `File.read` (after a small `File.read_at` probe for the last LF,
+  so no UTF-8 sequence is split) instead of decoding bytes in Bend. Dropping a big structure
+  unread (erasure) is also slower than consuming it (4.5 s vs 1.7 s for the 1M records).
+- **Take each record apart once**: `+recs` duplicated for a ragged walk, a blank walk, a count and
+  the transposition cost more than the walks themselves; one tail walk (`Csv.tw`) over the records
+  NEWEST first (the parser's order: no reversal) skips blanks, notes the first ragged record (the
+  last one met), counts, collects lines and transposes (columns come out oldest first).
+- **Per-piece arrays, concatenated once**: setting cells one by one into one growing column array
+  (`ANode{old, Array.new(..)}` doubling) between the parser's allocations was slower than filling a
+  small array per piece in a tight loop and copying the parts once at the end
+  (`K.Kernel.copy_into`); with one piece the part IS the column (no copy).
+- **An early exit from a per-row loop** (EncAuto falls back to Raw at a cell): thread `(go, state)`
+  as a pair parameter, compute the next pair in a step helper, `match cs` first, destructure the
+  pair in the case and `match go` on the component; the False arm returns the cells left
+  (`Ds.go` -> `DSwitch{i, rest, st}`). A recursive call inside a match on a destructured
+  component is still structural on `cs`.
+- `Bool.pick` evaluates both arms: an op dispatcher over a linear frame must `match` an enum
+  (bench/strbench.bend `Op`), never chain `Bool.pick`s that each consume the frame.

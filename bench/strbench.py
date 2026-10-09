@@ -86,6 +86,24 @@ def q_mode(a):
                         print(f"{q} n={n} {e} t={th} rep={rep}: {rec.get('seconds')} s rss={rec['rss']} load={l0:.1f}", flush=True)
 
 
+def scan_mode(a):
+    out = open(a.out, "a")
+    for n in a.sizes:
+        csv = f"bench/data/sales_{n}.csv"
+        for q in a.queries:
+            for th in a.threads:
+                for rep in range(a.reps):
+                    encs = a.encs[rep % len(a.encs):] + a.encs[:rep % len(a.encs)]
+                    for e in encs:
+                        cmd = [f"./build/scanbench_{e}"] + thr_args(th) + [csv, q]
+                        l0 = load1()
+                        rec = run(cmd, {})
+                        rec.update({"enc": e, "n": int(n), "q": "scan+" + q, "threads": th, "rep": rep, "load1": l0})
+                        out.write(json.dumps(rec) + "\n")
+                        out.flush()
+                        print(f"scan {q} n={n} {e} t={th} rep={rep}: {rec.get('ms')} ms rss={rec['rss']} load={l0:.1f}", flush=True)
+
+
 def med(xs):
     return statistics.median(xs) if xs else None
 
@@ -99,6 +117,9 @@ def table_mode(a):
             continue
         if "op" in r:
             key = (r["file"], r["op"], r["threads"])
+            val = r["ms"]
+        elif str(r.get("q", "")).startswith("scan+"):
+            key = (f"sales_{r['n']}", r["q"], r["threads"])
             val = r["ms"]
         else:
             key = (f"sales_{r['n']}", r["q"], r["threads"])
@@ -122,7 +143,7 @@ def table_mode(a):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("mode", choices=["ops", "q", "table"])
+    ap.add_argument("mode", choices=["ops", "q", "scan", "table"])
     ap.add_argument("files", nargs="*")
     ap.add_argument("--files", dest="files2", nargs="*", default=[])
     ap.add_argument("--ops", nargs="*", default=["parse"])
@@ -136,7 +157,7 @@ def main():
     a.files = a.files + a.files2
     Path(ROOT / a.out).parent.mkdir(parents=True, exist_ok=True)
     a.out = str(ROOT / a.out)
-    {"ops": ops_mode, "q": q_mode, "table": table_mode}[a.mode](a)
+    {"ops": ops_mode, "q": q_mode, "scan": scan_mode, "table": table_mode}[a.mode](a)
 
 
 if __name__ == "__main__":

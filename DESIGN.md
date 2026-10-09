@@ -310,7 +310,7 @@ type Column is Type:
   CU32{len: U32, depth: Nat, valid: Valid, data: Array<U32>}
   CI32{len: U32, depth: Nat, valid: Valid, data: Array<U32>}
   CF32{len: U32, depth: Nat, valid: Valid, data: Array<F32>}
-  CStr{len: U32, depth: Nat, valid: Valid, data: Array<String>}
+  CStr{len: U32, depth: Nat, valid: Valid, data: ST.Strs}   # M4: Raw or Dictionary storage
 
 type Named is Type:
   Named{name: String, col: Column}
@@ -318,6 +318,11 @@ type Named is Type:
 type Frame is Type:
   Frame{height: U32, cols: List<&1, Named>}
 ```
+
+M4 (section 14, "M4 string experiment"): a Str column's data is `ST.Strs` (src/strs.bend),
+`SRaw{data: Array<String>}` (one string per row) or `SDict{codes: Array<U32>, dict: Dict}`
+(one code per row; `dict` holds each distinct string once, entry 0 is always `""`, a null
+row holds code 0). Both decode to the same rows and every operation answers the same values.
 
 Invariants (not type-enforced; `LAWS.bend` may state them): `len <= 2^depth`;
 `data` has exactly `2^depth` slots; `Mask{m}` has `2^depth` slots of `0`/`1`
@@ -2490,8 +2495,8 @@ blank lines are skipped by the reader, so they do not count) and the file is not
 exhausted, read the next 64 KiB; cut the text at the last line end outside quotes;
 `Csv.infer` on that prefix (records that are complete within it); close. It never
 reads the whole file (unless the file is smaller than the prefix) and never builds
-columns. `collect` reads the file once (`Csv.read_with` with the frozen dtypes, 1 MiB
-chunks in M4's csvparse), strictly: a value that does not parse under the frozen dtype
+columns. `collect` reads the file once (`Csv.read_with` with the frozen dtypes; amended
+M4: in pieces of up to 64 MiB, not 1 MiB, see section 14 M4), strictly: a value that does not parse under the frozen dtype
 is `ParseError{line, "column <name>: cannot parse \"<text>\" as <dtype>"}`; a header
 whose names or count differ from the plan's is `InvalidOperation{"scan_csv <path>: data
 schema [<file schema>] differs from the plan's [<plan schema>]"}` (schemas shown by

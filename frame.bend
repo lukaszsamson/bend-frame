@@ -22,6 +22,7 @@ import Base
 import ./src/dtype.bend as D
 import ./src/err.bend as E
 import ./src/column.bend as C
+import ./src/strs.bend as ST
 import ./src/schema.bend as S
 import ./src/expr.bend as X
 import ./src/eval.bend as V
@@ -396,6 +397,28 @@ def read_csv_opts(path: String, opts: R.CsvOpts) -> IO(E.ResT(C.Frame)):
 # parse is a ParseError, a wrong count an InvalidOperation; [] infers
 def read_csv_schema(path: String, opts: R.CsvOpts, dtypes: List<&2, D.DType>) -> IO(E.ResT(C.Frame)):
   R.Csv.read_with(path, opts, dtypes)
+
+# ---- Str storage (M4, DESIGN.md 14 M4): how a reader holds a str column ----------------
+# Raw: one string per row; Dictionary: one code per row and each distinct string once; Auto (the
+# readers' default, R.Csv.enc_default): a Dictionary while the column has at most
+# max(16384, rows / 64) distinct values, else Raw. Values, dtypes and every result are the same
+# in all three; only time and memory differ.
+def str_raw() -> ST.StrEnc:
+  ST.EncRaw{}
+
+def str_dict() -> ST.StrEnc:
+  ST.EncDict{}
+
+def str_auto() -> ST.StrEnc:
+  ST.EncAuto{}
+
+# read_csv_schema with the Str storage chosen ([] dtypes infers)
+def read_csv_enc(path: String, opts: R.CsvOpts, dtypes: List<&2, D.DType>, enc: ST.StrEnc) -> IO(E.ResT(C.Frame)):
+  R.Csv.read_enc(path, opts, dtypes, enc)
+
+# every str column Dictionary-encoded (dict) or decoded to Raw (not dict); the values are unchanged
+def encode_strings(f: C.Frame, dict: Bool) -> C.Frame:
+  C.Frame.encode(f, dict)
 
 # helper: the table of a (frame & text) pair
 def show.s(x: C.Frame & String) -> String:
