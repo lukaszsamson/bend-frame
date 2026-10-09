@@ -2183,3 +2183,51 @@ law frame_encode_cells:
   for f: C.Frame
   for +dict: Bool
   FrameCells(dict, f, C.Frame.encode(f, dict))
+
+# ---- remap: Dict.merge (one dictionary's entries into another), Dict.miss -----------------------
+
+def ddd(d: ST.Dict) -> Nat:
+  match d:
+    case ST.Dict{k, dd, strs, b, slots, tag}:
+      dd
+
+def dstrs(d: ST.Dict) -> Array<String>:
+  match d:
+    case ST.Dict{k, dd, strs, b, slots, tag}:
+      strs
+
+# LAW: Dict.miss() (the "absent" answer of Dict.find / Dict.recode) is never a code of a dictionary
+# below 2^30 entries
+law dict_miss_not_code:
+  for d: ST.Dict
+  for small: {U32.is_lt(dk(d), U32.shln(1, 30n)) == True{} : Bool}
+  {U32.is_lt(ST.Dict.miss(), dk(d)) == False{} : Bool}
+
+# the probe hypotheses and the entry bound along Dict.merge (Dict.rc.go with ins): entry c of src
+# against the dictionary built so far, which holds fewer than 2^30 entries (the row cap keeps every
+# dictionary far below)
+def MergeProbe(f: Nat, +c: U32, -strs: Array<String>, -d: ST.Dict) -> Type:
+  match f:
+    case 0n:
+      Unit
+    case 1n+p:
+      Probe(d, rd_at(String, strs, c)) & {U32.is_lt(dk(d), U32.shln(1, 30n)) == True{} : Bool} & MergeProbe(p, U32.inc(c), strs, Pair.fst(ST.Dict, U32, ST.Dict.code(d, rd_at(String, strs, c))))
+
+# Dict.merge's answer: src back unchanged; dst extended (es2 extends esd) and well formed, every old
+# code of dst keeping its entry; the map m (2^ddd(src) slots, well formed) re-codes every entry c of
+# src: m[c] (any word equal to the slot) is below the extended entry count and names src's entry c
+# there (EncRows over src's entry array: nthd(es2, m[c]) == dentry(src, c))
+def MergeW(-src: ST.Dict, -dst: ST.Dict, +esd: List<&2, String>) -> Type:
+  &src2: ST.Dict -> &dst2: ST.Dict -> &m: Array<U32> -> &es2: List<&2, String> -> {ST.Dict.merge(src, dst) == (src2, dst2, m) : ST.Dict & ST.Dict & Array<U32>} & {src2 == src : ST.Dict} & Ext(esd, es2) & WFArray(U32, ddd(src), m) & WFDictE(dst2, es2) & (@c: U32 -> {U32.is_lt(c, dk(dst)) == True{} : Bool} -> {dentry(dst2, c) == dentry(dst, c) : String}) & EncRows(dk(src), ddd(src), dstrs(src), m, es2)
+
+# LAW: Dict.merge(src, dst) (Dict.rc with ins over Dict.code: Dict.rc.go / .step / .op / .put / .fin /
+# .fin2) extends dst by the entries of src it lacks and maps src's codes into the result; src fits its
+# slots (k <= 2^dd, part of WFDictE(src, _)), under the probe hypotheses and the entry bound at every step
+law dict_merge_spec:
+  for src: ST.Dict
+  for dst: ST.Dict
+  for +esd: List<&2, String>
+  for fits: {U32.is_le(dk(src), U32.shln(1, ddd(src))) == True{} : Bool}
+  for wfd: WFDictE(dst, esd)
+  for probes: MergeProbe(U32.to_nat(dk(src)), 0, dstrs(src), dst)
+  MergeW(src, dst, esd)

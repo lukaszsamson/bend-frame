@@ -2022,3 +2022,209 @@ def Laws.frame_encode_cells(f, dict):
   match f:
     case C.Frame{+h, cols}:
       ({==}, Laws.cols_encode_cells(cols, dict))
+
+# ---- Laws.dict_miss_not_code -----------------------------------------------------------------------------------
+
+# below a bound below 2^30, the all-ones miss word is not: U32.is_lt(miss, 2^30) computes to False
+def miss_k(bb: Bool, +k: U32, e: {U32.is_lt(ST.Dict.miss(), k) == bb : Bool}, small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}) -> {U32.is_lt(ST.Dict.miss(), k) == False{} : Bool}:
+  match bb:
+    case False{}:
+      e
+    case True{}:
+      Empty.absurd({U32.is_lt(ST.Dict.miss(), k) == False{} : Bool}, L.false_true(PC.lt_trans_u(ST.Dict.miss(), k, U32.shln(1, 30n), e, small)))
+
+def Laws.dict_miss_not_code(d, small):
+  match d:
+    case ST.Dict{+k, dd, strs, b, slots, tag}:
+      miss_k(U32.is_lt(ST.Dict.miss(), k), k, {==}, small)
+
+# ---- Laws.dict_merge_spec: Dict.rc.go with ins over Dict.code --------------------------------------------------------
+#
+# The same loop as Strs.encode's (the source is src's entry array, the dictionary dst); the invariant adds
+# KeepD (the old codes of the starting dictionary dst0 keep their entries, composed from CodeW's Keep step by
+# step; the bound k0 = dk(dst0) stays below the entry count through the accumulated extension of esd), and the
+# per-step entry bound comes from the MergeProbe chain instead of the counter arithmetic.
+
+def KeepD(-dst0: ST.Dict, +k0: U32, -dst: ST.Dict) -> Type:
+  @c: U32 -> {U32.is_lt(c, k0) == True{} : Bool} -> {Laws.dentry(dst, c) == Laws.dentry(dst0, c) : String}
+
+def MRes(+dd: Nat, -strs: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, m: Array<U32>, dst2: ST.Dict, +es2: List<&2, String>, +bound: U32) -> Type:
+  Laws.Ext(esd, es2) & Laws.WFArray(U32, dd, m) & Laws.WFDictE(dst2, es2) & KeepD(dst0, k0, dst2) & Laws.EncRows(bound, dd, strs, m, es2)
+
+def MGoal(f: Nat, +c: U32, +dd: Nat, -strs: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, dst: ST.Dict, -out: Array<U32>, +es: List<&2, String>, -r: Array<String> & String) -> Type:
+  Laws.EncRows(c, dd, strs, out, es) -> Laws.WFDictE(dst, es) -> KeepD(dst0, k0, dst) -> Laws.MergeProbe(f, c, strs, dst) -> &strs2: Array<String> -> &dst2: ST.Dict -> &m: Array<U32> -> &es2: List<&2, String> -> {ST.Dict.rc.go(f, c, True{}, (dst, out), r) == (strs2, (dst2, m)) : Array<String> & (ST.Dict & Array<U32>)} & {strs2 == strs : Array<String>} & MRes(dd, strs, dst0, k0, esd, m, dst2, es2, Laws.addn(c, f))
+
+def MSig(p: Nat, +c: U32, +dd: Nat, -a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, -dst: ST.Dict, -out: Array<U32>, +es: List<&2, String>, +x: String) -> Type:
+  &strs2: Array<String> -> &dst2: ST.Dict -> &m: Array<U32> -> &es2: List<&2, String> -> {ST.Dict.rc.go(p, U32.inc(c), True{}, ST.Dict.rc.step(True{}, c, x, (dst, out)), Array.get(String, a2, U32.inc(c))) == (strs2, (dst2, m)) : Array<String> & (ST.Dict & Array<U32>)} & {strs2 == a2 : Array<String>} & MRes(dd, a2, dst0, k0, esd, m, dst2, es2, Laws.addn(c, 1n+p))
+
+def MMid(p: Nat, +c: U32, +dd: Nat, -a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, dst: ST.Dict, -out: Array<U32>, +es: List<&2, String>, +x: String) -> Type:
+  Laws.EncRows(c, dd, a2, out, es) -> Laws.WFDictE(dst, es) -> KeepD(dst0, k0, dst) -> Laws.MergeProbe(1n+p, c, a2, dst) -> MSig(p, c, dd, a2, dst0, k0, esd, dst, out, es, x)
+
+def MMid2(p: Nat, +c: U32, +dd: Nat, -a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, -dst: ST.Dict, -out: Array<U32>, +es: List<&2, String>, +x: String) -> Type:
+  KeepD(dst0, k0, dst) -> Laws.MergeProbe(1n+p, c, a2, dst) -> MSig(p, c, dd, a2, dst0, k0, esd, dst, out, es, x)
+
+def MStep(p: Nat, +c: U32, +dd: Nat, -a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, -dst: ST.Dict, -out: Array<U32>, +es: List<&2, String>, +x: String, +s: String) -> Type:
+  Laws.Probe(dst, s) -> {U32.is_lt(Laws.dk(dst), U32.shln(1, 30n)) == True{} : Bool} -> Laws.MergeProbe(p, U32.inc(c), a2, Pair.fst(ST.Dict, U32, ST.Dict.code(dst, s))) -> MSig(p, c, dd, a2, dst0, k0, esd, dst, out, es, x)
+
+def MStep2(p: Nat, +c: U32, +dd: Nat, -a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, -out: Array<U32>, +es: List<&2, String>, -q: ST.Dict & U32) -> Type:
+  Laws.MergeProbe(p, U32.inc(c), a2, Pair.fst(ST.Dict, U32, q)) -> &strs2: Array<String> -> &dst2: ST.Dict -> &m: Array<U32> -> &es2: List<&2, String> -> {ST.Dict.rc.go(p, U32.inc(c), True{}, ST.Dict.rc.put(c, out, q), Array.get(String, a2, U32.inc(c))) == (strs2, (dst2, m)) : Array<String> & (ST.Dict & Array<U32>)} & {strs2 == a2 : Array<String>} & MRes(dd, a2, dst0, k0, esd, m, dst2, es2, Laws.addn(c, 1n+p))
+
+def MStep3(p: Nat, +c: U32, +dd: Nat, -a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, -d3: ST.Dict, -out: Array<U32>, +cc: U32) -> Type:
+  Laws.MergeProbe(p, U32.inc(c), a2, d3) -> &strs2: Array<String> -> &dst2: ST.Dict -> &m: Array<U32> -> &es2: List<&2, String> -> {ST.Dict.rc.go(p, U32.inc(c), True{}, (d3, Array.set(U32, out, c, cc)), Array.get(String, a2, U32.inc(c))) == (strs2, (dst2, m)) : Array<String> & (ST.Dict & Array<U32>)} & {strs2 == a2 : Array<String>} & MRes(dd, a2, dst0, k0, esd, m, dst2, es2, Laws.addn(c, 1n+p))
+
+def MStep5(p: Nat, +c: U32, +dd: Nat, -a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, -d3: ST.Dict, -c1: Array<U32>, +bound: U32) -> Type:
+  Laws.MergeProbe(p, U32.inc(c), a2, d3) -> &strs2: Array<String> -> &dst2: ST.Dict -> &m: Array<U32> -> &es2: List<&2, String> -> {ST.Dict.rc.go(p, U32.inc(c), True{}, (d3, c1), Array.get(String, a2, U32.inc(c))) == (strs2, (dst2, m)) : Array<String> & (ST.Dict & Array<U32>)} & {strs2 == a2 : Array<String>} & MRes(dd, a2, dst0, k0, esd, m, dst2, es2, bound)
+
+# the induction hypothesis of the loop
+def MIH(p: Nat, +c: U32, +dd: Nat, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>) -> Type:
+  @a3: Array<String> -> @dict3: ST.Dict -> @out3: Array<U32> -> @es3: List<&2, String> -> Laws.WFArray(U32, dd, out3) -> Laws.Room(dd, U32.inc(c), p) -> @moreA3: List<&2, String> -> {es3 == List.append(&2, String, esd, moreA3) : List<&2, String>} -> MGoal(p, U32.inc(c), dd, a3, dst0, k0, esd, dict3, out3, es3, Array.get(String, a3, U32.inc(c)))
+
+def keepd_c(-dst0: ST.Dict, +k0: U32, -dst: ST.Dict, -d3: ST.Dict, +kc: U32, +ekk: {kc == Laws.dk(dst) : U32}, +esd: List<&2, String>, +es: List<&2, String>, +moreA: List<&2, String>, +eA: {es == List.append(&2, String, esd, moreA) : List<&2, String>}, +ek0: {U32.to_nat(k0) == List.length(&2, String, esd) : Nat}, +ekc: {U32.to_nat(kc) == List.length(&2, String, es) : Nat}, +c2: U32, +hc: {U32.is_lt(c2, k0) == True{} : Bool},
+  keep: @c3: U32 -> {U32.is_lt(c3, Laws.dk(dst)) == True{} : Bool} -> {Laws.dentry(d3, c3) == Laws.dentry(dst, c3) : String}, kd: KeepD(dst0, k0, dst))
+  -> {Laws.dentry(d3, c2) == Laws.dentry(dst0, c2) : String}:
+  Equal.trans(String, Laws.dentry(d3, c2), Laws.dentry(dst, c2), Laws.dentry(dst0, c2), keep(c2, (%ekk : {U32.is_lt(c2, _) == True{} : Bool}; lt_le_trans_u(c2, k0, kc, hc, le_u_of_nat(k0, kc, (%Equal.sym(Nat, U32.to_nat(k0), List.length(&2, String, esd), ek0) : {Nat.is_le(_, U32.to_nat(kc)) == True{} : Bool}; (%Equal.sym(Nat, U32.to_nat(kc), List.length(&2, String, es), ekc) : {Nat.is_le(List.length(&2, String, esd), _) == True{} : Bool}; ext_len(esd, es, (moreA, eA)))))))), kd(c2, hc))
+
+# KeepD after one Dict.code: its Keep (old codes of dst keep their entries) composed with the invariant; the
+# bound k0 <= dk(dst) through the accumulated extension of esd
+def keepd_next(-dst0: ST.Dict, +k0: U32, -dst: ST.Dict, -d3: ST.Dict, +kc: U32, +ekk: {kc == Laws.dk(dst) : U32}, +esd: List<&2, String>, +es: List<&2, String>, +moreA: List<&2, String>, +eA: {es == List.append(&2, String, esd, moreA) : List<&2, String>}, +ek0: {U32.to_nat(k0) == List.length(&2, String, esd) : Nat}, +ekc: {U32.to_nat(kc) == List.length(&2, String, es) : Nat},
+  keep: @c2: U32 -> {U32.is_lt(c2, Laws.dk(dst)) == True{} : Bool} -> {Laws.dentry(d3, c2) == Laws.dentry(dst, c2) : String}, kd: KeepD(dst0, k0, dst))
+  -> KeepD(dst0, k0, d3):
+  +c2 => hc => keepd_c(dst0, k0, dst, d3, kc, ekk, esd, es, moreA, eA, ek0, ekc, c2, hc, keep, kd)
+
+# the accumulated extension taken apart for the next iteration
+def mstep9(p: Nat, +c: U32, +dd: Nat, a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, -dst: ST.Dict, d3: ST.Dict, -out: Array<U32>, c1: Array<U32>, +es: List<&2, String>, +es2: List<&2, String>, +x: String, +ex2: {x == Laws.rd_at(String, a2, c) : String}, +cc: U32, +hcn: {Cmp.is_lt(Nat.cmp(U32.to_nat(cc), List.length(&2, String, es2))) == True{} : Bool}, +hdec: {Laws.nthd(es2, cc) == x : String}, +more: List<&2, String>, +e2: {es2 == List.append(&2, String, es, more) : List<&2, String>}, wf3: Laws.WFDictE(d3, es2), kd3: KeepD(dst0, k0, d3),
+  +hi: {U32.is_lt(c, U32.shln(1, dd)) == True{} : Bool}, room2: Laws.Room(dd, U32.inc(c), p), ih: MIH(p, c, dd, dst0, k0, esd), g: Laws.EncRows(c, dd, a2, out, es), wc1: Laws.WFArray(U32, dd, c1),
+  fj: @j: U32 -> {Laws.rdN(U32, dd, c1, j) == Bool.pick(U32, Laws.same_at(dd, c, j), cc, Laws.rdN(U32, dd, out, j)) : U32}, +moreA2: List<&2, String>, +eA2: {es2 == List.append(&2, String, esd, moreA2) : List<&2, String>})
+  -> MStep5(p, c, dd, a2, dst0, k0, esd, d3, c1, Laws.addn(U32.inc(c), p)):
+  pr => ih(a2, d3, c1, es2, wc1, room2, moreA2, eA2)(ehyp_next(c, dd, a2, out, c1, es, es2, (more, e2), cc, hcn, Equal.trans(String, Laws.nthd(es2, cc), x, Laws.rd_at(String, a2, c), hdec, ex2), hi, g, fj))(wf3)(kd3)(pr)
+
+def mstep8(p: Nat, +c: U32, +dd: Nat, a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, -dst: ST.Dict, d3: ST.Dict, -out: Array<U32>, c1: Array<U32>, +es: List<&2, String>, +es2: List<&2, String>, +x: String, +ex2: {x == Laws.rd_at(String, a2, c) : String}, +cc: U32, +hcn: {Cmp.is_lt(Nat.cmp(U32.to_nat(cc), List.length(&2, String, es2))) == True{} : Bool}, +hdec: {Laws.nthd(es2, cc) == x : String}, +more: List<&2, String>, +e2: {es2 == List.append(&2, String, es, more) : List<&2, String>}, wf3: Laws.WFDictE(d3, es2), kd3: KeepD(dst0, k0, d3),
+  +hi: {U32.is_lt(c, U32.shln(1, dd)) == True{} : Bool}, room2: Laws.Room(dd, U32.inc(c), p), ih: MIH(p, c, dd, dst0, k0, esd), g: Laws.EncRows(c, dd, a2, out, es), wc1: Laws.WFArray(U32, dd, c1),
+  fj: @j: U32 -> {Laws.rdN(U32, dd, c1, j) == Bool.pick(U32, Laws.same_at(dd, c, j), cc, Laws.rdN(U32, dd, out, j)) : U32}, w: Laws.Ext(esd, es2))
+  -> MStep5(p, c, dd, a2, dst0, k0, esd, d3, c1, Laws.addn(U32.inc(c), p)):
+  (+moreA2, eA2) = w
+  mstep9(p, c, dd, a2, dst0, k0, esd, dst, d3, out, c1, es, es2, x, ex2, cc, hcn, hdec, more, e2, wf3, kd3, hi, room2, ih, g, wc1, fj, moreA2, eA2)
+
+def mstep8a(p: Nat, +c: U32, +dd: Nat, a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, -dst: ST.Dict, d3: ST.Dict, -out: Array<U32>, c1: Array<U32>, +es: List<&2, String>, +es2: List<&2, String>, +x: String, +ex2: {x == Laws.rd_at(String, a2, c) : String}, +cc: U32, +hcn: {Cmp.is_lt(Nat.cmp(U32.to_nat(cc), List.length(&2, String, es2))) == True{} : Bool}, +hdec: {Laws.nthd(es2, cc) == x : String}, +more: List<&2, String>, +e2: {es2 == List.append(&2, String, es, more) : List<&2, String>}, wf3: Laws.WFDictE(d3, es2), kd3: KeepD(dst0, k0, d3),
+  +hi: {U32.is_lt(c, U32.shln(1, dd)) == True{} : Bool}, room2: Laws.Room(dd, U32.inc(c), p), +moreA: List<&2, String>, +eA: {es == List.append(&2, String, esd, moreA) : List<&2, String>}, ih: MIH(p, c, dd, dst0, k0, esd), g: Laws.EncRows(c, dd, a2, out, es), wc1: Laws.WFArray(U32, dd, c1),
+  fj: @j: U32 -> {Laws.rdN(U32, dd, c1, j) == Bool.pick(U32, Laws.same_at(dd, c, j), cc, Laws.rdN(U32, dd, out, j)) : U32})
+  -> MStep5(p, c, dd, a2, dst0, k0, esd, d3, c1, Laws.addn(U32.inc(c), p)):
+  mstep8(p, c, dd, a2, dst0, k0, esd, dst, d3, out, c1, es, es2, x, ex2, cc, hcn, hdec, more, e2, wf3, kd3, hi, room2, ih, g, wc1, fj, ext_trans_k(esd, es, es2, moreA, more, eA, e2))
+
+def mstep7b(p: Nat, +c: U32, +dd: Nat, a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, -dst: ST.Dict, d3: ST.Dict, -out: Array<U32>, c1: Array<U32>, +es: List<&2, String>, +es2: List<&2, String>, +x: String, +ex2: {x == Laws.rd_at(String, a2, c) : String}, +cc: U32, +hcn: {Cmp.is_lt(Nat.cmp(U32.to_nat(cc), List.length(&2, String, es2))) == True{} : Bool}, +hdec: {Laws.nthd(es2, cc) == x : String}, ext: Laws.Ext(es, es2), wf3: Laws.WFDictE(d3, es2), kd3: KeepD(dst0, k0, d3),
+  +hi: {U32.is_lt(c, U32.shln(1, dd)) == True{} : Bool}, room2: Laws.Room(dd, U32.inc(c), p), +moreA: List<&2, String>, +eA: {es == List.append(&2, String, esd, moreA) : List<&2, String>}, ih: MIH(p, c, dd, dst0, k0, esd), g: Laws.EncRows(c, dd, a2, out, es), wc1: Laws.WFArray(U32, dd, c1),
+  fj: @j: U32 -> {Laws.rdN(U32, dd, c1, j) == Bool.pick(U32, Laws.same_at(dd, c, j), cc, Laws.rdN(U32, dd, out, j)) : U32})
+  -> MStep5(p, c, dd, a2, dst0, k0, esd, d3, c1, Laws.addn(U32.inc(c), p)):
+  (+more, e2) = ext
+  mstep8a(p, c, dd, a2, dst0, k0, esd, dst, d3, out, c1, es, es2, x, ex2, cc, hcn, hdec, more, e2, wf3, kd3, hi, room2, moreA, eA, ih, g, wc1, fj)
+
+# after Array.set(out, c, cc) == c1
+def mstep7(+p: Nat, +c: U32, +dd: Nat, a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, -dst: ST.Dict, d3: ST.Dict, -out: Array<U32>, +es: List<&2, String>, +es2: List<&2, String>, +x: String, +ex2: {x == Laws.rd_at(String, a2, c) : String}, +cc: U32, +hcn: {Cmp.is_lt(Nat.cmp(U32.to_nat(cc), List.length(&2, String, es2))) == True{} : Bool}, +hdec: {Laws.nthd(es2, cc) == x : String}, ext: Laws.Ext(es, es2), wf3: Laws.WFDictE(d3, es2), kd3: KeepD(dst0, k0, d3),
+  +hi: {U32.is_lt(c, U32.shln(1, dd)) == True{} : Bool}, room2: Laws.Room(dd, U32.inc(c), p), +moreA: List<&2, String>, +eA: {es == List.append(&2, String, esd, moreA) : List<&2, String>}, ih: MIH(p, c, dd, dst0, k0, esd), g: Laws.EncRows(c, dd, a2, out, es),
+  w: &c1: Array<U32> -> {Array.set(U32, out, c, cc) == c1 : Array<U32>} & Laws.WFArray(U32, dd, c1) & (@j: U32 -> {Laws.rdN(U32, dd, c1, j) == Bool.pick(U32, Laws.same_at(dd, c, j), cc, Laws.rdN(U32, dd, out, j)) : U32}) & (@j: U32 -> {Laws.rd_at(U32, out, j) == Laws.rdN(U32, dd, out, j) : U32}))
+  -> MStep3(p, c, dd, a2, dst0, k0, esd, d3, out, cc):
+  (c1, ec1, wc1, fj, cv) = w
+  %Equal.sym(Array<U32>, Array.set(U32, out, c, cc), c1, ec1) : MStep5(p, c, dd, a2, dst0, k0, esd, d3, _, Laws.addn(c, 1n+p))
+  %PC.addn_inc(c, p) : MStep5(p, c, dd, a2, dst0, k0, esd, d3, c1, _)
+  mstep7b(p, c, dd, a2, dst0, k0, esd, dst, d3, out, c1, es, es2, x, ex2, cc, hcn, hdec, ext, wf3, kd3, hi, room2, moreA, eA, ih, g, wc1, fj)
+
+# Dict.code's answer taken apart; its result pair replaces the call; KeepD composed
+def mstep6(p: Nat, +c: U32, +dd: Nat, a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, -dst: ST.Dict, out: Array<U32>, +es: List<&2, String>, +x: String, +ex2: {x == Laws.rd_at(String, a2, c) : String}, wfo: Laws.WFArray(U32, dd, out), +kc: U32, +ekk: {kc == Laws.dk(dst) : U32}, +ekc: {U32.to_nat(kc) == List.length(&2, String, es) : Nat}, +ek0: {U32.to_nat(k0) == List.length(&2, String, esd) : Nat},
+  +hi: {U32.is_lt(c, U32.shln(1, dd)) == True{} : Bool}, room2: Laws.Room(dd, U32.inc(c), p), +moreA: List<&2, String>, +eA: {es == List.append(&2, String, esd, moreA) : List<&2, String>}, ih: MIH(p, c, dd, dst0, k0, esd), g: Laws.EncRows(c, dd, a2, out, es), kd: KeepD(dst0, k0, dst), w: Laws.CodeW(dst, es, x))
+  -> MStep2(p, c, dd, a2, dst0, k0, esd, out, es, ST.Dict.code(dst, x)):
+  (d3, +cc, +es2, eq, hc, +hcn, +hdec, ext, hlen, wf3, keep) = w
+  %Equal.sym(ST.Dict & U32, ST.Dict.code(dst, x), (d3, cc), eq) : MStep2(p, c, dd, a2, dst0, k0, esd, out, es, _)
+  mstep7(p, c, dd, a2, dst0, k0, esd, dst, d3, out, es, es2, x, ex2, cc, hcn, hdec, ext, wf3, keepd_next(dst0, k0, dst, d3, kc, ekk, esd, es, moreA, eA, ek0, ekc, keep, kd), hi, room2, moreA, eA, ih, g, PC.set_other_w(U32, dd, out, c, cc, wfo))
+
+# the probes over rd_at(a2, c) are probes over x; then Dict.code with the chain's entry bound
+def mstep5(p: Nat, +c: U32, +dd: Nat, a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, dst: ST.Dict, out: Array<U32>, +es: List<&2, String>, +x: String, +ex2: {x == Laws.rd_at(String, a2, c) : String}, wfo: Laws.WFArray(U32, dd, out), +kc: U32, +ekk: {kc == Laws.dk(dst) : U32}, +ekc: {U32.to_nat(kc) == List.length(&2, String, es) : Nat}, +ek0: {U32.to_nat(k0) == List.length(&2, String, esd) : Nat},
+  +hi: {U32.is_lt(c, U32.shln(1, dd)) == True{} : Bool}, room2: Laws.Room(dd, U32.inc(c), p), +moreA: List<&2, String>, +eA: {es == List.append(&2, String, esd, moreA) : List<&2, String>}, ih: MIH(p, c, dd, dst0, k0, esd), g: Laws.EncRows(c, dd, a2, out, es), kd: KeepD(dst0, k0, dst), wf2: Laws.WFDictE(dst, es))
+  -> MStep(p, c, dd, a2, dst0, k0, esd, dst, out, es, x, Laws.rd_at(String, a2, c)):
+  %ex2 : MStep(p, c, dd, a2, dst0, k0, esd, dst, out, es, x, _)
+  pb => hsmall => prest => mstep6(p, c, dd, a2, dst0, k0, esd, dst, out, es, x, ex2, wfo, kc, ekk, ekc, ek0, hi, room2, moreA, eA, ih, g, kd, Laws.dict_code_spec(dst, es, x, wf2, hsmall, pb))(prest)
+
+# the probe hypotheses of the step taken apart
+def mstep4(p: Nat, +c: U32, +dd: Nat, a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, dst: ST.Dict, out: Array<U32>, +es: List<&2, String>, +x: String, +ex2: {x == Laws.rd_at(String, a2, c) : String}, wfo: Laws.WFArray(U32, dd, out), +kc: U32, +ekk: {kc == Laws.dk(dst) : U32}, +ekc: {U32.to_nat(kc) == List.length(&2, String, es) : Nat}, +ek0: {U32.to_nat(k0) == List.length(&2, String, esd) : Nat},
+  +hi: {U32.is_lt(c, U32.shln(1, dd)) == True{} : Bool}, room2: Laws.Room(dd, U32.inc(c), p), +moreA: List<&2, String>, +eA: {es == List.append(&2, String, esd, moreA) : List<&2, String>}, ih: MIH(p, c, dd, dst0, k0, esd), g: Laws.EncRows(c, dd, a2, out, es), kd: KeepD(dst0, k0, dst), wf2: Laws.WFDictE(dst, es), pr: Laws.MergeProbe(1n+p, c, a2, dst))
+  -> MSig(p, c, dd, a2, dst0, k0, esd, dst, out, es, x):
+  (pb, hsmall, prest) = pr
+  mstep5(p, c, dd, a2, dst0, k0, esd, dst, out, es, x, ex2, wfo, kc, ekk, ekc, ek0, hi, room2, moreA, eA, ih, g, kd, wf2)(pb)(hsmall)(prest)
+
+# the dictionary's entry count as a word (wf_ek): its copy replaces the original in the goal
+def mstep3(p: Nat, +c: U32, +dd: Nat, a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, -dst: ST.Dict, out: Array<U32>, +es: List<&2, String>, +x: String, +ex2: {x == Laws.rd_at(String, a2, c) : String}, wfo: Laws.WFArray(U32, dd, out), +ek0: {U32.to_nat(k0) == List.length(&2, String, esd) : Nat},
+  +hi: {U32.is_lt(c, U32.shln(1, dd)) == True{} : Bool}, room2: Laws.Room(dd, U32.inc(c), p), +moreA: List<&2, String>, +eA: {es == List.append(&2, String, esd, moreA) : List<&2, String>}, ih: MIH(p, c, dd, dst0, k0, esd), g: Laws.EncRows(c, dd, a2, out, es),
+  w: &dst2: ST.Dict -> &kc: U32 -> {dst2 == dst : ST.Dict} & {kc == Laws.dk(dst2) : U32} & {U32.to_nat(kc) == List.length(&2, String, es) : Nat} & Laws.WFDictE(dst2, es))
+  -> MMid2(p, c, dd, a2, dst0, k0, esd, dst, out, es, x):
+  (dst2, +kc, ed, +ekk, +ekc, wf2) = w
+  %ed : MMid2(p, c, dd, a2, dst0, k0, esd, _, out, es, x)
+  kd => pr => mstep4(p, c, dd, a2, dst0, k0, esd, dst2, out, es, x, ex2, wfo, kc, ekk, ekc, ek0, hi, room2, moreA, eA, ih, g, kd, wf2, pr)
+
+def mstep2(p: Nat, +c: U32, +dd: Nat, a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, dst: ST.Dict, out: Array<U32>, +es: List<&2, String>, +x: String, +ex2: {x == Laws.rd_at(String, a2, c) : String}, wfo: Laws.WFArray(U32, dd, out), +ek0: {U32.to_nat(k0) == List.length(&2, String, esd) : Nat},
+  +hi: {U32.is_lt(c, U32.shln(1, dd)) == True{} : Bool}, room2: Laws.Room(dd, U32.inc(c), p), +moreA: List<&2, String>, +eA: {es == List.append(&2, String, esd, moreA) : List<&2, String>}, ih: MIH(p, c, dd, dst0, k0, esd))
+  -> MMid(p, c, dd, a2, dst0, k0, esd, dst, out, es, x):
+  g => wf => mstep3(p, c, dd, a2, dst0, k0, esd, dst, out, es, x, ex2, wfo, ek0, hi, room2, moreA, eA, ih, g, wf_ek(dst, es, wf))
+
+# the entry read: Array.get(a, c) == (a, x), then the copy a2 of a everywhere
+def mstep1(p: Nat, +c: U32, +dd: Nat, -a: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, dst: ST.Dict, out: Array<U32>, +es: List<&2, String>, wfo: Laws.WFArray(U32, dd, out), room: Laws.Room(dd, c, 1n+p), +moreA: List<&2, String>, +eA: {es == List.append(&2, String, esd, moreA) : List<&2, String>}, +ek0: {U32.to_nat(k0) == List.length(&2, String, esd) : Nat}, ih: MIH(p, c, dd, dst0, k0, esd),
+  w: &b: Array<String> -> &x: String -> {b == a : Array<String>} & {Array.get(String, a, c) == (a, x) : Array<String> & String} & {x == Laws.rd_at(String, a, c) : String})
+  -> MGoal(1n+p, c, dd, a, dst0, k0, esd, dst, out, es, Array.get(String, a, c)):
+  (+hi, room2) = room
+  (a2, +x, +ea, e1, ex) = w
+  %Equal.sym(Array<String> & String, Array.get(String, a, c), (a, x), e1) : MGoal(1n+p, c, dd, a, dst0, k0, esd, dst, out, es, _)
+  %ea : MGoal(1n+p, c, dd, _, dst0, k0, esd, dst, out, es, (_, x))
+  mstep2(p, c, dd, a2, dst0, k0, esd, dst, out, es, x, Equal.trans(String, x, Laws.rd_at(String, a, c), Laws.rd_at(String, a2, c), ex, Equal.cong(Array<String>, String, q => Laws.rd_at(String, q, c), a, a2, Equal.sym(Array<String>, a2, a, ea))), wfo, ek0, hi, room2, moreA, eA, ih)
+
+def mzero(+c: U32, +dd: Nat, -a: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, dst: ST.Dict, out: Array<U32>, +es: List<&2, String>, wfo: Laws.WFArray(U32, dd, out), +moreA: List<&2, String>, +eA: {es == List.append(&2, String, esd, moreA) : List<&2, String>},
+  w: &b: Array<String> -> &x: String -> {b == a : Array<String>} & {Array.get(String, a, c) == (a, x) : Array<String> & String} & {x == Laws.rd_at(String, a, c) : String})
+  -> MGoal(0n, c, dd, a, dst0, k0, esd, dst, out, es, Array.get(String, a, c)):
+  (a2, +x, +ea, e1, ex) = w
+  %Equal.sym(Array<String> & String, Array.get(String, a, c), (a, x), e1) : MGoal(0n, c, dd, a, dst0, k0, esd, dst, out, es, _)
+  %ea : MGoal(0n, c, dd, _, dst0, k0, esd, dst, out, es, (_, x))
+  g => wf => kd => pr => (a2, dst, out, es, {==}, {==}, (moreA, eA), wfo, wf, kd, g)
+
+# Dict.rc.go (ins) with f steps left at counter c
+def mgo(f: Nat, +c: U32, +dd: Nat, a: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, dst: ST.Dict, out: Array<U32>, +es: List<&2, String>, wfo: Laws.WFArray(U32, dd, out), room: Laws.Room(dd, c, f), +moreA: List<&2, String>, +eA: {es == List.append(&2, String, esd, moreA) : List<&2, String>}, +ek0: {U32.to_nat(k0) == List.length(&2, String, esd) : Nat}) -> MGoal(f, c, dd, a, dst0, k0, esd, dst, out, es, Array.get(String, a, c)):
+  match f:
+    case 0n:
+      mzero(c, dd, a, dst0, k0, esd, dst, out, es, wfo, moreA, eA, PC.get_w(String, a, c))
+    case 1n++p:
+      mstep1(p, c, dd, a, dst0, k0, esd, dst, out, es, wfo, room, moreA, eA, ek0, a3 => dict3 => out3 => es3 => wfo3 => room3 => moreA3 => eA3 => mgo(p, U32.inc(c), dd, a3, dst0, k0, esd, dict3, out3, es3, wfo3, room3, moreA3, eA3, ek0), PC.get_w(String, a, c))
+
+# ---- the law: src taken apart, dst's entry count as a word, the loop from code 0 -------------------------------------
+
+# the law's conclusion over src's fields and dst's copy dst1 (bound k0 for the kept codes)
+def MLaw(+k: U32, +dd: Nat, -strs: Array<String>, +b: Nat, -slots: Array<ST.SSlot>, +tag: U32, -dst1: ST.Dict, +k0: U32, +esd: List<&2, String>) -> Type:
+  &src2: ST.Dict -> &dst2: ST.Dict -> &m: Array<U32> -> &es2: List<&2, String> -> {ST.Dict.rc.fin(k, dd, b, slots, tag, ST.Dict.rc.go(U32.to_nat(k), 0, True{}, (dst1, Array.new(U32, dd, 0)), Array.get(String, strs, 0))) == (src2, dst2, m) : ST.Dict & ST.Dict & Array<U32>} & {src2 == ST.Dict{k, dd, strs, b, slots, tag} : ST.Dict} & Laws.Ext(esd, es2) & Laws.WFArray(U32, dd, m) & Laws.WFDictE(dst2, es2) & KeepD(dst1, k0, dst2) & Laws.EncRows(k, dd, strs, m, es2)
+
+def mfin(+k: U32, +dd: Nat, -strs: Array<String>, +b: Nat, slots: Array<ST.SSlot>, +tag: U32, -dst1: ST.Dict, +k0: U32, +esd: List<&2, String>,
+  w: &strs2: Array<String> -> &dst2: ST.Dict -> &m: Array<U32> -> &es2: List<&2, String> -> {ST.Dict.rc.go(U32.to_nat(k), 0, True{}, (dst1, Array.new(U32, dd, 0)), Array.get(String, strs, 0)) == (strs2, (dst2, m)) : Array<String> & (ST.Dict & Array<U32>)} & {strs2 == strs : Array<String>} & MRes(dd, strs, dst1, k0, esd, m, dst2, es2, Laws.addn(0, U32.to_nat(k))))
+  -> MLaw(k, dd, strs, b, slots, tag, dst1, k0, esd):
+  (strs2, dst2, m, +es2, eq, +estr, ext, wm, wf2, kd, g) = w
+  %Equal.sym(Array<String> & (ST.Dict & Array<U32>), ST.Dict.rc.go(U32.to_nat(k), 0, True{}, (dst1, Array.new(U32, dd, 0)), Array.get(String, strs, 0)), (strs2, (dst2, m)), eq) : &src3: ST.Dict -> &dst3: ST.Dict -> &m3: Array<U32> -> &es3: List<&2, String> -> {ST.Dict.rc.fin(k, dd, b, slots, tag, _) == (src3, dst3, m3) : ST.Dict & ST.Dict & Array<U32>} & {src3 == ST.Dict{k, dd, strs, b, slots, tag} : ST.Dict} & Laws.Ext(esd, es3) & Laws.WFArray(U32, dd, m3) & Laws.WFDictE(dst3, es3) & KeepD(dst1, k0, dst3) & Laws.EncRows(k, dd, strs, m3, es3)
+  %B.addn_to_nat(k) : &src3: ST.Dict -> &dst3: ST.Dict -> &m3: Array<U32> -> &es3: List<&2, String> -> {ST.Dict.rc.fin(k, dd, b, slots, tag, (strs2, (dst2, m))) == (src3, dst3, m3) : ST.Dict & ST.Dict & Array<U32>} & {src3 == ST.Dict{k, dd, strs, b, slots, tag} : ST.Dict} & Laws.Ext(esd, es3) & Laws.WFArray(U32, dd, m3) & Laws.WFDictE(dst3, es3) & KeepD(dst1, k0, dst3) & Laws.EncRows(_, dd, strs, m3, es3)
+  (ST.Dict{k, dd, strs2, b, slots, tag}, dst2, m, es2, {==}, (%estr : {ST.Dict{k, dd, strs2, b, slots, tag} == ST.Dict{k, dd, _, b, slots, tag} : ST.Dict}; {==}), ext, wm, wf2, kd, g)
+
+def keepd0(-dst1: ST.Dict, +k0: U32) -> KeepD(dst1, k0, dst1):
+  +c => hc => {==}
+
+# the merge over src's fields and dst's copy: the law's shape after dst -> dst1 and dk(dst1) -> k0
+def merge_k(+k: U32, +dd: Nat, strs: Array<String>, +b: Nat, slots: Array<ST.SSlot>, +tag: U32, dst1: ST.Dict, +k0: U32, +esd: List<&2, String>, fits: {U32.is_le(k, U32.shln(1, dd)) == True{} : Bool}, +ek0: {U32.to_nat(k0) == List.length(&2, String, esd) : Nat}, wf1: Laws.WFDictE(dst1, esd), probes: Laws.MergeProbe(U32.to_nat(k), 0, strs, dst1))
+  -> MLaw(k, dd, strs, b, slots, tag, dst1, k0, esd):
+  mfin(k, dd, strs, b, slots, tag, dst1, k0, esd, mgo(U32.to_nat(k), 0, dd, strs, dst1, k0, esd, dst1, Array.new(U32, dd, 0), esd, Laws.wf_new(U32, dd, 0), B.room_from(dd, k, fits), Nil{}, Equal.sym(List<&2, String>, List.append(&2, String, esd, Nil{}), esd, app_nil(esd)), ek0)(ehyp0(dd, strs, Array.new(U32, dd, 0), esd))(wf1)(keepd0(dst1, k0))(probes))
+
+# the law's goal with the probes as a hypothesis (so the copy dst1 of dst replaces dst in both)
+def MLawP(+k: U32, +dd: Nat, -strs: Array<String>, +b: Nat, -slots: Array<ST.SSlot>, +tag: U32, -dst: ST.Dict, +esd: List<&2, String>) -> Type:
+  Laws.MergeProbe(U32.to_nat(k), 0, strs, dst) -> Laws.MergeW(ST.Dict{k, dd, strs, b, slots, tag}, dst, esd)
+
+def merge_w(+k: U32, +dd: Nat, strs: Array<String>, +b: Nat, slots: Array<ST.SSlot>, +tag: U32, -dst: ST.Dict, +esd: List<&2, String>, fits: {U32.is_le(k, U32.shln(1, dd)) == True{} : Bool},
+  w: &dst1: ST.Dict -> &k0: U32 -> {dst1 == dst : ST.Dict} & {k0 == Laws.dk(dst1) : U32} & {U32.to_nat(k0) == List.length(&2, String, esd) : Nat} & Laws.WFDictE(dst1, esd))
+  -> MLawP(k, dd, strs, b, slots, tag, dst, esd):
+  (dst1, +k0, ed, +ekk, +ek0, wf1) = w
+  %ed : MLawP(k, dd, strs, b, slots, tag, _, esd)
+  %ekk : Laws.MergeProbe(U32.to_nat(k), 0, strs, dst1) -> &src2: ST.Dict -> &dst2: ST.Dict -> &m: Array<U32> -> &es2: List<&2, String> -> {ST.Dict.merge(ST.Dict{k, dd, strs, b, slots, tag}, dst1) == (src2, dst2, m) : ST.Dict & ST.Dict & Array<U32>} & {src2 == ST.Dict{k, dd, strs, b, slots, tag} : ST.Dict} & Laws.Ext(esd, es2) & Laws.WFArray(U32, dd, m) & Laws.WFDictE(dst2, es2) & (@c: U32 -> {U32.is_lt(c, _) == True{} : Bool} -> {Laws.dentry(dst2, c) == Laws.dentry(dst1, c) : String}) & Laws.EncRows(k, dd, strs, m, es2)
+  probes => merge_k(k, dd, strs, b, slots, tag, dst1, k0, esd, fits, ek0, wf1, probes)
+
+def Laws.dict_merge_spec(src, dst, esd, fits, wfd, probes):
+  match src:
+    case ST.Dict{+k, +dd, strs, +b, slots, +tag}:
+      merge_w(k, dd, strs, b, slots, tag, dst, esd, fits, wf_ek(dst, esd, wfd))(probes)
