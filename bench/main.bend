@@ -174,11 +174,11 @@ def load.s(+keep: Bool, rs: E.ResT(C.Frame), rp: E.ResT(C.Frame)) -> E.ResT(In):
       load.h(keep, C.Frame.height(s), rp)
 
 # M4: the Str storage the reader gives the parsed frames (Csv.read_enc), from the environment:
-# BF_STR=dict (EncDict), auto (EncAuto), anything else or unset: the reader's default
-# (Csv.enc_default); BF_STR=dict-post reads with the default and encodes every Str column
-# afterwards (C.Frame.encode, untimed, before `force`)
+# BF_STR=raw (EncRaw), dict (EncDict), auto (EncAuto), anything else or unset: the reader's
+# default (Csv.enc_default); BF_STR=dict-post reads with the default and encodes every Str
+# column afterwards (C.Frame.encode, untimed, before `force`)
 def env.enc.k(+v: String) -> ST.StrEnc:
-  Bool.pick(ST.StrEnc, String.eq(v, "dict"), ST.EncDict{}, Bool.pick(ST.StrEnc, String.eq(v, "auto"), ST.EncAuto{}, V.Csv.enc_default()))
+  Bool.pick(ST.StrEnc, String.eq(v, "raw"), ST.EncRaw{}, Bool.pick(ST.StrEnc, String.eq(v, "dict"), ST.EncDict{}, Bool.pick(ST.StrEnc, String.eq(v, "auto"), ST.EncAuto{}, V.Csv.enc_default())))
 
 def env.enc(r: Result<&1, &1, U32 & String, String>) -> ST.StrEnc:
   match r:

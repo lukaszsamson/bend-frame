@@ -19,3 +19,9 @@ for e in Raw Dict Auto; do
   lc=$(echo "$e" | tr 'A-Z' 'a-z')
   "$BEND" bench/scanbench.bend -o "build/scanbench_$lc"
 done
+# The pre-M4 baseline (strbench.py enc "master"): MASTER=<a checkout of master before M4>
+# (e.g. `git archive <rev> | tar -x -C /tmp/m`) builds build/bench_master and build/scanbench_master.
+if [ -n "${MASTER:-}" ]; then
+  cp bench/scanbench.bend "$MASTER/bench/scanbench.bend"
+  (cd "$MASTER" && "$BEND" bench/main.bend -o "$OLDPWD/build/bench_master" && "$BEND" bench/scanbench.bend -o "$OLDPWD/build/scanbench_master")
+fi

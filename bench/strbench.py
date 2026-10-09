@@ -7,6 +7,9 @@ order rotated per repetition) so a load change hits all of them alike. Every run
   uv run --project bench python bench/strbench.py q     --sizes 1000000 --queries q1 q3 ...
   uv run --project bench python bench/strbench.py table results.jsonl   # medians, spread, ratios
 Common: --encs raw dict auto  --threads 1 12  --reps 5  --out bench/results/m4/xxx.jsonl
+q / scan also take the enc "master": build/bench_master / build/scanbench_master, built from the
+master branch before M4 (bench/m4.sh MASTER=<tree>), to separate the reader's effect (master vs
+raw) from the dictionary's (raw vs dict / auto). q with the query "parse" times the read itself.
 """
 import argparse
 import json
@@ -77,7 +80,10 @@ def q_mode(a):
                         batch = "1"
                         if int(n) <= 1000:
                             batch = "40"
-                        cmd = ["./build/bench"] + thr_args(th) + [csv, q, "1", batch, str(th)]
+                        # "master": build/bench_master, bench/main.bend built from master (the
+                        # pre-M4 whole-file reader, Raw strings); BF_STR does not reach it
+                        exe = "./build/bench_master" if e == "master" else "./build/bench"
+                        cmd = [exe] + thr_args(th) + [csv, q, "1", batch, str(th)]
                         l0 = load1()
                         rec = run(cmd, {"BF_STR": e})
                         rec.update({"enc": e, "n": int(n), "q": q, "threads": th, "rep": rep, "load1": l0, "batch": int(batch)})
@@ -121,6 +127,9 @@ def table_mode(a):
         elif str(r.get("q", "")).startswith("scan+"):
             key = (f"sales_{r['n']}", r["q"], r["threads"])
             val = r["ms"]
+        elif r.get("query") == "parse":
+            key = (f"sales_{r['n']}", "parse", r["threads"])
+            val = r["read_ms"] + r["first_walk_ms"]
         else:
             key = (f"sales_{r['n']}", r["q"], r["threads"])
             val = r["seconds"] * 1000
@@ -130,7 +139,7 @@ def table_mode(a):
     for key in sorted(groups):
         g = groups[key]
         base = med([v for v, _, _ in g.get("raw", [])])
-        for e in ("raw", "dict", "auto"):
+        for e in ("master", "raw", "dict", "auto"):
             if e not in g:
                 continue
             vs = [v for v, _, _ in g[e]]
