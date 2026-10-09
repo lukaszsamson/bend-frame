@@ -2306,3 +2306,72 @@ law dict_recode_spec:
   for wfd: WFDictE(dst, esd)
   for probes: FindProbe(U32.to_nat(dk(src)), 0, dstrs(src), dst)
   RecodeW(src, dst, esd)
+
+# =====================================================================================
+# 15. Concatenation and the in-place kernels (plan M_01 section 6 P1, M5 part 4):
+#     Kernel.append (concat_vertical's buffers), Kernel.mask_data (Eval.fix, the null
+#     slots back to the default) and Kernel.choose (fill_null / when), each with its
+#     content theorem, and the Str storage of both kinds through them
+# =====================================================================================
+#
+# Kernel.append writes a's rows at 0 .. na and b's at na + k through two Kernel.copy_into
+# loops whose write index is U32.add(off, i); the in-place kernels overwrite their input
+# array slot by slot. Every claim is slot by slot over the model rdN / scell / ccell.
+
+# the slot condition of a concatenation: na + nb <= 2^d as natural numbers (Cat.join
+# allocates depth_for of the saturating sum, so the sum never wraps in production)
+def CatFits(+na: U32, +nb: U32, +d: Nat) -> Type:
+  {Nat.is_le(Nat.add(U32.to_nat(na), U32.to_nat(nb)), U32.to_nat(U32.shln(1, d))) == True{} : Bool}
+
+# Kernel.append's answer (U32 instance): the output, well formed, holds a's rows below na and
+# b's row k at na + k
+def AppendW(-a: Array<U32>, -b: Array<U32>, +na: U32, +nb: U32, +d: Nat, +z: U32) -> Type:
+  &o: Array<U32> -> {K.Kernel.append(~U32, na, nb, d, a, b, z) == o : Array<U32>} & WFArray(U32, d, o) & (@k: U32 -> {U32.is_lt(k, na) == True{} : Bool} -> {rdN(U32, d, o, k) == rd_at(U32, a, k) : U32}) & (@k: U32 -> {U32.is_lt(k, nb) == True{} : Bool} -> {rdN(U32, d, o, U32.add(na, k)) == rd_at(U32, b, k) : U32})
+
+# LAW: the production Kernel.append (two Kernel.copy_into loops, U32 instance: the word buffers of
+# Bool/U32/I32 columns, every validity mask of Cat.valid, and the codes of a Dictionary) places
+# a's rows first and b's rows after them, whenever na + nb rows fit the 2^d slots
+law append_cells:
+  for +na: U32
+  for +nb: U32
+  for +d: Nat
+  for a: Array<U32>
+  for b: Array<U32>
+  for +z: U32
+  for fits: CatFits(na, nb, d)
+  AppendW(a, b, na, nb, d, z)
+
+# every row below n of a code array names an entry below k (in range)
+def CodesBelow(+n: U32, -codes: Array<U32>, +k: U32) -> Type:
+  @i: U32 -> {U32.is_lt(i, n) == True{} : Bool} -> {U32.is_lt(rd_at(U32, codes, i), k) == True{} : Bool}
+
+# Strs.append's hypotheses beyond the slot counts: for two Dictionaries, a's dictionary well
+# formed, b's entries fitting its slots, both code arrays in range, and the probe hypotheses of
+# the merge of b's entries into a's; nothing for the other storage pairs (they decode to Raw)
+def AppendHyp(xa: ST.Strs, xb: ST.Strs, +na: U32, +nb: U32) -> Type:
+  match xa xb:
+    case ST.SDict{ca, dca} ST.SDict{cb, dcb}:
+      WFDict(dca) & {U32.is_le(dk(dcb), U32.shln(1, ddd(dcb))) == True{} : Bool} & CodesBelow(na, ca, dk(dca)) & CodesBelow(nb, cb, dk(dcb)) & MergeProbe(U32.to_nat(dk(dcb)), 0, dstrs(dcb), dca)
+    case _ _:
+      Unit
+
+# Strs.append's answer: a's cells below na, b's cell k at na + k
+def AppendStrsW(-xa: ST.Strs, -xb: ST.Strs, +na: U32, +nb: U32, +da: Nat, +db: Nat, +d: Nat) -> Type:
+  &o: ST.Strs -> {ST.Strs.append(na, nb, da, db, d, xa, xb) == o : ST.Strs} & (@k: U32 -> {U32.is_lt(k, na) == True{} : Bool} -> {scell(o, k) == scell(xa, k) : String}) & (@k: U32 -> {U32.is_lt(k, nb) == True{} : Bool} -> {scell(o, U32.add(na, k)) == scell(xb, k) : String})
+
+# LAW: Strs.append (the Str storage of Cat.col, concat_vertical) keeps every cell in both storages:
+# two Dictionaries merge b's entries into a's (Dict.merge, a's codes kept) and append a's codes to
+# b's re-coded ones; any other pair decodes both sides and appends the strings
+law strs_append_cells:
+  for xa: ST.Strs
+  for xb: ST.Strs
+  for +na: U32
+  for +nb: U32
+  for +da: Nat
+  for +db: Nat
+  for +d: Nat
+  for fa: {U32.is_le(na, U32.shln(1, da)) == True{} : Bool}
+  for fb: {U32.is_le(nb, U32.shln(1, db)) == True{} : Bool}
+  for fits: CatFits(na, nb, d)
+  for hyp: AppendHyp(xa, xb, na, nb)
+  AppendStrsW(xa, xb, na, nb, da, db, d)

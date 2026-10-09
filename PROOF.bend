@@ -15,6 +15,8 @@
 #   PROOF_eval.bend     section 13  evaluator typing: purity, shapes, the WF bridge, get_cloned
 #   PROOF_evalops.bend  section 13  the operations: eval_un/bin/cast/..agg_typed
 #   PROOF_evalrun.bend  section 13  the stack machine (run_typed) and Eval.full / Eval.expr
+#   PROOF_strs.bend     section 14  Dictionary strings: decode, Dict.code / encode, merge, same, find, recode
+#   PROOF_append.bend   section 15  Kernel.append / copy_into and Strs.append (concat)
 import Base
 import ./LAWS.bend as Laws
 import ./PROOF_lib.bend as L
@@ -29,3 +31,4 @@ import ./PROOF_eval.bend as PV
 import ./PROOF_evalops.bend as PO
 import ./PROOF_evalrun.bend as PR
 import ./PROOF_strs.bend as PST
+import ./PROOF_append.bend as PA
