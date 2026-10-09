@@ -2104,3 +2104,82 @@ law strs_encode_cell:
   for hi: {U32.is_lt(i, n) == True{} : Bool}
   for probes: EncProbeS(n, s)
   {scell(ST.Strs.encode(n, d, s), i) == scell(s, i) : String}
+
+# ---- decode back and the column / frame wrappers (Strs.raw, Column.encode / decode / recode,
+#      Frame.encode = DF.encode_strings) --------------------------------------------------------
+
+# LAW: Strs.raw (the Raw form of a storage: one decode) keeps every cell
+law strs_raw_cell:
+  for +n: U32
+  for +d: Nat
+  for s: ST.Strs
+  for +i: U32
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for hi: {U32.is_lt(i, n) == True{} : Bool}
+  {scell(ST.Strs.raw(n, d, s), i) == scell(s, i) : String}
+
+# the hypotheses of Column.recode(dict, c) at row i: a Str column fits its slots and i is a row;
+# when encoding (dict) also the row cap and the probe hypotheses of Strs.encode; nothing for the
+# other dtypes (they pass through)
+def RecodeHyp.enc(+dict: Bool, +n: U32, x: ST.Strs) -> Type:
+  match dict:
+    case True{}:
+      {U32.is_lt(n, U32.shln(1, 30n)) == True{} : Bool} & EncProbeS(n, x)
+    case False{}:
+      Unit
+
+def RecodeHyp(+dict: Bool, c: C.Column, +i: U32) -> Type:
+  match c:
+    case C.CStr{+len, +depth, valid, data}:
+      {U32.is_le(len, U32.shln(1, depth)) == True{} : Bool} & {U32.is_lt(i, len) == True{} : Bool} & RecodeHyp.enc(dict, len, data)
+    case other:
+      Unit
+
+# LAW: Column.encode / Column.decode / Column.recode keep every cell (the Str storage is encoded
+# by Strs.encode or decoded by Strs.raw; validity and the other dtypes are untouched)
+law column_encode_cell:
+  for c: C.Column
+  for +i: U32
+  for hyp: RecodeHyp(True{}, c, i)
+  {ccell(C.Column.encode(c), i) == ccell(c, i) : D.Scalar}
+
+law column_decode_cell:
+  for c: C.Column
+  for +i: U32
+  for hyp: RecodeHyp(False{}, c, i)
+  {ccell(C.Column.decode(c), i) == ccell(c, i) : D.Scalar}
+
+law column_recode_cell:
+  for +dict: Bool
+  for c: C.Column
+  for +i: U32
+  for hyp: RecodeHyp(dict, c, i)
+  {ccell(C.Column.recode(dict, c), i) == ccell(c, i) : D.Scalar}
+
+# the columns of a frame recoded one by one: the same names, every cell kept (under the row
+# hypotheses of the column)
+def ColsCells(+dict: Bool, cols: List<&1, C.Named>, cols2: List<&1, C.Named>) -> Type:
+  match cols cols2:
+    case Nil{} Nil{}:
+      Unit
+    case C.Named{n, c} <> rest C.Named{n2, c2} <> rest2:
+      {n2 == n : String} & (@i: U32 -> RecodeHyp(dict, c, i) -> {ccell(c2, i) == ccell(c, i) : D.Scalar}) & ColsCells(dict, rest, rest2)
+    case _ _:
+      Empty
+
+# LAW: Cols.encode recodes every column in place
+law cols_encode_cells:
+  for cols: List<&1, C.Named>
+  for +dict: Bool
+  ColsCells(dict, cols, C.Cols.encode(cols, dict))
+
+def FrameCells(+dict: Bool, f: C.Frame, f2: C.Frame) -> Type:
+  match f f2:
+    case C.Frame{h, cols} C.Frame{h2, cols2}:
+      {h2 == h : U32} & ColsCells(dict, cols, cols2)
+
+# LAW: Frame.encode (DF.encode_strings) keeps the height, the column names and every cell
+law frame_encode_cells:
+  for f: C.Frame
+  for +dict: Bool
+  FrameCells(dict, f, C.Frame.encode(f, dict))

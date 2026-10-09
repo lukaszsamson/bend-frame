@@ -1894,3 +1894,66 @@ def Laws.strs_encode_cell(n, d, s, i, fits, small, hi, probes):
       enc_cell(n, d, a, i, hi, Laws.strs_encode_cells(n, d, a, fits, small, probes))
     case ST.SDict{codes, dict}:
       {==}
+
+# ---- Laws.strs_raw_cell, the column and frame wrappers -------------------------------------------------------
+
+def Laws.strs_raw_cell(n, d, s, i, fits, hi):
+  Laws.decode_cell(n, d, s, i, fits, hi)
+
+# a Str column: the cell is the validity bit's choice of the storage's scell
+def col_enc_str(+n: U32, +d: Nat, v: C.Valid, x: ST.Strs, +i: U32, hyp: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool} & {U32.is_lt(i, n) == True{} : Bool} & ({U32.is_lt(n, U32.shln(1, 30n)) == True{} : Bool} & Laws.EncProbeS(n, x)))
+  -> {Laws.ccell(C.CStr{n, d, v, ST.Strs.encode(n, d, x)}, i) == Laws.ccell(C.CStr{n, d, v, x}, i) : D.Scalar}:
+  (fits, hi, small, probes) = hyp
+  %Equal.sym(String, Laws.scell(ST.Strs.encode(n, d, x), i), Laws.scell(x, i), Laws.strs_encode_cell(n, d, x, i, fits, small, hi, probes)) : {Bool.pick(D.Scalar, Laws.vbit(v, i), D.SStr{_}, D.SNull{}) == Laws.ccell(C.CStr{n, d, v, x}, i) : D.Scalar}
+  {==}
+
+def Laws.column_encode_cell(c, i, hyp):
+  match c:
+    case C.CStr{+n, +d, v, x}:
+      col_enc_str(n, d, v, x, i, hyp)
+    case C.CBool{n, d, v, x}:
+      {==}
+    case C.CU32{n, d, v, x}:
+      {==}
+    case C.CI32{n, d, v, x}:
+      {==}
+    case C.CF32{n, d, v, x}:
+      {==}
+
+def col_dec_str(+n: U32, +d: Nat, v: C.Valid, x: ST.Strs, +i: U32, hyp: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool} & {U32.is_lt(i, n) == True{} : Bool} & Unit)
+  -> {Laws.ccell(C.CStr{n, d, v, ST.Strs.raw(n, d, x)}, i) == Laws.ccell(C.CStr{n, d, v, x}, i) : D.Scalar}:
+  (fits, hi, u) = hyp
+  %Equal.sym(String, Laws.scell(ST.Strs.raw(n, d, x), i), Laws.scell(x, i), Laws.strs_raw_cell(n, d, x, i, fits, hi)) : {Bool.pick(D.Scalar, Laws.vbit(v, i), D.SStr{_}, D.SNull{}) == Laws.ccell(C.CStr{n, d, v, x}, i) : D.Scalar}
+  {==}
+
+def Laws.column_decode_cell(c, i, hyp):
+  match c:
+    case C.CStr{+n, +d, v, x}:
+      col_dec_str(n, d, v, x, i, hyp)
+    case C.CBool{n, d, v, x}:
+      {==}
+    case C.CU32{n, d, v, x}:
+      {==}
+    case C.CI32{n, d, v, x}:
+      {==}
+    case C.CF32{n, d, v, x}:
+      {==}
+
+def Laws.column_recode_cell(dict, c, i, hyp):
+  match dict:
+    case True{}:
+      Laws.column_encode_cell(c, i, hyp)
+    case False{}:
+      Laws.column_decode_cell(c, i, hyp)
+
+def Laws.cols_encode_cells(cols, dict):
+  match cols:
+    case Nil{}:
+      Unit{}
+    case C.Named{+n, c} <> rest:
+      ({==}, +i => hyp => Laws.column_recode_cell(dict, c, i, hyp), Laws.cols_encode_cells(rest, dict))
+
+def Laws.frame_encode_cells(f, dict):
+  match f:
+    case C.Frame{+h, cols}:
+      ({==}, Laws.cols_encode_cells(cols, dict))
