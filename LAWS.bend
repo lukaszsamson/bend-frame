@@ -2458,3 +2458,48 @@ law fix_cell:
   for +i: U32
   for hyp: FixHyp(c, i)
   {ccell(V.Eval.fix(c), i) == ccell(c, i) : D.Scalar}
+
+# a mask word at row i is 0 or 1 (the P0 invariant WFMaskedW at one row; AllValid needs nothing)
+def Mask01(v: C.Valid, +i: U32) -> Type:
+  match v:
+    case C.AllValid{}:
+      Unit
+    case C.Mask{m}:
+      {U32.is_le(rd_at(U32, m, i), 1) == True{} : Bool}
+
+# the dictionary hypotheses of fill_null on two Str storages at row i: for two Dictionaries, a's
+# dictionary well formed, b's entries fitting its slots, both rows' codes in range, the probe
+# hypotheses of the merge of b's entries into a's; nothing for the other pairs (they decode to Raw)
+def FillDictHyp(xa: ST.Strs, xb: ST.Strs, +i: U32) -> Type:
+  match xa xb:
+    case ST.SDict{ca, dca} ST.SDict{cb, dcb}:
+      WFDict(dca) & {U32.is_le(dk(dcb), U32.shln(1, ddd(dcb))) == True{} : Bool} & {U32.is_lt(rd_at(U32, ca, i), dk(dca)) == True{} : Bool} & {U32.is_lt(rd_at(U32, cb, i), dk(dcb)) == True{} : Bool} & MergeProbe(U32.to_nat(dk(dcb)), 0, dstrs(dcb), dca)
+    case _ _:
+      Unit
+
+# the hypotheses of fill_null at row i: a's rows fit its slots, i is a row, a's data buffer is well
+# formed (the kernel writes into it), both mask words at i are 0/1, the dictionary hypotheses
+def FillHyp(+n: U32, +d: Nat, va: C.Valid, xa: ST.Strs, vb: C.Valid, xb: ST.Strs, +i: U32) -> Type:
+  {U32.is_le(n, U32.shln(1, d)) == True{} : Bool} & {U32.is_lt(i, n) == True{} : Bool} & WFStrData(d, xa) & Mask01(va, i) & Mask01(vb, i) & FillDictHyp(xa, xb, i)
+
+# Eval.fill's answer on two Str columns: a column whose row i is a's cell where a is valid and b's
+# cell where a is null (Polars fill_null)
+def FillW(+n: U32, +d: Nat, -va: C.Valid, -xa: ST.Strs, +n2: U32, +d2: Nat, -vb: C.Valid, -xb: ST.Strs, +i: U32) -> Type:
+  &c: C.Column -> {V.Eval.fill(C.CStr{n, d, va, xa}, C.CStr{n2, d2, vb, xb}) == Done{c} : E.ResT(C.Column)} & {ccell(c, i) == Bool.pick(D.Scalar, vbit(va, i), ccell(C.CStr{n, d, va, xa}, i), ccell(C.CStr{n2, d2, vb, xb}, i)) : D.Scalar}
+
+# LAW: Eval.fill (fill_null) on two Str columns, in both storages: two Dictionaries merge b's entries
+# into a's and choose the codes (Kernel.choose through Eval.zd.map), the validity is the OR of the
+# masks; any other pair decodes both sides and chooses the strings. Row i of the result is a's cell
+# where a is valid, b's cell otherwise
+law fill_str_cell:
+  for +n: U32
+  for +d: Nat
+  for va: C.Valid
+  for xa: ST.Strs
+  for +n2: U32
+  for +d2: Nat
+  for vb: C.Valid
+  for xb: ST.Strs
+  for +i: U32
+  for hyp: FillHyp(n, d, va, xa, vb, xb, i)
+  FillW(n, d, va, xa, n2, d2, vb, xb, i)
