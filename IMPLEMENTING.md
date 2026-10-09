@@ -983,3 +983,20 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
 - **Parameter order is binding**: a `+ec1: {Array.set(String, s1, k, s) == c1}` parameter must
   come after `s`; the checker reports "expected: a defined name" at the first forward reference.
 - **Timings**: 138 laws, `bend PROOF.bend` ~1.6 s wall / 3.1 s CPU, `--verdict` ~4.6 s.
+
+## M6 final pass (part-4 mutation fixtures, release docs)
+
+- A mutation fixture for a law whose statement is a Sigma witness that NAMES the production
+  function (`AppendW` mentions `K.Kernel.append`) needs a copy of the witness type with the
+  mutated function in it (`MutAppendW`); the real proof term is then refused with the unfolded
+  bodies in `expected` / `observed` (here `copy_into.go(.., U32.inc(na), ..)` vs `.., na, ..`).
+  For a law stated as a plain equality over the kernel (`choose_cell`) the mutated law is the
+  same text with `Mut.choose` in place of `K.Kernel.choose`.
+- Keep the positive control (`<law>_copy`, same term, production function) in the same file:
+  the expectation then holds exactly one error, so a mutation that also broke the control (or
+  a control that stopped checking) changes the output and fails the test.
+- Generate the `#|` block from the real output only after reading it: it must show one error,
+  at the mutated law, mutated function in `expected`, production in `observed`.
+- `bend <file> --publish` uploads the file, its transitive `./` imports and every file named
+  exactly `LICENSE` beside a published file: for this repo that is `frame.bend`, the 19 files of
+  `src/` and the root `LICENSE` (no `LICENSE` sits in `src/`).
