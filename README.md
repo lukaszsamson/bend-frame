@@ -195,6 +195,7 @@ Out of scope for v0.1:
 - On one thread, Bend is 0.9x (q5, `join` + `group_by`) to 17x (q2) of Polars at 1M rows, and 2-3.5x on the string-keyed q3 and q4 with the Dictionary string storage. At 1k rows Bend is faster than Polars on five of six queries.
 - Bend does not scale with threads: 12 threads vs 1 is about 1.0x on q1-q6, so against all 12 cores of Polars the gap is 3-18x.
 - Peak RSS at 1M rows is about 1.3 GB for Bend against 168 MB for Polars.
+- The table times `collect` only; the CSV parse is untimed there. Reading the 41 MB, 1M-row sales file takes about 4.4 s on one thread and 2.0 s on 12 (M4 measurement; the 1.5 s target was not met).
 - Weak spot: fully distinct string keys. A `group_by`, `unique` or join over 1M distinct strings takes 5-18 s against 0.05-0.2 s for Polars, 30-330x slower (correct, but slow).
 - Every result is identical to Polars' (q6 within 5e-5 relative) at 1k, 100k and 1M rows; repeated queries give identical results with flat memory. Full tables, the high-cardinality and repeated-query measurements, `optimize_full` vs the default and the analysis are in [`bench/README.md`](bench/README.md).
 
