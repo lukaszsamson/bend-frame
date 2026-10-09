@@ -514,3 +514,313 @@ def inc_lt(n: Nat, k: Word(n), j: Word(n), h: {Word.cmp(n, k, Word.inc(n, j)) ==
           inc_lt_lo(a, Word.cmp(p, t, u), p, t, u, {==}, h)
         case WCon{a, +t} WCon{True{}, +u}:
           inc_lt_hi(a, Word.cmp(p, t, Word.inc(p, u)), p, t, u, {==}, h, e => inc_lt(p, t, u, e))
+
+# ---- the U32 <-> Nat bridge for the kernels' Nat fuel (Word.to_nat) ---------------------------------
+
+# the loop counter after f increments, over words
+def waddn(+n: Nat, w: Word(n), f: Nat) -> Word(n):
+  match f:
+    case 0n:
+      w
+    case 1n+p:
+      Word.inc(n, waddn(n, w, p))
+
+def addn_word(+w: Word(32n), f: Nat) -> {Laws.addn(U32{w}, f) == U32{waddn(32n, w, f)} : U32}:
+  match f:
+    case 0n:
+      {==}
+    case 1n++p:
+      %Equal.sym(U32, Laws.addn(U32{w}, p), U32{waddn(32n, w, p)}, addn_word(w, p)) : {U32.inc(_) == U32{Word.inc(32n, waddn(32n, w, p))} : U32}
+      {==}
+
+# two increments at the bottom are one increment of the tail
+def inc_inc(+m: Nat, c: Bool, +u: Word(m)) -> {Word.inc(1n+m, Word.inc(1n+m, WCon{c, u})) == WCon{c, Word.inc(m, u)} : Word(1n+m)}:
+  match c:
+    case False{}:
+      {==}
+    case True{}:
+      {==}
+
+# 2k increments at the bottom are k increments of the tail
+def waddn_double(+m: Nat, +c: Bool, +u: Word(m), k: Nat) -> {waddn(1n+m, WCon{c, u}, Nat.double(k)) == WCon{c, waddn(m, u, k)} : Word(1n+m)}:
+  match k:
+    case 0n:
+      {==}
+    case 1n++q:
+      %Equal.sym(Word(1n+m), waddn(1n+m, WCon{c, u}, Nat.double(q)), WCon{c, waddn(m, u, q)}, waddn_double(m, c, u, q)) : {Word.inc(1n+m, Word.inc(1n+m, _)) == WCon{c, Word.inc(m, waddn(m, u, q))} : Word(1n+m)}
+      inc_inc(m, c, waddn(m, u, q))
+
+# to_nat increments from zero rebuild the word
+def from_to(+n: Nat, w: Word(n)) -> {waddn(n, Word.zero(n), Word.to_nat(n, w)) == w : Word(n)}:
+  match n:
+    case 0n:
+      match w:
+        case WNil{}:
+          {==}
+    case 1n++m:
+      match w:
+        case WCon{False{}, +t}:
+          %Equal.sym(Word(1n+m), waddn(1n+m, WCon{False{}, Word.zero(m)}, Nat.double(Word.to_nat(m, t))), WCon{False{}, waddn(m, Word.zero(m), Word.to_nat(m, t))}, waddn_double(m, False{}, Word.zero(m), Word.to_nat(m, t))) : {_ == WCon{False{}, t} : Word(1n+m)}
+          %Equal.sym(Word(m), waddn(m, Word.zero(m), Word.to_nat(m, t)), t, from_to(m, t)) : {WCon{False{}, _} == WCon{False{}, t} : Word(1n+m)}
+          {==}
+        case WCon{True{}, +t}:
+          %Equal.sym(Word(1n+m), waddn(1n+m, WCon{False{}, Word.zero(m)}, Nat.double(Word.to_nat(m, t))), WCon{False{}, waddn(m, Word.zero(m), Word.to_nat(m, t))}, waddn_double(m, False{}, Word.zero(m), Word.to_nat(m, t))) : {Word.inc(1n+m, _) == WCon{True{}, t} : Word(1n+m)}
+          %Equal.sym(Word(m), waddn(m, Word.zero(m), Word.to_nat(m, t)), t, from_to(m, t)) : {Word.inc(1n+m, WCon{False{}, _}) == WCon{True{}, t} : Word(1n+m)}
+          {==}
+
+# R1: U32.to_nat(n) increments from 0 reach n
+def addn_to_nat(n: U32) -> {Laws.addn(0, U32.to_nat(n)) == n : U32}:
+  match n:
+    case U32{+w}:
+      %Equal.sym(U32, Laws.addn(U32{Word.zero(32n)}, Word.to_nat(32n, w)), U32{waddn(32n, Word.zero(32n), Word.to_nat(32n, w))}, addn_word(Word.zero(32n), Word.to_nat(32n, w))) : {_ == U32{w} : U32}
+      %Equal.sym(Word(32n), waddn(32n, Word.zero(32n), Word.to_nat(32n, w)), w, from_to(32n, w)) : {U32{_} == U32{w} : U32}
+      {==}
+
+# ---- comparison through to_nat --------------------------------------------------------------------
+
+# the value of a bit over a doubled tail (Word.to_nat's two cases)
+def dbl(a: Bool, k: Nat) -> Nat:
+  match a:
+    case False{}:
+      Nat.double(k)
+    case True{}:
+      1n+Nat.double(k)
+
+def cmp_lt_small(a: Bool, b: Bool, +k: Nat) -> {Nat.cmp(dbl(a, 0n), dbl(b, 1n+k)) == LT{} : Cmp}:
+  match a b:
+    case False{} False{}:
+      {==}
+    case False{} True{}:
+      {==}
+    case True{} False{}:
+      {==}
+    case True{} True{}:
+      {==}
+
+def cmp_gt_small(a: Bool, b: Bool, +k: Nat) -> {Nat.cmp(dbl(a, 1n+k), dbl(b, 0n)) == GT{} : Cmp}:
+  match a b:
+    case False{} False{}:
+      {==}
+    case False{} True{}:
+      {==}
+    case True{} False{}:
+      {==}
+    case True{} True{}:
+      {==}
+
+# comparing bit-over-doubles is Word.cmp.fin of the tails' comparison
+def cmp_dbl(k1: Nat, k2: Nat, +a: Bool, +b: Bool) -> {Nat.cmp(dbl(a, k1), dbl(b, k2)) == Word.cmp.fin(a, b, Nat.cmp(k1, k2)) : Cmp}:
+  match k1 k2:
+    case 0n 0n:
+      match a b:
+        case False{} False{}:
+          {==}
+        case False{} True{}:
+          {==}
+        case True{} False{}:
+          {==}
+        case True{} True{}:
+          {==}
+    case 0n 1n+q2:
+      cmp_lt_small(a, b, q2)
+    case 1n+q1 0n:
+      cmp_gt_small(a, b, q1)
+    case 1n++q1 1n++q2:
+      match a b:
+        case False{} False{}:
+          cmp_dbl(q1, q2, False{}, False{})
+        case False{} True{}:
+          cmp_dbl(q1, q2, False{}, True{})
+        case True{} False{}:
+          cmp_dbl(q1, q2, True{}, False{})
+        case True{} True{}:
+          cmp_dbl(q1, q2, True{}, True{})
+
+# Word.cmp is Nat.cmp of the values
+def cmp_nat(+n: Nat, x: Word(n), y: Word(n)) -> {Word.cmp(n, x, y) == Nat.cmp(Word.to_nat(n, x), Word.to_nat(n, y)) : Cmp}:
+  match n:
+    case 0n:
+      {==}
+    case 1n++p:
+      match x y:
+        case WCon{False{}, +t} WCon{False{}, +u}:
+          %Equal.sym(Cmp, Word.cmp(p, t, u), Nat.cmp(Word.to_nat(p, t), Word.to_nat(p, u)), cmp_nat(p, t, u)) : {Word.cmp.fin(False{}, False{}, _) == Nat.cmp(Nat.double(Word.to_nat(p, t)), Nat.double(Word.to_nat(p, u))) : Cmp}
+          Equal.sym(Cmp, Nat.cmp(dbl(False{}, Word.to_nat(p, t)), dbl(False{}, Word.to_nat(p, u))), Word.cmp.fin(False{}, False{}, Nat.cmp(Word.to_nat(p, t), Word.to_nat(p, u))), cmp_dbl(Word.to_nat(p, t), Word.to_nat(p, u), False{}, False{}))
+        case WCon{False{}, +t} WCon{True{}, +u}:
+          %Equal.sym(Cmp, Word.cmp(p, t, u), Nat.cmp(Word.to_nat(p, t), Word.to_nat(p, u)), cmp_nat(p, t, u)) : {Word.cmp.fin(False{}, True{}, _) == Nat.cmp(Nat.double(Word.to_nat(p, t)), 1n+Nat.double(Word.to_nat(p, u))) : Cmp}
+          Equal.sym(Cmp, Nat.cmp(dbl(False{}, Word.to_nat(p, t)), dbl(True{}, Word.to_nat(p, u))), Word.cmp.fin(False{}, True{}, Nat.cmp(Word.to_nat(p, t), Word.to_nat(p, u))), cmp_dbl(Word.to_nat(p, t), Word.to_nat(p, u), False{}, True{}))
+        case WCon{True{}, +t} WCon{False{}, +u}:
+          %Equal.sym(Cmp, Word.cmp(p, t, u), Nat.cmp(Word.to_nat(p, t), Word.to_nat(p, u)), cmp_nat(p, t, u)) : {Word.cmp.fin(True{}, False{}, _) == Nat.cmp(1n+Nat.double(Word.to_nat(p, t)), Nat.double(Word.to_nat(p, u))) : Cmp}
+          Equal.sym(Cmp, Nat.cmp(dbl(True{}, Word.to_nat(p, t)), dbl(False{}, Word.to_nat(p, u))), Word.cmp.fin(True{}, False{}, Nat.cmp(Word.to_nat(p, t), Word.to_nat(p, u))), cmp_dbl(Word.to_nat(p, t), Word.to_nat(p, u), True{}, False{}))
+        case WCon{True{}, +t} WCon{True{}, +u}:
+          %Equal.sym(Cmp, Word.cmp(p, t, u), Nat.cmp(Word.to_nat(p, t), Word.to_nat(p, u)), cmp_nat(p, t, u)) : {Word.cmp.fin(True{}, True{}, _) == Nat.cmp(1n+Nat.double(Word.to_nat(p, t)), 1n+Nat.double(Word.to_nat(p, u))) : Cmp}
+          Equal.sym(Cmp, Nat.cmp(dbl(True{}, Word.to_nat(p, t)), dbl(True{}, Word.to_nat(p, u))), Word.cmp.fin(True{}, True{}, Nat.cmp(Word.to_nat(p, t), Word.to_nat(p, u))), cmp_dbl(Word.to_nat(p, t), Word.to_nat(p, u), True{}, True{}))
+
+def cmp_nat_u(a: U32, b: U32) -> {U32.cmp(a, b) == Nat.cmp(U32.to_nat(a), U32.to_nat(b)) : Cmp}:
+  match a b:
+    case U32{x} U32{y}:
+      cmp_nat(32n, x, y)
+
+# U32.is_le gives Nat.is_le of the values
+def le_nat_u(+a: U32, +b: U32, h: {U32.is_le(a, b) == True{} : Bool}) -> {Nat.is_le(U32.to_nat(a), U32.to_nat(b)) == True{} : Bool}:
+  %cmp_nat_u(a, b) : {Cmp.is_le(_) == True{} : Bool}
+  h
+
+# Nat.is_lt of the values gives U32.is_lt
+def lt_of_nat_u(+a: U32, +b: U32, h: {Cmp.is_lt(Nat.cmp(U32.to_nat(a), U32.to_nat(b))) == True{} : Bool}) -> {U32.is_lt(a, b) == True{} : Bool}:
+  %Equal.sym(Cmp, U32.cmp(a, b), Nat.cmp(U32.to_nat(a), U32.to_nat(b)), cmp_nat_u(a, b)) : {Cmp.is_lt(_) == True{} : Bool}
+  h
+
+# ---- inc through to_nat: one more, unless the word is maximal (then inc wraps) -----------------------
+# (an all-ones 32-bit word is never written down: its Nat value would be normalised to 2^32 - 1
+# successors; "maximal" is stated as "nothing compares GT to it")
+
+def IncSpec(b: Bool, n: Nat, +x: Word(n)) -> Type:
+  match b:
+    case True{}:
+      {Word.to_nat(n, Word.inc(n, x)) == 1n+Word.to_nat(n, x) : Nat}
+    case False{}:
+      @y: Word(n) -> {Word.cmp(n, y, x) == GT{} : Cmp} -> Empty
+
+# the refutations of == GT
+def cmp_disc_gt(c: Cmp) -> Type:
+  match c:
+    case GT{}:
+      Empty
+    case o:
+      Unit
+
+def lt_gt(h: {LT{} == GT{} : Cmp}) -> Empty:
+  %h : cmp_disc_gt(_)
+  Unit{}
+
+def eq_gt(h: {EQ{} == GT{} : Cmp}) -> Empty:
+  %h : cmp_disc_gt(_)
+  Unit{}
+
+# WCon{T, t} is maximal when t is: the step with c = cmp(u, t)
+def max_step(a: Bool, c: Cmp, -p: Nat, -t: Word(p), u: Word(p), e: {Word.cmp(p, u, t) == c : Cmp}, h: {Word.cmp.fin(a, True{}, c) == GT{} : Cmp}, s: @y: Word(p) -> {Word.cmp(p, y, t) == GT{} : Cmp} -> Empty) -> Empty:
+  match a c:
+    case _ GT{}:
+      s(u)(e)
+    case False{} EQ{}:
+      lt_gt(h)
+    case True{} EQ{}:
+      eq_gt(h)
+    case _ LT{}:
+      lt_gt(h)
+
+def max_cons(+p: Nat, +t: Word(p), s: @y: Word(p) -> {Word.cmp(p, y, t) == GT{} : Cmp} -> Empty, y: Word(1n+p), h: {Word.cmp(1n+p, y, WCon{True{}, t}) == GT{} : Cmp}) -> Empty:
+  match y:
+    case WCon{a, +u}:
+      max_step(a, Word.cmp(p, u, t), p, t, u, {==}, h, s)
+
+def inc_nat_k(b: Bool, +p: Nat, +t: Word(p), s: IncSpec(b, p, t)) -> &b2: Bool -> IncSpec(b2, 1n+p, WCon{True{}, t}):
+  match b:
+    case True{}:
+      (True{}, (%Equal.sym(Nat, Word.to_nat(p, Word.inc(p, t)), 1n+Word.to_nat(p, t), s) : {Nat.double(_) == 2n+Nat.double(Word.to_nat(p, t)) : Nat}; {==}))
+    case False{}:
+      (False{}, y => h => max_cons(p, t, s, y, h))
+
+def inc_nat_fin(+p: Nat, +t: Word(p), w: &b: Bool -> IncSpec(b, p, t)) -> &b2: Bool -> IncSpec(b2, 1n+p, WCon{True{}, t}):
+  (+b, s) = w
+  inc_nat_k(b, p, t, s)
+
+def inc_nat(+n: Nat, x: Word(n)) -> &b: Bool -> IncSpec(b, n, x):
+  match n:
+    case 0n:
+      match x:
+        case WNil{}:
+          (False{}, y => h => eq_gt(h))
+    case 1n++p:
+      match x:
+        case WCon{False{}, t}:
+          (True{}, {==})
+        case WCon{True{}, +t}:
+          inc_nat_fin(p, t, inc_nat(p, t))
+
+def IncSpecU(b: Bool, +j: U32) -> Type:
+  match b:
+    case True{}:
+      {U32.to_nat(U32.inc(j)) == 1n+U32.to_nat(j) : Nat}
+    case False{}:
+      @y: U32 -> {U32.cmp(y, j) == GT{} : Cmp} -> Empty
+
+def max_u(-x: Word(32n), s: @y: Word(32n) -> {Word.cmp(32n, y, x) == GT{} : Cmp} -> Empty, y: U32, h: {U32.cmp(y, U32{x}) == GT{} : Cmp}) -> Empty:
+  match y:
+    case U32{w}:
+      s(w)(h)
+
+def inc_nat_u_k(b: Bool, +x: Word(32n), s: IncSpec(b, 32n, x)) -> IncSpecU(b, U32{x}):
+  match b:
+    case True{}:
+      s
+    case False{}:
+      y => h => max_u(x, s, y, h)
+
+def inc_nat_u_fin(+x: Word(32n), w: &b: Bool -> IncSpec(b, 32n, x)) -> &b2: Bool -> IncSpecU(b2, U32{x}):
+  (+b, s) = w
+  (b, inc_nat_u_k(b, x, s))
+
+def inc_nat_u(j: U32) -> &b: Bool -> IncSpecU(b, j):
+  match j:
+    case U32{+x}:
+      inc_nat_u_fin(x, inc_nat(32n, x))
+
+# a < b gives cmp(b, a) == GT
+def gt_of_lt_u(a: U32, b: U32, h: {U32.is_lt(a, b) == True{} : Bool}) -> {U32.cmp(b, a) == GT{} : Cmp}:
+  match a b:
+    case U32{+x} U32{+y}:
+      L.word_lt_gt(32n, y, x, is_lt_lt(Word.cmp(32n, x, y), h))
+
+# ---- Nat facts ---------------------------------------------------------------------------------------
+
+def add_succ(a: Nat, +p: Nat) -> {Nat.add(a, 1n+p) == 1n+Nat.add(a, p) : Nat}:
+  match a:
+    case 0n:
+      {==}
+    case 1n++q:
+      %Equal.sym(Nat, Nat.add(q, 1n+p), 1n+Nat.add(q, p), add_succ(q, p)) : {1n+_ == 2n+Nat.add(q, p) : Nat}
+      {==}
+
+# a + (1 + p) <= b gives a < b
+def lt_of_le_add(a: Nat, +p: Nat, b: Nat, h: {Nat.is_le(Nat.add(a, 1n+p), b) == True{} : Bool}) -> {Cmp.is_lt(Nat.cmp(a, b)) == True{} : Bool}:
+  match a b:
+    case 0n 0n:
+      Empty.absurd({Cmp.is_lt(Nat.cmp(0n, 0n)) == True{} : Bool}, L.false_true(h))
+    case 0n 1n+bq:
+      {==}
+    case 1n+aq 0n:
+      Empty.absurd({Cmp.is_lt(Nat.cmp(1n+aq, 0n)) == True{} : Bool}, L.false_true(h))
+    case 1n+aq 1n+bq:
+      lt_of_le_add(aq, p, bq, h)
+
+# ---- R2: the first to_nat(n) write indices from 0 fit below 2^d when n <= 2^d --------------------------
+
+# the node step, by whether inc wraps
+def room_step(+d: Nat, +j: U32, +p: Nat, b: Bool, s: IncSpecU(b, j), ih: @j2: U32 -> {Nat.is_le(Nat.add(U32.to_nat(j2), p), U32.to_nat(U32.shln(1, d))) == True{} : Bool} -> Laws.Room(d, j2, p))
+  -> {Nat.is_le(Nat.add(U32.to_nat(j), 1n+p), U32.to_nat(U32.shln(1, d))) == True{} : Bool} -> Laws.Room(d, U32.inc(j), p):
+  match b:
+    case True{}:
+      %Equal.sym(Nat, Nat.add(U32.to_nat(j), 1n+p), 1n+Nat.add(U32.to_nat(j), p), add_succ(U32.to_nat(j), p)) : {Nat.is_le(_, U32.to_nat(U32.shln(1, d))) == True{} : Bool} -> Laws.Room(d, U32.inc(j), p)
+      %s : {Nat.is_le(Nat.add(_, p), U32.to_nat(U32.shln(1, d))) == True{} : Bool} -> Laws.Room(d, U32.inc(j), p)
+      ih(U32.inc(j))
+    case False{}:
+      h => Empty.absurd(Laws.Room(d, U32.inc(j), p), s(U32.shln(1, d))(gt_of_lt_u(j, U32.shln(1, d), lt_of_nat_u(j, U32.shln(1, d), lt_of_le_add(U32.to_nat(j), p, U32.to_nat(U32.shln(1, d)), h)))))
+
+def room_step_fin(+d: Nat, +j: U32, +p: Nat, w: &b: Bool -> IncSpecU(b, j), ih: @j2: U32 -> {Nat.is_le(Nat.add(U32.to_nat(j2), p), U32.to_nat(U32.shln(1, d))) == True{} : Bool} -> Laws.Room(d, j2, p))
+  -> {Nat.is_le(Nat.add(U32.to_nat(j), 1n+p), U32.to_nat(U32.shln(1, d))) == True{} : Bool} -> Laws.Room(d, U32.inc(j), p):
+  (b, s) = w
+  room_step(d, j, p, b, s, ih)
+
+# to_nat(j) + f <= to_nat(2^d): the next f indices from j are below 2^d (the fuel first: it shrinks)
+def room_of(f: Nat, +d: Nat, +j: U32) -> {Nat.is_le(Nat.add(U32.to_nat(j), f), U32.to_nat(U32.shln(1, d))) == True{} : Bool} -> Laws.Room(d, j, f):
+  match f:
+    case 0n:
+      h => Unit{}
+    case 1n++p:
+      +h => (lt_of_nat_u(j, U32.shln(1, d), lt_of_le_add(U32.to_nat(j), p, U32.to_nat(U32.shln(1, d)), h)), room_step_fin(d, j, p, inc_nat_u(j), j2 => room_of(p, d, j2))(h))
+
+# n <= 2^d: the first to_nat(n) indices from 0 are below 2^d
+def room_from(+d: Nat, +n: U32, fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}) -> Laws.Room(d, 0, U32.to_nat(n)):
+  room_of(U32.to_nat(n), d, 0)(le_nat_u(n, U32.shln(1, d), fits))

@@ -465,3 +465,30 @@ def gather_go(f: Nat, +j: U32, +d: Nat, src: Array<U32>, out: Array<U32>, perm: 
       gather_zero(j, d, src, out, perm, wf, get_w(U32, perm, j))
     case 1n++p:
       gather_step1(p, j, d, src, out, perm, wf, room, src2 => c => perm2 => wc => room2 => gather_go(p, U32.inc(j), d, src2, c, perm2, wc, room2), get_w(U32, perm, j))
+
+# ---- Laws.gather_contents / Laws.gather_keeps_perm --------------------------------------------------
+
+# the vacuous invariant at counter 0
+def ghyp0(+d: Nat, -src: Array<U32>, -out: Array<U32>, -perm: Array<U32>) -> GHyp(0, d, src, out, perm):
+  +k => hk => Empty.absurd({Laws.rdN(U32, d, out, k) == Laws.rd_at(U32, src, Laws.rd_at(U32, perm, k)) : U32}, lt0(k, hk))
+
+def gather_fin(+d: Nat, +n: U32, -src: Array<U32>, -perm: Array<U32>, +z: U32, +k: U32, hk: {U32.is_lt(k, n) == True{} : Bool},
+  w: &o: Array<U32> -> &pm: Array<U32> -> {K.Kernel.gather.go(~U32, U32.to_nat(n), 0, (src, Array.new(U32, d, z)), Array.get(U32, perm, 0)) == (o, pm) : Array<U32> & Array<U32>} & GRes(d, src, perm, o, pm, Laws.addn(0, U32.to_nat(n))))
+  -> {Laws.rd_at(U32, Pair.fst(Array<U32>, Array<U32>, K.Kernel.gather(~U32, n, d, src, perm, z)), k) == Laws.rd_at(U32, src, Laws.rd_at(U32, perm, k)) : U32}:
+  (o, pm, eq, epm, wo, spec) = w
+  %Equal.sym(Array<U32> & Array<U32>, K.Kernel.gather.go(~U32, U32.to_nat(n), 0, (src, Array.new(U32, d, z)), Array.get(U32, perm, 0)), (o, pm), eq) : {Laws.rd_at(U32, Pair.fst(Array<U32>, Array<U32>, _), k) == Laws.rd_at(U32, src, Laws.rd_at(U32, perm, k)) : U32}
+  %Equal.sym(U32, Laws.rd_at(U32, o, k), Laws.rdN(U32, d, o, k), Laws.rd_at_wf(U32, d, o, k, wo)) : {_ == Laws.rd_at(U32, src, Laws.rd_at(U32, perm, k)) : U32}
+  spec(k, (%Equal.sym(U32, Laws.addn(0, U32.to_nat(n)), n, B.addn_to_nat(n)) : {U32.is_lt(k, _) == True{} : Bool}; hk))
+
+def Laws.gather_contents(d, n, src, perm, z, k, fits, hk):
+  gather_fin(d, n, src, perm, z, k, hk, gather_go(U32.to_nat(n), 0, d, src, Array.new(U32, d, z), perm, Laws.wf_new(U32, d, z), B.room_from(d, n, fits))(ghyp0(d, src, Array.new(U32, d, z), perm)))
+
+def gather_perm_fin(+d: Nat, +n: U32, -src: Array<U32>, -perm: Array<U32>, +z: U32,
+  w: &o: Array<U32> -> &pm: Array<U32> -> {K.Kernel.gather.go(~U32, U32.to_nat(n), 0, (src, Array.new(U32, d, z)), Array.get(U32, perm, 0)) == (o, pm) : Array<U32> & Array<U32>} & GRes(d, src, perm, o, pm, Laws.addn(0, U32.to_nat(n))))
+  -> {Pair.snd(Array<U32>, Array<U32>, K.Kernel.gather(~U32, n, d, src, perm, z)) == perm : Array<U32>}:
+  (o, pm, eq, epm, wo, spec) = w
+  %Equal.sym(Array<U32> & Array<U32>, K.Kernel.gather.go(~U32, U32.to_nat(n), 0, (src, Array.new(U32, d, z)), Array.get(U32, perm, 0)), (o, pm), eq) : {Pair.snd(Array<U32>, Array<U32>, _) == perm : Array<U32>}
+  epm
+
+def Laws.gather_keeps_perm(d, n, src, perm, z, fits):
+  gather_perm_fin(d, n, src, perm, z, gather_go(U32.to_nat(n), 0, d, src, Array.new(U32, d, z), perm, Laws.wf_new(U32, d, z), B.room_from(d, n, fits))(ghyp0(d, src, Array.new(U32, d, z), perm)))
