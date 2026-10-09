@@ -2036,9 +2036,9 @@ def Probe(-d: ST.Dict, +s: String) -> Type:
 
 # Dict.code's answer: the dictionary d2 with entries es2 (es plus at most one new entry) and the
 # code c of s in it: in range (below the entry count, as a word and in the list model), decoding
-# to s; d2 well formed
+# to s; d2 well formed; every old code keeps its entry
 def CodeW(-d: ST.Dict, +es: List<&2, String>, +s: String) -> Type:
-  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {ST.Dict.code(d, s) == (d2, c) : ST.Dict & U32} & {U32.is_lt(c, dk(d2)) == True{} : Bool} & {Cmp.is_lt(Nat.cmp(U32.to_nat(c), List.length(&2, String, es2))) == True{} : Bool} & {nthd(es2, c) == s : String} & Ext(es, es2) & {Nat.is_le(List.length(&2, String, es2), 1n+List.length(&2, String, es)) == True{} : Bool} & WFDictE(d2, es2)
+  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {ST.Dict.code(d, s) == (d2, c) : ST.Dict & U32} & {U32.is_lt(c, dk(d2)) == True{} : Bool} & {Cmp.is_lt(Nat.cmp(U32.to_nat(c), List.length(&2, String, es2))) == True{} : Bool} & {nthd(es2, c) == s : String} & Ext(es, es2) & {Nat.is_le(List.length(&2, String, es2), 1n+List.length(&2, String, es)) == True{} : Bool} & WFDictE(d2, es2) & (@c2: U32 -> {U32.is_lt(c2, dk(d)) == True{} : Bool} -> {dentry(d2, c2) == dentry(d, c2) : String})
 
 # LAW: Dict.code (the code of s, inserted when absent: Dict.code.h/k/p, Dict.add, Dict.fit, Dict.room,
 # the index Ix.seek/look/slot, Ix.grow/move) keeps the dictionary well formed, extends the entries by

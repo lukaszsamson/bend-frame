@@ -1324,8 +1324,12 @@ def room_rd(+dd: Nat, -strs: Array<String>, -b0: Array<String>, -b1: Array<Strin
 
 # what Dict.code answers besides the result pair: the code in range, decoding to s, the entries extended
 # by at most one, the dictionary well formed (es2 is the new entry list)
-def CodeRest(d2: ST.Dict, +c: U32, +es: List<&2, String>, +es2: List<&2, String>, +s: String) -> Type:
-  {U32.is_lt(c, Laws.dk(d2)) == True{} : Bool} & {Cmp.is_lt(Nat.cmp(U32.to_nat(c), List.length(&2, String, es2))) == True{} : Bool} & {Laws.nthd(es2, c) == s : String} & Laws.Ext(es, es2) & {Nat.is_le(List.length(&2, String, es2), 1n+List.length(&2, String, es)) == True{} : Bool} & Laws.WFDictE(d2, es2)
+def CodeRest(d2: ST.Dict, +c: U32, +k: U32, -strs: Array<String>, +es: List<&2, String>, +es2: List<&2, String>, +s: String) -> Type:
+  {U32.is_lt(c, Laws.dk(d2)) == True{} : Bool} & {Cmp.is_lt(Nat.cmp(U32.to_nat(c), List.length(&2, String, es2))) == True{} : Bool} & {Laws.nthd(es2, c) == s : String} & Laws.Ext(es, es2) & {Nat.is_le(List.length(&2, String, es2), 1n+List.length(&2, String, es)) == True{} : Bool} & Laws.WFDictE(d2, es2) & (@c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.dentry(d2, c2) == Laws.rd_at(String, strs, c2) : String})
+
+# the old entries are kept by a write of the new entry array: every code below k reads as in strs
+def KeepF(+k: U32, -strs: Array<String>, -c1: Array<String>) -> Type:
+  @c: U32 -> {U32.is_lt(c, k) == True{} : Bool} -> {Laws.rd_at(String, c1, c) == Laws.rd_at(String, strs, c) : String}
 
 # n < 1 + n
 def nat_lt_succ_b(n: Nat) -> {Cmp.is_lt(Nat.cmp(n, 1n+n)) == True{} : Bool}:
@@ -1345,40 +1349,40 @@ def code_found_lt(+k: U32, +es: List<&2, String>, +id: U32, ek: {U32.to_nat(k) =
 
 # the goal shapes along the production code (the pending term as a parameter)
 def CodeBody(+k: U32, +dd: Nat, -strs: Array<String>, +b: Nat, +tag: U32, +es: List<&2, String>, +s: String, -r: Array<ST.SSlot> & U32) -> Type:
-  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {ST.Dict.code.k(k, dd, strs, b, tag, ST.Str.hash(s), s, ST.Ix.id(r)) == (d2, c) : ST.Dict & U32} & CodeRest(d2, c, es, es2, s)
+  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {ST.Dict.code.k(k, dd, strs, b, tag, ST.Str.hash(s), s, ST.Ix.id(r)) == (d2, c) : ST.Dict & U32} & CodeRest(d2, c, k, strs, es, es2, s)
 
 def CodeG(+k: U32, +dd: Nat, -strs: Array<String>, +b: Nat, sl: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, -r: Array<ST.SSlot> & U32) -> Type:
   Laws.WFIx(k, es, b, sl) -> (&x: ST.SSlot -> {x == Laws.rd_at(ST.SSlot, sl, Pair.snd(Array<ST.SSlot>, U32, r)) : ST.SSlot} & {Laws.look_bit(s, x) == False{} : Bool}) -> CodeBody(k, dd, strs, b, tag, es, s, r)
 
 def CodeB2(+k: U32, +dd: Nat, -strs: Array<String>, +b: Nat, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, -rr: Array<ST.SSlot> & ST.SSlot) -> Type:
-  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {ST.Dict.code.k(k, dd, strs, b, tag, ST.Str.hash(s), s, ST.Ix.id.at(i, ST.Ix.id.k(rr))) == (d2, c) : ST.Dict & U32} & CodeRest(d2, c, es, es2, s)
+  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {ST.Dict.code.k(k, dd, strs, b, tag, ST.Str.hash(s), s, ST.Ix.id.at(i, ST.Ix.id.k(rr))) == (d2, c) : ST.Dict & U32} & CodeRest(d2, c, k, strs, es, es2, s)
 
 def CodeB3(+k: U32, +dd: Nat, -strs: Array<String>, +b: Nat, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, -q: Array<ST.SSlot> & U32) -> Type:
-  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {ST.Dict.code.k(k, dd, strs, b, tag, ST.Str.hash(s), s, ST.Ix.id.at(i, q)) == (d2, c) : ST.Dict & U32} & CodeRest(d2, c, es, es2, s)
+  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {ST.Dict.code.k(k, dd, strs, b, tag, ST.Str.hash(s), s, ST.Ix.id.at(i, q)) == (d2, c) : ST.Dict & U32} & CodeRest(d2, c, k, strs, es, es2, s)
 
 def CodeP(+k: U32, +dd: Nat, -strs: Array<String>, +b: Nat, -t: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, +x: ST.SSlot) -> Type:
-  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {ST.Dict.code.p(U32.is_eq(sid(x), 0), k, dd, strs, b, tag, ST.Str.hash(s), s, t, i, sid(x)) == (d2, c) : ST.Dict & U32} & CodeRest(d2, c, es, es2, s)
+  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {ST.Dict.code.p(U32.is_eq(sid(x), 0), k, dd, strs, b, tag, ST.Str.hash(s), s, t, i, sid(x)) == (d2, c) : ST.Dict & U32} & CodeRest(d2, c, k, strs, es, es2, s)
 
 def CodePB(+k: U32, +dd: Nat, -strs: Array<String>, +b: Nat, -t: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, +id: U32, +isnew: Bool) -> Type:
-  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {ST.Dict.code.p(isnew, k, dd, strs, b, tag, ST.Str.hash(s), s, t, i, id) == (d2, c) : ST.Dict & U32} & CodeRest(d2, c, es, es2, s)
+  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {ST.Dict.code.p(isnew, k, dd, strs, b, tag, ST.Str.hash(s), s, t, i, id) == (d2, c) : ST.Dict & U32} & CodeRest(d2, c, k, strs, es, es2, s)
 
 def CodeFull(+k: U32, +dd: Nat, -strs: Array<String>, +b: Nat, -t: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, +full: Bool) -> Type:
-  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {(ST.Dict.fit(U32.inc(k), ST.Dict.dd(full, dd), Array.set(String, ST.Dict.room(full, dd, strs), k, s), b, Array.set(ST.SSlot, t, i, ST.SSlot{s, U32.inc(k)}), ST.Dict.mix(tag, ST.Str.hash(s))), k) == (d2, c) : ST.Dict & U32} & CodeRest(d2, c, es, es2, s)
+  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {(ST.Dict.fit(U32.inc(k), ST.Dict.dd(full, dd), Array.set(String, ST.Dict.room(full, dd, strs), k, s), b, Array.set(ST.SSlot, t, i, ST.SSlot{s, U32.inc(k)}), ST.Dict.mix(tag, ST.Str.hash(s))), k) == (d2, c) : ST.Dict & U32} & CodeRest(d2, c, k, strs, es, es2, s)
 
-def CodeRoom(+k: U32, +dd2: Nat, -room: Array<String>, +b: Nat, -t: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32) -> Type:
-  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {(ST.Dict.fit(U32.inc(k), dd2, Array.set(String, room, k, s), b, Array.set(ST.SSlot, t, i, ST.SSlot{s, U32.inc(k)}), ST.Dict.mix(tag, ST.Str.hash(s))), k) == (d2, c) : ST.Dict & U32} & CodeRest(d2, c, es, es2, s)
+def CodeRoom(+k: U32, +dd2: Nat, -room: Array<String>, -strs: Array<String>, +b: Nat, -t: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32) -> Type:
+  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {(ST.Dict.fit(U32.inc(k), dd2, Array.set(String, room, k, s), b, Array.set(ST.SSlot, t, i, ST.SSlot{s, U32.inc(k)}), ST.Dict.mix(tag, ST.Str.hash(s))), k) == (d2, c) : ST.Dict & U32} & CodeRest(d2, c, k, strs, es, es2, s)
 
-def CodeSet(+k: U32, +dd2: Nat, -c1: Array<String>, +b: Nat, -t: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32) -> Type:
-  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {(ST.Dict.fit(U32.inc(k), dd2, c1, b, Array.set(ST.SSlot, t, i, ST.SSlot{s, U32.inc(k)}), ST.Dict.mix(tag, ST.Str.hash(s))), k) == (d2, c) : ST.Dict & U32} & CodeRest(d2, c, es, es2, s)
+def CodeSet(+k: U32, +dd2: Nat, -c1: Array<String>, -strs: Array<String>, +b: Nat, -t: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32) -> Type:
+  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {(ST.Dict.fit(U32.inc(k), dd2, c1, b, Array.set(ST.SSlot, t, i, ST.SSlot{s, U32.inc(k)}), ST.Dict.mix(tag, ST.Str.hash(s))), k) == (d2, c) : ST.Dict & U32} & CodeRest(d2, c, k, strs, es, es2, s)
 
-def CodeFit(+k: U32, +dd2: Nat, -c1: Array<String>, +b: Nat, -c2: Array<ST.SSlot>, +tag2: U32, +es: List<&2, String>, +s: String) -> Type:
-  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {(ST.Dict.fit(U32.inc(k), dd2, c1, b, c2, tag2), k) == (d2, c) : ST.Dict & U32} & CodeRest(d2, c, es, es2, s)
+def CodeFit(+k: U32, +dd2: Nat, -c1: Array<String>, -strs: Array<String>, +b: Nat, -c2: Array<ST.SSlot>, +tag2: U32, +es: List<&2, String>, +s: String) -> Type:
+  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {(ST.Dict.fit(U32.inc(k), dd2, c1, b, c2, tag2), k) == (d2, c) : ST.Dict & U32} & CodeRest(d2, c, k, strs, es, es2, s)
 
-def CodeBig(+k: U32, +dd2: Nat, -c1: Array<String>, +b: Nat, -c2: Array<ST.SSlot>, +tag2: U32, +es: List<&2, String>, +s: String, +big: Bool) -> Type:
-  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {(ST.Dict.fit.k(big, U32.inc(k), dd2, c1, b, c2, tag2), k) == (d2, c) : ST.Dict & U32} & CodeRest(d2, c, es, es2, s)
+def CodeBig(+k: U32, +dd2: Nat, -c1: Array<String>, -strs: Array<String>, +b: Nat, -c2: Array<ST.SSlot>, +tag2: U32, +es: List<&2, String>, +s: String, +big: Bool) -> Type:
+  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {(ST.Dict.fit.k(big, U32.inc(k), dd2, c1, b, c2, tag2), k) == (d2, c) : ST.Dict & U32} & CodeRest(d2, c, k, strs, es, es2, s)
 
-def CodeBigT(+k: U32, +dd2: Nat, -c1: Array<String>, +b2: Nat, -g: Array<ST.SSlot>, +tag2: U32, +es: List<&2, String>, +s: String) -> Type:
-  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {(ST.Dict{U32.inc(k), dd2, c1, b2, g, tag2}, k) == (d2, c) : ST.Dict & U32} & CodeRest(d2, c, es, es2, s)
+def CodeBigT(+k: U32, +dd2: Nat, -c1: Array<String>, -strs: Array<String>, +b2: Nat, -g: Array<ST.SSlot>, +tag2: U32, +es: List<&2, String>, +s: String) -> Type:
+  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {(ST.Dict{U32.inc(k), dd2, c1, b2, g, tag2}, k) == (d2, c) : ST.Dict & U32} & CodeRest(d2, c, k, strs, es, es2, s)
 
 # the rows' entry facts of the new entry array, in rdN form (the extended list es ++ [s])
 def PreNew(+k: U32, +dd2: Nat, -c1: Array<String>, +es: List<&2, String>, +s: String) -> Type:
@@ -1386,162 +1390,223 @@ def PreNew(+k: U32, +dd2: Nat, -c1: Array<String>, +es: List<&2, String>, +s: St
 
 # ---- the fit: grow or not ----------------------------------------------------------------------------------
 
-def code_grow(+k: U32, +dd2: Nat, b1: Array<String>, +b: Nat, -c2: Array<ST.SSlot>, +tag2: U32, +es: List<&2, String>, +s: String,
+def code_grow(+k: U32, +dd2: Nat, b1: Array<String>, -strs: Array<String>, +b: Nat, -c2: Array<ST.SSlot>, +tag2: U32, +es: List<&2, String>, +s: String,
   ea: {U32.to_nat(U32.inc(k)) == List.length(&2, String, List.append(&2, String, es, s <> Nil{})) : Nat}, eb: {U32.is_le(U32.inc(k), U32.shln(1, dd2)) == True{} : Bool}, ec: {U32.is_lt(0, U32.inc(k)) == True{} : Bool}, ed: {Laws.nthn(List.append(&2, String, es, s <> Nil{}), 0n) == "" : String},
-  wb1: Laws.WFArray(String, dd2, b1), entn: @c: U32 -> {U32.is_lt(c, U32.inc(k)) == True{} : Bool} -> {Laws.rd_at(String, b1, c) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}, small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat},
+  wb1: Laws.WFArray(String, dd2, b1), entn: @c: U32 -> {U32.is_lt(c, U32.inc(k)) == True{} : Bool} -> {Laws.rd_at(String, b1, c) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}, keepb: KeepF(k, strs, b1), small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat},
   w: &g: Array<ST.SSlot> -> {ST.Ix.grow(b, c2) == g : Array<ST.SSlot>} & Laws.WFIx(U32.inc(k), List.append(&2, String, es, s <> Nil{}), 1n+b, g))
-  -> CodeBigT(k, dd2, b1, Nat.add(b, 1n), ST.Ix.grow(b, c2), tag2, es, s):
+  -> CodeBigT(k, dd2, b1, strs, Nat.add(b, 1n), ST.Ix.grow(b, c2), tag2, es, s):
   (g, eg, wg) = w
-  %Equal.sym(Nat, Nat.add(b, 1n), 1n+b, add_one(b)) : CodeBigT(k, dd2, b1, _, ST.Ix.grow(b, c2), tag2, es, s)
-  %Equal.sym(Array<ST.SSlot>, ST.Ix.grow(b, c2), g, eg) : CodeBigT(k, dd2, b1, 1n+b, _, tag2, es, s)
-  (ST.Dict{U32.inc(k), dd2, b1, 1n+b, g, tag2}, k, List.append(&2, String, es, s <> Nil{}), {==}, lt_inc(k, small), code_new_lt(k, es, s, ek), code_new(k, es, s, ek), (s <> Nil{}, {==}), len_new(es, s), (ea, eb, ec, ed, wb1, entn, wg))
+  %Equal.sym(Nat, Nat.add(b, 1n), 1n+b, add_one(b)) : CodeBigT(k, dd2, b1, strs, _, ST.Ix.grow(b, c2), tag2, es, s)
+  %Equal.sym(Array<ST.SSlot>, ST.Ix.grow(b, c2), g, eg) : CodeBigT(k, dd2, b1, strs, 1n+b, _, tag2, es, s)
+  (ST.Dict{U32.inc(k), dd2, b1, 1n+b, g, tag2}, k, List.append(&2, String, es, s <> Nil{}), {==}, lt_inc(k, small), code_new_lt(k, es, s, ek), code_new(k, es, s, ek), (s <> Nil{}, {==}), len_new(es, s), (ea, eb, ec, ed, wb1, entn, wg), keepb)
 
-def code_big(big: Bool, +k: U32, +dd2: Nat, b1: Array<String>, +b: Nat, c2: Array<ST.SSlot>, +tag2: U32, +es: List<&2, String>, +s: String,
+def code_big(big: Bool, +k: U32, +dd2: Nat, b1: Array<String>, -strs: Array<String>, +b: Nat, c2: Array<ST.SSlot>, +tag2: U32, +es: List<&2, String>, +s: String,
   ea: {U32.to_nat(U32.inc(k)) == List.length(&2, String, List.append(&2, String, es, s <> Nil{})) : Nat}, eb: {U32.is_le(U32.inc(k), U32.shln(1, dd2)) == True{} : Bool}, ec: {U32.is_lt(0, U32.inc(k)) == True{} : Bool}, ed: {Laws.nthn(List.append(&2, String, es, s <> Nil{}), 0n) == "" : String},
-  wb1: Laws.WFArray(String, dd2, b1), entn: @c: U32 -> {U32.is_lt(c, U32.inc(k)) == True{} : Bool} -> {Laws.rd_at(String, b1, c) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}, wc2: Laws.WFIx(U32.inc(k), List.append(&2, String, es, s <> Nil{}), b, c2), small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat})
-  -> CodeBig(k, dd2, b1, b, c2, tag2, es, s, big):
+  wb1: Laws.WFArray(String, dd2, b1), entn: @c: U32 -> {U32.is_lt(c, U32.inc(k)) == True{} : Bool} -> {Laws.rd_at(String, b1, c) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}, keepb: KeepF(k, strs, b1), wc2: Laws.WFIx(U32.inc(k), List.append(&2, String, es, s <> Nil{}), b, c2), small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat})
+  -> CodeBig(k, dd2, b1, strs, b, c2, tag2, es, s, big):
   match big:
     case False{}:
-      (ST.Dict{U32.inc(k), dd2, b1, b, c2, tag2}, k, List.append(&2, String, es, s <> Nil{}), {==}, lt_inc(k, small), code_new_lt(k, es, s, ek), code_new(k, es, s, ek), (s <> Nil{}, {==}), len_new(es, s), (ea, eb, ec, ed, wb1, entn, wc2))
+      (ST.Dict{U32.inc(k), dd2, b1, b, c2, tag2}, k, List.append(&2, String, es, s <> Nil{}), {==}, lt_inc(k, small), code_new_lt(k, es, s, ek), code_new(k, es, s, ek), (s <> Nil{}, {==}), len_new(es, s), (ea, eb, ec, ed, wb1, entn, wc2), keepb)
     case True{}:
-      code_grow(k, dd2, b1, b, c2, tag2, es, s, ea, eb, ec, ed, wb1, entn, small, ek, grow_wf(U32.inc(k), List.append(&2, String, es, s <> Nil{}), b, c2, wc2))
+      code_grow(k, dd2, b1, strs, b, c2, tag2, es, s, ea, eb, ec, ed, wb1, entn, keepb, small, ek, grow_wf(U32.inc(k), List.append(&2, String, es, s <> Nil{}), b, c2, wc2))
 
 # the entry array's copy b1 (rd_at through its Data size equation) and the new index, then the fit
-def code_set3(+k: U32, +dd2: Nat, -c1: Array<String>, +b: Nat, c2: Array<ST.SSlot>, +tag2: U32, +es: List<&2, String>, +s: String, pre: PreNew(k, dd2, c1, es, s),
+def code_set3(+k: U32, +dd2: Nat, -c1: Array<String>, -strs: Array<String>, +b: Nat, c2: Array<ST.SSlot>, +tag2: U32, +es: List<&2, String>, +s: String, pre: PreNew(k, dd2, c1, es, s), keep: KeepF(k, strs, c1),
   ea: {U32.to_nat(U32.inc(k)) == List.length(&2, String, List.append(&2, String, es, s <> Nil{})) : Nat}, eb: {U32.is_le(U32.inc(k), U32.shln(1, dd2)) == True{} : Bool}, ec: {U32.is_lt(0, U32.inc(k)) == True{} : Bool}, ed: {Laws.nthn(List.append(&2, String, es, s <> Nil{}), 0n) == "" : String},
   wc2: Laws.WFIx(U32.inc(k), List.append(&2, String, es, s <> Nil{}), b, c2), small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat},
   w: &b1: Array<String> -> {b1 == c1 : Array<String>} & Laws.WFArray(String, dd2, b1) & (@c: U32 -> {Laws.rd_at(String, c1, c) == Laws.rdN(String, dd2, c1, c) : String}))
-  -> CodeFit(k, dd2, c1, b, c2, tag2, es, s):
+  -> CodeFit(k, dd2, c1, strs, b, c2, tag2, es, s):
   (b1, +eb1, wb1, cv) = w
-  %eb1 : CodeFit(k, dd2, _, b, c2, tag2, es, s)
-  code_big(U32.is_gt(U32.add(U32.inc(k), U32.inc(k)), U32.shln(1, b)), k, dd2, b1, b, c2, tag2, es, s, ea, eb, ec, ed, wb1, +c => hc => (%Equal.sym(Array<String>, b1, c1, eb1) : {Laws.rd_at(String, _, c) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}; (%Equal.sym(String, Laws.rd_at(String, c1, c), Laws.rdN(String, dd2, c1, c), cv(c)) : {_ == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}; pre(c, hc))), wc2, small, ek)
+  %eb1 : CodeFit(k, dd2, _, strs, b, c2, tag2, es, s)
+  code_big(U32.is_gt(U32.add(U32.inc(k), U32.inc(k)), U32.shln(1, b)), k, dd2, b1, strs, b, c2, tag2, es, s, ea, eb, ec, ed, wb1, +c => hc => (%Equal.sym(Array<String>, b1, c1, eb1) : {Laws.rd_at(String, _, c) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}; (%Equal.sym(String, Laws.rd_at(String, c1, c), Laws.rdN(String, dd2, c1, c), cv(c)) : {_ == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}; pre(c, hc))), +c => hc => (%Equal.sym(Array<String>, b1, c1, eb1) : {Laws.rd_at(String, _, c) == Laws.rd_at(String, strs, c) : String}; keep(c, hc)), wc2, small, ek)
 
-def code_set2(+k: U32, +dd2: Nat, c1: Array<String>, +b: Nat, -t5: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, wc1: Laws.WFArray(String, dd2, c1), pre: PreNew(k, dd2, c1, es, s),
+def code_set2(+k: U32, +dd2: Nat, c1: Array<String>, -strs: Array<String>, +b: Nat, -t5: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, wc1: Laws.WFArray(String, dd2, c1), pre: PreNew(k, dd2, c1, es, s), keep: KeepF(k, strs, c1),
   ea: {U32.to_nat(U32.inc(k)) == List.length(&2, String, List.append(&2, String, es, s <> Nil{})) : Nat}, eb: {U32.is_le(U32.inc(k), U32.shln(1, dd2)) == True{} : Bool}, ec: {U32.is_lt(0, U32.inc(k)) == True{} : Bool}, ed: {Laws.nthn(List.append(&2, String, es, s <> Nil{}), 0n) == "" : String},
   small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat},
   w: &c2: Array<ST.SSlot> -> {Array.set(ST.SSlot, t5, i, ST.SSlot{s, U32.inc(k)}) == c2 : Array<ST.SSlot>} & Laws.WFIx(U32.inc(k), List.append(&2, String, es, s <> Nil{}), b, c2))
-  -> CodeSet(k, dd2, c1, b, t5, tag, es, s, i):
+  -> CodeSet(k, dd2, c1, strs, b, t5, tag, es, s, i):
   (c2, ec2, wc2) = w
-  %Equal.sym(Array<ST.SSlot>, Array.set(ST.SSlot, t5, i, ST.SSlot{s, U32.inc(k)}), c2, ec2) : CodeFit(k, dd2, c1, b, _, ST.Dict.mix(tag, ST.Str.hash(s)), es, s)
-  code_set3(k, dd2, c1, b, c2, ST.Dict.mix(tag, ST.Str.hash(s)), es, s, pre, ea, eb, ec, ed, wc2, small, ek, rd_all(String, dd2, c1, wc1))
+  %Equal.sym(Array<ST.SSlot>, Array.set(ST.SSlot, t5, i, ST.SSlot{s, U32.inc(k)}), c2, ec2) : CodeFit(k, dd2, c1, strs, b, _, ST.Dict.mix(tag, ST.Str.hash(s)), es, s)
+  code_set3(k, dd2, c1, strs, b, c2, ST.Dict.mix(tag, ST.Str.hash(s)), es, s, pre, keep, ea, eb, ec, ed, wc2, small, ek, rd_all(String, dd2, c1, wc1))
 
-def code_set(+k: U32, +dd2: Nat, c1: Array<String>, +b: Nat, -t4: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, wc1: Laws.WFArray(String, dd2, c1), pre: PreNew(k, dd2, c1, es, s),
+def code_set(+k: U32, +dd2: Nat, c1: Array<String>, -strs: Array<String>, +b: Nat, -t4: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, wc1: Laws.WFArray(String, dd2, c1), pre: PreNew(k, dd2, c1, es, s), keep: KeepF(k, strs, c1),
   ea: {U32.to_nat(U32.inc(k)) == List.length(&2, String, List.append(&2, String, es, s <> Nil{})) : Nat}, eb: {U32.is_le(U32.inc(k), U32.shln(1, dd2)) == True{} : Bool}, ec: {U32.is_lt(0, U32.inc(k)) == True{} : Bool}, ed: {Laws.nthn(List.append(&2, String, es, s <> Nil{}), 0n) == "" : String},
   +small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat},
   w: &t5: Array<ST.SSlot> -> {t5 == t4 : Array<ST.SSlot>} & Laws.WFIx(U32.inc(k), List.append(&2, String, es, s <> Nil{}), b, t5))
-  -> CodeSet(k, dd2, c1, b, t4, tag, es, s, i):
+  -> CodeSet(k, dd2, c1, strs, b, t4, tag, es, s, i):
   (t5, et5, wfix5) = w
-  %et5 : CodeSet(k, dd2, c1, b, _, tag, es, s, i)
-  code_set2(k, dd2, c1, b, t5, tag, es, s, i, wc1, pre, ea, eb, ec, ed, small, ek, wfix_set(U32.inc(k), List.append(&2, String, es, s <> Nil{}), b, t5, i, ST.SSlot{s, U32.inc(k)}, wfix5, new_slot_ok(k, es, s, small, ek)))
+  %et5 : CodeSet(k, dd2, c1, strs, b, _, tag, es, s, i)
+  code_set2(k, dd2, c1, strs, b, t5, tag, es, s, i, wc1, pre, keep, ea, eb, ec, ed, small, ek, wfix_set(U32.inc(k), List.append(&2, String, es, s <> Nil{}), b, t5, i, ST.SSlot{s, U32.inc(k)}, wfix5, new_slot_ok(k, es, s, small, ek)))
 
-# ---- the entry facts after the write at k: not full (room = strs) and full (room = the doubled array) -------
+# ---- the entry facts after the write at k: the room (strs itself when not full, the doubled array when full)
+#      reads the old entries below k as strs does (rr) --------------------------------------------------------------
 
-# a code c below k: the write at k left slot c alone, which held entry c (the Data hypothesis hb is
-# used four times: the IncLtU case split hands it over as Data in pre_nf_b)
-def pre_nf_lt(+k: U32, +dd: Nat, -strs: Array<String>, -c1: Array<String>, +es: List<&2, String>, +s: String, +hk: {U32.is_lt(k, U32.shln(1, dd)) == True{} : Bool}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, +c: U32, +hb: {U32.is_lt(c, k) == True{} : Bool},
-  fj1: @j: U32 -> {Laws.rdN(String, dd, c1, j) == Bool.pick(String, Laws.same_at(dd, k, j), s, Laws.rdN(String, dd, strs, j)) : String}, cv1: @j: U32 -> {Laws.rd_at(String, strs, j) == Laws.rdN(String, dd, strs, j) : String}, ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String})
-  -> {Laws.rdN(String, dd, c1, c) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}:
-  %Equal.sym(String, Laws.rdN(String, dd, c1, c), Bool.pick(String, Laws.same_at(dd, k, c), s, Laws.rdN(String, dd, strs, c)), fj1(c)) : {_ == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}
-  %Equal.sym(Bool, Laws.same_at(dd, k, c), False{}, PC.same_false_lt(dd, k, c, hk, hb)) : {Bool.pick(String, _, s, Laws.rdN(String, dd, strs, c)) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}
+# a code c below k: the write at k left slot c alone, which held entry c
+def pre_lt(+k: U32, +dd2: Nat, -strs: Array<String>, -room: Array<String>, -c1: Array<String>, +es: List<&2, String>, +s: String, +hk: {U32.is_lt(k, U32.shln(1, dd2)) == True{} : Bool}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, +c: U32, +hb: {U32.is_lt(c, k) == True{} : Bool},
+  fj1: @j: U32 -> {Laws.rdN(String, dd2, c1, j) == Bool.pick(String, Laws.same_at(dd2, k, j), s, Laws.rdN(String, dd2, room, j)) : String}, cv1: @j: U32 -> {Laws.rd_at(String, room, j) == Laws.rdN(String, dd2, room, j) : String}, rr: KeepF(k, strs, room), ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String})
+  -> {Laws.rdN(String, dd2, c1, c) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}:
+  %Equal.sym(String, Laws.rdN(String, dd2, c1, c), Bool.pick(String, Laws.same_at(dd2, k, c), s, Laws.rdN(String, dd2, room, c)), fj1(c)) : {_ == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}
+  %Equal.sym(Bool, Laws.same_at(dd2, k, c), False{}, PC.same_false_lt(dd2, k, c, hk, hb)) : {Bool.pick(String, _, s, Laws.rdN(String, dd2, room, c)) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}
   %cv1(c) : {_ == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}
+  %Equal.sym(String, Laws.rd_at(String, room, c), Laws.rd_at(String, strs, c), rr(c, hb)) : {_ == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}
   %Equal.sym(String, Laws.rd_at(String, strs, c), Laws.nthd(es, c), ent(c, hb)) : {_ == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}
   Equal.sym(String, Laws.nthn(List.append(&2, String, es, s <> Nil{}), U32.to_nat(c)), Laws.nthn(es, U32.to_nat(c)), nth_app_lt(es, s <> Nil{}, U32.to_nat(c), (%ek : {Cmp.is_lt(Nat.cmp(U32.to_nat(c), _)) == True{} : Bool}; lt_nat_of_u(c, k, hb))))
 
-def pre_nf_b(bb: Bool, +k: U32, +dd: Nat, -strs: Array<String>, -c1: Array<String>, +es: List<&2, String>, +s: String, +hk: {U32.is_lt(k, U32.shln(1, dd)) == True{} : Bool}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, +c: U32, hb: PC.IncLtU(bb, c, k),
-  fj1: @j: U32 -> {Laws.rdN(String, dd, c1, j) == Bool.pick(String, Laws.same_at(dd, k, j), s, Laws.rdN(String, dd, strs, j)) : String}, cv1: @j: U32 -> {Laws.rd_at(String, strs, j) == Laws.rdN(String, dd, strs, j) : String}, ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String})
-  -> {Laws.rdN(String, dd, c1, c) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}:
+def pre_b(bb: Bool, +k: U32, +dd2: Nat, -strs: Array<String>, -room: Array<String>, -c1: Array<String>, +es: List<&2, String>, +s: String, +hk: {U32.is_lt(k, U32.shln(1, dd2)) == True{} : Bool}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, +c: U32, hb: PC.IncLtU(bb, c, k),
+  fj1: @j: U32 -> {Laws.rdN(String, dd2, c1, j) == Bool.pick(String, Laws.same_at(dd2, k, j), s, Laws.rdN(String, dd2, room, j)) : String}, cv1: @j: U32 -> {Laws.rd_at(String, room, j) == Laws.rdN(String, dd2, room, j) : String}, rr: KeepF(k, strs, room), ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String})
+  -> {Laws.rdN(String, dd2, c1, c) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}:
   match bb:
     case True{}:
-      pre_nf_lt(k, dd, strs, c1, es, s, hk, ek, c, hb, fj1, cv1, ent)
+      pre_lt(k, dd2, strs, room, c1, es, s, hk, ek, c, hb, fj1, cv1, rr, ent)
     case False{}:
-      %Equal.sym(U32, c, k, hb) : {Laws.rdN(String, dd, c1, _) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), _) : String}
-      %Equal.sym(String, Laws.rdN(String, dd, c1, k), Bool.pick(String, Laws.same_at(dd, k, k), s, Laws.rdN(String, dd, strs, k)), fj1(k)) : {_ == Laws.nthd(List.append(&2, String, es, s <> Nil{}), k) : String}
-      %Equal.sym(Bool, Laws.same_at(dd, k, k), True{}, PC.same_at_refl(dd, k)) : {Bool.pick(String, _, s, Laws.rdN(String, dd, strs, k)) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), k) : String}
+      %Equal.sym(U32, c, k, hb) : {Laws.rdN(String, dd2, c1, _) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), _) : String}
+      %Equal.sym(String, Laws.rdN(String, dd2, c1, k), Bool.pick(String, Laws.same_at(dd2, k, k), s, Laws.rdN(String, dd2, room, k)), fj1(k)) : {_ == Laws.nthd(List.append(&2, String, es, s <> Nil{}), k) : String}
+      %Equal.sym(Bool, Laws.same_at(dd2, k, k), True{}, PC.same_at_refl(dd2, k)) : {Bool.pick(String, _, s, Laws.rdN(String, dd2, room, k)) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), k) : String}
       Equal.sym(String, Laws.nthd(List.append(&2, String, es, s <> Nil{}), k), s, code_new(k, es, s, ek))
 
-def pre_nf_k(+k: U32, +dd: Nat, -strs: Array<String>, -c1: Array<String>, +es: List<&2, String>, +s: String, +hk: {U32.is_lt(k, U32.shln(1, dd)) == True{} : Bool}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, +c: U32, w: &bb: Bool -> PC.IncLtU(bb, c, k),
-  fj1: @j: U32 -> {Laws.rdN(String, dd, c1, j) == Bool.pick(String, Laws.same_at(dd, k, j), s, Laws.rdN(String, dd, strs, j)) : String}, cv1: @j: U32 -> {Laws.rd_at(String, strs, j) == Laws.rdN(String, dd, strs, j) : String}, ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String})
-  -> {Laws.rdN(String, dd, c1, c) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}:
+def pre_k(+k: U32, +dd2: Nat, -strs: Array<String>, -room: Array<String>, -c1: Array<String>, +es: List<&2, String>, +s: String, +hk: {U32.is_lt(k, U32.shln(1, dd2)) == True{} : Bool}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, +c: U32, w: &bb: Bool -> PC.IncLtU(bb, c, k),
+  fj1: @j: U32 -> {Laws.rdN(String, dd2, c1, j) == Bool.pick(String, Laws.same_at(dd2, k, j), s, Laws.rdN(String, dd2, room, j)) : String}, cv1: @j: U32 -> {Laws.rd_at(String, room, j) == Laws.rdN(String, dd2, room, j) : String}, rr: KeepF(k, strs, room), ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String})
+  -> {Laws.rdN(String, dd2, c1, c) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}:
   (bb, hb) = w
-  pre_nf_b(bb, k, dd, strs, c1, es, s, hk, ek, c, hb, fj1, cv1, ent)
+  pre_b(bb, k, dd2, strs, room, c1, es, s, hk, ek, c, hb, fj1, cv1, rr, ent)
 
-def pre_nf(+k: U32, +dd: Nat, -strs: Array<String>, -c1: Array<String>, +es: List<&2, String>, +s: String, +hk: {U32.is_lt(k, U32.shln(1, dd)) == True{} : Bool}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat},
-  fj1: @j: U32 -> {Laws.rdN(String, dd, c1, j) == Bool.pick(String, Laws.same_at(dd, k, j), s, Laws.rdN(String, dd, strs, j)) : String}, cv1: @j: U32 -> {Laws.rd_at(String, strs, j) == Laws.rdN(String, dd, strs, j) : String}, ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String})
-  -> PreNew(k, dd, c1, es, s):
-  +c => hc => pre_nf_k(k, dd, strs, c1, es, s, hk, ek, c, PC.inc_lt_u(c, k, hc), fj1, cv1, ent)
+def pre(+k: U32, +dd2: Nat, -strs: Array<String>, -room: Array<String>, -c1: Array<String>, +es: List<&2, String>, +s: String, +hk: {U32.is_lt(k, U32.shln(1, dd2)) == True{} : Bool}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat},
+  fj1: @j: U32 -> {Laws.rdN(String, dd2, c1, j) == Bool.pick(String, Laws.same_at(dd2, k, j), s, Laws.rdN(String, dd2, room, j)) : String}, cv1: @j: U32 -> {Laws.rd_at(String, room, j) == Laws.rdN(String, dd2, room, j) : String}, rr: KeepF(k, strs, room), ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String})
+  -> PreNew(k, dd2, c1, es, s):
+  +c => hc => pre_k(k, dd2, strs, room, c1, es, s, hk, ek, c, PC.inc_lt_u(c, k, hc), fj1, cv1, rr, ent)
 
-# full: the room is ANode{b1, fresh}; its reads below 2^dd are the old entries (RoomRd)
-def pre_f_lt(+k: U32, +dd: Nat, -strs: Array<String>, -b1: Array<String>, -c1: Array<String>, +es: List<&2, String>, +s: String, +hk2: {U32.is_lt(k, U32.shln(1, 1n+dd)) == True{} : Bool}, +ekp: {k == U32.shln(1, dd) : U32}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, +c: U32, +hb: {U32.is_lt(c, k) == True{} : Bool},
-  fj1: @j: U32 -> {Laws.rdN(String, 1n+dd, c1, j) == Bool.pick(String, Laws.same_at(1n+dd, k, j), s, Laws.rdN(String, 1n+dd, ANode{b1, Array.new(String, dd, "")}, j)) : String}, cv1: @j: U32 -> {Laws.rd_at(String, ANode{b1, Array.new(String, dd, "")}, j) == Laws.rdN(String, 1n+dd, ANode{b1, Array.new(String, dd, "")}, j) : String}, rr: RoomRd(dd, strs, b1), ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String})
-  -> {Laws.rdN(String, 1n+dd, c1, c) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}:
-  %Equal.sym(String, Laws.rdN(String, 1n+dd, c1, c), Bool.pick(String, Laws.same_at(1n+dd, k, c), s, Laws.rdN(String, 1n+dd, ANode{b1, Array.new(String, dd, "")}, c)), fj1(c)) : {_ == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}
-  %Equal.sym(Bool, Laws.same_at(1n+dd, k, c), False{}, PC.same_false_lt(1n+dd, k, c, hk2, hb)) : {Bool.pick(String, _, s, Laws.rdN(String, 1n+dd, ANode{b1, Array.new(String, dd, "")}, c)) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}
-  %cv1(c) : {_ == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}
-  %Equal.sym(String, Laws.rd_at(String, ANode{b1, Array.new(String, dd, "")}, c), Laws.rd_at(String, strs, c), rr(c, (%ekp : {U32.is_lt(c, _) == True{} : Bool}; hb))) : {_ == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}
-  %Equal.sym(String, Laws.rd_at(String, strs, c), Laws.nthd(es, c), ent(c, hb)) : {_ == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}
-  Equal.sym(String, Laws.nthn(List.append(&2, String, es, s <> Nil{}), U32.to_nat(c)), Laws.nthn(es, U32.to_nat(c)), nth_app_lt(es, s <> Nil{}, U32.to_nat(c), (%ek : {Cmp.is_lt(Nat.cmp(U32.to_nat(c), _)) == True{} : Bool}; lt_nat_of_u(c, k, hb))))
+# ---- the kept old entries: the same write analysed on a second copy room2 of the room (c2 == c1) ------------------
 
-def pre_f_b(bb: Bool, +k: U32, +dd: Nat, -strs: Array<String>, -b1: Array<String>, -c1: Array<String>, +es: List<&2, String>, +s: String, +hk2: {U32.is_lt(k, U32.shln(1, 1n+dd)) == True{} : Bool}, +ekp: {k == U32.shln(1, dd) : U32}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, +c: U32, hb: PC.IncLtU(bb, c, k),
-  fj1: @j: U32 -> {Laws.rdN(String, 1n+dd, c1, j) == Bool.pick(String, Laws.same_at(1n+dd, k, j), s, Laws.rdN(String, 1n+dd, ANode{b1, Array.new(String, dd, "")}, j)) : String}, cv1: @j: U32 -> {Laws.rd_at(String, ANode{b1, Array.new(String, dd, "")}, j) == Laws.rdN(String, 1n+dd, ANode{b1, Array.new(String, dd, "")}, j) : String}, rr: RoomRd(dd, strs, b1), ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String})
-  -> {Laws.rdN(String, 1n+dd, c1, c) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}:
-  match bb:
-    case True{}:
-      pre_f_lt(k, dd, strs, b1, c1, es, s, hk2, ekp, ek, c, hb, fj1, cv1, rr, ent)
-    case False{}:
-      %Equal.sym(U32, c, k, hb) : {Laws.rdN(String, 1n+dd, c1, _) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), _) : String}
-      %Equal.sym(String, Laws.rdN(String, 1n+dd, c1, k), Bool.pick(String, Laws.same_at(1n+dd, k, k), s, Laws.rdN(String, 1n+dd, ANode{b1, Array.new(String, dd, "")}, k)), fj1(k)) : {_ == Laws.nthd(List.append(&2, String, es, s <> Nil{}), k) : String}
-      %Equal.sym(Bool, Laws.same_at(1n+dd, k, k), True{}, PC.same_at_refl(1n+dd, k)) : {Bool.pick(String, _, s, Laws.rdN(String, 1n+dd, ANode{b1, Array.new(String, dd, "")}, k)) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), k) : String}
-      Equal.sym(String, Laws.nthd(List.append(&2, String, es, s <> Nil{}), k), s, code_new(k, es, s, ek))
+def keep_c(+k: U32, +dd2: Nat, -strs: Array<String>, -room2: Array<String>, -c1: Array<String>, -c2: Array<String>, +e12: {c2 == c1 : Array<String>}, +s: String, +hk: {U32.is_lt(k, U32.shln(1, dd2)) == True{} : Bool}, +c: U32, +hc: {U32.is_lt(c, k) == True{} : Bool},
+  fj2: @j: U32 -> {Laws.rdN(String, dd2, c2, j) == Bool.pick(String, Laws.same_at(dd2, k, j), s, Laws.rdN(String, dd2, room2, j)) : String}, cv2: @j: U32 -> {Laws.rd_at(String, room2, j) == Laws.rdN(String, dd2, room2, j) : String}, cvb: @j: U32 -> {Laws.rd_at(String, c2, j) == Laws.rdN(String, dd2, c2, j) : String}, rr2: KeepF(k, strs, room2))
+  -> {Laws.rd_at(String, c1, c) == Laws.rd_at(String, strs, c) : String}:
+  %e12 : {Laws.rd_at(String, _, c) == Laws.rd_at(String, strs, c) : String}
+  %Equal.sym(String, Laws.rd_at(String, c2, c), Laws.rdN(String, dd2, c2, c), cvb(c)) : {_ == Laws.rd_at(String, strs, c) : String}
+  %Equal.sym(String, Laws.rdN(String, dd2, c2, c), Bool.pick(String, Laws.same_at(dd2, k, c), s, Laws.rdN(String, dd2, room2, c)), fj2(c)) : {_ == Laws.rd_at(String, strs, c) : String}
+  %Equal.sym(Bool, Laws.same_at(dd2, k, c), False{}, PC.same_false_lt(dd2, k, c, hk, hc)) : {Bool.pick(String, _, s, Laws.rdN(String, dd2, room2, c)) == Laws.rd_at(String, strs, c) : String}
+  %cv2(c) : {_ == Laws.rd_at(String, strs, c) : String}
+  rr2(c, hc)
 
-def pre_f_k(+k: U32, +dd: Nat, -strs: Array<String>, -b1: Array<String>, -c1: Array<String>, +es: List<&2, String>, +s: String, +hk2: {U32.is_lt(k, U32.shln(1, 1n+dd)) == True{} : Bool}, +ekp: {k == U32.shln(1, dd) : U32}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, +c: U32, w: &bb: Bool -> PC.IncLtU(bb, c, k),
-  fj1: @j: U32 -> {Laws.rdN(String, 1n+dd, c1, j) == Bool.pick(String, Laws.same_at(1n+dd, k, j), s, Laws.rdN(String, 1n+dd, ANode{b1, Array.new(String, dd, "")}, j)) : String}, cv1: @j: U32 -> {Laws.rd_at(String, ANode{b1, Array.new(String, dd, "")}, j) == Laws.rdN(String, 1n+dd, ANode{b1, Array.new(String, dd, "")}, j) : String}, rr: RoomRd(dd, strs, b1), ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String})
-  -> {Laws.rdN(String, 1n+dd, c1, c) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}:
-  (bb, hb) = w
-  pre_f_b(bb, k, dd, strs, b1, c1, es, s, hk2, ekp, ek, c, hb, fj1, cv1, rr, ent)
+def keep_of(+k: U32, +dd2: Nat, -strs: Array<String>, -room2: Array<String>, -c1: Array<String>, -c2: Array<String>, +e12: {c2 == c1 : Array<String>}, +s: String, +hk: {U32.is_lt(k, U32.shln(1, dd2)) == True{} : Bool},
+  fj2: @j: U32 -> {Laws.rdN(String, dd2, c2, j) == Bool.pick(String, Laws.same_at(dd2, k, j), s, Laws.rdN(String, dd2, room2, j)) : String}, cv2: @j: U32 -> {Laws.rd_at(String, room2, j) == Laws.rdN(String, dd2, room2, j) : String}, cvb: @j: U32 -> {Laws.rd_at(String, c2, j) == Laws.rdN(String, dd2, c2, j) : String}, rr2: KeepF(k, strs, room2))
+  -> KeepF(k, strs, c1):
+  +c => hc => keep_c(k, dd2, strs, room2, c1, c2, e12, s, hk, c, hc, fj2, cv2, cvb, rr2)
 
-def pre_f(+k: U32, +dd: Nat, -strs: Array<String>, -b1: Array<String>, -c1: Array<String>, +es: List<&2, String>, +s: String, +hk2: {U32.is_lt(k, U32.shln(1, 1n+dd)) == True{} : Bool}, +ekp: {k == U32.shln(1, dd) : U32}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat},
-  fj1: @j: U32 -> {Laws.rdN(String, 1n+dd, c1, j) == Bool.pick(String, Laws.same_at(1n+dd, k, j), s, Laws.rdN(String, 1n+dd, ANode{b1, Array.new(String, dd, "")}, j)) : String}, cv1: @j: U32 -> {Laws.rd_at(String, ANode{b1, Array.new(String, dd, "")}, j) == Laws.rdN(String, 1n+dd, ANode{b1, Array.new(String, dd, "")}, j) : String}, rr: RoomRd(dd, strs, b1), ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String})
-  -> PreNew(k, 1n+dd, c1, es, s):
-  +c => hc => pre_f_k(k, dd, strs, b1, c1, es, s, hk2, ekp, ek, c, PC.inc_lt_u(c, k, hc), fj1, cv1, rr, ent)
+# the room facts: a copy of strs reads as strs (not full); the doubled array's copy reads the old entries (full)
+def rr_copy(+k: U32, -strs: Array<String>, -s1: Array<String>, -s2: Array<String>, +e1: {s1 == strs : Array<String>}, +e2: {s2 == strs : Array<String>}) -> KeepF(k, s1, s2):
+  +c => hc => Equal.trans(String, Laws.rd_at(String, s2, c), Laws.rd_at(String, strs, c), Laws.rd_at(String, s1, c), Equal.cong(Array<String>, String, q => Laws.rd_at(String, q, c), s2, strs, e2), Equal.sym(String, Laws.rd_at(String, s1, c), Laws.rd_at(String, strs, c), Equal.cong(Array<String>, String, q => Laws.rd_at(String, q, c), s1, strs, e1)))
 
-# ---- Dict.add: not full / full -------------------------------------------------------------------------------
+def rr_refl(+k: U32, -s1: Array<String>) -> KeepF(k, s1, s1):
+  +c => hc => {==}
 
-def code_nf(+k: U32, +dd: Nat, -strs: Array<String>, +b: Nat, t4: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, wfix4: Laws.WFIx(k, es, b, t4), +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, +hpos: {U32.is_lt(0, k) == True{} : Bool}, h0: {Laws.nthn(es, 0n) == "" : String}, ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String}, +small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, +hk: {U32.is_lt(k, U32.shln(1, dd)) == True{} : Bool},
-  w: &c1: Array<String> -> {Array.set(String, strs, k, s) == c1 : Array<String>} & Laws.WFArray(String, dd, c1) & (@j: U32 -> {Laws.rdN(String, dd, c1, j) == Bool.pick(String, Laws.same_at(dd, k, j), s, Laws.rdN(String, dd, strs, j)) : String}) & (@j: U32 -> {Laws.rd_at(String, strs, j) == Laws.rdN(String, dd, strs, j) : String}))
+def rr_of(+k: U32, +dd: Nat, -strs: Array<String>, -b1: Array<String>, -r: Array<String>, +er: {r == ANode{b1, Array.new(String, dd, "")} : Array<String>}, +ekp: {k == U32.shln(1, dd) : U32}, rr: RoomRd(dd, strs, b1)) -> KeepF(k, strs, r):
+  +c => hc => (%Equal.sym(Array<String>, r, ANode{b1, Array.new(String, dd, "")}, er) : {Laws.rd_at(String, _, c) == Laws.rd_at(String, strs, c) : String}; rr(c, (%ekp : {U32.is_lt(c, _) == True{} : Bool}; hc)))
+
+# the entry facts of strs restated to its copy s1
+def ent_cast(+k: U32, +es: List<&2, String>, -strs: Array<String>, -s1: Array<String>, +e1: {s1 == strs : Array<String>}, ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String})
+  -> @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, s1, c2) == Laws.nthd(es, c2) : String}:
+  +c => hc => Equal.trans(String, Laws.rd_at(String, s1, c), Laws.rd_at(String, strs, c), Laws.nthd(es, c), Equal.cong(Array<String>, String, q => Laws.rd_at(String, q, c), s1, strs, e1), ent(c, hc))
+
+# the two writes agree: c2 == c1 (both Array.set at k of copies of one array)
+def writes_eq(-x1: Array<String>, -x2: Array<String>, -c1: Array<String>, -c2: Array<String>, +k: U32, +s: String, +e21: {x2 == x1 : Array<String>}, +ec1: {Array.set(String, x1, k, s) == c1 : Array<String>}, ec2: {Array.set(String, x2, k, s) == c2 : Array<String>}) -> {c2 == c1 : Array<String>}:
+  Equal.trans(Array<String>, c2, Array.set(String, x2, k, s), c1, Equal.sym(Array<String>, Array.set(String, x2, k, s), c2, ec2), Equal.trans(Array<String>, Array.set(String, x2, k, s), Array.set(String, x1, k, s), c1, Equal.cong(Array<String>, Array<String>, q => Array.set(String, q, k, s), x2, x1, e21), ec1))
+
+# ---- Dict.add, not full: the room is strs; cloned, the write is analysed twice ----------------------------------------
+
+def code_nf5(+k: U32, +dd: Nat, -strs: Array<String>, -s1: Array<String>, -s2: Array<String>, c1: Array<String>, -c2: Array<String>, +e1: {s1 == strs : Array<String>}, +e2: {s2 == strs : Array<String>}, +e12: {c2 == c1 : Array<String>}, +b: Nat, t4: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, wfix4: Laws.WFIx(k, es, b, t4), +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, +hpos: {U32.is_lt(0, k) == True{} : Bool}, h0: {Laws.nthn(es, 0n) == "" : String}, +small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, +hk: {U32.is_lt(k, U32.shln(1, dd)) == True{} : Bool},
+  wc1: Laws.WFArray(String, dd, c1), pre1: PreNew(k, dd, c1, es, s),
+  fj2: @j: U32 -> {Laws.rdN(String, dd, c2, j) == Bool.pick(String, Laws.same_at(dd, k, j), s, Laws.rdN(String, dd, s2, j)) : String}, cv2: @j: U32 -> {Laws.rd_at(String, s2, j) == Laws.rdN(String, dd, s2, j) : String},
+  w: &b2: Array<String> -> {b2 == c2 : Array<String>} & Laws.WFArray(String, dd, b2) & (@j: U32 -> {Laws.rd_at(String, c2, j) == Laws.rdN(String, dd, c2, j) : String}))
+  -> CodeSet(k, dd, c1, s1, b, t4, tag, es, s, i):
+  (b2, eb2, wb2, cvb) = w
+  code_set(k, dd, c1, s1, b, t4, tag, es, s, i, wc1, pre1, keep_of(k, dd, s1, s2, c1, c2, e12, s, hk, fj2, cv2, cvb, rr_copy(k, strs, s1, s2, e1, e2)), ek_new(k, es, s, small, ek), fit_nf(k, dd, small, hk), pos_inc(k, small), zero_new(k, es, s, hpos, ek, h0), small, ek, wfix_mono(k, U32.inc(k), es, List.append(&2, String, es, s <> Nil{}), s <> Nil{}, {==}, ek, lt_le_u(k, U32.inc(k), lt_inc(k, small)), b, t4, wfix4))
+
+def code_nf4(+k: U32, +dd: Nat, -strs: Array<String>, -s1: Array<String>, -s2: Array<String>, c1: Array<String>, +s: String, +e1: {s1 == strs : Array<String>}, +e2: {s2 == strs : Array<String>}, +ec1: {Array.set(String, s1, k, s) == c1 : Array<String>}, +b: Nat, t4: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +i: U32, wfix4: Laws.WFIx(k, es, b, t4), +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, +hpos: {U32.is_lt(0, k) == True{} : Bool}, h0: {Laws.nthn(es, 0n) == "" : String}, +small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, +hk: {U32.is_lt(k, U32.shln(1, dd)) == True{} : Bool},
+  wc1: Laws.WFArray(String, dd, c1), pre1: PreNew(k, dd, c1, es, s),
+  w: &c2: Array<String> -> {Array.set(String, s2, k, s) == c2 : Array<String>} & Laws.WFArray(String, dd, c2) & (@j: U32 -> {Laws.rdN(String, dd, c2, j) == Bool.pick(String, Laws.same_at(dd, k, j), s, Laws.rdN(String, dd, s2, j)) : String}) & (@j: U32 -> {Laws.rd_at(String, s2, j) == Laws.rdN(String, dd, s2, j) : String}))
+  -> CodeSet(k, dd, c1, s1, b, t4, tag, es, s, i):
+  (c2, ec2, wc2, fj2, cv2) = w
+  code_nf5(k, dd, strs, s1, s2, c1, c2, e1, e2, writes_eq(s1, s2, c1, c2, k, s, Equal.trans(Array<String>, s2, strs, s1, e2, Equal.sym(Array<String>, s1, strs, e1)), ec1, ec2), b, t4, tag, es, s, i, wfix4, ek, hpos, h0, small, hk, wc1, pre1, fj2, cv2, rd_all(String, dd, c2, wc2))
+
+def code_nf3(+k: U32, +dd: Nat, -strs: Array<String>, -s1: Array<String>, s2: Array<String>, +e1: {s1 == strs : Array<String>}, +e2: {s2 == strs : Array<String>}, +b: Nat, t4: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, wfix4: Laws.WFIx(k, es, b, t4), +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, +hpos: {U32.is_lt(0, k) == True{} : Bool}, h0: {Laws.nthn(es, 0n) == "" : String}, ent1: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, s1, c2) == Laws.nthd(es, c2) : String}, +small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, +hk: {U32.is_lt(k, U32.shln(1, dd)) == True{} : Bool}, w2: Laws.WFArray(String, dd, s2),
+  w: &c1: Array<String> -> {Array.set(String, s1, k, s) == c1 : Array<String>} & Laws.WFArray(String, dd, c1) & (@j: U32 -> {Laws.rdN(String, dd, c1, j) == Bool.pick(String, Laws.same_at(dd, k, j), s, Laws.rdN(String, dd, s1, j)) : String}) & (@j: U32 -> {Laws.rd_at(String, s1, j) == Laws.rdN(String, dd, s1, j) : String}))
+  -> CodeFull(k, dd, s1, b, t4, tag, es, s, i, False{}):
+  (c1, +ec1, wc1, fj1, cv1) = w
+  %Equal.sym(Array<String>, Array.set(String, s1, k, s), c1, ec1) : CodeSet(k, dd, _, s1, b, t4, tag, es, s, i)
+  code_nf4(k, dd, strs, s1, s2, c1, s, e1, e2, ec1, b, t4, tag, es, i, wfix4, ek, hpos, h0, small, hk, wc1, pre(k, dd, s1, s1, c1, es, s, hk, ek, fj1, cv1, rr_refl(k, s1), ent1), PC.set_other_w(String, dd, s2, k, s, w2))
+
+def code_nf2(+k: U32, +dd: Nat, -strs: Array<String>, +b: Nat, t4: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, wfix4: Laws.WFIx(k, es, b, t4), +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, +hpos: {U32.is_lt(0, k) == True{} : Bool}, h0: {Laws.nthn(es, 0n) == "" : String}, ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String}, +small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, +hk: {U32.is_lt(k, U32.shln(1, dd)) == True{} : Bool},
+  w: &s1: Array<String> -> &s2: Array<String> -> {s1 == strs : Array<String>} & {s2 == strs : Array<String>} & Laws.WFArray(String, dd, s1) & Laws.WFArray(String, dd, s2))
   -> CodeFull(k, dd, strs, b, t4, tag, es, s, i, False{}):
-  (c1, ec1, wc1, fj1, cv1) = w
-  %Equal.sym(Array<String>, Array.set(String, strs, k, s), c1, ec1) : CodeSet(k, dd, _, b, t4, tag, es, s, i)
-  code_set(k, dd, c1, b, t4, tag, es, s, i, wc1, pre_nf(k, dd, strs, c1, es, s, hk, ek, fj1, cv1, ent), ek_new(k, es, s, small, ek), fit_nf(k, dd, small, hk), pos_inc(k, small), zero_new(k, es, s, hpos, ek, h0), small, ek, wfix_mono(k, U32.inc(k), es, List.append(&2, String, es, s <> Nil{}), s <> Nil{}, {==}, ek, lt_le_u(k, U32.inc(k), lt_inc(k, small)), b, t4, wfix4))
+  (s1, s2, +e1, +e2, w1, w2) = w
+  %e1 : CodeFull(k, dd, _, b, t4, tag, es, s, i, False{})
+  code_nf3(k, dd, strs, s1, s2, e1, e2, b, t4, tag, es, s, i, wfix4, ek, hpos, h0, ent_cast(k, es, strs, s1, e1, ent), small, hk, w2, PC.set_other_w(String, dd, s1, k, s, w1))
 
-def code_f3(+k: U32, +dd: Nat, -strs: Array<String>, -b0: Array<String>, -b1: Array<String>, +b: Nat, t4: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, wfix4: Laws.WFIx(k, es, b, t4), +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, +hpos: {U32.is_lt(0, k) == True{} : Bool}, h0: {Laws.nthn(es, 0n) == "" : String}, ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String}, +small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, +ekp: {k == U32.shln(1, dd) : U32},
+def code_nf(+k: U32, +dd: Nat, strs: Array<String>, +b: Nat, t4: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, wfix4: Laws.WFIx(k, es, b, t4), +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, +hpos: {U32.is_lt(0, k) == True{} : Bool}, h0: {Laws.nthn(es, 0n) == "" : String}, wfs: Laws.WFArray(String, dd, strs), ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String}, +small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, +hk: {U32.is_lt(k, U32.shln(1, dd)) == True{} : Bool})
+  -> CodeFull(k, dd, strs, b, t4, tag, es, s, i, False{}):
+  code_nf2(k, dd, strs, b, t4, tag, es, s, i, wfix4, ek, hpos, h0, ent, small, hk, PC.clone_wf(String, dd, strs, wfs))
+
+# ---- Dict.add, full: the room is the doubled array ANode{b1, fresh}; cloned, the write is analysed twice -------------
+
+def code_f7(+k: U32, +dd: Nat, -strs: Array<String>, -b0: Array<String>, -b1: Array<String>, -r2: Array<String>, c1: Array<String>, -c2: Array<String>, +er2: {r2 == ANode{b1, Array.new(String, dd, "")} : Array<String>}, +e12: {c2 == c1 : Array<String>}, +b: Nat, t4: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, wfix4: Laws.WFIx(k, es, b, t4), +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, +hpos: {U32.is_lt(0, k) == True{} : Bool}, h0: {Laws.nthn(es, 0n) == "" : String}, +small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, +ekp: {k == U32.shln(1, dd) : U32},
   +es0: {Array.size(String, strs) == (b0, U32.shln(1, dd)) : Array<String> & U32}, +eb1: {b1 == b0 : Array<String>}, +es1: {Array.size(String, b0) == (b1, U32.shln(1, dd)) : Array<String> & U32},
-  w: &c1: Array<String> -> {Array.set(String, ANode{b1, Array.new(String, dd, "")}, k, s) == c1 : Array<String>} & Laws.WFArray(String, 1n+dd, c1) & (@j: U32 -> {Laws.rdN(String, 1n+dd, c1, j) == Bool.pick(String, Laws.same_at(1n+dd, k, j), s, Laws.rdN(String, 1n+dd, ANode{b1, Array.new(String, dd, "")}, j)) : String}) & (@j: U32 -> {Laws.rd_at(String, ANode{b1, Array.new(String, dd, "")}, j) == Laws.rdN(String, 1n+dd, ANode{b1, Array.new(String, dd, "")}, j) : String}))
-  -> CodeRoom(k, 1n+dd, ANode{b1, Array.new(String, dd, "")}, b, t4, tag, es, s, i):
-  (c1, ec1, wc1, fj1, cv1) = w
-  %Equal.sym(Array<String>, Array.set(String, ANode{b1, Array.new(String, dd, "")}, k, s), c1, ec1) : CodeSet(k, 1n+dd, _, b, t4, tag, es, s, i)
-  code_set(k, 1n+dd, c1, b, t4, tag, es, s, i, wc1, pre_f(k, dd, strs, b1, c1, es, s, (%ekp : {U32.is_lt(k, U32.shl(_)) == True{} : Bool}; lt_shl(k, small, hpos)), ekp, ek, fj1, cv1, room_rd(dd, strs, b0, b1, es0, eb1, es1, shr_pow(k, dd, small, hpos, ekp)), ent), ek_new(k, es, s, small, ek), fit_full(k, dd, small, hpos, ekp), pos_inc(k, small), zero_new(k, es, s, hpos, ek, h0), small, ek, wfix_mono(k, U32.inc(k), es, List.append(&2, String, es, s <> Nil{}), s <> Nil{}, {==}, ek, lt_le_u(k, U32.inc(k), lt_inc(k, small)), b, t4, wfix4))
+  wc1: Laws.WFArray(String, 1n+dd, c1), pre1: PreNew(k, 1n+dd, c1, es, s),
+  fj2: @j: U32 -> {Laws.rdN(String, 1n+dd, c2, j) == Bool.pick(String, Laws.same_at(1n+dd, k, j), s, Laws.rdN(String, 1n+dd, r2, j)) : String}, cv2: @j: U32 -> {Laws.rd_at(String, r2, j) == Laws.rdN(String, 1n+dd, r2, j) : String},
+  w: &b2: Array<String> -> {b2 == c2 : Array<String>} & Laws.WFArray(String, 1n+dd, b2) & (@j: U32 -> {Laws.rd_at(String, c2, j) == Laws.rdN(String, 1n+dd, c2, j) : String}))
+  -> CodeSet(k, 1n+dd, c1, strs, b, t4, tag, es, s, i):
+  (b2, eb2, wb2, cvb) = w
+  code_set(k, 1n+dd, c1, strs, b, t4, tag, es, s, i, wc1, pre1, keep_of(k, 1n+dd, strs, r2, c1, c2, e12, s, (%ekp : {U32.is_lt(k, U32.shl(_)) == True{} : Bool}; lt_shl(k, small, hpos)), fj2, cv2, cvb, rr_of(k, dd, strs, b1, r2, er2, ekp, room_rd(dd, strs, b0, b1, es0, eb1, es1, shr_pow(k, dd, small, hpos, ekp)))), ek_new(k, es, s, small, ek), fit_full(k, dd, small, hpos, ekp), pos_inc(k, small), zero_new(k, es, s, hpos, ek, h0), small, ek, wfix_mono(k, U32.inc(k), es, List.append(&2, String, es, s <> Nil{}), s <> Nil{}, {==}, ek, lt_le_u(k, U32.inc(k), lt_inc(k, small)), b, t4, wfix4))
+
+def code_f6(+k: U32, +dd: Nat, -strs: Array<String>, -b0: Array<String>, -b1: Array<String>, -r1: Array<String>, -r2: Array<String>, c1: Array<String>, +s: String, +er1: {r1 == ANode{b1, Array.new(String, dd, "")} : Array<String>}, +er2: {r2 == ANode{b1, Array.new(String, dd, "")} : Array<String>}, +ec1: {Array.set(String, r1, k, s) == c1 : Array<String>}, +b: Nat, t4: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +i: U32, wfix4: Laws.WFIx(k, es, b, t4), +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, +hpos: {U32.is_lt(0, k) == True{} : Bool}, h0: {Laws.nthn(es, 0n) == "" : String}, +small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, +ekp: {k == U32.shln(1, dd) : U32},
+  +es0: {Array.size(String, strs) == (b0, U32.shln(1, dd)) : Array<String> & U32}, +eb1: {b1 == b0 : Array<String>}, +es1: {Array.size(String, b0) == (b1, U32.shln(1, dd)) : Array<String> & U32},
+  wc1: Laws.WFArray(String, 1n+dd, c1), pre1: PreNew(k, 1n+dd, c1, es, s),
+  w: &c2: Array<String> -> {Array.set(String, r2, k, s) == c2 : Array<String>} & Laws.WFArray(String, 1n+dd, c2) & (@j: U32 -> {Laws.rdN(String, 1n+dd, c2, j) == Bool.pick(String, Laws.same_at(1n+dd, k, j), s, Laws.rdN(String, 1n+dd, r2, j)) : String}) & (@j: U32 -> {Laws.rd_at(String, r2, j) == Laws.rdN(String, 1n+dd, r2, j) : String}))
+  -> CodeSet(k, 1n+dd, c1, strs, b, t4, tag, es, s, i):
+  (c2, ec2, wc2, fj2, cv2) = w
+  code_f7(k, dd, strs, b0, b1, r2, c1, c2, er2, writes_eq(r1, r2, c1, c2, k, s, Equal.trans(Array<String>, r2, ANode{b1, Array.new(String, dd, "")}, r1, er2, Equal.sym(Array<String>, r1, ANode{b1, Array.new(String, dd, "")}, er1)), ec1, ec2), b, t4, tag, es, s, i, wfix4, ek, hpos, h0, small, ekp, es0, eb1, es1, wc1, pre1, fj2, cv2, rd_all(String, 1n+dd, c2, wc2))
+
+def code_f5(+k: U32, +dd: Nat, -strs: Array<String>, -b0: Array<String>, -b1: Array<String>, -r1: Array<String>, r2: Array<String>, +er1: {r1 == ANode{b1, Array.new(String, dd, "")} : Array<String>}, +er2: {r2 == ANode{b1, Array.new(String, dd, "")} : Array<String>}, +b: Nat, t4: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, wfix4: Laws.WFIx(k, es, b, t4), +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, +hpos: {U32.is_lt(0, k) == True{} : Bool}, h0: {Laws.nthn(es, 0n) == "" : String}, ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String}, +small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, +ekp: {k == U32.shln(1, dd) : U32},
+  +es0: {Array.size(String, strs) == (b0, U32.shln(1, dd)) : Array<String> & U32}, +eb1: {b1 == b0 : Array<String>}, +es1: {Array.size(String, b0) == (b1, U32.shln(1, dd)) : Array<String> & U32}, wr2: Laws.WFArray(String, 1n+dd, r2),
+  w: &c1: Array<String> -> {Array.set(String, r1, k, s) == c1 : Array<String>} & Laws.WFArray(String, 1n+dd, c1) & (@j: U32 -> {Laws.rdN(String, 1n+dd, c1, j) == Bool.pick(String, Laws.same_at(1n+dd, k, j), s, Laws.rdN(String, 1n+dd, r1, j)) : String}) & (@j: U32 -> {Laws.rd_at(String, r1, j) == Laws.rdN(String, 1n+dd, r1, j) : String}))
+  -> CodeRoom(k, 1n+dd, r1, strs, b, t4, tag, es, s, i):
+  (c1, +ec1, wc1, fj1, cv1) = w
+  %Equal.sym(Array<String>, Array.set(String, r1, k, s), c1, ec1) : CodeSet(k, 1n+dd, _, strs, b, t4, tag, es, s, i)
+  code_f6(k, dd, strs, b0, b1, r1, r2, c1, s, er1, er2, ec1, b, t4, tag, es, i, wfix4, ek, hpos, h0, small, ekp, es0, eb1, es1, wc1, pre(k, 1n+dd, strs, r1, c1, es, s, (%ekp : {U32.is_lt(k, U32.shl(_)) == True{} : Bool}; lt_shl(k, small, hpos)), ek, fj1, cv1, rr_of(k, dd, strs, b1, r1, er1, ekp, room_rd(dd, strs, b0, b1, es0, eb1, es1, shr_pow(k, dd, small, hpos, ekp))), ent), PC.set_other_w(String, 1n+dd, r2, k, s, wr2))
+
+def code_f4(+k: U32, +dd: Nat, -strs: Array<String>, -b0: Array<String>, -b1: Array<String>, +b: Nat, t4: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, wfix4: Laws.WFIx(k, es, b, t4), +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, +hpos: {U32.is_lt(0, k) == True{} : Bool}, h0: {Laws.nthn(es, 0n) == "" : String}, ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String}, +small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, +ekp: {k == U32.shln(1, dd) : U32},
+  +es0: {Array.size(String, strs) == (b0, U32.shln(1, dd)) : Array<String> & U32}, +eb1: {b1 == b0 : Array<String>}, +es1: {Array.size(String, b0) == (b1, U32.shln(1, dd)) : Array<String> & U32},
+  w: &r1: Array<String> -> &r2: Array<String> -> {r1 == ANode{b1, Array.new(String, dd, "")} : Array<String>} & {r2 == ANode{b1, Array.new(String, dd, "")} : Array<String>} & Laws.WFArray(String, 1n+dd, r1) & Laws.WFArray(String, 1n+dd, r2))
+  -> CodeRoom(k, 1n+dd, ANode{b1, Array.new(String, dd, "")}, strs, b, t4, tag, es, s, i):
+  (r1, r2, +er1, +er2, wr1, wr2) = w
+  %er1 : CodeRoom(k, 1n+dd, _, strs, b, t4, tag, es, s, i)
+  code_f5(k, dd, strs, b0, b1, r1, r2, er1, er2, b, t4, tag, es, s, i, wfix4, ek, hpos, h0, ent, small, ekp, es0, eb1, es1, wr2, PC.set_other_w(String, 1n+dd, r1, k, s, wr1))
+
+def code_f3(+k: U32, +dd: Nat, -strs: Array<String>, -b0: Array<String>, b1: Array<String>, +b: Nat, t4: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, wfix4: Laws.WFIx(k, es, b, t4), +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, +hpos: {U32.is_lt(0, k) == True{} : Bool}, h0: {Laws.nthn(es, 0n) == "" : String}, ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String}, +small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, +ekp: {k == U32.shln(1, dd) : U32},
+  +es0: {Array.size(String, strs) == (b0, U32.shln(1, dd)) : Array<String> & U32}, +eb1: {b1 == b0 : Array<String>}, +es1: {Array.size(String, b0) == (b1, U32.shln(1, dd)) : Array<String> & U32}, wb1: Laws.WFArray(String, dd, b1))
+  -> CodeRoom(k, 1n+dd, ANode{b1, Array.new(String, dd, "")}, strs, b, t4, tag, es, s, i):
+  code_f4(k, dd, strs, b0, b1, b, t4, tag, es, s, i, wfix4, ek, hpos, h0, ent, small, ekp, es0, eb1, es1, PC.clone_wf(String, 1n+dd, ANode{b1, Array.new(String, dd, "")}, (wb1, Laws.wf_new(String, dd, ""))))
 
 def code_f2(+k: U32, +dd: Nat, -strs: Array<String>, -b0: Array<String>, +b: Nat, t4: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, wfix4: Laws.WFIx(k, es, b, t4), +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, +hpos: {U32.is_lt(0, k) == True{} : Bool}, h0: {Laws.nthn(es, 0n) == "" : String}, ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String}, +small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, +ekp: {k == U32.shln(1, dd) : U32},
   +es0: {Array.size(String, strs) == (b0, U32.shln(1, dd)) : Array<String> & U32},
   w: &b1: Array<String> -> {b1 == b0 : Array<String>} & Laws.WFArray(String, dd, b1) & {Array.size(String, b0) == (b1, U32.shln(1, dd)) : Array<String> & U32})
-  -> CodeRoom(k, 1n+dd, ANode{b0, Array.new(String, dd, "")}, b, t4, tag, es, s, i):
+  -> CodeRoom(k, 1n+dd, ANode{b0, Array.new(String, dd, "")}, strs, b, t4, tag, es, s, i):
   (b1, +eb1, wb1, es1) = w
-  %eb1 : CodeRoom(k, 1n+dd, ANode{_, Array.new(String, dd, "")}, b, t4, tag, es, s, i)
-  code_f3(k, dd, strs, b0, b1, b, t4, tag, es, s, i, wfix4, ek, hpos, h0, ent, small, ekp, es0, eb1, es1, PC.set_other_w(String, 1n+dd, ANode{b1, Array.new(String, dd, "")}, k, s, (wb1, Laws.wf_new(String, dd, ""))))
+  %eb1 : CodeRoom(k, 1n+dd, ANode{_, Array.new(String, dd, "")}, strs, b, t4, tag, es, s, i)
+  code_f3(k, dd, strs, b0, b1, b, t4, tag, es, s, i, wfix4, ek, hpos, h0, ent, small, ekp, es0, eb1, es1, wb1)
 
 def code_f(+k: U32, +dd: Nat, -strs: Array<String>, +b: Nat, t4: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, wfix4: Laws.WFIx(k, es, b, t4), +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, +hpos: {U32.is_lt(0, k) == True{} : Bool}, h0: {Laws.nthn(es, 0n) == "" : String}, ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String}, +small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, +ekp: {k == U32.shln(1, dd) : U32},
   w: &b0: Array<String> -> {b0 == strs : Array<String>} & Laws.WFArray(String, dd, b0) & {Array.size(String, strs) == (b0, U32.shln(1, dd)) : Array<String> & U32})
   -> CodeFull(k, dd, strs, b, t4, tag, es, s, i, True{}):
   (b0, eb0, wb0, es0) = w
-  %Equal.sym(Nat, Nat.add(dd, 1n), 1n+dd, add_one(dd)) : CodeRoom(k, _, ANode{strs, Array.new(String, dd, "")}, b, t4, tag, es, s, i)
-  %eb0 : CodeRoom(k, 1n+dd, ANode{_, Array.new(String, dd, "")}, b, t4, tag, es, s, i)
+  %Equal.sym(Nat, Nat.add(dd, 1n), 1n+dd, add_one(dd)) : CodeRoom(k, _, ANode{strs, Array.new(String, dd, "")}, strs, b, t4, tag, es, s, i)
+  %eb0 : CodeRoom(k, 1n+dd, ANode{_, Array.new(String, dd, "")}, strs, b, t4, tag, es, s, i)
   code_f2(k, dd, strs, b0, b, t4, tag, es, s, i, wfix4, ek, hpos, h0, ent, small, ekp, es0, PC.wf_size(String, dd, b0, wb0))
 
 def code_full(full: Bool, +k: U32, +dd: Nat, strs: Array<String>, +b: Nat, t4: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, efull: {U32.is_eq(k, U32.shln(1, dd)) == full : Bool}, wfix4: Laws.WFIx(k, es, b, t4), +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, hle: {U32.is_le(k, U32.shln(1, dd)) == True{} : Bool}, +hpos: {U32.is_lt(0, k) == True{} : Bool}, h0: {Laws.nthn(es, 0n) == "" : String}, wfs: Laws.WFArray(String, dd, strs), ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String}, +small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool})
   -> CodeFull(k, dd, strs, b, t4, tag, es, s, i, full):
   match full:
     case False{}:
-      code_nf(k, dd, strs, b, t4, tag, es, s, i, wfix4, ek, hpos, h0, ent, small, le_ne_lt(k, U32.shln(1, dd), hle, efull), PC.set_other_w(String, dd, strs, k, s, wfs))
+      code_nf(k, dd, strs, b, t4, tag, es, s, i, wfix4, ek, hpos, h0, wfs, ent, small, le_ne_lt(k, U32.shln(1, dd), hle, efull))
     case True{}:
       code_f(k, dd, strs, b, t4, tag, es, s, i, wfix4, ek, hpos, h0, ent, small, u32_eq(k, U32.shln(1, dd), efull), PC.wf_size(String, dd, strs, wfs))
 
@@ -1550,7 +1615,7 @@ def code_full(full: Bool, +k: U32, +dd: Nat, strs: Array<String>, +b: Nat, t4: A
 def code_found(+k: U32, +dd: Nat, strs: Array<String>, +b: Nat, t4: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, +key: String, +id: U32, ok: Laws.SlotOk.k(False{}, k, es, key, id), wfix4: Laws.WFIx(k, es, b, t4), +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, hle: {U32.is_le(k, U32.shln(1, dd)) == True{} : Bool}, hpos: {U32.is_lt(0, k) == True{} : Bool}, h0: {Laws.nthn(es, 0n) == "" : String}, wfs: Laws.WFArray(String, dd, strs), ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String}, eks: {key == s : String})
   -> CodePB(k, dd, strs, b, t4, tag, es, s, i, id, False{}):
   (+h1, h2) = ok
-  (ST.Dict{k, dd, strs, b, t4, tag}, U32.sub(id, 1), es, {==}, h1, code_found_lt(k, es, id, ek, h1), Equal.trans(String, Laws.nthd(es, U32.sub(id, 1)), key, s, h2, eks), ext_refl(es), nat_le_succ(List.length(&2, String, es)), (ek, hle, hpos, h0, wfs, ent, wfix4))
+  (ST.Dict{k, dd, strs, b, t4, tag}, U32.sub(id, 1), es, {==}, h1, code_found_lt(k, es, id, ek, h1), Equal.trans(String, Laws.nthd(es, U32.sub(id, 1)), key, s, h2, eks), ext_refl(es), nat_le_succ(List.length(&2, String, es)), (ek, hle, hpos, h0, wfs, ent, wfix4), +c => hc => {==})
 
 def code_p(+k: U32, +dd: Nat, strs: Array<String>, +b: Nat, t4: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, +key: String, +id: U32, isnew: Bool, hit: {Bool.and(Bool.not(isnew), Bool.not(ST.Str.same(key, s))) == False{} : Bool}, ok: Laws.SlotOk.k(isnew, k, es, key, id), wfix4: Laws.WFIx(k, es, b, t4), +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, hle: {U32.is_le(k, U32.shln(1, dd)) == True{} : Bool}, +hpos: {U32.is_lt(0, k) == True{} : Bool}, h0: {Laws.nthn(es, 0n) == "" : String}, wfs: Laws.WFArray(String, dd, strs), ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String}, +small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool})
   -> CodePB(k, dd, strs, b, t4, tag, es, s, i, id, isnew):
@@ -1763,7 +1828,7 @@ def enc_step6(p: Nat, +i: U32, +d: Nat, a2: Array<String>, -dict2: ST.Dict, out:
   ih: @a3: Array<String> -> @dict3: ST.Dict -> @out3: Array<U32> -> @es3: List<&2, String> -> Laws.WFArray(U32, d, out3) -> Laws.Room(d, U32.inc(i), p) -> Laws.Room(30n, U32.inc(U32.inc(i)), p) -> {Nat.is_le(List.length(&2, String, es3), U32.to_nat(U32.inc(U32.inc(i)))) == True{} : Bool} -> EGoal(p, U32.inc(i), d, a3, dict3, out3, es3, Array.get(String, a3, U32.inc(i))),
   g: Laws.EncRows(i, d, a2, out, es), w: Laws.CodeW(dict2, es, x))
   -> EStep2(p, i, d, a2, out, es, ST.Dict.code(dict2, x)):
-  (d3, +c, +es2, eq, hc, +hcn, +hdec, ext, hlen, wf3) = w
+  (d3, +c, +es2, eq, hc, +hcn, +hdec, ext, hlen, wf3, keep) = w
   %Equal.sym(ST.Dict & U32, ST.Dict.code(dict2, x), (d3, c), eq) : EStep2(p, i, d, a2, out, es, _)
   enc_step7(p, i, d, a2, d3, out, es, es2, x, ex2, c, hcn, hdec, ext, hlen, wf3, hi, room2, hinc, lim2, hk, ih, g, PC.set_other_w(U32, d, out, i, c, wfo))
 
