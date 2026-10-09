@@ -1163,3 +1163,45 @@ law gather_keeps_perm:
   for +z: U32
   for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
   {Pair.snd(Array<U32>, Array<U32>, K.Kernel.gather(~U32, n, d, src, perm, z)) == perm : Array<U32>}
+
+# LAW: Kernel.map (as mask_not) writes f(a[k]) at every k < n when n <= 2^d
+law mask_not_cell:
+  for +d: Nat
+  for +n: U32
+  for a: Array<U32>
+  for +k: U32
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for hk: {U32.is_lt(k, n) == True{} : Bool}
+  {rd_at(U32, K.Kernel.mask_not(n, d, a), k) == U32.xor(rd_at(U32, a, k), 1) : U32}
+
+# LAW: Kernel.zip (as mask_and / mask_or) writes f(a[k], b[k]) at every k < n when n <= 2^d:
+# the validity combinators' truth tables, slot by slot
+law mask_and_cell:
+  for +d: Nat
+  for +n: U32
+  for a: Array<U32>
+  for b: Array<U32>
+  for +k: U32
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for hk: {U32.is_lt(k, n) == True{} : Bool}
+  {rd_at(U32, K.Kernel.mask_and(n, d, a, b), k) == U32.and(rd_at(U32, a, k), rd_at(U32, b, k)) : U32}
+
+law mask_or_cell:
+  for +d: Nat
+  for +n: U32
+  for a: Array<U32>
+  for b: Array<U32>
+  for +k: U32
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for hk: {U32.is_lt(k, n) == True{} : Bool}
+  {rd_at(U32, K.Kernel.mask_or(n, d, a, b), k) == U32.or(rd_at(U32, a, k), rd_at(U32, b, k)) : U32}
+
+# LAW: Kernel.iota_from writes off + k at every k < n when n <= 2^d (Column.slice's index array)
+law iota_cell:
+  for +d: Nat
+  for +n: U32
+  for +off: U32
+  for +k: U32
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for hk: {U32.is_lt(k, n) == True{} : Bool}
+  {rd_at(U32, K.Kernel.iota_from(n, d, off), k) == U32.add(off, k) : U32}

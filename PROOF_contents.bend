@@ -492,3 +492,289 @@ def gather_perm_fin(+d: Nat, +n: U32, -src: Array<U32>, -perm: Array<U32>, +z: U
 
 def Laws.gather_keeps_perm(d, n, src, perm, z, fits):
   gather_perm_fin(d, n, src, perm, z, gather_go(U32.to_nat(n), 0, d, src, Array.new(U32, d, z), perm, Laws.wf_new(U32, d, z), B.room_from(d, n, fits))(ghyp0(d, src, Array.new(U32, d, z), perm)))
+
+# ---- Kernel.map: out[k] == f(a[k]) (template proofs; the laws are stated at the mask instances) ----
+
+def MHyp(~T: Data, ~U: Data, ~f: T -> U, +j: U32, +d: Nat, -a: Array<T>, -out: Array<U>) -> Type:
+  @k: U32 -> {U32.is_lt(k, j) == True{} : Bool} -> {Laws.rdN(U, d, out, k) == f(Laws.rd_at(T, a, k)) : U}
+
+def MRes(~T: Data, ~U: Data, ~f: T -> U, +d: Nat, -a: Array<T>, o: Array<U>, +bound: U32) -> Type:
+  Laws.WFArray(U, d, o) & (@k: U32 -> {U32.is_lt(k, bound) == True{} : Bool} -> {Laws.rdN(U, d, o, k) == f(Laws.rd_at(T, a, k)) : U})
+
+def MGoal(~T: Data, ~U: Data, ~f: T -> U, fl: Nat, +j: U32, +d: Nat, -a: Array<T>, -out: Array<U>, -r: Array<T> & T) -> Type:
+  MHyp(~T, ~U, ~f, j, d, a, out) -> &o: Array<U> -> {K.Kernel.map.go(~T, ~U, ~f, fl, j, out, r) == o : Array<U>} & MRes(~T, ~U, ~f, d, a, o, Laws.addn(j, fl))
+
+def MSet(~T: Data, ~U: Data, ~f: T -> U, p: Nat, +j: U32, +d: Nat, -a: Array<T>, -out: Array<U>, +y: U) -> Type:
+  MHyp(~T, ~U, ~f, j, d, a, out) -> &o: Array<U> -> {K.Kernel.map.go(~T, ~U, ~f, p, U32.inc(j), Array.set(U, out, j, y), Array.get(T, a, U32.inc(j))) == o : Array<U>} & MRes(~T, ~U, ~f, d, a, o, Laws.addn(j, 1n+p))
+
+def MC(~T: Data, ~U: Data, ~f: T -> U, p: Nat, +j: U32, +d: Nat, -a: Array<T>, -out: Array<U>, -c: Array<U>, +bound: U32) -> Type:
+  MHyp(~T, ~U, ~f, j, d, a, out) -> &o: Array<U> -> {K.Kernel.map.go(~T, ~U, ~f, p, U32.inc(j), c, Array.get(T, a, U32.inc(j))) == o : Array<U>} & MRes(~T, ~U, ~f, d, a, o, bound)
+
+def mnext_lt(~T: Data, ~U: Data, ~f: T -> U, +d: Nat, +j: U32, +k: U32, -a: Array<T>, -out: Array<U>, -c: Array<U>, +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}, +y: U, g: MHyp(~T, ~U, ~f, j, d, a, out),
+  fj: @k2: U32 -> {Laws.rdN(U, d, c, k2) == Bool.pick(U, Laws.same_at(d, j, k2), y, Laws.rdN(U, d, out, k2)) : U}, +lt: {U32.is_lt(k, j) == True{} : Bool})
+  -> {Laws.rdN(U, d, c, k) == f(Laws.rd_at(T, a, k)) : U}:
+  %Equal.sym(U, Laws.rdN(U, d, c, k), Bool.pick(U, Laws.same_at(d, j, k), y, Laws.rdN(U, d, out, k)), fj(k)) : {_ == f(Laws.rd_at(T, a, k)) : U}
+  %Equal.sym(Bool, Laws.same_at(d, j, k), False{}, same_false_lt(d, j, k, hj, lt)) : {Bool.pick(U, _, y, Laws.rdN(U, d, out, k)) == f(Laws.rd_at(T, a, k)) : U}
+  g(k, lt)
+
+def mnext_b(~T: Data, ~U: Data, ~f: T -> U, b: Bool, +d: Nat, +j: U32, +k: U32, -a: Array<T>, -out: Array<U>, -c: Array<U>, +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}, +x: T, ex: {x == Laws.rd_at(T, a, j) : T}, +y: U, ey: {y == f(x) : U}, g: MHyp(~T, ~U, ~f, j, d, a, out),
+  fj: @k2: U32 -> {Laws.rdN(U, d, c, k2) == Bool.pick(U, Laws.same_at(d, j, k2), y, Laws.rdN(U, d, out, k2)) : U}, s: IncLtU(b, k, j))
+  -> {Laws.rdN(U, d, c, k) == f(Laws.rd_at(T, a, k)) : U}:
+  match b:
+    case True{}:
+      mnext_lt(~T, ~U, ~f, d, j, k, a, out, c, hj, y, g, fj, s)
+    case False{}:
+      %Equal.sym(U32, k, j, s) : {Laws.rdN(U, d, c, _) == f(Laws.rd_at(T, a, _)) : U}
+      %Equal.sym(U, Laws.rdN(U, d, c, j), Bool.pick(U, Laws.same_at(d, j, j), y, Laws.rdN(U, d, out, j)), fj(j)) : {_ == f(Laws.rd_at(T, a, j)) : U}
+      %Equal.sym(Bool, Laws.same_at(d, j, j), True{}, same_at_refl(d, j)) : {Bool.pick(U, _, y, Laws.rdN(U, d, out, j)) == f(Laws.rd_at(T, a, j)) : U}
+      Equal.trans(U, y, f(x), f(Laws.rd_at(T, a, j)), ey, Equal.cong(T, U, v => f(v), x, Laws.rd_at(T, a, j), ex))
+
+def mnext_k(~T: Data, ~U: Data, ~f: T -> U, +d: Nat, +j: U32, +k: U32, -a: Array<T>, -out: Array<U>, -c: Array<U>, +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}, +x: T, ex: {x == Laws.rd_at(T, a, j) : T}, +y: U, ey: {y == f(x) : U}, g: MHyp(~T, ~U, ~f, j, d, a, out),
+  fj: @k2: U32 -> {Laws.rdN(U, d, c, k2) == Bool.pick(U, Laws.same_at(d, j, k2), y, Laws.rdN(U, d, out, k2)) : U}, w: &b: Bool -> IncLtU(b, k, j))
+  -> {Laws.rdN(U, d, c, k) == f(Laws.rd_at(T, a, k)) : U}:
+  (b, s) = w
+  mnext_b(~T, ~U, ~f, b, d, j, k, a, out, c, hj, x, ex, y, ey, g, fj, s)
+
+def mnext(~T: Data, ~U: Data, ~f: T -> U, +d: Nat, +j: U32, -a: Array<T>, -out: Array<U>, -c: Array<U>, +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}, +x: T, +ex: {x == Laws.rd_at(T, a, j) : T}, +y: U, +ey: {y == f(x) : U}, g: MHyp(~T, ~U, ~f, j, d, a, out),
+  fj: @k2: U32 -> {Laws.rdN(U, d, c, k2) == Bool.pick(U, Laws.same_at(d, j, k2), y, Laws.rdN(U, d, out, k2)) : U})
+  -> MHyp(~T, ~U, ~f, U32.inc(j), d, a, c):
+  +k => hk => mnext_k(~T, ~U, ~f, d, j, k, a, out, c, hj, x, ex, y, ey, g, fj, inc_lt_u(k, j, hk))
+
+def map_step2(~T: Data, ~U: Data, ~f: T -> U, p: Nat, +j: U32, +d: Nat, a: Array<T>, -out: Array<U>, +x: T, +ex: {x == Laws.rd_at(T, a, j) : T}, +y: U, +ey: {y == f(x) : U}, +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}, room: Laws.Room(d, U32.inc(j), p),
+  ih: @a2: Array<T> -> @c: Array<U> -> Laws.WFArray(U, d, c) -> Laws.Room(d, U32.inc(j), p) -> MGoal(~T, ~U, ~f, p, U32.inc(j), d, a2, c, Array.get(T, a2, U32.inc(j))),
+  w: &c: Array<U> -> {Array.set(U, out, j, y) == c : Array<U>} & Laws.WFArray(U, d, c) & (@k2: U32 -> {Laws.rdN(U, d, c, k2) == Bool.pick(U, Laws.same_at(d, j, k2), y, Laws.rdN(U, d, out, k2)) : U}) & (@k2: U32 -> {Laws.rd_at(U, out, k2) == Laws.rdN(U, d, out, k2) : U}))
+  -> MSet(~T, ~U, ~f, p, j, d, a, out, y):
+  (c, ec, wc, fj, cv) = w
+  %Equal.sym(Array<U>, Array.set(U, out, j, y), c, ec) : MC(~T, ~U, ~f, p, j, d, a, out, _, Laws.addn(j, 1n+p))
+  %addn_inc(j, p) : MC(~T, ~U, ~f, p, j, d, a, out, c, _)
+  g => ih(a, c, wc, room)(mnext(~T, ~U, ~f, d, j, a, out, c, hj, x, ex, y, ey, g, fj))
+
+def map_step1(~T: Data, ~U: Data, ~f: T -> U, p: Nat, +j: U32, +d: Nat, -a: Array<T>, out: Array<U>, wf: Laws.WFArray(U, d, out), room: Laws.Room(d, j, 1n+p),
+  ih: @a2: Array<T> -> @c: Array<U> -> Laws.WFArray(U, d, c) -> Laws.Room(d, U32.inc(j), p) -> MGoal(~T, ~U, ~f, p, U32.inc(j), d, a2, c, Array.get(T, a2, U32.inc(j))),
+  w: &b: Array<T> -> &x: T -> {b == a : Array<T>} & {Array.get(T, a, j) == (a, x) : Array<T> & T} & {x == Laws.rd_at(T, a, j) : T})
+  -> MGoal(~T, ~U, ~f, 1n+p, j, d, a, out, Array.get(T, a, j)):
+  (hj, room2) = room
+  (a2, +x, +ea, e1, ex) = w
+  %Equal.sym(Array<T> & T, Array.get(T, a, j), (a, x), e1) : MGoal(~T, ~U, ~f, 1n+p, j, d, a, out, _)
+  %ea : MGoal(~T, ~U, ~f, 1n+p, j, d, _, out, (_, x))
+  map_step2(~T, ~U, ~f, p, j, d, a2, out, x, Equal.trans(T, x, Laws.rd_at(T, a, j), Laws.rd_at(T, a2, j), ex, Equal.sym(T, Laws.rd_at(T, a2, j), Laws.rd_at(T, a, j), Equal.cong(Array<T>, T, q => Laws.rd_at(T, q, j), a2, a, ea))), f(x), {==}, hj, room2, ih, set_other_w(U, d, out, j, f(x), wf))
+
+def map_zero(~T: Data, ~U: Data, ~f: T -> U, +j: U32, +d: Nat, -a: Array<T>, out: Array<U>, wf: Laws.WFArray(U, d, out),
+  w: &b: Array<T> -> &x: T -> {b == a : Array<T>} & {Array.get(T, a, j) == (a, x) : Array<T> & T} & {x == Laws.rd_at(T, a, j) : T})
+  -> MGoal(~T, ~U, ~f, 0n, j, d, a, out, Array.get(T, a, j)):
+  (a2, +x, ea, e1, ex) = w
+  %Equal.sym(Array<T> & T, Array.get(T, a, j), (a, x), e1) : MGoal(~T, ~U, ~f, 0n, j, d, a, out, _)
+  g => (out, {==}, wf, g)
+
+# Kernel.map.go: every k < addn(j, fl) holds f(a[k]) afterwards
+def map_go(~T: Data, ~U: Data, ~f: T -> U, fl: Nat, +j: U32, +d: Nat, a: Array<T>, out: Array<U>, wf: Laws.WFArray(U, d, out), room: Laws.Room(d, j, fl)) -> MGoal(~T, ~U, ~f, fl, j, d, a, out, Array.get(T, a, j)):
+  match fl:
+    case 0n:
+      map_zero(~T, ~U, ~f, j, d, a, out, wf, get_w(T, a, j))
+    case 1n++p:
+      map_step1(~T, ~U, ~f, p, j, d, a, out, wf, room, a2 => c => wc => room2 => map_go(~T, ~U, ~f, p, U32.inc(j), d, a2, c, wc, room2), get_w(T, a, j))
+
+def mhyp0(~T: Data, ~U: Data, ~f: T -> U, +d: Nat, -a: Array<T>, -out: Array<U>) -> MHyp(~T, ~U, ~f, 0, d, a, out):
+  +k => hk => Empty.absurd({Laws.rdN(U, d, out, k) == f(Laws.rd_at(T, a, k)) : U}, lt0(k, hk))
+
+# Kernel.map(n, d, a, z): out[k] == f(a[k]) for k < n when n <= 2^d
+def map_fin(~T: Data, ~U: Data, ~f: T -> U, +d: Nat, +n: U32, -a: Array<T>, +z: U, +k: U32, hk: {U32.is_lt(k, n) == True{} : Bool},
+  w: &o: Array<U> -> {K.Kernel.map.go(~T, ~U, ~f, U32.to_nat(n), 0, Array.new(U, d, z), Array.get(T, a, 0)) == o : Array<U>} & MRes(~T, ~U, ~f, d, a, o, Laws.addn(0, U32.to_nat(n))))
+  -> {Laws.rd_at(U, K.Kernel.map.go(~T, ~U, ~f, U32.to_nat(n), 0, Array.new(U, d, z), Array.get(T, a, 0)), k) == f(Laws.rd_at(T, a, k)) : U}:
+  (o, eq, wo, spec) = w
+  %Equal.sym(Array<U>, K.Kernel.map.go(~T, ~U, ~f, U32.to_nat(n), 0, Array.new(U, d, z), Array.get(T, a, 0)), o, eq) : {Laws.rd_at(U, _, k) == f(Laws.rd_at(T, a, k)) : U}
+  %Equal.sym(U, Laws.rd_at(U, o, k), Laws.rdN(U, d, o, k), Laws.rd_at_wf(U, d, o, k, wo)) : {_ == f(Laws.rd_at(T, a, k)) : U}
+  spec(k, (%Equal.sym(U32, Laws.addn(0, U32.to_nat(n)), n, B.addn_to_nat(n)) : {U32.is_lt(k, _) == True{} : Bool}; hk))
+
+def map_cell(~T: Data, ~U: Data, ~f: T -> U, +d: Nat, +n: U32, a: Array<T>, +z: U, +k: U32, fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}, hk: {U32.is_lt(k, n) == True{} : Bool}) -> {Laws.rd_at(U, K.Kernel.map.go(~T, ~U, ~f, U32.to_nat(n), 0, Array.new(U, d, z), Array.get(T, a, 0)), k) == f(Laws.rd_at(T, a, k)) : U}:
+  map_fin(~T, ~U, ~f, d, n, a, z, k, hk, map_go(~T, ~U, ~f, U32.to_nat(n), 0, d, a, Array.new(U, d, z), Laws.wf_new(U, d, z), B.room_from(d, n, fits))(mhyp0(~T, ~U, ~f, d, a, Array.new(U, d, z))))
+
+def Laws.mask_not_cell(d, n, a, k, fits, hk):
+  map_cell(~U32, ~U32, ~(x => U32.xor(x, 1)), d, n, a, 0, k, fits, hk)
+
+# ---- Kernel.zip: out[k] == f(a[k], b[k]) ---------------------------------------------------------
+
+def ZHyp(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> V, +j: U32, +d: Nat, -a: Array<T>, -b: Array<U>, -out: Array<V>) -> Type:
+  @k: U32 -> {U32.is_lt(k, j) == True{} : Bool} -> {Laws.rdN(V, d, out, k) == f(Laws.rd_at(T, a, k), Laws.rd_at(U, b, k)) : V}
+
+def ZRes(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> V, +d: Nat, -a: Array<T>, -b: Array<U>, o: Array<V>, +bound: U32) -> Type:
+  Laws.WFArray(V, d, o) & (@k: U32 -> {U32.is_lt(k, bound) == True{} : Bool} -> {Laws.rdN(V, d, o, k) == f(Laws.rd_at(T, a, k), Laws.rd_at(U, b, k)) : V})
+
+def ZGoal(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> V, fl: Nat, +j: U32, +d: Nat, -a: Array<T>, -b: Array<U>, -out: Array<V>, -ra: Array<T> & T, -rb: Array<U> & U) -> Type:
+  ZHyp(~T, ~U, ~V, ~f, j, d, a, b, out) -> &o: Array<V> -> {K.Kernel.zip.go(~T, ~U, ~V, ~f, fl, j, out, ra, rb) == o : Array<V>} & ZRes(~T, ~U, ~V, ~f, d, a, b, o, Laws.addn(j, fl))
+
+def ZSet(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> V, p: Nat, +j: U32, +d: Nat, -a: Array<T>, -b: Array<U>, -out: Array<V>, +y: V) -> Type:
+  ZHyp(~T, ~U, ~V, ~f, j, d, a, b, out) -> &o: Array<V> -> {K.Kernel.zip.go(~T, ~U, ~V, ~f, p, U32.inc(j), Array.set(V, out, j, y), Array.get(T, a, U32.inc(j)), Array.get(U, b, U32.inc(j))) == o : Array<V>} & ZRes(~T, ~U, ~V, ~f, d, a, b, o, Laws.addn(j, 1n+p))
+
+def ZC(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> V, p: Nat, +j: U32, +d: Nat, -a: Array<T>, -b: Array<U>, -out: Array<V>, -c: Array<V>, +bound: U32) -> Type:
+  ZHyp(~T, ~U, ~V, ~f, j, d, a, b, out) -> &o: Array<V> -> {K.Kernel.zip.go(~T, ~U, ~V, ~f, p, U32.inc(j), c, Array.get(T, a, U32.inc(j)), Array.get(U, b, U32.inc(j))) == o : Array<V>} & ZRes(~T, ~U, ~V, ~f, d, a, b, o, bound)
+
+def znext_lt(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> V, +d: Nat, +j: U32, +k: U32, -a: Array<T>, -b: Array<U>, -out: Array<V>, -c: Array<V>, +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}, +y: V, g: ZHyp(~T, ~U, ~V, ~f, j, d, a, b, out),
+  fj: @k2: U32 -> {Laws.rdN(V, d, c, k2) == Bool.pick(V, Laws.same_at(d, j, k2), y, Laws.rdN(V, d, out, k2)) : V}, +lt: {U32.is_lt(k, j) == True{} : Bool})
+  -> {Laws.rdN(V, d, c, k) == f(Laws.rd_at(T, a, k), Laws.rd_at(U, b, k)) : V}:
+  %Equal.sym(V, Laws.rdN(V, d, c, k), Bool.pick(V, Laws.same_at(d, j, k), y, Laws.rdN(V, d, out, k)), fj(k)) : {_ == f(Laws.rd_at(T, a, k), Laws.rd_at(U, b, k)) : V}
+  %Equal.sym(Bool, Laws.same_at(d, j, k), False{}, same_false_lt(d, j, k, hj, lt)) : {Bool.pick(V, _, y, Laws.rdN(V, d, out, k)) == f(Laws.rd_at(T, a, k), Laws.rd_at(U, b, k)) : V}
+  g(k, lt)
+
+def znext_b(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> V, bb: Bool, +d: Nat, +j: U32, +k: U32, -a: Array<T>, -b: Array<U>, -out: Array<V>, -c: Array<V>, +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}, +x: T, +y: U, ex: {x == Laws.rd_at(T, a, j) : T}, ey: {y == Laws.rd_at(U, b, j) : U}, +v: V, ev: {v == f(x, y) : V}, g: ZHyp(~T, ~U, ~V, ~f, j, d, a, b, out),
+  fj: @k2: U32 -> {Laws.rdN(V, d, c, k2) == Bool.pick(V, Laws.same_at(d, j, k2), v, Laws.rdN(V, d, out, k2)) : V}, s: IncLtU(bb, k, j))
+  -> {Laws.rdN(V, d, c, k) == f(Laws.rd_at(T, a, k), Laws.rd_at(U, b, k)) : V}:
+  match bb:
+    case True{}:
+      znext_lt(~T, ~U, ~V, ~f, d, j, k, a, b, out, c, hj, v, g, fj, s)
+    case False{}:
+      %Equal.sym(U32, k, j, s) : {Laws.rdN(V, d, c, _) == f(Laws.rd_at(T, a, _), Laws.rd_at(U, b, _)) : V}
+      %Equal.sym(V, Laws.rdN(V, d, c, j), Bool.pick(V, Laws.same_at(d, j, j), v, Laws.rdN(V, d, out, j)), fj(j)) : {_ == f(Laws.rd_at(T, a, j), Laws.rd_at(U, b, j)) : V}
+      %Equal.sym(Bool, Laws.same_at(d, j, j), True{}, same_at_refl(d, j)) : {Bool.pick(V, _, v, Laws.rdN(V, d, out, j)) == f(Laws.rd_at(T, a, j), Laws.rd_at(U, b, j)) : V}
+      Equal.trans(V, v, f(x, y), f(Laws.rd_at(T, a, j), Laws.rd_at(U, b, j)), ev, Equal.trans(V, f(x, y), f(Laws.rd_at(T, a, j), y), f(Laws.rd_at(T, a, j), Laws.rd_at(U, b, j)), Equal.cong(T, V, q => f(q, y), x, Laws.rd_at(T, a, j), ex), Equal.cong(U, V, q => f(Laws.rd_at(T, a, j), q), y, Laws.rd_at(U, b, j), ey)))
+
+def znext_k(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> V, +d: Nat, +j: U32, +k: U32, -a: Array<T>, -b: Array<U>, -out: Array<V>, -c: Array<V>, +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}, +x: T, +y: U, ex: {x == Laws.rd_at(T, a, j) : T}, ey: {y == Laws.rd_at(U, b, j) : U}, +v: V, ev: {v == f(x, y) : V}, g: ZHyp(~T, ~U, ~V, ~f, j, d, a, b, out),
+  fj: @k2: U32 -> {Laws.rdN(V, d, c, k2) == Bool.pick(V, Laws.same_at(d, j, k2), v, Laws.rdN(V, d, out, k2)) : V}, w: &bb: Bool -> IncLtU(bb, k, j))
+  -> {Laws.rdN(V, d, c, k) == f(Laws.rd_at(T, a, k), Laws.rd_at(U, b, k)) : V}:
+  (bb, s) = w
+  znext_b(~T, ~U, ~V, ~f, bb, d, j, k, a, b, out, c, hj, x, y, ex, ey, v, ev, g, fj, s)
+
+def znext(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> V, +d: Nat, +j: U32, -a: Array<T>, -b: Array<U>, -out: Array<V>, -c: Array<V>, +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}, +x: T, +y: U, +ex: {x == Laws.rd_at(T, a, j) : T}, +ey: {y == Laws.rd_at(U, b, j) : U}, +v: V, +ev: {v == f(x, y) : V}, g: ZHyp(~T, ~U, ~V, ~f, j, d, a, b, out),
+  fj: @k2: U32 -> {Laws.rdN(V, d, c, k2) == Bool.pick(V, Laws.same_at(d, j, k2), v, Laws.rdN(V, d, out, k2)) : V})
+  -> ZHyp(~T, ~U, ~V, ~f, U32.inc(j), d, a, b, c):
+  +k => hk => znext_k(~T, ~U, ~V, ~f, d, j, k, a, b, out, c, hj, x, y, ex, ey, v, ev, g, fj, inc_lt_u(k, j, hk))
+
+def zip_step3(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> V, p: Nat, +j: U32, +d: Nat, a: Array<T>, b: Array<U>, -out: Array<V>, +x: T, +y: U, +ex: {x == Laws.rd_at(T, a, j) : T}, +ey: {y == Laws.rd_at(U, b, j) : U}, +v: V, +ev: {v == f(x, y) : V}, +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}, room: Laws.Room(d, U32.inc(j), p),
+  ih: @a2: Array<T> -> @b2: Array<U> -> @c: Array<V> -> Laws.WFArray(V, d, c) -> Laws.Room(d, U32.inc(j), p) -> ZGoal(~T, ~U, ~V, ~f, p, U32.inc(j), d, a2, b2, c, Array.get(T, a2, U32.inc(j)), Array.get(U, b2, U32.inc(j))),
+  w: &c: Array<V> -> {Array.set(V, out, j, v) == c : Array<V>} & Laws.WFArray(V, d, c) & (@k2: U32 -> {Laws.rdN(V, d, c, k2) == Bool.pick(V, Laws.same_at(d, j, k2), v, Laws.rdN(V, d, out, k2)) : V}) & (@k2: U32 -> {Laws.rd_at(V, out, k2) == Laws.rdN(V, d, out, k2) : V}))
+  -> ZSet(~T, ~U, ~V, ~f, p, j, d, a, b, out, v):
+  (c, ec, wc, fj, cv) = w
+  %Equal.sym(Array<V>, Array.set(V, out, j, v), c, ec) : ZC(~T, ~U, ~V, ~f, p, j, d, a, b, out, _, Laws.addn(j, 1n+p))
+  %addn_inc(j, p) : ZC(~T, ~U, ~V, ~f, p, j, d, a, b, out, c, _)
+  g => ih(a, b, c, wc, room)(znext(~T, ~U, ~V, ~f, d, j, a, b, out, c, hj, x, y, ex, ey, v, ev, g, fj))
+
+def zip_step2(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> V, p: Nat, +j: U32, +d: Nat, a: Array<T>, -b: Array<U>, out: Array<V>, wf: Laws.WFArray(V, d, out), +x: T, +ex: {x == Laws.rd_at(T, a, j) : T}, +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}, room: Laws.Room(d, U32.inc(j), p),
+  ih: @a2: Array<T> -> @b2: Array<U> -> @c: Array<V> -> Laws.WFArray(V, d, c) -> Laws.Room(d, U32.inc(j), p) -> ZGoal(~T, ~U, ~V, ~f, p, U32.inc(j), d, a2, b2, c, Array.get(T, a2, U32.inc(j)), Array.get(U, b2, U32.inc(j))),
+  w: &b3: Array<U> -> &y: U -> {b3 == b : Array<U>} & {Array.get(U, b, j) == (b, y) : Array<U> & U} & {y == Laws.rd_at(U, b, j) : U})
+  -> ZGoal(~T, ~U, ~V, ~f, 1n+p, j, d, a, b, out, (a, x), Array.get(U, b, j)):
+  (b2, +y, +eb, e2, ey) = w
+  %Equal.sym(Array<U> & U, Array.get(U, b, j), (b, y), e2) : ZGoal(~T, ~U, ~V, ~f, 1n+p, j, d, a, b, out, (a, x), _)
+  %eb : ZGoal(~T, ~U, ~V, ~f, 1n+p, j, d, a, _, out, (a, x), (_, y))
+  zip_step3(~T, ~U, ~V, ~f, p, j, d, a, b2, out, x, y, ex, Equal.trans(U, y, Laws.rd_at(U, b, j), Laws.rd_at(U, b2, j), ey, Equal.sym(U, Laws.rd_at(U, b2, j), Laws.rd_at(U, b, j), Equal.cong(Array<U>, U, q => Laws.rd_at(U, q, j), b2, b, eb))), f(x, y), {==}, hj, room, ih, set_other_w(V, d, out, j, f(x, y), wf))
+
+def zip_step1(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> V, p: Nat, +j: U32, +d: Nat, -a: Array<T>, b: Array<U>, out: Array<V>, wf: Laws.WFArray(V, d, out), room: Laws.Room(d, j, 1n+p),
+  ih: @a2: Array<T> -> @b2: Array<U> -> @c: Array<V> -> Laws.WFArray(V, d, c) -> Laws.Room(d, U32.inc(j), p) -> ZGoal(~T, ~U, ~V, ~f, p, U32.inc(j), d, a2, b2, c, Array.get(T, a2, U32.inc(j)), Array.get(U, b2, U32.inc(j))),
+  w: &a3: Array<T> -> &x: T -> {a3 == a : Array<T>} & {Array.get(T, a, j) == (a, x) : Array<T> & T} & {x == Laws.rd_at(T, a, j) : T})
+  -> ZGoal(~T, ~U, ~V, ~f, 1n+p, j, d, a, b, out, Array.get(T, a, j), Array.get(U, b, j)):
+  (hj, room2) = room
+  (a2, +x, +ea, e1, ex) = w
+  %Equal.sym(Array<T> & T, Array.get(T, a, j), (a, x), e1) : ZGoal(~T, ~U, ~V, ~f, 1n+p, j, d, a, b, out, _, Array.get(U, b, j))
+  %ea : ZGoal(~T, ~U, ~V, ~f, 1n+p, j, d, _, b, out, (_, x), Array.get(U, b, j))
+  zip_step2(~T, ~U, ~V, ~f, p, j, d, a2, b, out, wf, x, Equal.trans(T, x, Laws.rd_at(T, a, j), Laws.rd_at(T, a2, j), ex, Equal.sym(T, Laws.rd_at(T, a2, j), Laws.rd_at(T, a, j), Equal.cong(Array<T>, T, q => Laws.rd_at(T, q, j), a2, a, ea))), hj, room2, ih, get_w(U, b, j))
+
+def zip_zero(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> V, +j: U32, +d: Nat, -a: Array<T>, -b: Array<U>, out: Array<V>, wf: Laws.WFArray(V, d, out),
+  wa: &a3: Array<T> -> &x: T -> {a3 == a : Array<T>} & {Array.get(T, a, j) == (a, x) : Array<T> & T} & {x == Laws.rd_at(T, a, j) : T},
+  wb: &b3: Array<U> -> &y: U -> {b3 == b : Array<U>} & {Array.get(U, b, j) == (b, y) : Array<U> & U} & {y == Laws.rd_at(U, b, j) : U})
+  -> ZGoal(~T, ~U, ~V, ~f, 0n, j, d, a, b, out, Array.get(T, a, j), Array.get(U, b, j)):
+  (a2, +x, ea, e1, ex) = wa
+  (b2, +y, eb, e2, ey) = wb
+  %Equal.sym(Array<T> & T, Array.get(T, a, j), (a, x), e1) : ZGoal(~T, ~U, ~V, ~f, 0n, j, d, a, b, out, _, Array.get(U, b, j))
+  %Equal.sym(Array<U> & U, Array.get(U, b, j), (b, y), e2) : ZGoal(~T, ~U, ~V, ~f, 0n, j, d, a, b, out, (a, x), _)
+  g => (out, {==}, wf, g)
+
+def zip_go(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> V, fl: Nat, +j: U32, +d: Nat, a: Array<T>, b: Array<U>, out: Array<V>, wf: Laws.WFArray(V, d, out), room: Laws.Room(d, j, fl)) -> ZGoal(~T, ~U, ~V, ~f, fl, j, d, a, b, out, Array.get(T, a, j), Array.get(U, b, j)):
+  match fl:
+    case 0n:
+      zip_zero(~T, ~U, ~V, ~f, j, d, a, b, out, wf, get_w(T, a, j), get_w(U, b, j))
+    case 1n++p:
+      zip_step1(~T, ~U, ~V, ~f, p, j, d, a, b, out, wf, room, a2 => b2 => c => wc => room2 => zip_go(~T, ~U, ~V, ~f, p, U32.inc(j), d, a2, b2, c, wc, room2), get_w(T, a, j))
+
+def zhyp0(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> V, +d: Nat, -a: Array<T>, -b: Array<U>, -out: Array<V>) -> ZHyp(~T, ~U, ~V, ~f, 0, d, a, b, out):
+  +k => hk => Empty.absurd({Laws.rdN(V, d, out, k) == f(Laws.rd_at(T, a, k), Laws.rd_at(U, b, k)) : V}, lt0(k, hk))
+
+def zip_fin(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> V, +d: Nat, +n: U32, -a: Array<T>, -b: Array<U>, +z: V, +k: U32, hk: {U32.is_lt(k, n) == True{} : Bool},
+  w: &o: Array<V> -> {K.Kernel.zip.go(~T, ~U, ~V, ~f, U32.to_nat(n), 0, Array.new(V, d, z), Array.get(T, a, 0), Array.get(U, b, 0)) == o : Array<V>} & ZRes(~T, ~U, ~V, ~f, d, a, b, o, Laws.addn(0, U32.to_nat(n))))
+  -> {Laws.rd_at(V, K.Kernel.zip.go(~T, ~U, ~V, ~f, U32.to_nat(n), 0, Array.new(V, d, z), Array.get(T, a, 0), Array.get(U, b, 0)), k) == f(Laws.rd_at(T, a, k), Laws.rd_at(U, b, k)) : V}:
+  (o, eq, wo, spec) = w
+  %Equal.sym(Array<V>, K.Kernel.zip.go(~T, ~U, ~V, ~f, U32.to_nat(n), 0, Array.new(V, d, z), Array.get(T, a, 0), Array.get(U, b, 0)), o, eq) : {Laws.rd_at(V, _, k) == f(Laws.rd_at(T, a, k), Laws.rd_at(U, b, k)) : V}
+  %Equal.sym(V, Laws.rd_at(V, o, k), Laws.rdN(V, d, o, k), Laws.rd_at_wf(V, d, o, k, wo)) : {_ == f(Laws.rd_at(T, a, k), Laws.rd_at(U, b, k)) : V}
+  spec(k, (%Equal.sym(U32, Laws.addn(0, U32.to_nat(n)), n, B.addn_to_nat(n)) : {U32.is_lt(k, _) == True{} : Bool}; hk))
+
+def zip_cell(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> V, +d: Nat, +n: U32, a: Array<T>, b: Array<U>, +z: V, +k: U32, fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}, hk: {U32.is_lt(k, n) == True{} : Bool}) -> {Laws.rd_at(V, K.Kernel.zip.go(~T, ~U, ~V, ~f, U32.to_nat(n), 0, Array.new(V, d, z), Array.get(T, a, 0), Array.get(U, b, 0)), k) == f(Laws.rd_at(T, a, k), Laws.rd_at(U, b, k)) : V}:
+  zip_fin(~T, ~U, ~V, ~f, d, n, a, b, z, k, hk, zip_go(~T, ~U, ~V, ~f, U32.to_nat(n), 0, d, a, b, Array.new(V, d, z), Laws.wf_new(V, d, z), B.room_from(d, n, fits))(zhyp0(~T, ~U, ~V, ~f, d, a, b, Array.new(V, d, z))))
+
+def Laws.mask_and_cell(d, n, a, b, k, fits, hk):
+  zip_cell(~U32, ~U32, ~U32, ~(x => y => U32.and(x, y)), d, n, a, b, 0, k, fits, hk)
+
+def Laws.mask_or_cell(d, n, a, b, k, fits, hk):
+  zip_cell(~U32, ~U32, ~U32, ~(x => y => U32.or(x, y)), d, n, a, b, 0, k, fits, hk)
+
+# ---- Kernel.iota_from: out[k] == off + k ----------------------------------------------------------
+
+def IHyp(+i: U32, +d: Nat, +off: U32, -out: Array<U32>) -> Type:
+  @k: U32 -> {U32.is_lt(k, i) == True{} : Bool} -> {Laws.rdN(U32, d, out, k) == U32.add(off, k) : U32}
+
+def IRes(+d: Nat, +off: U32, o: Array<U32>, +bound: U32) -> Type:
+  Laws.WFArray(U32, d, o) & (@k: U32 -> {U32.is_lt(k, bound) == True{} : Bool} -> {Laws.rdN(U32, d, o, k) == U32.add(off, k) : U32})
+
+def IGoal(fl: Nat, +i: U32, +d: Nat, +off: U32, -out: Array<U32>) -> Type:
+  IHyp(i, d, off, out) -> &o: Array<U32> -> {K.Kernel.iota.go(fl, i, off, out) == o : Array<U32>} & IRes(d, off, o, Laws.addn(i, fl))
+
+def IC(p: Nat, +i: U32, +d: Nat, +off: U32, -out: Array<U32>, -c: Array<U32>, +bound: U32) -> Type:
+  IHyp(i, d, off, out) -> &o: Array<U32> -> {K.Kernel.iota.go(p, U32.inc(i), off, c) == o : Array<U32>} & IRes(d, off, o, bound)
+
+def inext_lt(+d: Nat, +i: U32, +k: U32, +off: U32, -out: Array<U32>, -c: Array<U32>, +hi: {U32.is_lt(i, U32.shln(1, d)) == True{} : Bool}, g: IHyp(i, d, off, out),
+  fj: @k2: U32 -> {Laws.rdN(U32, d, c, k2) == Bool.pick(U32, Laws.same_at(d, i, k2), U32.add(off, i), Laws.rdN(U32, d, out, k2)) : U32}, +lt: {U32.is_lt(k, i) == True{} : Bool})
+  -> {Laws.rdN(U32, d, c, k) == U32.add(off, k) : U32}:
+  %Equal.sym(U32, Laws.rdN(U32, d, c, k), Bool.pick(U32, Laws.same_at(d, i, k), U32.add(off, i), Laws.rdN(U32, d, out, k)), fj(k)) : {_ == U32.add(off, k) : U32}
+  %Equal.sym(Bool, Laws.same_at(d, i, k), False{}, same_false_lt(d, i, k, hi, lt)) : {Bool.pick(U32, _, U32.add(off, i), Laws.rdN(U32, d, out, k)) == U32.add(off, k) : U32}
+  g(k, lt)
+
+def inext_b(b: Bool, +d: Nat, +i: U32, +k: U32, +off: U32, -out: Array<U32>, -c: Array<U32>, +hi: {U32.is_lt(i, U32.shln(1, d)) == True{} : Bool}, g: IHyp(i, d, off, out),
+  fj: @k2: U32 -> {Laws.rdN(U32, d, c, k2) == Bool.pick(U32, Laws.same_at(d, i, k2), U32.add(off, i), Laws.rdN(U32, d, out, k2)) : U32}, s: IncLtU(b, k, i))
+  -> {Laws.rdN(U32, d, c, k) == U32.add(off, k) : U32}:
+  match b:
+    case True{}:
+      inext_lt(d, i, k, off, out, c, hi, g, fj, s)
+    case False{}:
+      %Equal.sym(U32, k, i, s) : {Laws.rdN(U32, d, c, _) == U32.add(off, _) : U32}
+      %Equal.sym(U32, Laws.rdN(U32, d, c, i), Bool.pick(U32, Laws.same_at(d, i, i), U32.add(off, i), Laws.rdN(U32, d, out, i)), fj(i)) : {_ == U32.add(off, i) : U32}
+      %Equal.sym(Bool, Laws.same_at(d, i, i), True{}, same_at_refl(d, i)) : {Bool.pick(U32, _, U32.add(off, i), Laws.rdN(U32, d, out, i)) == U32.add(off, i) : U32}
+      {==}
+
+def inext_k(+d: Nat, +i: U32, +k: U32, +off: U32, -out: Array<U32>, -c: Array<U32>, +hi: {U32.is_lt(i, U32.shln(1, d)) == True{} : Bool}, g: IHyp(i, d, off, out),
+  fj: @k2: U32 -> {Laws.rdN(U32, d, c, k2) == Bool.pick(U32, Laws.same_at(d, i, k2), U32.add(off, i), Laws.rdN(U32, d, out, k2)) : U32}, w: &b: Bool -> IncLtU(b, k, i))
+  -> {Laws.rdN(U32, d, c, k) == U32.add(off, k) : U32}:
+  (b, s) = w
+  inext_b(b, d, i, k, off, out, c, hi, g, fj, s)
+
+def inext(+d: Nat, +i: U32, +off: U32, -out: Array<U32>, -c: Array<U32>, +hi: {U32.is_lt(i, U32.shln(1, d)) == True{} : Bool}, g: IHyp(i, d, off, out),
+  fj: @k2: U32 -> {Laws.rdN(U32, d, c, k2) == Bool.pick(U32, Laws.same_at(d, i, k2), U32.add(off, i), Laws.rdN(U32, d, out, k2)) : U32})
+  -> IHyp(U32.inc(i), d, off, c):
+  +k => hk => inext_k(d, i, k, off, out, c, hi, g, fj, inc_lt_u(k, i, hk))
+
+def iota_step(p: Nat, +i: U32, +d: Nat, +off: U32, -out: Array<U32>, room: Laws.Room(d, i, 1n+p),
+  ih: @c: Array<U32> -> Laws.WFArray(U32, d, c) -> Laws.Room(d, U32.inc(i), p) -> IGoal(p, U32.inc(i), d, off, c),
+  w: &c: Array<U32> -> {Array.set(U32, out, i, U32.add(off, i)) == c : Array<U32>} & Laws.WFArray(U32, d, c) & (@k2: U32 -> {Laws.rdN(U32, d, c, k2) == Bool.pick(U32, Laws.same_at(d, i, k2), U32.add(off, i), Laws.rdN(U32, d, out, k2)) : U32}) & (@k2: U32 -> {Laws.rd_at(U32, out, k2) == Laws.rdN(U32, d, out, k2) : U32}))
+  -> IGoal(1n+p, i, d, off, out):
+  (hi, room2) = room
+  (c, ec, wc, fj, cv) = w
+  %Equal.sym(Array<U32>, Array.set(U32, out, i, U32.add(off, i)), c, ec) : IC(p, i, d, off, out, _, Laws.addn(i, 1n+p))
+  %addn_inc(i, p) : IC(p, i, d, off, out, c, _)
+  g => ih(c, wc, room2)(inext(d, i, off, out, c, hi, g, fj))
+
+def iota_go(fl: Nat, +i: U32, +d: Nat, +off: U32, out: Array<U32>, wf: Laws.WFArray(U32, d, out), room: Laws.Room(d, i, fl)) -> IGoal(fl, i, d, off, out):
+  match fl:
+    case 0n:
+      g => (out, {==}, wf, g)
+    case 1n++p:
+      iota_step(p, i, d, off, out, room, c => wc => room2 => iota_go(p, U32.inc(i), d, off, c, wc, room2), set_other_w(U32, d, out, i, U32.add(off, i), wf))
+
+def ihyp0(+d: Nat, +off: U32, -out: Array<U32>) -> IHyp(0, d, off, out):
+  +k => hk => Empty.absurd({Laws.rdN(U32, d, out, k) == U32.add(off, k) : U32}, lt0(k, hk))
+
+def iota_fin(+d: Nat, +n: U32, +off: U32, +k: U32, hk: {U32.is_lt(k, n) == True{} : Bool},
+  w: &o: Array<U32> -> {K.Kernel.iota.go(U32.to_nat(n), 0, off, Array.new(U32, d, 0)) == o : Array<U32>} & IRes(d, off, o, Laws.addn(0, U32.to_nat(n))))
+  -> {Laws.rd_at(U32, K.Kernel.iota_from(n, d, off), k) == U32.add(off, k) : U32}:
+  (o, eq, wo, spec) = w
+  %Equal.sym(Array<U32>, K.Kernel.iota.go(U32.to_nat(n), 0, off, Array.new(U32, d, 0)), o, eq) : {Laws.rd_at(U32, _, k) == U32.add(off, k) : U32}
+  %Equal.sym(U32, Laws.rd_at(U32, o, k), Laws.rdN(U32, d, o, k), Laws.rd_at_wf(U32, d, o, k, wo)) : {_ == U32.add(off, k) : U32}
+  spec(k, (%Equal.sym(U32, Laws.addn(0, U32.to_nat(n)), n, B.addn_to_nat(n)) : {U32.is_lt(k, _) == True{} : Bool}; hk))
+
+def Laws.iota_cell(d, n, off, k, fits, hk):
+  iota_fin(d, n, off, k, hk, iota_go(U32.to_nat(n), 0, d, off, Array.new(U32, d, 0), Laws.wf_new(U32, d, 0), B.room_from(d, n, fits))(ihyp0(d, off, Array.new(U32, d, 0))))
