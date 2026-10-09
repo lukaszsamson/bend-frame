@@ -1883,9 +1883,10 @@ def Csv.parse_enc.cap(+cap: U32, text: String, opts: CsvOpts, ts: List<&2, D.DTy
       Csv.parse_enc.k(Csv.sep_err(sep), cap, text, sep, hdr, inf, ts, enc)
 
 # the Str storage of the readers that take no option (Csv.read, Csv.read_with, Csv.parse,
-# Csv.parse_with, scan_csv's collect): ST.EncRaw (DESIGN.md 14 M4 records the gate's decision)
+# Csv.parse_with, scan_csv's collect): ST.EncAuto, by measured cardinality (the M4 gate passed:
+# DESIGN.md 14 M4 and bench/README.md record the decision and its numbers)
 def Csv.enc_default() -> ST.StrEnc:
-  ST.EncRaw{}
+  ST.EncAuto{}
 
 # Csv.parse_with with the Str storage chosen: EncRaw, EncDict (every Str column), EncAuto (by
 # measured cardinality, Csv.dict_over)

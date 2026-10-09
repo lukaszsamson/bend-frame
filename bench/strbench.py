@@ -59,7 +59,7 @@ def ops_mode(a):
                 for rep in range(a.reps):
                     encs = a.encs[rep % len(a.encs):] + a.encs[:rep % len(a.encs)]
                     for e in encs:
-                        cmd = ["./build/strbench"] + thr_args(th) + [csv, op, e] + ([dim] if op == "join" else [])
+                        cmd = [f"./{a.bin}/strbench"] + thr_args(th) + [csv, op, e] + ([dim] if op == "join" else [])
                         l0 = load1()
                         rec = run(cmd, {})
                         rec.update({"file": f, "threads": th, "rep": rep, "load1": l0})
@@ -82,7 +82,7 @@ def q_mode(a):
                             batch = "40"
                         # "master": build/bench_master, bench/main.bend built from master (the
                         # pre-M4 whole-file reader, Raw strings); BF_STR does not reach it
-                        exe = "./build/bench_master" if e == "master" else "./build/bench"
+                        exe = f"./{a.bin}/bench_master" if e == "master" else f"./{a.bin}/bench"
                         cmd = [exe] + thr_args(th) + [csv, q, "1", batch, str(th)]
                         l0 = load1()
                         rec = run(cmd, {"BF_STR": e})
@@ -101,7 +101,7 @@ def scan_mode(a):
                 for rep in range(a.reps):
                     encs = a.encs[rep % len(a.encs):] + a.encs[:rep % len(a.encs)]
                     for e in encs:
-                        cmd = [f"./build/scanbench_{e}"] + thr_args(th) + [csv, q]
+                        cmd = [f"./{a.bin}/scanbench_{e}"] + thr_args(th) + [csv, q]
                         l0 = load1()
                         rec = run(cmd, {})
                         rec.update({"enc": e, "n": int(n), "q": "scan+" + q, "threads": th, "rep": rep, "load1": l0})
@@ -162,6 +162,7 @@ def main():
     ap.add_argument("--threads", nargs="*", default=["1", "default"])
     ap.add_argument("--reps", type=int, default=5)
     ap.add_argument("--out", default="bench/results/m4/runs.jsonl")
+    ap.add_argument("--bin", default="build", help="directory of the binaries (a frozen copy keeps rebuilds out of a run)")
     a = ap.parse_args()
     a.files = a.files + a.files2
     Path(ROOT / a.out).parent.mkdir(parents=True, exist_ok=True)
