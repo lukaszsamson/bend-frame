@@ -1332,3 +1332,18 @@ law depth_for_fits:
   for h: {U32.is_le(n, U32.shln(1, 31n)) == True{} : Bool}
   {U32.is_le(n, U32.shln(1, K.Kernel.depth_for(n))) == True{} : Bool}
 
+# LAW: slice of a U32 column is the exact subrange: row k of slice(c, off, n) is row off + k of c,
+# for every k below the slice's length (data through gather_contents / iota_cell, validity
+# through the same gather of the mask). The U32 instance stands for the word columns (Bool, I32:
+# same buffers); F32 / String need the kernel theorems at those instances
+law slice_cell_u32:
+  for +len: U32
+  for +depth: Nat
+  for valid: C.Valid
+  for data: Array<U32>
+  for +off: U32
+  for +n: U32
+  for +k: U32
+  for h31: {U32.is_le(n, U32.shln(1, 31n)) == True{} : Bool}
+  for hk: {U32.is_lt(k, slice_len(off, n, len)) == True{} : Bool}
+  {ccell(C.Column.slice(C.CU32{len, depth, valid, data}, off, n), k) == ccell(C.CU32{len, depth, valid, data}, U32.add(off, k)) : D.Scalar}
