@@ -1,0 +1,540 @@
+{"seconds": 9.6e-05, "rss": 63225856, "variant": "bend", "q": "q1", "n": 1000, "threads": "1", "rep": 0, "load1": 15.1}
+{"seconds": 8.2e-05, "rss": 75186176, "variant": "bend", "q": "q1", "n": 1000, "threads": "default", "rep": 0, "load1": 14.6}
+{"seconds": 8.4e-05, "rss": 63225856, "variant": "full", "q": "q1", "n": 1000, "threads": "1", "rep": 0, "load1": 14.6}
+{"seconds": 9.2e-05, "rss": 75546624, "variant": "full", "q": "q1", "n": 1000, "threads": "default", "rep": 0, "load1": 14.1}
+{"seconds": 0.043492959113791585, "best": 0.00021424982696771622, "rss": 69648384, "variant": "polars", "q": "q1", "n": 1000, "threads": "1", "rep": 0, "load1": 13.3}
+{"seconds": 0.015567958820611238, "best": 0.0005382501985877752, "rss": 84656128, "variant": "polars", "q": "q1", "n": 1000, "threads": "default", "rep": 0, "load1": 13.3}
+{"seconds": 7.8e-05, "rss": 75431936, "variant": "bend", "q": "q1", "n": 1000, "threads": "default", "rep": 1, "load1": 13.3}
+{"seconds": 8.2e-05, "rss": 63291392, "variant": "full", "q": "q1", "n": 1000, "threads": "1", "rep": 1, "load1": 12.9}
+{"seconds": 0.000102, "rss": 75038720, "variant": "full", "q": "q1", "n": 1000, "threads": "default", "rep": 1, "load1": 12.4}
+{"seconds": 0.031843542121350765, "best": 0.0002742498181760311, "rss": 74547200, "variant": "polars", "q": "q1", "n": 1000, "threads": "1", "rep": 1, "load1": 12.7}
+{"seconds": 0.013763082912191749, "best": 0.0001699170097708702, "rss": 84852736, "variant": "polars", "q": "q1", "n": 1000, "threads": "default", "rep": 1, "load1": 12.7}
+{"seconds": 8.6e-05, "rss": 63225856, "variant": "bend", "q": "q1", "n": 1000, "threads": "1", "rep": 1, "load1": 12.7}
+{"seconds": 9.8e-05, "rss": 63291392, "variant": "full", "q": "q1", "n": 1000, "threads": "1", "rep": 2, "load1": 11.8}
+{"seconds": 0.000126, "rss": 75120640, "variant": "full", "q": "q1", "n": 1000, "threads": "default", "rep": 2, "load1": 11.8}
+{"seconds": 0.05750795896165073, "best": 0.0002549588680267334, "rss": 74350592, "variant": "polars", "q": "q1", "n": 1000, "threads": "1", "rep": 2, "load1": 12.2}
+{"seconds": 0.002342750085517764, "best": 0.0002119590062648058, "rss": 84328448, "variant": "polars", "q": "q1", "n": 1000, "threads": "default", "rep": 2, "load1": 12.2}
+{"seconds": 7.2e-05, "rss": 63160320, "variant": "bend", "q": "q1", "n": 1000, "threads": "1", "rep": 2, "load1": 12.2}
+{"seconds": 0.0001, "rss": 75726848, "variant": "bend", "q": "q1", "n": 1000, "threads": "default", "rep": 2, "load1": 12.2}
+{"seconds": 9.2e-05, "rss": 75579392, "variant": "full", "q": "q1", "n": 1000, "threads": "default", "rep": 3, "load1": 12.1}
+{"seconds": 0.046430667163804173, "best": 0.00040374998934566975, "rss": 73318400, "variant": "polars", "q": "q1", "n": 1000, "threads": "1", "rep": 3, "load1": 11.5}
+{"seconds": 0.008064958965405822, "best": 0.00017933291383087635, "rss": 85000192, "variant": "polars", "q": "q1", "n": 1000, "threads": "default", "rep": 3, "load1": 11.5}
+{"seconds": 0.000228, "rss": 63225856, "variant": "bend", "q": "q1", "n": 1000, "threads": "1", "rep": 3, "load1": 11.5}
+{"seconds": 0.000114, "rss": 75218944, "variant": "bend", "q": "q1", "n": 1000, "threads": "default", "rep": 3, "load1": 11.3}
+{"seconds": 8.8e-05, "rss": 63291392, "variant": "full", "q": "q1", "n": 1000, "threads": "1", "rep": 3, "load1": 11.3}
+{"seconds": 0.028138749999925494, "best": 0.00015729200094938278, "rss": 74186752, "variant": "polars", "q": "q1", "n": 1000, "threads": "1", "rep": 4, "load1": 10.9}
+{"seconds": 0.011450666934251785, "best": 0.00022504199296236038, "rss": 84869120, "variant": "polars", "q": "q1", "n": 1000, "threads": "default", "rep": 4, "load1": 10.9}
+{"seconds": 8.8e-05, "rss": 63209472, "variant": "bend", "q": "q1", "n": 1000, "threads": "1", "rep": 4, "load1": 10.9}
+{"seconds": 9.2e-05, "rss": 75137024, "variant": "bend", "q": "q1", "n": 1000, "threads": "default", "rep": 4, "load1": 10.9}
+{"seconds": 0.000144, "rss": 63291392, "variant": "full", "q": "q1", "n": 1000, "threads": "1", "rep": 4, "load1": 11.1}
+{"seconds": 8.2e-05, "rss": 75448320, "variant": "full", "q": "q1", "n": 1000, "threads": "default", "rep": 4, "load1": 10.8}
+{"seconds": 8.4e-05, "rss": 62734336, "variant": "bend", "q": "q2", "n": 1000, "threads": "1", "rep": 0, "load1": 11.1}
+{"seconds": 8.2e-05, "rss": 75022336, "variant": "bend", "q": "q2", "n": 1000, "threads": "default", "rep": 0, "load1": 10.4}
+{"seconds": 0.000106, "rss": 62865408, "variant": "full", "q": "q2", "n": 1000, "threads": "1", "rep": 0, "load1": 10.4}
+{"seconds": 0.00013, "rss": 75350016, "variant": "full", "q": "q2", "n": 1000, "threads": "default", "rep": 0, "load1": 10.8}
+{"seconds": 0.04835045896470547, "best": 0.00017079105600714684, "rss": 74661888, "variant": "polars", "q": "q2", "n": 1000, "threads": "1", "rep": 0, "load1": 11.0}
+{"seconds": 0.0075773748103529215, "best": 0.0005396248307079077, "rss": 84393984, "variant": "polars", "q": "q2", "n": 1000, "threads": "default", "rep": 0, "load1": 11.0}
+{"seconds": 7.4e-05, "rss": 75038720, "variant": "bend", "q": "q2", "n": 1000, "threads": "default", "rep": 1, "load1": 11.0}
+{"seconds": 9.8e-05, "rss": 62849024, "variant": "full", "q": "q2", "n": 1000, "threads": "1", "rep": 1, "load1": 11.4}
+{"seconds": 7.2e-05, "rss": 74743808, "variant": "full", "q": "q2", "n": 1000, "threads": "default", "rep": 1, "load1": 11.4}
+{"seconds": 0.013949417043477297, "best": 7.066712714731693e-05, "rss": 74547200, "variant": "polars", "q": "q2", "n": 1000, "threads": "1", "rep": 1, "load1": 13.1}
+{"seconds": 0.002391542075201869, "best": 0.00019999989308416843, "rss": 84787200, "variant": "polars", "q": "q2", "n": 1000, "threads": "default", "rep": 1, "load1": 13.1}
+{"seconds": 8.8e-05, "rss": 62767104, "variant": "bend", "q": "q2", "n": 1000, "threads": "1", "rep": 1, "load1": 13.1}
+{"seconds": 7.2e-05, "rss": 62865408, "variant": "full", "q": "q2", "n": 1000, "threads": "1", "rep": 2, "load1": 12.7}
+{"seconds": 7e-05, "rss": 75497472, "variant": "full", "q": "q2", "n": 1000, "threads": "default", "rep": 2, "load1": 12.5}
+{"seconds": 0.0006735420320183039, "best": 0.00010425015352666378, "rss": 74596352, "variant": "polars", "q": "q2", "n": 1000, "threads": "1", "rep": 2, "load1": 12.5}
+{"seconds": 0.0009966250509023666, "best": 0.0001804581843316555, "rss": 84344832, "variant": "polars", "q": "q2", "n": 1000, "threads": "default", "rep": 2, "load1": 12.5}
+{"seconds": 6e-05, "rss": 62783488, "variant": "bend", "q": "q2", "n": 1000, "threads": "1", "rep": 2, "load1": 12.5}
+{"seconds": 6e-05, "rss": 75563008, "variant": "bend", "q": "q2", "n": 1000, "threads": "default", "rep": 2, "load1": 11.6}
+{"seconds": 8.6e-05, "rss": 75186176, "variant": "full", "q": "q2", "n": 1000, "threads": "default", "rep": 3, "load1": 11.1}
+{"seconds": 0.033884875010699034, "best": 0.00015087495557963848, "rss": 74563584, "variant": "polars", "q": "q2", "n": 1000, "threads": "1", "rep": 3, "load1": 10.7}
+{"seconds": 0.0033501668367534876, "best": 0.00031095813028514385, "rss": 84328448, "variant": "polars", "q": "q2", "n": 1000, "threads": "default", "rep": 3, "load1": 10.7}
+{"seconds": 5.2e-05, "rss": 62996480, "variant": "bend", "q": "q2", "n": 1000, "threads": "1", "rep": 3, "load1": 10.7}
+{"seconds": 7e-05, "rss": 75218944, "variant": "bend", "q": "q2", "n": 1000, "threads": "default", "rep": 3, "load1": 10.7}
+{"seconds": 7.2e-05, "rss": 62849024, "variant": "full", "q": "q2", "n": 1000, "threads": "1", "rep": 3, "load1": 10.4}
+{"seconds": 0.02454391703940928, "best": 9.662494994699955e-05, "rss": 75235328, "variant": "polars", "q": "q2", "n": 1000, "threads": "1", "rep": 4, "load1": 10.0}
+{"seconds": 0.002538542030379176, "best": 0.00017483392730355263, "rss": 84262912, "variant": "polars", "q": "q2", "n": 1000, "threads": "default", "rep": 4, "load1": 10.0}
+{"seconds": 7.2e-05, "rss": 62717952, "variant": "bend", "q": "q2", "n": 1000, "threads": "1", "rep": 4, "load1": 10.0}
+{"seconds": 8e-05, "rss": 75448320, "variant": "bend", "q": "q2", "n": 1000, "threads": "default", "rep": 4, "load1": 10.0}
+{"seconds": 7.2e-05, "rss": 62783488, "variant": "full", "q": "q2", "n": 1000, "threads": "1", "rep": 4, "load1": 10.1}
+{"seconds": 7.4e-05, "rss": 75235328, "variant": "full", "q": "q2", "n": 1000, "threads": "default", "rep": 4, "load1": 9.9}
+{"seconds": 0.0002, "rss": 9420800, "variant": "bend", "q": "q3", "n": 1000, "threads": "1", "rep": 0, "load1": 10.0}
+{"seconds": 0.000175, "rss": 21086208, "variant": "bend", "q": "q3", "n": 1000, "threads": "default", "rep": 0, "load1": 10.0}
+{"seconds": 0.000225, "rss": 9437184, "variant": "full", "q": "q3", "n": 1000, "threads": "1", "rep": 0, "load1": 10.0}
+{"seconds": 0.0002, "rss": 21217280, "variant": "full", "q": "q3", "n": 1000, "threads": "default", "rep": 0, "load1": 10.0}
+{"seconds": 0.0339699590113014, "best": 0.0002393750473856926, "rss": 76709888, "variant": "polars", "q": "q3", "n": 1000, "threads": "1", "rep": 0, "load1": 10.0}
+{"seconds": 0.005732999881729484, "best": 0.001092500053346157, "rss": 92848128, "variant": "polars", "q": "q3", "n": 1000, "threads": "default", "rep": 0, "load1": 10.0}
+{"seconds": 0.000225, "rss": 21528576, "variant": "bend", "q": "q3", "n": 1000, "threads": "default", "rep": 1, "load1": 10.0}
+{"seconds": 0.0002, "rss": 9453568, "variant": "full", "q": "q3", "n": 1000, "threads": "1", "rep": 1, "load1": 10.0}
+{"seconds": 0.000225, "rss": 21790720, "variant": "full", "q": "q3", "n": 1000, "threads": "default", "rep": 1, "load1": 10.0}
+{"seconds": 0.0011645830236375332, "best": 0.0002986658364534378, "rss": 76955648, "variant": "polars", "q": "q3", "n": 1000, "threads": "1", "rep": 1, "load1": 10.0}
+{"seconds": 0.002310875104740262, "best": 0.0012872908264398575, "rss": 92815360, "variant": "polars", "q": "q3", "n": 1000, "threads": "default", "rep": 1, "load1": 10.0}
+{"seconds": 0.0002, "rss": 9404416, "variant": "bend", "q": "q3", "n": 1000, "threads": "1", "rep": 1, "load1": 10.0}
+{"seconds": 0.0002, "rss": 9437184, "variant": "full", "q": "q3", "n": 1000, "threads": "1", "rep": 2, "load1": 10.0}
+{"seconds": 0.000225, "rss": 21446656, "variant": "full", "q": "q3", "n": 1000, "threads": "default", "rep": 2, "load1": 10.0}
+{"seconds": 0.001141333021223545, "best": 0.0002639160957187414, "rss": 77053952, "variant": "polars", "q": "q3", "n": 1000, "threads": "1", "rep": 2, "load1": 10.0}
+{"seconds": 0.0026949590537697077, "best": 0.0010552918538451195, "rss": 92880896, "variant": "polars", "q": "q3", "n": 1000, "threads": "default", "rep": 2, "load1": 10.0}
+{"seconds": 0.0002, "rss": 9404416, "variant": "bend", "q": "q3", "n": 1000, "threads": "1", "rep": 2, "load1": 10.0}
+{"seconds": 0.000225, "rss": 21233664, "variant": "bend", "q": "q3", "n": 1000, "threads": "default", "rep": 2, "load1": 10.0}
+{"seconds": 0.000225, "rss": 21430272, "variant": "full", "q": "q3", "n": 1000, "threads": "default", "rep": 3, "load1": 10.0}
+{"seconds": 0.0012503329198807478, "best": 0.0002647920046001673, "rss": 76808192, "variant": "polars", "q": "q3", "n": 1000, "threads": "1", "rep": 3, "load1": 10.0}
+{"seconds": 0.0035221250727772713, "best": 0.001095915911719203, "rss": 93077504, "variant": "polars", "q": "q3", "n": 1000, "threads": "default", "rep": 3, "load1": 10.0}
+{"seconds": 0.000175, "rss": 9420800, "variant": "bend", "q": "q3", "n": 1000, "threads": "1", "rep": 3, "load1": 10.0}
+{"seconds": 0.0002, "rss": 21168128, "variant": "bend", "q": "q3", "n": 1000, "threads": "default", "rep": 3, "load1": 10.0}
+{"seconds": 0.000225, "rss": 9502720, "variant": "full", "q": "q3", "n": 1000, "threads": "1", "rep": 3, "load1": 10.0}
+{"seconds": 0.0012045002076774836, "best": 0.00028662499971687794, "rss": 76644352, "variant": "polars", "q": "q3", "n": 1000, "threads": "1", "rep": 4, "load1": 9.6}
+{"seconds": 0.0026491249445825815, "best": 0.0010350830852985382, "rss": 92536832, "variant": "polars", "q": "q3", "n": 1000, "threads": "default", "rep": 4, "load1": 9.6}
+{"seconds": 0.000175, "rss": 9404416, "variant": "bend", "q": "q3", "n": 1000, "threads": "1", "rep": 4, "load1": 9.6}
+{"seconds": 0.0002, "rss": 21299200, "variant": "bend", "q": "q3", "n": 1000, "threads": "default", "rep": 4, "load1": 9.6}
+{"seconds": 0.0002, "rss": 9469952, "variant": "full", "q": "q3", "n": 1000, "threads": "1", "rep": 4, "load1": 9.6}
+{"seconds": 0.0002, "rss": 21495808, "variant": "full", "q": "q3", "n": 1000, "threads": "default", "rep": 4, "load1": 9.6}
+{"seconds": 0.000325, "rss": 9207808, "variant": "bend", "q": "q4", "n": 1000, "threads": "1", "rep": 0, "load1": 9.6}
+{"seconds": 0.00035, "rss": 21086208, "variant": "bend", "q": "q4", "n": 1000, "threads": "default", "rep": 0, "load1": 9.6}
+{"seconds": 0.000325, "rss": 9273344, "variant": "full", "q": "q4", "n": 1000, "threads": "1", "rep": 0, "load1": 9.6}
+{"seconds": 0.000325, "rss": 21102592, "variant": "full", "q": "q4", "n": 1000, "threads": "default", "rep": 0, "load1": 9.6}
+{"seconds": 0.00636137486435473, "best": 0.0001498749479651451, "rss": 74825728, "variant": "polars", "q": "q4", "n": 1000, "threads": "1", "rep": 0, "load1": 9.6}
+{"seconds": 0.0034038748126477003, "best": 0.0007915000896900892, "rss": 87048192, "variant": "polars", "q": "q4", "n": 1000, "threads": "default", "rep": 0, "load1": 9.6}
+{"seconds": 0.00035, "rss": 20840448, "variant": "bend", "q": "q4", "n": 1000, "threads": "default", "rep": 1, "load1": 9.6}
+{"seconds": 0.000325, "rss": 9273344, "variant": "full", "q": "q4", "n": 1000, "threads": "1", "rep": 1, "load1": 9.6}
+{"seconds": 0.00035, "rss": 21544960, "variant": "full", "q": "q4", "n": 1000, "threads": "default", "rep": 1, "load1": 9.6}
+{"seconds": 0.0009036669507622719, "best": 0.00022737495601177216, "rss": 74612736, "variant": "polars", "q": "q4", "n": 1000, "threads": "1", "rep": 1, "load1": 9.6}
+{"seconds": 0.0021014579106122255, "best": 0.0008742499630898237, "rss": 87326720, "variant": "polars", "q": "q4", "n": 1000, "threads": "default", "rep": 1, "load1": 9.6}
+{"seconds": 0.000325, "rss": 9191424, "variant": "bend", "q": "q4", "n": 1000, "threads": "1", "rep": 1, "load1": 9.6}
+{"seconds": 0.000375, "rss": 9273344, "variant": "full", "q": "q4", "n": 1000, "threads": "1", "rep": 2, "load1": 9.6}
+{"seconds": 0.00035, "rss": 21544960, "variant": "full", "q": "q4", "n": 1000, "threads": "default", "rep": 2, "load1": 9.6}
+{"seconds": 0.0007130419835448265, "best": 0.00018562492914497852, "rss": 74563584, "variant": "polars", "q": "q4", "n": 1000, "threads": "1", "rep": 2, "load1": 9.6}
+{"seconds": 0.0017939580138772726, "best": 0.0009878329001367092, "rss": 87179264, "variant": "polars", "q": "q4", "n": 1000, "threads": "default", "rep": 2, "load1": 9.6}
+{"seconds": 0.000325, "rss": 9191424, "variant": "bend", "q": "q4", "n": 1000, "threads": "1", "rep": 2, "load1": 9.6}
+{"seconds": 0.00035, "rss": 21200896, "variant": "bend", "q": "q4", "n": 1000, "threads": "default", "rep": 2, "load1": 9.6}
+{"seconds": 0.00035, "rss": 21364736, "variant": "full", "q": "q4", "n": 1000, "threads": "default", "rep": 3, "load1": 9.6}
+{"seconds": 0.000837292056530714, "best": 0.0001771249808371067, "rss": 74448896, "variant": "polars", "q": "q4", "n": 1000, "threads": "1", "rep": 3, "load1": 9.6}
+{"seconds": 0.0024260408245027065, "best": 0.0007399998139590025, "rss": 87195648, "variant": "polars", "q": "q4", "n": 1000, "threads": "default", "rep": 3, "load1": 9.6}
+{"seconds": 0.000325, "rss": 9158656, "variant": "bend", "q": "q4", "n": 1000, "threads": "1", "rep": 3, "load1": 9.0}
+{"seconds": 0.00035, "rss": 21168128, "variant": "bend", "q": "q4", "n": 1000, "threads": "default", "rep": 3, "load1": 9.0}
+{"seconds": 0.000325, "rss": 9338880, "variant": "full", "q": "q4", "n": 1000, "threads": "1", "rep": 3, "load1": 9.0}
+{"seconds": 0.0006722500547766685, "best": 0.00016312510706484318, "rss": 74694656, "variant": "polars", "q": "q4", "n": 1000, "threads": "1", "rep": 4, "load1": 9.0}
+{"seconds": 0.0017929580062627792, "best": 0.0008415831252932549, "rss": 86818816, "variant": "polars", "q": "q4", "n": 1000, "threads": "default", "rep": 4, "load1": 9.0}
+{"seconds": 0.00035, "rss": 9191424, "variant": "bend", "q": "q4", "n": 1000, "threads": "1", "rep": 4, "load1": 9.0}
+{"seconds": 0.000325, "rss": 20791296, "variant": "bend", "q": "q4", "n": 1000, "threads": "default", "rep": 4, "load1": 9.0}
+{"seconds": 0.000325, "rss": 9207808, "variant": "full", "q": "q4", "n": 1000, "threads": "1", "rep": 4, "load1": 9.0}
+{"seconds": 0.00035, "rss": 21200896, "variant": "full", "q": "q4", "n": 1000, "threads": "default", "rep": 4, "load1": 9.0}
+{"seconds": 0.0002, "rss": 9453568, "variant": "bend", "q": "q5", "n": 1000, "threads": "1", "rep": 0, "load1": 9.0}
+{"seconds": 0.000325, "rss": 20955136, "variant": "bend", "q": "q5", "n": 1000, "threads": "default", "rep": 0, "load1": 9.0}
+{"seconds": 0.00025, "rss": 9502720, "variant": "full", "q": "q5", "n": 1000, "threads": "1", "rep": 0, "load1": 9.0}
+{"seconds": 0.000275, "rss": 21381120, "variant": "full", "q": "q5", "n": 1000, "threads": "default", "rep": 0, "load1": 9.0}
+{"seconds": 0.005903624929487705, "best": 0.00035145808942615986, "rss": 75776000, "variant": "polars", "q": "q5", "n": 1000, "threads": "1", "rep": 0, "load1": 9.0}
+{"seconds": 0.002639165846630931, "best": 0.0012209999840706587, "rss": 92307456, "variant": "polars", "q": "q5", "n": 1000, "threads": "default", "rep": 0, "load1": 9.0}
+{"seconds": 0.0003, "rss": 21135360, "variant": "bend", "q": "q5", "n": 1000, "threads": "default", "rep": 1, "load1": 9.0}
+{"seconds": 0.000225, "rss": 9502720, "variant": "full", "q": "q5", "n": 1000, "threads": "1", "rep": 1, "load1": 9.0}
+{"seconds": 0.000225, "rss": 21233664, "variant": "full", "q": "q5", "n": 1000, "threads": "default", "rep": 1, "load1": 9.0}
+{"seconds": 0.0010816249996423721, "best": 0.000281832879409194, "rss": 75907072, "variant": "polars", "q": "q5", "n": 1000, "threads": "1", "rep": 1, "load1": 9.0}
+{"seconds": 0.002626375062391162, "best": 0.0010913331061601639, "rss": 92061696, "variant": "polars", "q": "q5", "n": 1000, "threads": "default", "rep": 1, "load1": 9.0}
+{"seconds": 0.00025, "rss": 9469952, "variant": "bend", "q": "q5", "n": 1000, "threads": "1", "rep": 1, "load1": 9.0}
+{"seconds": 0.000275, "rss": 9568256, "variant": "full", "q": "q5", "n": 1000, "threads": "1", "rep": 2, "load1": 9.0}
+{"seconds": 0.0003, "rss": 21184512, "variant": "full", "q": "q5", "n": 1000, "threads": "default", "rep": 2, "load1": 9.0}
+{"seconds": 0.0012339588720351458, "best": 0.00030687497928738594, "rss": 75382784, "variant": "polars", "q": "q5", "n": 1000, "threads": "1", "rep": 2, "load1": 9.0}
+{"seconds": 0.0024804158601909876, "best": 0.0010621249675750732, "rss": 92225536, "variant": "polars", "q": "q5", "n": 1000, "threads": "default", "rep": 2, "load1": 9.0}
+{"seconds": 0.0002, "rss": 9437184, "variant": "bend", "q": "q5", "n": 1000, "threads": "1", "rep": 2, "load1": 9.0}
+{"seconds": 0.00025, "rss": 21331968, "variant": "bend", "q": "q5", "n": 1000, "threads": "default", "rep": 2, "load1": 9.4}
+{"seconds": 0.00025, "rss": 21463040, "variant": "full", "q": "q5", "n": 1000, "threads": "default", "rep": 3, "load1": 9.4}
+{"seconds": 0.001085792202502489, "best": 0.00028137490153312683, "rss": 75743232, "variant": "polars", "q": "q5", "n": 1000, "threads": "1", "rep": 3, "load1": 9.4}
+{"seconds": 0.0025867088697850704, "best": 0.0012458330020308495, "rss": 91881472, "variant": "polars", "q": "q5", "n": 1000, "threads": "default", "rep": 3, "load1": 9.4}
+{"seconds": 0.00025, "rss": 9453568, "variant": "bend", "q": "q5", "n": 1000, "threads": "1", "rep": 3, "load1": 9.4}
+{"seconds": 0.000275, "rss": 21741568, "variant": "bend", "q": "q5", "n": 1000, "threads": "default", "rep": 3, "load1": 9.4}
+{"seconds": 0.000225, "rss": 9551872, "variant": "full", "q": "q5", "n": 1000, "threads": "1", "rep": 3, "load1": 9.4}
+{"seconds": 0.0012461249716579914, "best": 0.00029270886443555355, "rss": 75857920, "variant": "polars", "q": "q5", "n": 1000, "threads": "1", "rep": 4, "load1": 9.4}
+{"seconds": 0.0025020421016961336, "best": 0.0012851250357925892, "rss": 92323840, "variant": "polars", "q": "q5", "n": 1000, "threads": "default", "rep": 4, "load1": 9.4}
+{"seconds": 0.000225, "rss": 9355264, "variant": "bend", "q": "q5", "n": 1000, "threads": "1", "rep": 4, "load1": 9.4}
+{"seconds": 0.000275, "rss": 21364736, "variant": "bend", "q": "q5", "n": 1000, "threads": "default", "rep": 4, "load1": 9.4}
+{"seconds": 0.000225, "rss": 9502720, "variant": "full", "q": "q5", "n": 1000, "threads": "1", "rep": 4, "load1": 9.4}
+{"seconds": 0.000275, "rss": 21495808, "variant": "full", "q": "q5", "n": 1000, "threads": "default", "rep": 4, "load1": 9.4}
+{"seconds": 0.000575, "rss": 8945664, "variant": "bend", "q": "q6", "n": 1000, "threads": "1", "rep": 0, "load1": 9.4}
+{"seconds": 0.000575, "rss": 21168128, "variant": "bend", "q": "q6", "n": 1000, "threads": "default", "rep": 0, "load1": 9.4}
+{"seconds": 0.000575, "rss": 8962048, "variant": "full", "q": "q6", "n": 1000, "threads": "1", "rep": 0, "load1": 9.4}
+{"seconds": 0.000575, "rss": 20709376, "variant": "full", "q": "q6", "n": 1000, "threads": "default", "rep": 0, "load1": 9.4}
+{"seconds": 0.013794915983453393, "best": 0.001334040891379118, "rss": 76464128, "variant": "polars", "q": "q6", "n": 1000, "threads": "1", "rep": 0, "load1": 9.4}
+{"seconds": 0.007633291883394122, "best": 0.0051347080152481794, "rss": 92438528, "variant": "polars", "q": "q6", "n": 1000, "threads": "default", "rep": 0, "load1": 9.4}
+{"seconds": 0.0006, "rss": 20660224, "variant": "bend", "q": "q6", "n": 1000, "threads": "default", "rep": 1, "load1": 9.4}
+{"seconds": 0.0006, "rss": 8945664, "variant": "full", "q": "q6", "n": 1000, "threads": "1", "rep": 1, "load1": 9.4}
+{"seconds": 0.000725, "rss": 20987904, "variant": "full", "q": "q6", "n": 1000, "threads": "default", "rep": 1, "load1": 9.4}
+{"seconds": 0.0040809581987559795, "best": 0.0014406670816242695, "rss": 76431360, "variant": "polars", "q": "q6", "n": 1000, "threads": "1", "rep": 1, "load1": 9.4}
+{"seconds": 0.00703058298677206, "best": 0.00524575007148087, "rss": 92585984, "variant": "polars", "q": "q6", "n": 1000, "threads": "default", "rep": 1, "load1": 9.4}
+{"seconds": 0.000575, "rss": 8929280, "variant": "bend", "q": "q6", "n": 1000, "threads": "1", "rep": 1, "load1": 9.4}
+{"seconds": 0.0006, "rss": 8945664, "variant": "full", "q": "q6", "n": 1000, "threads": "1", "rep": 2, "load1": 9.1}
+{"seconds": 0.000575, "rss": 21282816, "variant": "full", "q": "q6", "n": 1000, "threads": "default", "rep": 2, "load1": 9.1}
+{"seconds": 0.0026553748175501823, "best": 0.00167758297175169, "rss": 76988416, "variant": "polars", "q": "q6", "n": 1000, "threads": "1", "rep": 2, "load1": 9.1}
+{"seconds": 0.006969790905714035, "best": 0.005248749861493707, "rss": 92323840, "variant": "polars", "q": "q6", "n": 1000, "threads": "default", "rep": 2, "load1": 9.1}
+{"seconds": 0.000575, "rss": 8896512, "variant": "bend", "q": "q6", "n": 1000, "threads": "1", "rep": 2, "load1": 9.1}
+{"seconds": 0.000575, "rss": 20692992, "variant": "bend", "q": "q6", "n": 1000, "threads": "default", "rep": 2, "load1": 9.1}
+{"seconds": 0.00055, "rss": 20660224, "variant": "full", "q": "q6", "n": 1000, "threads": "default", "rep": 3, "load1": 9.1}
+{"seconds": 0.002699458971619606, "best": 0.0016110418364405632, "rss": 76677120, "variant": "polars", "q": "q6", "n": 1000, "threads": "1", "rep": 3, "load1": 9.1}
+{"seconds": 0.006897542160004377, "best": 0.004994416143745184, "rss": 92028928, "variant": "polars", "q": "q6", "n": 1000, "threads": "default", "rep": 3, "load1": 9.1}
+{"seconds": 0.0006, "rss": 8912896, "variant": "bend", "q": "q6", "n": 1000, "threads": "1", "rep": 3, "load1": 9.1}
+{"seconds": 0.000575, "rss": 21168128, "variant": "bend", "q": "q6", "n": 1000, "threads": "default", "rep": 3, "load1": 9.1}
+{"seconds": 0.0006, "rss": 8929280, "variant": "full", "q": "q6", "n": 1000, "threads": "1", "rep": 3, "load1": 9.1}
+{"seconds": 0.002966499887406826, "best": 0.0015560830943286419, "rss": 76808192, "variant": "polars", "q": "q6", "n": 1000, "threads": "1", "rep": 4, "load1": 9.1}
+{"seconds": 0.00781995803117752, "best": 0.005229749949648976, "rss": 92241920, "variant": "polars", "q": "q6", "n": 1000, "threads": "default", "rep": 4, "load1": 9.1}
+{"seconds": 0.0006, "rss": 8945664, "variant": "bend", "q": "q6", "n": 1000, "threads": "1", "rep": 4, "load1": 9.1}
+{"seconds": 0.000625, "rss": 20922368, "variant": "bend", "q": "q6", "n": 1000, "threads": "default", "rep": 4, "load1": 9.1}
+{"seconds": 0.0006, "rss": 8945664, "variant": "full", "q": "q6", "n": 1000, "threads": "1", "rep": 4, "load1": 9.1}
+{"seconds": 0.000575, "rss": 20725760, "variant": "full", "q": "q6", "n": 1000, "threads": "default", "rep": 4, "load1": 9.1}
+{"seconds": 0.001, "rss": 136511488, "variant": "bend", "q": "q1", "n": 100000, "threads": "1", "rep": 0, "load1": 9.1}
+{"seconds": 0.001, "rss": 138313728, "variant": "bend", "q": "q1", "n": 100000, "threads": "default", "rep": 0, "load1": 9.1}
+{"seconds": 0.001, "rss": 134643712, "variant": "full", "q": "q1", "n": 100000, "threads": "1", "rep": 0, "load1": 9.1}
+{"seconds": 0.0, "rss": 136445952, "variant": "full", "q": "q1", "n": 100000, "threads": "default", "rep": 0, "load1": 8.5}
+{"seconds": 0.01183104095980525, "best": 0.0002807502169162035, "rss": 81920000, "variant": "polars", "q": "q1", "n": 100000, "threads": "1", "rep": 0, "load1": 8.5}
+{"seconds": 0.001605666009709239, "best": 0.0002854578197002411, "rss": 99532800, "variant": "polars", "q": "q1", "n": 100000, "threads": "default", "rep": 0, "load1": 8.5}
+{"seconds": 0.002, "rss": 138182656, "variant": "bend", "q": "q1", "n": 100000, "threads": "default", "rep": 1, "load1": 8.5}
+{"seconds": 0.001, "rss": 134643712, "variant": "full", "q": "q1", "n": 100000, "threads": "1", "rep": 1, "load1": 8.5}
+{"seconds": 0.001, "rss": 136429568, "variant": "full", "q": "q1", "n": 100000, "threads": "default", "rep": 1, "load1": 8.5}
+{"seconds": 0.0009441669099032879, "best": 0.00026745814830064774, "rss": 82280448, "variant": "polars", "q": "q1", "n": 100000, "threads": "1", "rep": 1, "load1": 8.5}
+{"seconds": 0.001046790974214673, "best": 0.0003526248037815094, "rss": 99418112, "variant": "polars", "q": "q1", "n": 100000, "threads": "default", "rep": 1, "load1": 8.5}
+{"seconds": 0.002, "rss": 136544256, "variant": "bend", "q": "q1", "n": 100000, "threads": "1", "rep": 1, "load1": 8.5}
+{"seconds": 0.001, "rss": 130629632, "variant": "full", "q": "q1", "n": 100000, "threads": "1", "rep": 2, "load1": 8.5}
+{"seconds": 0.001, "rss": 136364032, "variant": "full", "q": "q1", "n": 100000, "threads": "default", "rep": 2, "load1": 8.5}
+{"seconds": 0.0007987499702721834, "best": 0.00017329095862805843, "rss": 81936384, "variant": "polars", "q": "q1", "n": 100000, "threads": "1", "rep": 2, "load1": 8.5}
+{"seconds": 0.0009510410018265247, "best": 0.0003396670799702406, "rss": 99090432, "variant": "polars", "q": "q1", "n": 100000, "threads": "default", "rep": 2, "load1": 8.5}
+{"seconds": 0.001, "rss": 136511488, "variant": "bend", "q": "q1", "n": 100000, "threads": "1", "rep": 2, "load1": 8.5}
+{"seconds": 0.001, "rss": 138182656, "variant": "bend", "q": "q1", "n": 100000, "threads": "default", "rep": 2, "load1": 8.5}
+{"seconds": 0.001, "rss": 132202496, "variant": "full", "q": "q1", "n": 100000, "threads": "default", "rep": 3, "load1": 8.5}
+{"seconds": 0.0007776250131428242, "best": 0.00017729098908603191, "rss": 82427904, "variant": "polars", "q": "q1", "n": 100000, "threads": "1", "rep": 3, "load1": 8.5}
+{"seconds": 0.0010323328897356987, "best": 0.00021462514996528625, "rss": 99680256, "variant": "polars", "q": "q1", "n": 100000, "threads": "default", "rep": 3, "load1": 8.5}
+{"seconds": 0.002, "rss": 136560640, "variant": "bend", "q": "q1", "n": 100000, "threads": "1", "rep": 3, "load1": 8.5}
+{"seconds": 0.001, "rss": 137576448, "variant": "bend", "q": "q1", "n": 100000, "threads": "default", "rep": 3, "load1": 8.4}
+{"seconds": 0.001, "rss": 134643712, "variant": "full", "q": "q1", "n": 100000, "threads": "1", "rep": 3, "load1": 8.4}
+{"seconds": 0.0009969589300453663, "best": 0.00016812491230666637, "rss": 82247680, "variant": "polars", "q": "q1", "n": 100000, "threads": "1", "rep": 4, "load1": 8.4}
+{"seconds": 0.0008041250985115767, "best": 0.00021729199215769768, "rss": 99237888, "variant": "polars", "q": "q1", "n": 100000, "threads": "default", "rep": 4, "load1": 8.4}
+{"seconds": 0.002, "rss": 136527872, "variant": "bend", "q": "q1", "n": 100000, "threads": "1", "rep": 4, "load1": 8.4}
+{"seconds": 0.002, "rss": 138330112, "variant": "bend", "q": "q1", "n": 100000, "threads": "default", "rep": 4, "load1": 8.4}
+{"seconds": 0.002, "rss": 134643712, "variant": "full", "q": "q1", "n": 100000, "threads": "1", "rep": 4, "load1": 8.4}
+{"seconds": 0.001, "rss": 136445952, "variant": "full", "q": "q1", "n": 100000, "threads": "default", "rep": 4, "load1": 8.4}
+{"seconds": 0.001, "rss": 168427520, "variant": "bend", "q": "q2", "n": 100000, "threads": "1", "rep": 0, "load1": 8.4}
+{"seconds": 0.001, "rss": 190038016, "variant": "bend", "q": "q2", "n": 100000, "threads": "default", "rep": 0, "load1": 8.2}
+{"seconds": 0.000875, "rss": 179683328, "variant": "full", "q": "q2", "n": 100000, "threads": "1", "rep": 0, "load1": 8.6}
+{"seconds": 0.000875, "rss": 194166784, "variant": "full", "q": "q2", "n": 100000, "threads": "default", "rep": 0, "load1": 9.6}
+{"seconds": 0.013972083106637001, "best": 0.00016258307732641697, "rss": 81936384, "variant": "polars", "q": "q2", "n": 100000, "threads": "1", "rep": 0, "load1": 9.8}
+{"seconds": 0.0007870001718401909, "best": 0.0002745420206338167, "rss": 100302848, "variant": "polars", "q": "q2", "n": 100000, "threads": "default", "rep": 0, "load1": 9.8}
+{"seconds": 0.00275, "rss": 178225152, "variant": "bend", "q": "q2", "n": 100000, "threads": "default", "rep": 1, "load1": 9.8}
+{"seconds": 0.0025, "rss": 152764416, "variant": "full", "q": "q2", "n": 100000, "threads": "1", "rep": 1, "load1": 10.2}
+{"seconds": 0.001625, "rss": 161579008, "variant": "full", "q": "q2", "n": 100000, "threads": "default", "rep": 1, "load1": 9.9}
+{"seconds": 0.03311458299867809, "best": 0.00023216614499688148, "rss": 82591744, "variant": "polars", "q": "q2", "n": 100000, "threads": "1", "rep": 1, "load1": 10.6}
+{"seconds": 0.0008573329541832209, "best": 0.0003907920327037573, "rss": 101236736, "variant": "polars", "q": "q2", "n": 100000, "threads": "default", "rep": 1, "load1": 10.6}
+{"seconds": 0.00075, "rss": 179437568, "variant": "bend", "q": "q2", "n": 100000, "threads": "1", "rep": 1, "load1": 10.6}
+{"seconds": 0.00125, "rss": 189480960, "variant": "full", "q": "q2", "n": 100000, "threads": "1", "rep": 2, "load1": 9.9}
+{"seconds": 0.002375, "rss": 186597376, "variant": "full", "q": "q2", "n": 100000, "threads": "default", "rep": 2, "load1": 8.9}
+{"seconds": 0.013446333119645715, "best": 0.00014833384193480015, "rss": 81821696, "variant": "polars", "q": "q2", "n": 100000, "threads": "1", "rep": 2, "load1": 8.5}
+{"seconds": 0.0008339160121977329, "best": 0.0002861670218408108, "rss": 100614144, "variant": "polars", "q": "q2", "n": 100000, "threads": "default", "rep": 2, "load1": 8.1}
+{"seconds": 0.000875, "rss": 179290112, "variant": "bend", "q": "q2", "n": 100000, "threads": "1", "rep": 2, "load1": 8.1}
+{"seconds": 0.001, "rss": 192135168, "variant": "bend", "q": "q2", "n": 100000, "threads": "default", "rep": 2, "load1": 7.2}
+{"seconds": 0.001625, "rss": 183451648, "variant": "full", "q": "q2", "n": 100000, "threads": "default", "rep": 3, "load1": 7.7}
+{"seconds": 0.013865374960005283, "best": 0.0001272079534828663, "rss": 81887232, "variant": "polars", "q": "q2", "n": 100000, "threads": "1", "rep": 3, "load1": 7.9}
+{"seconds": 0.0009037081617861986, "best": 0.00023941602557897568, "rss": 100433920, "variant": "polars", "q": "q2", "n": 100000, "threads": "default", "rep": 3, "load1": 7.9}
+{"seconds": 0.001, "rss": 167346176, "variant": "bend", "q": "q2", "n": 100000, "threads": "1", "rep": 3, "load1": 7.9}
+{"seconds": 0.001125, "rss": 182861824, "variant": "bend", "q": "q2", "n": 100000, "threads": "default", "rep": 3, "load1": 7.0}
+{"seconds": 0.00375, "rss": 166658048, "variant": "full", "q": "q2", "n": 100000, "threads": "1", "rep": 3, "load1": 7.2}
+{"seconds": 0.02616787515580654, "best": 0.0002232501283288002, "rss": 82149376, "variant": "polars", "q": "q2", "n": 100000, "threads": "1", "rep": 4, "load1": 7.7}
+{"seconds": 0.002275541890412569, "best": 0.000560208223760128, "rss": 101105664, "variant": "polars", "q": "q2", "n": 100000, "threads": "default", "rep": 4, "load1": 7.7}
+{"seconds": 0.0015, "rss": 161218560, "variant": "bend", "q": "q2", "n": 100000, "threads": "1", "rep": 4, "load1": 7.7}
+{"seconds": 0.001125, "rss": 188874752, "variant": "bend", "q": "q2", "n": 100000, "threads": "default", "rep": 4, "load1": 14.5}
+{"seconds": 0.000875, "rss": 179027968, "variant": "full", "q": "q2", "n": 100000, "threads": "1", "rep": 4, "load1": 19.0}
+{"seconds": 0.000875, "rss": 200228864, "variant": "full", "q": "q2", "n": 100000, "threads": "default", "rep": 4, "load1": 17.8}
+{"seconds": 0.002, "rss": 136495104, "variant": "bend", "q": "q3", "n": 100000, "threads": "1", "rep": 0, "load1": 16.0}
+{"seconds": 0.003, "rss": 138133504, "variant": "bend", "q": "q3", "n": 100000, "threads": "default", "rep": 0, "load1": 15.7}
+{"seconds": 0.002, "rss": 134955008, "variant": "full", "q": "q3", "n": 100000, "threads": "1", "rep": 0, "load1": 15.7}
+{"seconds": 0.003, "rss": 136855552, "variant": "full", "q": "q3", "n": 100000, "threads": "default", "rep": 0, "load1": 15.7}
+{"seconds": 0.02687783306464553, "best": 0.001296584028750658, "rss": 85819392, "variant": "polars", "q": "q3", "n": 100000, "threads": "1", "rep": 0, "load1": 15.7}
+{"seconds": 0.004369957838207483, "best": 0.0011844160035252571, "rss": 114704384, "variant": "polars", "q": "q3", "n": 100000, "threads": "default", "rep": 0, "load1": 15.7}
+{"seconds": 0.003, "rss": 138280960, "variant": "bend", "q": "q3", "n": 100000, "threads": "default", "rep": 1, "load1": 15.7}
+{"seconds": 0.002, "rss": 134955008, "variant": "full", "q": "q3", "n": 100000, "threads": "1", "rep": 1, "load1": 15.7}
+{"seconds": 0.003, "rss": 136609792, "variant": "full", "q": "q3", "n": 100000, "threads": "default", "rep": 1, "load1": 15.7}
+{"seconds": 0.0022715830709785223, "best": 0.001260500168427825, "rss": 85901312, "variant": "polars", "q": "q3", "n": 100000, "threads": "1", "rep": 1, "load1": 15.7}
+{"seconds": 0.0033399169333279133, "best": 0.001281708013266325, "rss": 115425280, "variant": "polars", "q": "q3", "n": 100000, "threads": "default", "rep": 1, "load1": 15.7}
+{"seconds": 0.003, "rss": 136495104, "variant": "bend", "q": "q3", "n": 100000, "threads": "1", "rep": 1, "load1": 15.7}
+{"seconds": 0.003, "rss": 134971392, "variant": "full", "q": "q3", "n": 100000, "threads": "1", "rep": 2, "load1": 15.7}
+{"seconds": 0.002, "rss": 136658944, "variant": "full", "q": "q3", "n": 100000, "threads": "default", "rep": 2, "load1": 15.7}
+{"seconds": 0.0022106249816715717, "best": 0.0013102090451866388, "rss": 85704704, "variant": "polars", "q": "q3", "n": 100000, "threads": "1", "rep": 2, "load1": 15.7}
+{"seconds": 0.0027121249586343765, "best": 0.0013043328654021025, "rss": 114327552, "variant": "polars", "q": "q3", "n": 100000, "threads": "default", "rep": 2, "load1": 15.7}
+{"seconds": 0.002, "rss": 136478720, "variant": "bend", "q": "q3", "n": 100000, "threads": "1", "rep": 2, "load1": 15.7}
+{"seconds": 0.002, "rss": 138133504, "variant": "bend", "q": "q3", "n": 100000, "threads": "default", "rep": 2, "load1": 15.7}
+{"seconds": 0.003, "rss": 136822784, "variant": "full", "q": "q3", "n": 100000, "threads": "default", "rep": 3, "load1": 15.7}
+{"seconds": 0.0022325001191347837, "best": 0.0012895409017801285, "rss": 85999616, "variant": "polars", "q": "q3", "n": 100000, "threads": "1", "rep": 3, "load1": 15.7}
+{"seconds": 0.0028106251265853643, "best": 0.0014363329391926527, "rss": 114540544, "variant": "polars", "q": "q3", "n": 100000, "threads": "default", "rep": 3, "load1": 15.7}
+{"seconds": 0.003, "rss": 136478720, "variant": "bend", "q": "q3", "n": 100000, "threads": "1", "rep": 3, "load1": 14.8}
+{"seconds": 0.003, "rss": 138330112, "variant": "bend", "q": "q3", "n": 100000, "threads": "default", "rep": 3, "load1": 14.8}
+{"seconds": 0.003, "rss": 134987776, "variant": "full", "q": "q3", "n": 100000, "threads": "1", "rep": 3, "load1": 14.8}
+{"seconds": 0.0022754999808967113, "best": 0.0013157911598682404, "rss": 86130688, "variant": "polars", "q": "q3", "n": 100000, "threads": "1", "rep": 4, "load1": 14.8}
+{"seconds": 0.0029899999499320984, "best": 0.0013246671296656132, "rss": 114442240, "variant": "polars", "q": "q3", "n": 100000, "threads": "default", "rep": 4, "load1": 14.8}
+{"seconds": 0.003, "rss": 136462336, "variant": "bend", "q": "q3", "n": 100000, "threads": "1", "rep": 4, "load1": 14.8}
+{"seconds": 0.003, "rss": 134135808, "variant": "bend", "q": "q3", "n": 100000, "threads": "default", "rep": 4, "load1": 14.8}
+{"seconds": 0.003, "rss": 134971392, "variant": "full", "q": "q3", "n": 100000, "threads": "1", "rep": 4, "load1": 14.8}
+{"seconds": 0.002, "rss": 136773632, "variant": "full", "q": "q3", "n": 100000, "threads": "default", "rep": 4, "load1": 14.8}
+{"seconds": 0.004, "rss": 135741440, "variant": "bend", "q": "q4", "n": 100000, "threads": "1", "rep": 0, "load1": 14.8}
+{"seconds": 0.005, "rss": 137428992, "variant": "bend", "q": "q4", "n": 100000, "threads": "default", "rep": 0, "load1": 14.8}
+{"seconds": 0.005, "rss": 135823360, "variant": "full", "q": "q4", "n": 100000, "threads": "1", "rep": 0, "load1": 14.8}
+{"seconds": 0.005, "rss": 137756672, "variant": "full", "q": "q4", "n": 100000, "threads": "default", "rep": 0, "load1": 14.8}
+{"seconds": 0.008097958052530885, "best": 0.001386249903589487, "rss": 86933504, "variant": "polars", "q": "q4", "n": 100000, "threads": "1", "rep": 0, "load1": 14.8}
+{"seconds": 0.0028865840286016464, "best": 0.0010226669255644083, "rss": 106266624, "variant": "polars", "q": "q4", "n": 100000, "threads": "default", "rep": 0, "load1": 14.8}
+{"seconds": 0.004, "rss": 137412608, "variant": "bend", "q": "q4", "n": 100000, "threads": "default", "rep": 1, "load1": 14.8}
+{"seconds": 0.003, "rss": 135806976, "variant": "full", "q": "q4", "n": 100000, "threads": "1", "rep": 1, "load1": 14.8}
+{"seconds": 0.003, "rss": 137609216, "variant": "full", "q": "q4", "n": 100000, "threads": "default", "rep": 1, "load1": 14.8}
+{"seconds": 0.002445375081151724, "best": 0.0014354998711496592, "rss": 87441408, "variant": "polars", "q": "q4", "n": 100000, "threads": "1", "rep": 1, "load1": 14.8}
+{"seconds": 0.0019686659798026085, "best": 0.0012172921560704708, "rss": 106070016, "variant": "polars", "q": "q4", "n": 100000, "threads": "default", "rep": 1, "load1": 14.8}
+{"seconds": 0.005, "rss": 135741440, "variant": "bend", "q": "q4", "n": 100000, "threads": "1", "rep": 1, "load1": 14.8}
+{"seconds": 0.004, "rss": 135823360, "variant": "full", "q": "q4", "n": 100000, "threads": "1", "rep": 2, "load1": 14.8}
+{"seconds": 0.003, "rss": 137674752, "variant": "full", "q": "q4", "n": 100000, "threads": "default", "rep": 2, "load1": 14.8}
+{"seconds": 0.002575166989117861, "best": 0.0014042910188436508, "rss": 86753280, "variant": "polars", "q": "q4", "n": 100000, "threads": "1", "rep": 2, "load1": 14.8}
+{"seconds": 0.0020238750148564577, "best": 0.001146333059296012, "rss": 106856448, "variant": "polars", "q": "q4", "n": 100000, "threads": "default", "rep": 2, "load1": 14.8}
+{"seconds": 0.004, "rss": 135757824, "variant": "bend", "q": "q4", "n": 100000, "threads": "1", "rep": 2, "load1": 14.8}
+{"seconds": 0.005, "rss": 137625600, "variant": "bend", "q": "q4", "n": 100000, "threads": "default", "rep": 2, "load1": 14.8}
+{"seconds": 0.004, "rss": 137625600, "variant": "full", "q": "q4", "n": 100000, "threads": "default", "rep": 3, "load1": 14.8}
+{"seconds": 0.0023577918764203787, "best": 0.0013755830004811287, "rss": 86900736, "variant": "polars", "q": "q4", "n": 100000, "threads": "1", "rep": 3, "load1": 14.8}
+{"seconds": 0.0018418340478092432, "best": 0.0010965410619974136, "rss": 106758144, "variant": "polars", "q": "q4", "n": 100000, "threads": "default", "rep": 3, "load1": 14.8}
+{"seconds": 0.004, "rss": 135757824, "variant": "bend", "q": "q4", "n": 100000, "threads": "1", "rep": 3, "load1": 14.8}
+{"seconds": 0.005, "rss": 137560064, "variant": "bend", "q": "q4", "n": 100000, "threads": "default", "rep": 3, "load1": 14.8}
+{"seconds": 0.003, "rss": 135806976, "variant": "full", "q": "q4", "n": 100000, "threads": "1", "rep": 3, "load1": 14.8}
+{"seconds": 0.002168542006984353, "best": 0.0013600001111626625, "rss": 86949888, "variant": "polars", "q": "q4", "n": 100000, "threads": "1", "rep": 4, "load1": 14.8}
+{"seconds": 0.001964583992958069, "best": 0.0009928748477250338, "rss": 106872832, "variant": "polars", "q": "q4", "n": 100000, "threads": "default", "rep": 4, "load1": 14.8}
+{"seconds": 0.003, "rss": 135741440, "variant": "bend", "q": "q4", "n": 100000, "threads": "1", "rep": 4, "load1": 14.8}
+{"seconds": 0.004, "rss": 136953856, "variant": "bend", "q": "q4", "n": 100000, "threads": "default", "rep": 4, "load1": 14.8}
+{"seconds": 0.003, "rss": 135823360, "variant": "full", "q": "q4", "n": 100000, "threads": "1", "rep": 4, "load1": 14.8}
+{"seconds": 0.004, "rss": 137658368, "variant": "full", "q": "q4", "n": 100000, "threads": "default", "rep": 4, "load1": 13.9}
+{"seconds": 0.002, "rss": 137003008, "variant": "bend", "q": "q5", "n": 100000, "threads": "1", "rep": 0, "load1": 13.9}
+{"seconds": 0.003, "rss": 138936320, "variant": "bend", "q": "q5", "n": 100000, "threads": "default", "rep": 0, "load1": 13.9}
+{"seconds": 0.002, "rss": 133939200, "variant": "full", "q": "q5", "n": 100000, "threads": "1", "rep": 0, "load1": 13.9}
+{"seconds": 0.002, "rss": 135659520, "variant": "full", "q": "q5", "n": 100000, "threads": "default", "rep": 0, "load1": 13.9}
+{"seconds": 0.009291250025853515, "best": 0.0021710831206291914, "rss": 92700672, "variant": "polars", "q": "q5", "n": 100000, "threads": "1", "rep": 0, "load1": 13.9}
+{"seconds": 0.003087750170379877, "best": 0.001394249964505434, "rss": 116113408, "variant": "polars", "q": "q5", "n": 100000, "threads": "default", "rep": 0, "load1": 13.9}
+{"seconds": 0.002, "rss": 138215424, "variant": "bend", "q": "q5", "n": 100000, "threads": "default", "rep": 1, "load1": 13.9}
+{"seconds": 0.002, "rss": 133939200, "variant": "full", "q": "q5", "n": 100000, "threads": "1", "rep": 1, "load1": 13.9}
+{"seconds": 0.002, "rss": 135659520, "variant": "full", "q": "q5", "n": 100000, "threads": "default", "rep": 1, "load1": 13.9}
+{"seconds": 0.003825250081717968, "best": 0.0022089998237788677, "rss": 92553216, "variant": "polars", "q": "q5", "n": 100000, "threads": "1", "rep": 1, "load1": 13.9}
+{"seconds": 0.0032333750277757645, "best": 0.00155691709369421, "rss": 116326400, "variant": "polars", "q": "q5", "n": 100000, "threads": "default", "rep": 1, "load1": 13.9}
+{"seconds": 0.002, "rss": 137019392, "variant": "bend", "q": "q5", "n": 100000, "threads": "1", "rep": 1, "load1": 13.9}
+{"seconds": 0.002, "rss": 133955584, "variant": "full", "q": "q5", "n": 100000, "threads": "1", "rep": 2, "load1": 13.9}
+{"seconds": 0.002, "rss": 135757824, "variant": "full", "q": "q5", "n": 100000, "threads": "default", "rep": 2, "load1": 13.9}
+{"seconds": 0.0038319160230457783, "best": 0.002239250112324953, "rss": 93405184, "variant": "polars", "q": "q5", "n": 100000, "threads": "1", "rep": 2, "load1": 13.9}
+{"seconds": 0.0030059590935707092, "best": 0.001614375039935112, "rss": 116162560, "variant": "polars", "q": "q5", "n": 100000, "threads": "default", "rep": 2, "load1": 13.9}
+{"seconds": 0.002, "rss": 137003008, "variant": "bend", "q": "q5", "n": 100000, "threads": "1", "rep": 2, "load1": 13.9}
+{"seconds": 0.002, "rss": 138723328, "variant": "bend", "q": "q5", "n": 100000, "threads": "default", "rep": 2, "load1": 13.9}
+{"seconds": 0.002, "rss": 135741440, "variant": "full", "q": "q5", "n": 100000, "threads": "default", "rep": 3, "load1": 13.9}
+{"seconds": 0.003568042069673538, "best": 0.0021982500329613686, "rss": 92651520, "variant": "polars", "q": "q5", "n": 100000, "threads": "1", "rep": 3, "load1": 13.4}
+{"seconds": 0.0030702499207109213, "best": 0.0013857078738510609, "rss": 116965376, "variant": "polars", "q": "q5", "n": 100000, "threads": "default", "rep": 3, "load1": 13.4}
+{"seconds": 0.002, "rss": 136986624, "variant": "bend", "q": "q5", "n": 100000, "threads": "1", "rep": 3, "load1": 13.4}
+{"seconds": 0.002, "rss": 138756096, "variant": "bend", "q": "q5", "n": 100000, "threads": "default", "rep": 3, "load1": 13.4}
+{"seconds": 0.002, "rss": 129892352, "variant": "full", "q": "q5", "n": 100000, "threads": "1", "rep": 3, "load1": 13.4}
+{"seconds": 0.003998999949544668, "best": 0.0022668750025331974, "rss": 93192192, "variant": "polars", "q": "q5", "n": 100000, "threads": "1", "rep": 4, "load1": 13.4}
+{"seconds": 0.0032830839045345783, "best": 0.0015698329079896212, "rss": 116162560, "variant": "polars", "q": "q5", "n": 100000, "threads": "default", "rep": 4, "load1": 13.4}
+{"seconds": 0.003, "rss": 132972544, "variant": "bend", "q": "q5", "n": 100000, "threads": "1", "rep": 4, "load1": 13.4}
+{"seconds": 0.002, "rss": 138788864, "variant": "bend", "q": "q5", "n": 100000, "threads": "default", "rep": 4, "load1": 13.4}
+{"seconds": 0.002, "rss": 133955584, "variant": "full", "q": "q5", "n": 100000, "threads": "1", "rep": 4, "load1": 13.4}
+{"seconds": 0.002, "rss": 135741440, "variant": "full", "q": "q5", "n": 100000, "threads": "default", "rep": 4, "load1": 13.4}
+{"seconds": 0.01, "rss": 134479872, "variant": "bend", "q": "q6", "n": 100000, "threads": "1", "rep": 0, "load1": 13.4}
+{"seconds": 0.011, "rss": 136429568, "variant": "bend", "q": "q6", "n": 100000, "threads": "default", "rep": 0, "load1": 13.4}
+{"seconds": 0.011, "rss": 134463488, "variant": "full", "q": "q6", "n": 100000, "threads": "1", "rep": 0, "load1": 13.4}
+{"seconds": 0.011, "rss": 136216576, "variant": "full", "q": "q6", "n": 100000, "threads": "default", "rep": 0, "load1": 13.4}
+{"seconds": 0.01816612482070923, "best": 0.008760832948610187, "rss": 89980928, "variant": "polars", "q": "q6", "n": 100000, "threads": "1", "rep": 0, "load1": 13.4}
+{"seconds": 0.010256292065605521, "best": 0.007004417013376951, "rss": 114196480, "variant": "polars", "q": "q6", "n": 100000, "threads": "default", "rep": 0, "load1": 13.4}
+{"seconds": 0.01, "rss": 136101888, "variant": "bend", "q": "q6", "n": 100000, "threads": "default", "rep": 1, "load1": 13.4}
+{"seconds": 0.011, "rss": 134463488, "variant": "full", "q": "q6", "n": 100000, "threads": "1", "rep": 1, "load1": 13.4}
+{"seconds": 0.01, "rss": 136314880, "variant": "full", "q": "q6", "n": 100000, "threads": "default", "rep": 1, "load1": 12.6}
+{"seconds": 0.01042966591194272, "best": 0.008608415955677629, "rss": 87179264, "variant": "polars", "q": "q6", "n": 100000, "threads": "1", "rep": 1, "load1": 12.6}
+{"seconds": 0.00884949997998774, "best": 0.007324540987610817, "rss": 112050176, "variant": "polars", "q": "q6", "n": 100000, "threads": "default", "rep": 1, "load1": 12.6}
+{"seconds": 0.011, "rss": 134463488, "variant": "bend", "q": "q6", "n": 100000, "threads": "1", "rep": 1, "load1": 12.6}
+{"seconds": 0.011, "rss": 134447104, "variant": "full", "q": "q6", "n": 100000, "threads": "1", "rep": 2, "load1": 12.6}
+{"seconds": 0.011, "rss": 136265728, "variant": "full", "q": "q6", "n": 100000, "threads": "default", "rep": 2, "load1": 12.6}
+{"seconds": 0.010078250197693706, "best": 0.00843691686168313, "rss": 87687168, "variant": "polars", "q": "q6", "n": 100000, "threads": "1", "rep": 2, "load1": 12.6}
+{"seconds": 0.009445250034332275, "best": 0.00752608384937048, "rss": 113541120, "variant": "polars", "q": "q6", "n": 100000, "threads": "default", "rep": 2, "load1": 12.6}
+{"seconds": 0.011, "rss": 134463488, "variant": "bend", "q": "q6", "n": 100000, "threads": "1", "rep": 2, "load1": 12.6}
+{"seconds": 0.011, "rss": 131710976, "variant": "bend", "q": "q6", "n": 100000, "threads": "default", "rep": 2, "load1": 12.6}
+{"seconds": 0.011, "rss": 132268032, "variant": "full", "q": "q6", "n": 100000, "threads": "default", "rep": 3, "load1": 12.6}
+{"seconds": 0.009710874874144793, "best": 0.008405666099861264, "rss": 89374720, "variant": "polars", "q": "q6", "n": 100000, "threads": "1", "rep": 3, "load1": 12.6}
+{"seconds": 0.009054750204086304, "best": 0.00680254097096622, "rss": 113524736, "variant": "polars", "q": "q6", "n": 100000, "threads": "default", "rep": 3, "load1": 12.6}
+{"seconds": 0.011, "rss": 134479872, "variant": "bend", "q": "q6", "n": 100000, "threads": "1", "rep": 3, "load1": 12.6}
+{"seconds": 0.011, "rss": 136151040, "variant": "bend", "q": "q6", "n": 100000, "threads": "default", "rep": 3, "load1": 12.6}
+{"seconds": 0.01, "rss": 134463488, "variant": "full", "q": "q6", "n": 100000, "threads": "1", "rep": 3, "load1": 12.6}
+{"seconds": 0.010518083116039634, "best": 0.008634167024865746, "rss": 87146496, "variant": "polars", "q": "q6", "n": 100000, "threads": "1", "rep": 4, "load1": 12.6}
+{"seconds": 0.008744625141844153, "best": 0.007102707866579294, "rss": 113868800, "variant": "polars", "q": "q6", "n": 100000, "threads": "default", "rep": 4, "load1": 12.6}
+{"seconds": 0.01, "rss": 134479872, "variant": "bend", "q": "q6", "n": 100000, "threads": "1", "rep": 4, "load1": 12.6}
+{"seconds": 0.011, "rss": 136134656, "variant": "bend", "q": "q6", "n": 100000, "threads": "default", "rep": 4, "load1": 12.3}
+{"seconds": 0.01, "rss": 134463488, "variant": "full", "q": "q6", "n": 100000, "threads": "1", "rep": 4, "load1": 12.3}
+{"seconds": 0.013, "rss": 136265728, "variant": "full", "q": "q6", "n": 100000, "threads": "default", "rep": 4, "load1": 12.3}
+{"seconds": 0.012, "rss": 1335132160, "variant": "bend", "q": "q1", "n": 1000000, "threads": "1", "rep": 0, "load1": 12.3}
+{"seconds": 0.012, "rss": 1306148864, "variant": "bend", "q": "q1", "n": 1000000, "threads": "default", "rep": 0, "load1": 12.1}
+{"seconds": 0.007, "rss": 1323974656, "variant": "full", "q": "q1", "n": 1000000, "threads": "1", "rep": 0, "load1": 12.1}
+{"seconds": 0.008, "rss": 1288290304, "variant": "full", "q": "q1", "n": 1000000, "threads": "default", "rep": 0, "load1": 14.5}
+{"seconds": 0.020340542076155543, "best": 0.0015515838749706745, "rss": 168214528, "variant": "polars", "q": "q1", "n": 1000000, "threads": "1", "rep": 0, "load1": 14.5}
+{"seconds": 0.001417290885001421, "best": 0.0006436670664697886, "rss": 199524352, "variant": "polars", "q": "q1", "n": 1000000, "threads": "default", "rep": 0, "load1": 14.5}
+{"seconds": 0.011, "rss": 1303805952, "variant": "bend", "q": "q1", "n": 1000000, "threads": "default", "rep": 1, "load1": 14.5}
+{"seconds": 0.007, "rss": 1323958272, "variant": "full", "q": "q1", "n": 1000000, "threads": "1", "rep": 1, "load1": 17.0}
+{"seconds": 0.007, "rss": 1329397760, "variant": "full", "q": "q1", "n": 1000000, "threads": "default", "rep": 1, "load1": 16.0}
+{"seconds": 0.003634583903476596, "best": 0.0014579170383512974, "rss": 168656896, "variant": "polars", "q": "q1", "n": 1000000, "threads": "1", "rep": 1, "load1": 16.0}
+{"seconds": 0.0012264589313417673, "best": 0.0005924580618739128, "rss": 199999488, "variant": "polars", "q": "q1", "n": 1000000, "threads": "default", "rep": 1, "load1": 16.0}
+{"seconds": 0.011, "rss": 1339621376, "variant": "bend", "q": "q1", "n": 1000000, "threads": "1", "rep": 1, "load1": 16.0}
+{"seconds": 0.007, "rss": 1323974656, "variant": "full", "q": "q1", "n": 1000000, "threads": "1", "rep": 2, "load1": 15.3}
+{"seconds": 0.008, "rss": 1329463296, "variant": "full", "q": "q1", "n": 1000000, "threads": "default", "rep": 2, "load1": 14.6}
+{"seconds": 0.018054625019431114, "best": 0.0014067089650779963, "rss": 168099840, "variant": "polars", "q": "q1", "n": 1000000, "threads": "1", "rep": 2, "load1": 14.6}
+{"seconds": 0.0014523339923471212, "best": 0.0006359578110277653, "rss": 195657728, "variant": "polars", "q": "q1", "n": 1000000, "threads": "default", "rep": 2, "load1": 14.6}
+{"seconds": 0.012, "rss": 1311555584, "variant": "bend", "q": "q1", "n": 1000000, "threads": "1", "rep": 2, "load1": 14.6}
+{"seconds": 0.013, "rss": 1345044480, "variant": "bend", "q": "q1", "n": 1000000, "threads": "default", "rep": 2, "load1": 14.8}
+{"seconds": 0.007, "rss": 1329299456, "variant": "full", "q": "q1", "n": 1000000, "threads": "default", "rep": 3, "load1": 16.8}
+{"seconds": 0.003642125055193901, "best": 0.0016049579717218876, "rss": 168198144, "variant": "polars", "q": "q1", "n": 1000000, "threads": "1", "rep": 3, "load1": 16.8}
+{"seconds": 0.0014664169866591692, "best": 0.0006658330094069242, "rss": 202424320, "variant": "polars", "q": "q1", "n": 1000000, "threads": "default", "rep": 3, "load1": 16.8}
+{"seconds": 0.011, "rss": 1339604992, "variant": "bend", "q": "q1", "n": 1000000, "threads": "1", "rep": 3, "load1": 16.8}
+{"seconds": 0.011, "rss": 1313095680, "variant": "bend", "q": "q1", "n": 1000000, "threads": "default", "rep": 3, "load1": 16.0}
+{"seconds": 0.007, "rss": 1323974656, "variant": "full", "q": "q1", "n": 1000000, "threads": "1", "rep": 3, "load1": 16.0}
+{"seconds": 0.019175708992406726, "best": 0.0015565829817205667, "rss": 168296448, "variant": "polars", "q": "q1", "n": 1000000, "threads": "1", "rep": 4, "load1": 15.2}
+{"seconds": 0.001380166970193386, "best": 0.0005926659796386957, "rss": 201228288, "variant": "polars", "q": "q1", "n": 1000000, "threads": "default", "rep": 4, "load1": 15.2}
+{"seconds": 0.012, "rss": 1339604992, "variant": "bend", "q": "q1", "n": 1000000, "threads": "1", "rep": 4, "load1": 15.2}
+{"seconds": 0.011, "rss": 1345241088, "variant": "bend", "q": "q1", "n": 1000000, "threads": "default", "rep": 4, "load1": 14.4}
+{"seconds": 0.008, "rss": 1305477120, "variant": "full", "q": "q1", "n": 1000000, "threads": "1", "rep": 4, "load1": 14.3}
+{"seconds": 0.008, "rss": 1329463296, "variant": "full", "q": "q1", "n": 1000000, "threads": "default", "rep": 4, "load1": 16.3}
+{"seconds": 0.033666, "rss": 1332002816, "variant": "bend", "q": "q2", "n": 1000000, "threads": "1", "rep": 0, "load1": 16.3}
+{"seconds": 0.009333, "rss": 1344782336, "variant": "bend", "q": "q2", "n": 1000000, "threads": "default", "rep": 0, "load1": 24.7}
+{"seconds": 0.013666, "rss": 1332084736, "variant": "full", "q": "q2", "n": 1000000, "threads": "1", "rep": 0, "load1": 22.1}
+{"seconds": 0.011666, "rss": 1396899840, "variant": "full", "q": "q2", "n": 1000000, "threads": "default", "rep": 0, "load1": 13.6}
+{"seconds": 0.015358083182945848, "best": 0.000916249817237258, "rss": 168837120, "variant": "polars", "q": "q2", "n": 1000000, "threads": "1", "rep": 0, "load1": 11.7}
+{"seconds": 0.001345040975138545, "best": 0.0005088748876005411, "rss": 196476928, "variant": "polars", "q": "q2", "n": 1000000, "threads": "default", "rep": 0, "load1": 11.7}
+{"seconds": 0.010333, "rss": 1407008768, "variant": "bend", "q": "q2", "n": 1000000, "threads": "default", "rep": 1, "load1": 11.7}
+{"seconds": 0.014666, "rss": 1332101120, "variant": "full", "q": "q2", "n": 1000000, "threads": "1", "rep": 1, "load1": 10.2}
+{"seconds": 0.012333, "rss": 1346486272, "variant": "full", "q": "q2", "n": 1000000, "threads": "default", "rep": 1, "load1": 15.8}
+{"seconds": 0.016971125034615397, "best": 0.0010613328777253628, "rss": 168673280, "variant": "polars", "q": "q2", "n": 1000000, "threads": "1", "rep": 1, "load1": 13.7}
+{"seconds": 0.001750458963215351, "best": 0.0006576250307261944, "rss": 192577536, "variant": "polars", "q": "q2", "n": 1000000, "threads": "default", "rep": 1, "load1": 13.7}
+{"seconds": 0.017666, "rss": 1332051968, "variant": "bend", "q": "q2", "n": 1000000, "threads": "1", "rep": 1, "load1": 13.7}
+{"seconds": 0.009333, "rss": 1379696640, "variant": "full", "q": "q2", "n": 1000000, "threads": "1", "rep": 2, "load1": 11.2}
+{"seconds": 0.009333, "rss": 1386610688, "variant": "full", "q": "q2", "n": 1000000, "threads": "default", "rep": 2, "load1": 14.8}
+{"seconds": 0.015966583974659443, "best": 0.0009249171707779169, "rss": 168263680, "variant": "polars", "q": "q2", "n": 1000000, "threads": "1", "rep": 2, "load1": 12.0}
+{"seconds": 0.0012319579254835844, "best": 0.0005530829075723886, "rss": 195166208, "variant": "polars", "q": "q2", "n": 1000000, "threads": "default", "rep": 2, "load1": 12.0}
+{"seconds": 0.012666, "rss": 1332002816, "variant": "bend", "q": "q2", "n": 1000000, "threads": "1", "rep": 2, "load1": 12.0}
+{"seconds": 0.011333, "rss": 1346289664, "variant": "bend", "q": "q2", "n": 1000000, "threads": "default", "rep": 2, "load1": 19.8}
+{"seconds": 0.011666, "rss": 1386856448, "variant": "full", "q": "q2", "n": 1000000, "threads": "default", "rep": 3, "load1": 19.1}
+{"seconds": 0.015824457863345742, "best": 0.0009647910483181477, "rss": 168738816, "variant": "polars", "q": "q2", "n": 1000000, "threads": "1", "rep": 3, "load1": 17.6}
+{"seconds": 0.001362500013783574, "best": 0.0005593749228864908, "rss": 196476928, "variant": "polars", "q": "q2", "n": 1000000, "threads": "default", "rep": 3, "load1": 17.6}
+{"seconds": 0.013666, "rss": 1332002816, "variant": "bend", "q": "q2", "n": 1000000, "threads": "1", "rep": 3, "load1": 17.6}
+{"seconds": 0.013666, "rss": 1388544000, "variant": "bend", "q": "q2", "n": 1000000, "threads": "default", "rep": 3, "load1": 12.9}
+{"seconds": 0.014, "rss": 1332133888, "variant": "full", "q": "q2", "n": 1000000, "threads": "1", "rep": 3, "load1": 11.2}
+{"seconds": 0.015877208905294538, "best": 0.0009477909188717604, "rss": 168181760, "variant": "polars", "q": "q2", "n": 1000000, "threads": "1", "rep": 4, "load1": 8.6}
+{"seconds": 0.0013626250438392162, "best": 0.0005021251272410154, "rss": 202883072, "variant": "polars", "q": "q2", "n": 1000000, "threads": "default", "rep": 4, "load1": 8.6}
+{"seconds": 0.021333, "rss": 1363886080, "variant": "bend", "q": "q2", "n": 1000000, "threads": "1", "rep": 4, "load1": 8.6}
+{"seconds": 0.009333, "rss": 1394032640, "variant": "bend", "q": "q2", "n": 1000000, "threads": "default", "rep": 4, "load1": 10.1}
+{"seconds": 0.009333, "rss": 1370701824, "variant": "full", "q": "q2", "n": 1000000, "threads": "1", "rep": 4, "load1": 9.1}
+{"seconds": 0.010666, "rss": 1396998144, "variant": "full", "q": "q2", "n": 1000000, "threads": "default", "rep": 4, "load1": 8.4}
+{"seconds": 0.026, "rss": 1296171008, "variant": "bend", "q": "q3", "n": 1000000, "threads": "1", "rep": 0, "load1": 7.9}
+{"seconds": 0.023, "rss": 1341390848, "variant": "bend", "q": "q3", "n": 1000000, "threads": "default", "rep": 0, "load1": 7.9}
+{"seconds": 0.02, "rss": 1296203776, "variant": "full", "q": "q3", "n": 1000000, "threads": "1", "rep": 0, "load1": 7.9}
+{"seconds": 0.019, "rss": 1328824320, "variant": "full", "q": "q3", "n": 1000000, "threads": "default", "rep": 0, "load1": 7.8}
+{"seconds": 0.0389570000115782, "best": 0.012020833091810346, "rss": 168263680, "variant": "polars", "q": "q3", "n": 1000000, "threads": "1", "rep": 0, "load1": 7.8}
+{"seconds": 0.006790583953261375, "best": 0.003559957956895232, "rss": 219512832, "variant": "polars", "q": "q3", "n": 1000000, "threads": "default", "rep": 0, "load1": 7.8}
+{"seconds": 0.024, "rss": 1313800192, "variant": "bend", "q": "q3", "n": 1000000, "threads": "default", "rep": 1, "load1": 7.8}
+{"seconds": 0.02, "rss": 1305444352, "variant": "full", "q": "q3", "n": 1000000, "threads": "1", "rep": 1, "load1": 7.5}
+{"seconds": 0.021, "rss": 1328857088, "variant": "full", "q": "q3", "n": 1000000, "threads": "default", "rep": 1, "load1": 7.2}
+{"seconds": 0.014181625097990036, "best": 0.011001500068232417, "rss": 168361984, "variant": "polars", "q": "q3", "n": 1000000, "threads": "1", "rep": 1, "load1": 7.2}
+{"seconds": 0.004918708000332117, "best": 0.003026832826435566, "rss": 220987392, "variant": "polars", "q": "q3", "n": 1000000, "threads": "default", "rep": 1, "load1": 7.2}
+{"seconds": 0.023, "rss": 1335689216, "variant": "bend", "q": "q3", "n": 1000000, "threads": "1", "rep": 1, "load1": 7.2}
+{"seconds": 0.021, "rss": 1305460736, "variant": "full", "q": "q3", "n": 1000000, "threads": "1", "rep": 2, "load1": 6.9}
+{"seconds": 0.021, "rss": 1328709632, "variant": "full", "q": "q3", "n": 1000000, "threads": "default", "rep": 2, "load1": 6.5}
+{"seconds": 0.040914874989539385, "best": 0.011154541978612542, "rss": 168083456, "variant": "polars", "q": "q3", "n": 1000000, "threads": "1", "rep": 2, "load1": 6.5}
+{"seconds": 0.004973584087565541, "best": 0.0028674169443547726, "rss": 221495296, "variant": "polars", "q": "q3", "n": 1000000, "threads": "default", "rep": 2, "load1": 6.5}
+{"seconds": 0.022, "rss": 1294237696, "variant": "bend", "q": "q3", "n": 1000000, "threads": "1", "rep": 2, "load1": 6.5}
+{"seconds": 0.022, "rss": 1341161472, "variant": "bend", "q": "q3", "n": 1000000, "threads": "default", "rep": 2, "load1": 6.9}
+{"seconds": 0.02, "rss": 1328955392, "variant": "full", "q": "q3", "n": 1000000, "threads": "default", "rep": 3, "load1": 6.9}
+{"seconds": 0.013980041956529021, "best": 0.011040582787245512, "rss": 168247296, "variant": "polars", "q": "q3", "n": 1000000, "threads": "1", "rep": 3, "load1": 6.9}
+{"seconds": 0.015265582827851176, "best": 0.0031921248883008957, "rss": 221790208, "variant": "polars", "q": "q3", "n": 1000000, "threads": "default", "rep": 3, "load1": 6.9}
+{"seconds": 0.023, "rss": 1294254080, "variant": "bend", "q": "q3", "n": 1000000, "threads": "1", "rep": 3, "load1": 6.9}
+{"seconds": 0.023, "rss": 1268432896, "variant": "bend", "q": "q3", "n": 1000000, "threads": "default", "rep": 3, "load1": 6.6}
+{"seconds": 0.021, "rss": 1281720320, "variant": "full", "q": "q3", "n": 1000000, "threads": "1", "rep": 3, "load1": 6.6}
+{"seconds": 0.03662108303979039, "best": 0.011507791932672262, "rss": 168280064, "variant": "polars", "q": "q3", "n": 1000000, "threads": "1", "rep": 4, "load1": 6.4}
+{"seconds": 0.0050708751659840345, "best": 0.0033099160064011812, "rss": 219480064, "variant": "polars", "q": "q3", "n": 1000000, "threads": "default", "rep": 4, "load1": 6.1}
+{"seconds": 0.023, "rss": 1294286848, "variant": "bend", "q": "q3", "n": 1000000, "threads": "1", "rep": 4, "load1": 6.1}
+{"seconds": 0.024, "rss": 1299742720, "variant": "bend", "q": "q3", "n": 1000000, "threads": "default", "rep": 4, "load1": 5.9}
+{"seconds": 0.021, "rss": 1258242048, "variant": "full", "q": "q3", "n": 1000000, "threads": "1", "rep": 4, "load1": 5.9}
+{"seconds": 0.021, "rss": 1285799936, "variant": "full", "q": "q3", "n": 1000000, "threads": "default", "rep": 4, "load1": 5.6}
+{"seconds": 0.042, "rss": 1289830400, "variant": "bend", "q": "q4", "n": 1000000, "threads": "1", "rep": 0, "load1": 5.8}
+{"seconds": 0.042, "rss": 1336885248, "variant": "bend", "q": "q4", "n": 1000000, "threads": "default", "rep": 0, "load1": 5.8}
+{"seconds": 0.048, "rss": 1331560448, "variant": "full", "q": "q4", "n": 1000000, "threads": "1", "rep": 0, "load1": 5.6}
+{"seconds": 0.047, "rss": 1332707328, "variant": "full", "q": "q4", "n": 1000000, "threads": "default", "rep": 0, "load1": 5.7}
+{"seconds": 0.032341958954930305, "best": 0.013625167077407241, "rss": 168132608, "variant": "polars", "q": "q4", "n": 1000000, "threads": "1", "rep": 0, "load1": 5.7}
+{"seconds": 0.006440333090722561, "best": 0.003384083043783903, "rss": 228474880, "variant": "polars", "q": "q4", "n": 1000000, "threads": "default", "rep": 0, "load1": 5.7}
+{"seconds": 0.044, "rss": 1337147392, "variant": "bend", "q": "q4", "n": 1000000, "threads": "default", "rep": 1, "load1": 5.7}
+{"seconds": 0.042, "rss": 1305346048, "variant": "full", "q": "q4", "n": 1000000, "threads": "1", "rep": 1, "load1": 6.2}
+{"seconds": 0.042, "rss": 1337114624, "variant": "full", "q": "q4", "n": 1000000, "threads": "default", "rep": 1, "load1": 6.1}
+{"seconds": 0.014762709150090814, "best": 0.0125879580155015, "rss": 168083456, "variant": "polars", "q": "q4", "n": 1000000, "threads": "1", "rep": 1, "load1": 6.1}
+{"seconds": 0.005237624980509281, "best": 0.0035171250347048044, "rss": 228245504, "variant": "polars", "q": "q4", "n": 1000000, "threads": "default", "rep": 1, "load1": 6.1}
+{"seconds": 0.045, "rss": 1300054016, "variant": "bend", "q": "q4", "n": 1000000, "threads": "1", "rep": 1, "load1": 6.1}
+{"seconds": 0.04, "rss": 1331576832, "variant": "full", "q": "q4", "n": 1000000, "threads": "1", "rep": 2, "load1": 6.1}
+{"seconds": 0.042, "rss": 1337016320, "variant": "full", "q": "q4", "n": 1000000, "threads": "default", "rep": 2, "load1": 5.8}
+{"seconds": 0.03135983319953084, "best": 0.013221832923591137, "rss": 168181760, "variant": "polars", "q": "q4", "n": 1000000, "threads": "1", "rep": 2, "load1": 5.8}
+{"seconds": 0.006130624795332551, "best": 0.003183875000104308, "rss": 224247808, "variant": "polars", "q": "q4", "n": 1000000, "threads": "default", "rep": 2, "load1": 5.8}
+{"seconds": 0.044, "rss": 1304576000, "variant": "bend", "q": "q4", "n": 1000000, "threads": "1", "rep": 2, "load1": 5.8}
+{"seconds": 0.048, "rss": 1336868864, "variant": "bend", "q": "q4", "n": 1000000, "threads": "default", "rep": 2, "load1": 5.6}
+{"seconds": 0.043, "rss": 1337032704, "variant": "full", "q": "q4", "n": 1000000, "threads": "default", "rep": 3, "load1": 5.3}
+{"seconds": 0.014521040953695774, "best": 0.012600500136613846, "rss": 168247296, "variant": "polars", "q": "q4", "n": 1000000, "threads": "1", "rep": 3, "load1": 5.3}
+{"seconds": 0.004887541988864541, "best": 0.0030584170017391443, "rss": 225755136, "variant": "polars", "q": "q4", "n": 1000000, "threads": "default", "rep": 3, "load1": 5.3}
+{"seconds": 0.042, "rss": 1331494912, "variant": "bend", "q": "q4", "n": 1000000, "threads": "1", "rep": 3, "load1": 5.3}
+{"seconds": 0.045, "rss": 1336737792, "variant": "bend", "q": "q4", "n": 1000000, "threads": "default", "rep": 3, "load1": 5.0}
+{"seconds": 0.047, "rss": 1290354688, "variant": "full", "q": "q4", "n": 1000000, "threads": "1", "rep": 3, "load1": 5.0}
+{"seconds": 0.030747500015422702, "best": 0.012650290969759226, "rss": 168198144, "variant": "polars", "q": "q4", "n": 1000000, "threads": "1", "rep": 4, "load1": 5.0}
+{"seconds": 0.006767124868929386, "best": 0.0030597918666899204, "rss": 226869248, "variant": "polars", "q": "q4", "n": 1000000, "threads": "default", "rep": 4, "load1": 5.0}
+{"seconds": 0.041, "rss": 1331478528, "variant": "bend", "q": "q4", "n": 1000000, "threads": "1", "rep": 4, "load1": 5.0}
+{"seconds": 0.041, "rss": 1336934400, "variant": "bend", "q": "q4", "n": 1000000, "threads": "default", "rep": 4, "load1": 4.8}
+{"seconds": 0.045, "rss": 1331576832, "variant": "full", "q": "q4", "n": 1000000, "threads": "1", "rep": 4, "load1": 4.6}
+{"seconds": 0.041, "rss": 1337032704, "variant": "full", "q": "q4", "n": 1000000, "threads": "default", "rep": 4, "load1": 4.6}
+{"seconds": 0.021, "rss": 1311490048, "variant": "bend", "q": "q5", "n": 1000000, "threads": "1", "rep": 0, "load1": 4.4}
+{"seconds": 0.02, "rss": 1345568768, "variant": "bend", "q": "q5", "n": 1000000, "threads": "default", "rep": 0, "load1": 4.1}
+{"seconds": 0.013, "rss": 1305460736, "variant": "full", "q": "q5", "n": 1000000, "threads": "1", "rep": 0, "load1": 4.1}
+{"seconds": 0.014, "rss": 1316225024, "variant": "full", "q": "q5", "n": 1000000, "threads": "default", "rep": 0, "load1": 3.8}
+{"seconds": 0.04186266614124179, "best": 0.021143415942788124, "rss": 168476672, "variant": "polars", "q": "q5", "n": 1000000, "threads": "1", "rep": 0, "load1": 3.8}
+{"seconds": 0.0076526671182364225, "best": 0.0049287909641861916, "rss": 281853952, "variant": "polars", "q": "q5", "n": 1000000, "threads": "default", "rep": 0, "load1": 3.8}
+{"seconds": 0.019, "rss": 1345585152, "variant": "bend", "q": "q5", "n": 1000000, "threads": "default", "rep": 1, "load1": 3.8}
+{"seconds": 0.013, "rss": 1315012608, "variant": "full", "q": "q5", "n": 1000000, "threads": "1", "rep": 1, "load1": 3.8}
+{"seconds": 0.014, "rss": 1320484864, "variant": "full", "q": "q5", "n": 1000000, "threads": "default", "rep": 1, "load1": 3.7}
+{"seconds": 0.02518174983561039, "best": 0.02263941685669124, "rss": 168493056, "variant": "polars", "q": "q5", "n": 1000000, "threads": "1", "rep": 1, "load1": 3.7}
+{"seconds": 0.009347457904368639, "best": 0.005237832898274064, "rss": 283410432, "variant": "polars", "q": "q5", "n": 1000000, "threads": "default", "rep": 1, "load1": 3.7}
+{"seconds": 0.018, "rss": 1335345152, "variant": "bend", "q": "q5", "n": 1000000, "threads": "1", "rep": 1, "load1": 3.7}
+{"seconds": 0.014, "rss": 1315012608, "variant": "full", "q": "q5", "n": 1000000, "threads": "1", "rep": 2, "load1": 5.7}
+{"seconds": 0.015, "rss": 1306263552, "variant": "full", "q": "q5", "n": 1000000, "threads": "default", "rep": 2, "load1": 5.5}
+{"seconds": 0.04158983309753239, "best": 0.02139233285561204, "rss": 168640512, "variant": "polars", "q": "q5", "n": 1000000, "threads": "1", "rep": 2, "load1": 5.5}
+{"seconds": 0.008281541056931019, "best": 0.00571970921009779, "rss": 285360128, "variant": "polars", "q": "q5", "n": 1000000, "threads": "default", "rep": 2, "load1": 6.0}
+{"seconds": 0.019, "rss": 1298481152, "variant": "bend", "q": "q5", "n": 1000000, "threads": "1", "rep": 2, "load1": 6.0}
+{"seconds": 0.019, "rss": 1345650688, "variant": "bend", "q": "q5", "n": 1000000, "threads": "default", "rep": 2, "load1": 6.0}
+{"seconds": 0.014, "rss": 1306165248, "variant": "full", "q": "q5", "n": 1000000, "threads": "default", "rep": 3, "load1": 5.9}
+{"seconds": 0.021475333021953702, "best": 0.02067600004374981, "rss": 168214528, "variant": "polars", "q": "q5", "n": 1000000, "threads": "1", "rep": 3, "load1": 5.9}
+{"seconds": 0.008740582969039679, "best": 0.005161166889593005, "rss": 282771456, "variant": "polars", "q": "q5", "n": 1000000, "threads": "default", "rep": 3, "load1": 5.9}
+{"seconds": 0.017, "rss": 1340112896, "variant": "bend", "q": "q5", "n": 1000000, "threads": "1", "rep": 3, "load1": 5.9}
+{"seconds": 0.047, "rss": 1345388544, "variant": "bend", "q": "q5", "n": 1000000, "threads": "default", "rep": 3, "load1": 5.5}
+{"seconds": 0.014, "rss": 1314979840, "variant": "full", "q": "q5", "n": 1000000, "threads": "1", "rep": 3, "load1": 5.4}
+{"seconds": 0.04148116707801819, "best": 0.021066375076770782, "rss": 168837120, "variant": "polars", "q": "q5", "n": 1000000, "threads": "1", "rep": 4, "load1": 5.4}
+{"seconds": 0.0078729591332376, "best": 0.00528725003823638, "rss": 281264128, "variant": "polars", "q": "q5", "n": 1000000, "threads": "default", "rep": 4, "load1": 5.3}
+{"seconds": 0.02, "rss": 1311817728, "variant": "bend", "q": "q5", "n": 1000000, "threads": "1", "rep": 4, "load1": 5.3}
+{"seconds": 0.019, "rss": 1306263552, "variant": "bend", "q": "q5", "n": 1000000, "threads": "default", "rep": 4, "load1": 5.3}
+{"seconds": 0.017, "rss": 1249705984, "variant": "full", "q": "q5", "n": 1000000, "threads": "1", "rep": 4, "load1": 5.1}
+{"seconds": 0.016, "rss": 1268236288, "variant": "full", "q": "q5", "n": 1000000, "threads": "default", "rep": 4, "load1": 8.8}
+{"seconds": 0.108, "rss": 1278197760, "variant": "bend", "q": "q6", "n": 1000000, "threads": "1", "rep": 0, "load1": 9.1}
+{"seconds": 0.105, "rss": 1286504448, "variant": "bend", "q": "q6", "n": 1000000, "threads": "default", "rep": 0, "load1": 8.7}
+{"seconds": 0.105, "rss": 1281261568, "variant": "full", "q": "q6", "n": 1000000, "threads": "1", "rep": 0, "load1": 10.7}
+{"seconds": 0.115, "rss": 1306296320, "variant": "full", "q": "q6", "n": 1000000, "threads": "default", "rep": 0, "load1": 10.2}
+{"seconds": 0.06250216602347791, "best": 0.03513862518593669, "rss": 168067072, "variant": "polars", "q": "q6", "n": 1000000, "threads": "1", "rep": 0, "load1": 10.2}
+{"seconds": 0.03007366694509983, "best": 0.02471679192967713, "rss": 239763456, "variant": "polars", "q": "q6", "n": 1000000, "threads": "default", "rep": 0, "load1": 10.2}
+{"seconds": 0.104, "rss": 1289633792, "variant": "bend", "q": "q6", "n": 1000000, "threads": "default", "rep": 1, "load1": 10.2}
+{"seconds": 0.106, "rss": 1322745856, "variant": "full", "q": "q6", "n": 1000000, "threads": "1", "rep": 1, "load1": 14.3}
+{"seconds": 0.103, "rss": 1328283648, "variant": "full", "q": "q6", "n": 1000000, "threads": "default", "rep": 1, "load1": 13.6}
+{"seconds": 0.03719766694121063, "best": 0.03334029112011194, "rss": 168624128, "variant": "polars", "q": "q6", "n": 1000000, "threads": "1", "rep": 1, "load1": 13.6}
+{"seconds": 0.02657920797355473, "best": 0.02279912494122982, "rss": 229605376, "variant": "polars", "q": "q6", "n": 1000000, "threads": "default", "rep": 1, "load1": 13.6}
+{"seconds": 0.106, "rss": 1291517952, "variant": "bend", "q": "q6", "n": 1000000, "threads": "1", "rep": 1, "load1": 13.6}
+{"seconds": 0.106, "rss": 1322876928, "variant": "full", "q": "q6", "n": 1000000, "threads": "1", "rep": 2, "load1": 18.5}
+{"seconds": 0.102, "rss": 1328218112, "variant": "full", "q": "q6", "n": 1000000, "threads": "default", "rep": 2, "load1": 17.2}
+{"seconds": 0.0609135408885777, "best": 0.03461950016207993, "rss": 168509440, "variant": "polars", "q": "q6", "n": 1000000, "threads": "1", "rep": 2, "load1": 17.2}
+{"seconds": 0.027338333893567324, "best": 0.0229226250667125, "rss": 228704256, "variant": "polars", "q": "q6", "n": 1000000, "threads": "default", "rep": 2, "load1": 17.2}
+{"seconds": 0.105, "rss": 1291960320, "variant": "bend", "q": "q6", "n": 1000000, "threads": "1", "rep": 2, "load1": 16.2}
+{"seconds": 0.098, "rss": 1328234496, "variant": "bend", "q": "q6", "n": 1000000, "threads": "default", "rep": 2, "load1": 16.2}
+{"seconds": 0.098, "rss": 1328250880, "variant": "full", "q": "q6", "n": 1000000, "threads": "default", "rep": 3, "load1": 15.3}
+{"seconds": 0.03786870907060802, "best": 0.03300124988891184, "rss": 168935424, "variant": "polars", "q": "q6", "n": 1000000, "threads": "1", "rep": 3, "load1": 15.3}
+{"seconds": 0.02526145800948143, "best": 0.022545207990333438, "rss": 231292928, "variant": "polars", "q": "q6", "n": 1000000, "threads": "default", "rep": 3, "load1": 15.3}
+{"seconds": 0.1, "rss": 1291386880, "variant": "bend", "q": "q6", "n": 1000000, "threads": "1", "rep": 3, "load1": 15.3}
+{"seconds": 0.117, "rss": 1328381952, "variant": "bend", "q": "q6", "n": 1000000, "threads": "default", "rep": 3, "load1": 14.2}
+{"seconds": 0.116, "rss": 1317912576, "variant": "full", "q": "q6", "n": 1000000, "threads": "1", "rep": 3, "load1": 13.8}
+{"seconds": 0.06307199993170798, "best": 0.03797145909629762, "rss": 168787968, "variant": "polars", "q": "q6", "n": 1000000, "threads": "1", "rep": 4, "load1": 12.9}
+{"seconds": 0.040726250037550926, "best": 0.023932750103995204, "rss": 231768064, "variant": "polars", "q": "q6", "n": 1000000, "threads": "default", "rep": 4, "load1": 12.9}
+{"seconds": 0.104, "rss": 1281277952, "variant": "bend", "q": "q6", "n": 1000000, "threads": "1", "rep": 4, "load1": 12.9}
+{"seconds": 0.099, "rss": 1328300032, "variant": "bend", "q": "q6", "n": 1000000, "threads": "default", "rep": 4, "load1": 11.9}
+{"seconds": 0.104, "rss": 1293713408, "variant": "full", "q": "q6", "n": 1000000, "threads": "1", "rep": 4, "load1": 11.9}
+{"seconds": 0.105, "rss": 1328283648, "variant": "full", "q": "q6", "n": 1000000, "threads": "default", "rep": 4, "load1": 11.2}

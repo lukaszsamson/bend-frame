@@ -421,9 +421,50 @@ class Gen:
         return pl
 
 
+def gen_join_stress(g: "Gen") -> Case:
+    """Feature `joinstress` (plans/M_01.txt M6, "join cardinality"): t and u of 20..110 rows share a
+    key column drawn from a domain of 1..4 values (+ nulls, NaN/-0.0 for f32), so the many-to-many
+    join output is up to ~12k rows. Plan: one of inner/left/semi/anti join on that key (all four
+    exist when the facade has them), optionally followed by one unary verb."""
+    r = g.rng
+    kdt = g.pick(["u32", "i32", "str", "bool", "f32"])
+    dom = g.small_domain(kdt, "wide")
+    null_p = g.pick([0.0, 0.0, 0.15, 0.5])
+
+    def keycol(n):
+        return Col("k", kdt, [None if r.random() < null_p else g.pick(dom) for _ in range(n)])
+
+    def side(extra):
+        n = r.randint(20, 110)
+        cols = [keycol(n)] + [g.column(nm, dt, n) for nm, dt in extra]
+        return Frame(cols, n)
+
+    ex_t = [("a", g.pick(M.DTYPES))]
+    ex_u = [("b", g.pick(M.DTYPES))] if r.random() < 0.7 else []
+    inputs = {"t": side(ex_t), "u": side(ex_u)}
+    sources = {k: v.schema for k, v in inputs.items()}
+    verbs = [v for v in ("inner_join", "left_join", "semi_join", "anti_join") if v in g.verbs]
+    pl = Pl(g.pick(verbs), (("k",), ("k",)), (Pl("source", ("t",)), Pl("source", ("u",))))
+    if r.random() < 0.5:
+        cur = M.plan_schema(pl, sources)
+        un = [v for v in g.verbs if M.VERBS[v].nin == 1]
+        for _ in range(4):
+            v = g.pick(un)
+            npl = Pl(v, g.verb_params(v, cur), (pl,))
+            try:
+                M.plan_schema(npl, sources)
+            except M.TErr:
+                continue
+            pl = npl
+            break
+    return Case(f"d{g.index:04d}", g.seed, inputs, pl, "valid")
+
+
 def gen_case(seed: int, index: int, all_=False, features=None) -> Case:
     g = Gen(seed, index, all_, features)
     r = g.rng
+    if "joinstress" in g.features:
+        return gen_join_stress(g)
     kind = "invalid" if r.random() < 0.12 else "valid"
     g.err = 0.25 if kind == "invalid" else 0.0
     ts = g.schema()

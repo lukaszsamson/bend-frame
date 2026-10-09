@@ -247,9 +247,23 @@ def plan_of(+q: String, +s: P.Plan, +p: P.Plan) -> P.Plan:
   Bool.pick(P.Plan, String.eq(q, "q3"), QS.Q.q3(s, p),
   Bool.pick(P.Plan, String.eq(q, "q4"), QS.Q.q4(s, p), QS.Q.q5(s, p)))))
 
+# M6: BF_OPT=full runs the plan through Plan.optimize_full (opt-in, every rewrite) instead of the
+# default release optimizer; unset or anything else: the default (X.Lazy.collect)
+def job.c(+full: Bool, +pl: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
+  match full:
+    case True{}:
+      X.Lazy.collect_full(pl, env)
+    case False{}:
+      X.Lazy.collect(pl, env)
+
+def job.o(+q: String, +s: P.Plan, +p: P.Plan, env: P.Env, r: Result<&1, &1, U32 & String, String>) -> IO(E.ResT(C.Frame)):
+  job.c(String.eq(env.str(r), "full"), plan_of(q, s, p), env)
+
 def job.b(+q: String, +s: P.Plan, r: P.Env & P.Plan) -> IO(E.ResT(C.Frame)):
   (env, +p) = r
-  X.Lazy.collect(plan_of(q, s, p), env)
+  do IO<E.ResT(C.Frame)>:
+    ov : Result<&1, &1, U32 & String, String> <- IO.get_env("BF_OPT")
+    job.o(q, s, p, env, ov)
 
 def job.a(+q: String, r: P.Env & P.Plan, p: C.Frame) -> IO(E.ResT(C.Frame)):
   (env, +s) = r

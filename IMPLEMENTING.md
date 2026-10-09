@@ -910,3 +910,23 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
   are the laws the imported files do not prove). Iterate there, then paste into the generator.
 - Timings: 116 laws, `bend PROOF.bend` ~1.2 s wall / 2.2 s CPU, `--verdict` ~2.9 s wall, on a
   machine with load average 14.
+
+## M6 release-candidate validation (bench/m6.bend, scripts/consumer_check.sh)
+- **Import paths take plain names only** (letters, digits, `_`, `-`): an absolute import of a path
+  containing a `.` segment (`bend-frame-consumer.XXXXXX`) or macOS's `$TMPDIR` (`/var/folders/5t/..`)
+  is refused ("an import path of plain names"); `/tmp/<name-with-dashes>/..` and relative `../clone/frame.bend`
+  work. Both absolute (`import /abs/dir/frame.bend as DF`) and relative imports are fine. `bend --help`
+  of 2.0.36 has no dry-run for `--publish`, so none is run.
+- **An IO loop is one self-recursive def** whose `do` block binds the step's results and ends with the
+  recursive call; a helper that calls the loop back is mutual recursion ("unfilled law"). The decreasing
+  argument must come BEFORE any argument that changes in the self-call (`rp.loop(is6, q, left, i, ..)`, not
+  `(.., i, left, ..)`). State that must be split first (a frame cloned into two) goes through a
+  non-recursive helper called IN the argument list (`rp.loop(.., rp.split.n(kk))`).
+- `match` cannot scrutinize a computed value (`match String.eq(a, b):`): give it its own def with a
+  `+Bool` parameter. Constructors without fields need `{}` even as arguments (`True{}`).
+- A file that defines `main` can still be imported for its helpers (`import ./main.bend as M`;
+  `bench/m6.bend` reuses `M.force`, `M.fclone`, `M.job`, `M.load`).
+- A native compile of a 200-case differential program takes 10-25 s on an idle machine and more than
+  20 minutes when the machine's load average is above 50: `diff/run.py --backend both` then times out
+  the compile (`--timeout` x 4) and bisects every batch. Run it when the machine is quiet, or with
+  `--timeout 900 --jobs 3`.
