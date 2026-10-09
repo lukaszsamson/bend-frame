@@ -2423,3 +2423,38 @@ law choose_keeps_mask:
   for a: Array<U32>
   for b: Array<U32>
   {Pair.fst(Array<U32>, Array<U32>, K.Kernel.choose(~U32, n, m, a, b)) == m : Array<U32>}
+
+# ---- the column verbs over the in-place kernels: Eval.fix (every column), Eval.fill on Str columns ----
+
+# the data buffer of a Str storage is a well-formed array of depth d
+def WFStrData(+d: Nat, s: ST.Strs) -> Type:
+  match s:
+    case ST.SRaw{a}:
+      WFArray(String, d, a)
+    case ST.SDict{codes, dict}:
+      WFArray(U32, d, codes)
+
+# the hypotheses of Eval.fix at row i: the rows fit the slots, i is a row, the data buffer is well
+# formed (the P0 shape facts; the mask is only read)
+def FixHyp(c: C.Column, +i: U32) -> Type:
+  match c:
+    case C.CBool{+len, +depth, valid, data}:
+      {U32.is_le(len, U32.shln(1, depth)) == True{} : Bool} & {U32.is_lt(i, len) == True{} : Bool} & WFArray(U32, depth, data)
+    case C.CU32{+len, +depth, valid, data}:
+      {U32.is_le(len, U32.shln(1, depth)) == True{} : Bool} & {U32.is_lt(i, len) == True{} : Bool} & WFArray(U32, depth, data)
+    case C.CI32{+len, +depth, valid, data}:
+      {U32.is_le(len, U32.shln(1, depth)) == True{} : Bool} & {U32.is_lt(i, len) == True{} : Bool} & WFArray(U32, depth, data)
+    case C.CF32{+len, +depth, valid, data}:
+      {U32.is_le(len, U32.shln(1, depth)) == True{} : Bool} & {U32.is_lt(i, len) == True{} : Bool} & WFArray(F32, depth, data)
+    case C.CStr{+len, +depth, valid, data}:
+      {U32.is_le(len, U32.shln(1, depth)) == True{} : Bool} & {U32.is_lt(i, len) == True{} : Bool} & WFStrData(depth, data)
+
+# LAW: Eval.fix (the null slots back to the dtype default through Kernel.mask_data / Strs.fix, in
+# place; the result of every arithmetic / cast / clip / string-conversion operation goes through it)
+# keeps every cell of every column kind, both Str storages included (a null row stays null, a valid
+# row keeps its value: the reset never touches a valid slot)
+law fix_cell:
+  for c: C.Column
+  for +i: U32
+  for hyp: FixHyp(c, i)
+  {ccell(V.Eval.fix(c), i) == ccell(c, i) : D.Scalar}
