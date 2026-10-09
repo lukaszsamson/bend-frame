@@ -1854,3 +1854,455 @@ law eval_expr_typed:
   for +loc: Bool
   for ha: {A.Expr.analyse(e, fschema(f)) == Done{A.Ana{t, rs, k, tot, loc}} : E.Res(A.Ana)}
   EvalTy(t, tot, elen(k, fheight(f)), f, V.Eval.expr(f, e))
+
+# =====================================================================================
+# 14. Dictionary strings (M4, src/strs.bend; plan M_01 section 5 last paragraph and
+#     section 6 P1): the Dictionary storage decodes to the same cells as the Raw storage
+# =====================================================================================
+#
+# The cell model is `scell` (section 12): a Raw row is its slot, a Dictionary row is the
+# entry of its code. Every law here says that a Dictionary operation answers the same
+# `scell`s as the Raw operation (both equal the one model expression), and that the
+# dictionary invariants below are kept. A dictionary's entries in code order are modelled
+# by a Data LIST `es` (duplicable, so the proofs can speak about every entry at once):
+# `WFDictE(d, es)` ties the production `ST.Dict` to it.
+
+# the string at Nat index j of the entry list, "" past the end
+def nthn(es: List<&2, String>, j: Nat) -> String:
+  match es j:
+    case Nil{} _:
+      ""
+    case h <> t 0n:
+      h
+    case h <> t 1n+p:
+      nthn(t, p)
+
+# the entry of code c in the list model
+def nthd(+es: List<&2, String>, +c: U32) -> String:
+  nthn(es, U32.to_nat(c))
+
+# the entry count of a dictionary
+def dk(d: ST.Dict) -> U32:
+  match d:
+    case ST.Dict{k, dd, strs, b, slots, tag}:
+      k
+
+# an index slot is empty (id 0) or names entry id - 1: a code in range whose entry is the
+# slot's key (soundness of the index; the hash probe only ever answers such a slot)
+def SlotOk.k(e: Bool, +k: U32, +es: List<&2, String>, +key: String, +id: U32) -> Type:
+  match e:
+    case True{}:
+      Unit
+    case False{}:
+      {U32.is_lt(U32.sub(id, 1), k) == True{} : Bool} & {nthd(es, U32.sub(id, 1)) == key : String}
+
+def SlotOk(+k: U32, +es: List<&2, String>, x: ST.SSlot) -> Type:
+  match x:
+    case ST.SSlot{+key, +id}:
+      SlotOk.k(U32.is_eq(id, 0), k, es, key, id)
+
+# the index: a perfect tree of depth b whose every slot is sound
+def WFIx(+k: U32, +es: List<&2, String>, +b: Nat, t: Array<ST.SSlot>) -> Type:
+  match b t:
+    case 0n ALeaf{x}:
+      SlotOk(k, es, x)
+    case 1n+p ANode{xs, ys}:
+      WFIx(k, es, p, xs) & WFIx(k, es, p, ys)
+    case _ _:
+      Empty
+
+# a well-formed dictionary with the entry list es: k = |es| entries fitting the 2^dd slots
+# of strs, entry 0 the empty string (so a null row's code 0 decodes to the Raw default),
+# every entry slot below k holding its list entry, and a sound index
+def WFDictE(d: ST.Dict, +es: List<&2, String>) -> Type:
+  match d:
+    case ST.Dict{+k, +dd, strs, +b, slots, tag}:
+      {U32.to_nat(k) == List.length(&2, String, es) : Nat} & {U32.is_le(k, U32.shln(1, dd)) == True{} : Bool} & {U32.is_lt(0, k) == True{} : Bool} & {nthn(es, 0n) == "" : String} & WFArray(String, dd, strs) & (@c: U32 -> {U32.is_lt(c, k) == True{} : Bool} -> {rd_at(String, strs, c) == nthd(es, c) : String}) & WFIx(k, es, b, slots)
+
+def WFDict(d: ST.Dict) -> Type:
+  &es: List<&2, String> -> WFDictE(d, es)
+
+# es2 extends es: the old entries keep their codes (a Data relation: duplicable)
+def Ext(+es: List<&2, String>, +es2: List<&2, String>) -> Type:
+  &more: List<&2, String> -> {es2 == List.append(&2, String, es, more) : List<&2, String>}
+
+# ---- the decode model and the code-moving kernels ---------------------------------------------
+
+# LAW: Strs.decode reads row i as scell(s, i) for every i < n <= 2^d (a Raw column is its array;
+# a Dictionary is the gather of the entries by the codes: decode(Dictionary) is the Raw column)
+law decode_cell:
+  for +n: U32
+  for +d: Nat
+  for s: ST.Strs
+  for +i: U32
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for hi: {U32.is_lt(i, n) == True{} : Bool}
+  {rd_at(String, ST.Strs.decode(n, d, s), i) == scell(s, i) : String}
+
+# Strs.gather's result: perm back, row k of the output is row perm[k] of the input for k < n
+def GatherW(-s: ST.Strs, -perm: Array<U32>, +n: U32, +d: Nat) -> Type:
+  &o: ST.Strs -> &pm: Array<U32> -> {ST.Strs.gather(s, perm, n, d) == (o, pm) : ST.Strs & Array<U32>} & {pm == perm : Array<U32>} & (@k: U32 -> {U32.is_lt(k, n) == True{} : Bool} -> {scell(o, k) == scell(s, rd_at(U32, perm, k)) : String})
+
+# LAW: Strs.gather (rows perm[0..n) into 2^d slots) in both storages: a Dictionary gathers
+# codes only (the dictionary moves along), a Raw column gathers the strings; both read row k as
+# scell(s, perm[k]) (Column.gather.data, hence Column.gather / Column.slice on Str columns)
+law strs_gather_cells:
+  for s: ST.Strs
+  for perm: Array<U32>
+  for +n: U32
+  for +d: Nat
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  GatherW(s, perm, n, d)
+
+# the compaction's contract on Str cells: every row with a set mask word sits at its cursor
+# position with the same scell (the Str form of CSpec, section 11)
+def SCSpec(f: Nat, +i: U32, +k: U32, -s: ST.Strs, -mask: Array<U32>, -o: ST.Strs) -> Type:
+  match f:
+    case 0n:
+      Unit
+    case 1n+p:
+      &b: U32 -> {b == rd_at(U32, mask, i) : U32} & ({U32.is_ne(b, 0) == True{} : Bool} -> {scell(o, k) == scell(s, i) : String}) & SCSpec(p, U32.inc(i), U32.add(k, b), s, mask, o)
+
+# Strs.compact's result: the mask back, the kept rows' cells in order
+def CompactW(-s: ST.Strs, -mask: Array<U32>, +len: U32, +d: Nat) -> Type:
+  &o: ST.Strs -> &m2: Array<U32> -> {ST.Strs.compact(s, mask, len, d) == (o, m2) : ST.Strs & Array<U32>} & {m2 == mask : Array<U32>} & SCSpec(U32.to_nat(len), 0, 0, s, mask, o)
+
+# LAW: Strs.compact (the first len rows where mask = 1, into 2^d slots) in both storages: the
+# kept rows keep their cells in order (Column.compact.data, hence filter / drop_nulls on Str
+# columns), under the compaction precondition CRoom of section 11; the mask comes back
+law strs_compact_cells:
+  for s: ST.Strs
+  for mask: Array<U32>
+  for +len: U32
+  for +d: Nat
+  for room: CRoom(U32.to_nat(len), 0, 0, d, mask)
+  CompactW(s, mask, len, d)
+
+# LAW: Strs.clone / Dict.clone answer two copies equal to the input (Column.clone.s): every cell
+# and the dictionary itself are kept
+def SCloneW(-s: ST.Strs) -> Type:
+  &s1: ST.Strs -> &s2: ST.Strs -> {ST.Strs.clone(s) == (s1, s2) : ST.Strs & ST.Strs} & {s1 == s : ST.Strs} & {s2 == s : ST.Strs}
+
+def DCloneW(-d: ST.Dict) -> Type:
+  &d1: ST.Dict -> &d2: ST.Dict -> {ST.Dict.clone(d) == (d1, d2) : ST.Dict & ST.Dict} & {d1 == d : ST.Dict} & {d2 == d : ST.Dict}
+
+law strs_clone_w:
+  for s: ST.Strs
+  SCloneW(s)
+
+law dict_clone_w:
+  for d: ST.Dict
+  DCloneW(d)
+
+# ---- the dictionary builders: Str.same, Dict.empty, Dict.code, Strs.encode ------------------------
+
+# LAW: Str.same (the index's key comparison) is sound and complete: equal strings exactly
+law str_same_sound:
+  for a: String
+  for b: String
+  for h: {ST.Str.same(a, b) == True{} : Bool}
+  {a == b : String}
+
+law str_same_complete:
+  for +a: String
+  {ST.Str.same(a, a) == True{} : Bool}
+
+# LAW: Dict.empty is the well-formed dictionary with the one entry "" (code 0)
+law dict_empty_wf:
+  WFDictE(ST.Dict.empty(), "" <> Nil{})
+
+# the look bit of the probe at a slot (Ix.look): 1 while the slot holds ANOTHER key
+def look_bit(+s: String, x: ST.SSlot) -> Bool:
+  match x:
+    case ST.SSlot{key, +id}:
+      Bool.and(U32.is_ne(id, 0), Bool.not(ST.Str.same(key, s)))
+
+def dslots(d: ST.Dict) -> Array<ST.SSlot>:
+  match d:
+    case ST.Dict{k, dd, strs, b, slots, tag}:
+      slots
+
+def dbits(d: ST.Dict) -> Nat:
+  match d:
+    case ST.Dict{k, dd, strs, b, slots, tag}:
+      b
+
+# HYPOTHESIS of the builder laws (not proven here, see DESIGN.md section 8): the probe for s in d's
+# index (Ix.seek: FNV-1a + Fibonacci slot, linear probing) stops at a slot that is empty or holds s.
+# Production guarantees it by the load factor <= 1/2 (an empty slot is always within the probe's
+# fuel) and the pairwise distinct entries; that termination argument is the part not proven.
+def Probe(-d: ST.Dict, +s: String) -> Type:
+  &x: ST.SSlot -> {x == rd_at(ST.SSlot, dslots(d), Pair.snd(Array<ST.SSlot>, U32, ST.Ix.seek(dbits(d), dslots(d), ST.Str.hash(s), s))) : ST.SSlot} & {look_bit(s, x) == False{} : Bool}
+
+# Dict.code's answer: the dictionary d2 with entries es2 (es plus at most one new entry) and the
+# code c of s in it: in range (below the entry count, as a word and in the list model), decoding
+# to s; d2 well formed; every old code keeps its entry
+def CodeW(-d: ST.Dict, +es: List<&2, String>, +s: String) -> Type:
+  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {ST.Dict.code(d, s) == (d2, c) : ST.Dict & U32} & {U32.is_lt(c, dk(d2)) == True{} : Bool} & {Cmp.is_lt(Nat.cmp(U32.to_nat(c), List.length(&2, String, es2))) == True{} : Bool} & {nthd(es2, c) == s : String} & Ext(es, es2) & {Nat.is_le(List.length(&2, String, es2), 1n+List.length(&2, String, es)) == True{} : Bool} & WFDictE(d2, es2) & (@c2: U32 -> {U32.is_lt(c2, dk(d)) == True{} : Bool} -> {dentry(d2, c2) == dentry(d, c2) : String})
+
+# LAW: Dict.code (the code of s, inserted when absent: Dict.code.h/k/p, Dict.add, Dict.fit, Dict.room,
+# the index Ix.seek/look/slot, Ix.grow/move) keeps the dictionary well formed, extends the entries by
+# at most s, and answers a code in range that decodes to s. Below 2^30 entries (the row cap keeps
+# every dictionary far below); under the probe hypothesis
+law dict_code_spec:
+  for d: ST.Dict
+  for +es: List<&2, String>
+  for +s: String
+  for wf: WFDictE(d, es)
+  for small: {U32.is_lt(dk(d), U32.shln(1, 30n)) == True{} : Bool}
+  for probe: Probe(d, s)
+  CodeW(d, es, s)
+
+# the probe hypotheses along Strs.encode's loop (Enc.go): row i against the dictionary built so far
+def EncProbe(f: Nat, +i: U32, -a: Array<String>, -d: ST.Dict) -> Type:
+  match f:
+    case 0n:
+      Unit
+    case 1n+p:
+      Probe(d, rd_at(String, a, i)) & EncProbe(p, U32.inc(i), a, Pair.fst(ST.Dict, U32, ST.Dict.code(d, rd_at(String, a, i))))
+
+# the rows below i of a code array against the entry list es: row j's code (any word equal to the
+# slot, so the fact is Data) is below the entry count and names row j of the Raw array in the list
+def EncRows(+i: U32, +d: Nat, -a: Array<String>, -codes: Array<U32>, +es: List<&2, String>) -> Type:
+  @j: U32 -> {U32.is_lt(j, i) == True{} : Bool} -> @code: U32 -> {code == rdN(U32, d, codes, j) : U32} -> {Cmp.is_lt(Nat.cmp(U32.to_nat(code), List.length(&2, String, es))) == True{} : Bool} & {nthd(es, code) == rd_at(String, a, j) : String}
+
+# Strs.encode's answer on a Raw array: a Dictionary with a well-formed code array and a well-formed
+# dictionary over the entry list es, every row i < n coded below the entry count to the entry that
+# is the Raw row (the per-row dentry form is strs_encode_cell)
+def EncodeW(+n: U32, +d: Nat, -a: Array<String>) -> Type:
+  &codes: Array<U32> -> &dict: ST.Dict -> &es: List<&2, String> -> {ST.Strs.encode(n, d, ST.SRaw{a}) == ST.SDict{codes, dict} : ST.Strs} & WFArray(U32, d, codes) & WFDictE(dict, es) & EncRows(n, d, a, codes, es)
+
+# LAW: Strs.encode of a Raw column (Strs.encode.raw: Enc.go / Enc.step / Enc.put / Enc.fin over
+# Dict.code from Dict.empty) is a well-formed Dictionary whose every row i < n decodes to the Raw
+# row; n <= 2^d (the slots), n < 2^30 (the entry bound), under the probe hypotheses
+law strs_encode_cells:
+  for +n: U32
+  for +d: Nat
+  for a: Array<String>
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for small: {U32.is_lt(n, U32.shln(1, 30n)) == True{} : Bool}
+  for probes: EncProbe(U32.to_nat(n), 0, a, ST.Dict.empty())
+  EncodeW(n, d, a)
+
+# the probe hypotheses of Strs.encode on a storage (none for an already encoded Dictionary)
+def EncProbeS(+n: U32, s: ST.Strs) -> Type:
+  match s:
+    case ST.SRaw{a}:
+      EncProbe(U32.to_nat(n), 0, a, ST.Dict.empty())
+    case ST.SDict{codes, dict}:
+      Unit
+
+# LAW: Strs.encode keeps every cell: scell(encode(s), i) == scell(s, i) for i < n (a Dictionary is
+# kept as it is; a Raw column is encoded)
+law strs_encode_cell:
+  for +n: U32
+  for +d: Nat
+  for s: ST.Strs
+  for +i: U32
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for small: {U32.is_lt(n, U32.shln(1, 30n)) == True{} : Bool}
+  for hi: {U32.is_lt(i, n) == True{} : Bool}
+  for probes: EncProbeS(n, s)
+  {scell(ST.Strs.encode(n, d, s), i) == scell(s, i) : String}
+
+# ---- decode back and the column / frame wrappers (Strs.raw, Column.encode / decode / recode,
+#      Frame.encode = DF.encode_strings) --------------------------------------------------------
+
+# LAW: Strs.raw (the Raw form of a storage: one decode) keeps every cell
+law strs_raw_cell:
+  for +n: U32
+  for +d: Nat
+  for s: ST.Strs
+  for +i: U32
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for hi: {U32.is_lt(i, n) == True{} : Bool}
+  {scell(ST.Strs.raw(n, d, s), i) == scell(s, i) : String}
+
+# the hypotheses of Column.recode(dict, c) at row i: a Str column fits its slots and i is a row;
+# when encoding (dict) also the row cap and the probe hypotheses of Strs.encode; nothing for the
+# other dtypes (they pass through)
+def RecodeHyp.enc(+dict: Bool, +n: U32, x: ST.Strs) -> Type:
+  match dict:
+    case True{}:
+      {U32.is_lt(n, U32.shln(1, 30n)) == True{} : Bool} & EncProbeS(n, x)
+    case False{}:
+      Unit
+
+def RecodeHyp(+dict: Bool, c: C.Column, +i: U32) -> Type:
+  match c:
+    case C.CStr{+len, +depth, valid, data}:
+      {U32.is_le(len, U32.shln(1, depth)) == True{} : Bool} & {U32.is_lt(i, len) == True{} : Bool} & RecodeHyp.enc(dict, len, data)
+    case other:
+      Unit
+
+# LAW: Column.encode / Column.decode / Column.recode keep every cell (the Str storage is encoded
+# by Strs.encode or decoded by Strs.raw; validity and the other dtypes are untouched)
+law column_encode_cell:
+  for c: C.Column
+  for +i: U32
+  for hyp: RecodeHyp(True{}, c, i)
+  {ccell(C.Column.encode(c), i) == ccell(c, i) : D.Scalar}
+
+law column_decode_cell:
+  for c: C.Column
+  for +i: U32
+  for hyp: RecodeHyp(False{}, c, i)
+  {ccell(C.Column.decode(c), i) == ccell(c, i) : D.Scalar}
+
+law column_recode_cell:
+  for +dict: Bool
+  for c: C.Column
+  for +i: U32
+  for hyp: RecodeHyp(dict, c, i)
+  {ccell(C.Column.recode(dict, c), i) == ccell(c, i) : D.Scalar}
+
+# the columns of a frame recoded one by one: the same names, every cell kept (under the row
+# hypotheses of the column)
+def ColsCells(+dict: Bool, cols: List<&1, C.Named>, cols2: List<&1, C.Named>) -> Type:
+  match cols cols2:
+    case Nil{} Nil{}:
+      Unit
+    case C.Named{n, c} <> rest C.Named{n2, c2} <> rest2:
+      {n2 == n : String} & (@i: U32 -> RecodeHyp(dict, c, i) -> {ccell(c2, i) == ccell(c, i) : D.Scalar}) & ColsCells(dict, rest, rest2)
+    case _ _:
+      Empty
+
+# LAW: Cols.encode recodes every column in place
+law cols_encode_cells:
+  for cols: List<&1, C.Named>
+  for +dict: Bool
+  ColsCells(dict, cols, C.Cols.encode(cols, dict))
+
+def FrameCells(+dict: Bool, f: C.Frame, f2: C.Frame) -> Type:
+  match f f2:
+    case C.Frame{h, cols} C.Frame{h2, cols2}:
+      {h2 == h : U32} & ColsCells(dict, cols, cols2)
+
+# LAW: Frame.encode (DF.encode_strings) keeps the height, the column names and every cell
+law frame_encode_cells:
+  for f: C.Frame
+  for +dict: Bool
+  FrameCells(dict, f, C.Frame.encode(f, dict))
+
+# ---- remap: Dict.merge (one dictionary's entries into another), Dict.miss -----------------------
+
+def ddd(d: ST.Dict) -> Nat:
+  match d:
+    case ST.Dict{k, dd, strs, b, slots, tag}:
+      dd
+
+def dstrs(d: ST.Dict) -> Array<String>:
+  match d:
+    case ST.Dict{k, dd, strs, b, slots, tag}:
+      strs
+
+# LAW: Dict.miss() (the "absent" answer of Dict.find / Dict.recode) is never a code of a dictionary
+# below 2^30 entries
+law dict_miss_not_code:
+  for d: ST.Dict
+  for small: {U32.is_lt(dk(d), U32.shln(1, 30n)) == True{} : Bool}
+  {U32.is_lt(ST.Dict.miss(), dk(d)) == False{} : Bool}
+
+# the probe hypotheses and the entry bound along Dict.merge (Dict.rc.go with ins): entry c of src
+# against the dictionary built so far, which holds fewer than 2^30 entries (the row cap keeps every
+# dictionary far below)
+def MergeProbe(f: Nat, +c: U32, -strs: Array<String>, -d: ST.Dict) -> Type:
+  match f:
+    case 0n:
+      Unit
+    case 1n+p:
+      Probe(d, rd_at(String, strs, c)) & {U32.is_lt(dk(d), U32.shln(1, 30n)) == True{} : Bool} & MergeProbe(p, U32.inc(c), strs, Pair.fst(ST.Dict, U32, ST.Dict.code(d, rd_at(String, strs, c))))
+
+# Dict.merge's answer: src back unchanged; dst extended (es2 extends esd) and well formed, every old
+# code of dst keeping its entry; the map m (2^ddd(src) slots, well formed) re-codes every entry c of
+# src: m[c] (any word equal to the slot) is below the extended entry count and names src's entry c
+# there (EncRows over src's entry array: nthd(es2, m[c]) == dentry(src, c))
+def MergeW(-src: ST.Dict, -dst: ST.Dict, +esd: List<&2, String>) -> Type:
+  &src2: ST.Dict -> &dst2: ST.Dict -> &m: Array<U32> -> &es2: List<&2, String> -> {ST.Dict.merge(src, dst) == (src2, dst2, m) : ST.Dict & ST.Dict & Array<U32>} & {src2 == src : ST.Dict} & Ext(esd, es2) & WFArray(U32, ddd(src), m) & WFDictE(dst2, es2) & (@c: U32 -> {U32.is_lt(c, dk(dst)) == True{} : Bool} -> {dentry(dst2, c) == dentry(dst, c) : String}) & EncRows(dk(src), ddd(src), dstrs(src), m, es2)
+
+# LAW: Dict.merge(src, dst) (Dict.rc with ins over Dict.code: Dict.rc.go / .step / .op / .put / .fin /
+# .fin2) extends dst by the entries of src it lacks and maps src's codes into the result; src fits its
+# slots (k <= 2^dd, part of WFDictE(src, _)), under the probe hypotheses and the entry bound at every step
+law dict_merge_spec:
+  for src: ST.Dict
+  for dst: ST.Dict
+  for +esd: List<&2, String>
+  for fits: {U32.is_le(dk(src), U32.shln(1, ddd(src))) == True{} : Bool}
+  for wfd: WFDictE(dst, esd)
+  for probes: MergeProbe(U32.to_nat(dk(src)), 0, dstrs(src), dst)
+  MergeW(src, dst, esd)
+
+# ---- Dict.same: the equality test that lets two columns compare codes directly ---------------------
+
+# the entries in code order agree below k
+def SameRows(+k: U32, -x: ST.Dict, -y: ST.Dict) -> Type:
+  @c: U32 -> {U32.is_lt(c, k) == True{} : Bool} -> {dentry(x, c) == dentry(y, c) : String}
+
+# Dict.same's answer: both dictionaries back unchanged; a True answer means equal entry counts and
+# equal entries code by code (the tag is only a fingerprint: it is verified entry by entry)
+def SameW(-x: ST.Dict, -y: ST.Dict) -> Type:
+  &x2: ST.Dict -> &y2: ST.Dict -> &ok: Bool -> {ST.Dict.same(x, y) == (x2, y2, ok) : ST.Dict & ST.Dict & Bool} & {x2 == x : ST.Dict} & {y2 == y : ST.Dict} & ({ok == True{} : Bool} -> {dk(x) == dk(y) : U32} & SameRows(dk(x), x, y))
+
+# LAW: Dict.same (Dict.same.k / .u / .t / .v / .w / .go / .fin over Dict.size, Dict.tag, Str.same) is
+# sound: True only for dictionaries with the same entries in the same order (so equal codes mean
+# equal strings across the two columns, Eval.zd.eq.*)
+law dict_same_sound:
+  for x: ST.Dict
+  for y: ST.Dict
+  SameW(x, y)
+
+# ---- Dict.find and Dict.recode: codes of one dictionary in another, Dict.miss() when absent --------
+
+# a lookup's answer: the miss word, or a code below k naming s (soundness of the index; completeness,
+# "every entry is found", is what the builders maintain and tests check, not stated here)
+def FoundK(e: Bool, +c: U32, +k: U32, +es: List<&2, String>, +s: String) -> Type:
+  match e:
+    case True{}:
+      {c == ST.Dict.miss() : U32}
+    case False{}:
+      {U32.is_lt(c, k) == True{} : Bool} & {nthd(es, c) == s : String}
+
+# Dict.find's answer: the dictionary back unchanged (still well formed) and a code that is a miss or
+# names s
+def FindW(-d: ST.Dict, +es: List<&2, String>, +s: String) -> Type:
+  &d2: ST.Dict -> &c: U32 -> {ST.Dict.find(d, s) == (d2, c) : ST.Dict & U32} & {d2 == d : ST.Dict} & WFDictE(d2, es) & (&e: Bool -> FoundK(e, c, dk(d), es, s))
+
+# LAW: Dict.find (Dict.find.k over the probe Ix.seek / Ix.id) never invents a code: its answer is
+# Dict.miss() or a code in range whose entry is s; the dictionary comes back unchanged
+law dict_find_spec:
+  for d: ST.Dict
+  for +es: List<&2, String>
+  for +s: String
+  for wf: WFDictE(d, es)
+  for probe: Probe(d, s)
+  FindW(d, es, s)
+
+# the probe hypotheses along Dict.recode (Dict.rc.go without ins): entry c of src against dst, which
+# every Dict.find hands back unchanged (the chain threads the production's dictionary all the same)
+def FindProbe(f: Nat, +c: U32, -strs: Array<String>, -d: ST.Dict) -> Type:
+  match f:
+    case 0n:
+      Unit
+    case 1n+p:
+      Probe(d, rd_at(String, strs, c)) & FindProbe(p, U32.inc(c), strs, Pair.fst(ST.Dict, U32, ST.Dict.find(d, rd_at(String, strs, c))))
+
+# the rows below c of the map m: entry j of src re-coded to Dict.miss() or to a code of dst naming it
+def RecRows(+c: U32, +dd: Nat, -strs: Array<String>, -m: Array<U32>, +kd: U32, +esd: List<&2, String>) -> Type:
+  @j: U32 -> {U32.is_lt(j, c) == True{} : Bool} -> @code: U32 -> {code == rdN(U32, dd, m, j) : U32} -> &e: Bool -> FoundK(e, code, kd, esd, rd_at(String, strs, j))
+
+# Dict.recode's answer: both dictionaries back unchanged (dst well formed); the map m (2^ddd(src) slots,
+# well formed) re-codes every entry of src into dst or answers Dict.miss() (never a code there:
+# dict_miss_not_code)
+def RecodeW(-src: ST.Dict, -dst: ST.Dict, +esd: List<&2, String>) -> Type:
+  &src2: ST.Dict -> &dst2: ST.Dict -> &m: Array<U32> -> {ST.Dict.recode(src, dst) == (src2, dst2, m) : ST.Dict & ST.Dict & Array<U32>} & {src2 == src : ST.Dict} & {dst2 == dst : ST.Dict} & WFArray(U32, ddd(src), m) & WFDictE(dst2, esd) & RecRows(dk(src), ddd(src), dstrs(src), m, dk(dst), esd)
+
+# LAW: Dict.recode(src, dst) (Dict.rc without ins over Dict.find) maps src's codes into dst's, a miss
+# where dst lacks the entry; src fits its slots; under the probe hypotheses
+law dict_recode_spec:
+  for src: ST.Dict
+  for dst: ST.Dict
+  for +esd: List<&2, String>
+  for fits: {U32.is_le(dk(src), U32.shln(1, ddd(src))) == True{} : Bool}
+  for wfd: WFDictE(dst, esd)
+  for probes: FindProbe(U32.to_nat(dk(src)), 0, dstrs(src), dst)
+  RecodeW(src, dst, esd)

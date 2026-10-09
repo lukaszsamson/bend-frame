@@ -28,3 +28,4 @@ import ./PROOF_contents.bend as PC
 import ./PROOF_eval.bend as PV
 import ./PROOF_evalops.bend as PO
 import ./PROOF_evalrun.bend as PR
+import ./PROOF_strs.bend as PST
