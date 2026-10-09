@@ -1222,14 +1222,14 @@ law u32_fold_sum:
   for +n: U32
   for a: Array<U32>
   for +z: U32
-  FSum(U32.to_nat(n), 0, z, a, Pair.snd(Array<U32>, U32, K.Kernel.fold(~U32, ~U32, ~(x => y => U32.add(x, y)), n, a, z)))
+  FSum(U32.to_nat(n), 0, z, a, Pair.snd(Array<U32>, U32, K.Kernel.fold(~U32, ~U32, ~(acc => x => U32.add(acc, x)), n, a, z)))
 
 # LAW: the fold hands the array back unchanged
 law u32_fold_keeps:
   for +n: U32
   for a: Array<U32>
   for +z: U32
-  {Pair.fst(Array<U32>, U32, K.Kernel.fold(~U32, ~U32, ~(x => y => U32.add(x, y)), n, a, z)) == a : Array<U32>}
+  {Pair.fst(Array<U32>, U32, K.Kernel.fold(~U32, ~U32, ~(acc => x => U32.add(acc, x)), n, a, z)) == a : Array<U32>}
 
 # LAW: Kernel.popcount (the kept-row count of filter, the valid count of null_count / sum / mean)
 # is the modulo-2^32 sum of the first n mask words
