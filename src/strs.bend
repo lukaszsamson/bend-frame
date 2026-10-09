@@ -46,6 +46,7 @@ type StrEnc is Data:
   EncRaw{}
   EncDict{}
   EncAuto{}
+  EncAutoAt{floor: U32, den: U32}
 
 def Dict.miss() -> U32:
   4294967295

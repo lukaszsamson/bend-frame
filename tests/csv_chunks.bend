@@ -40,7 +40,33 @@ def chk(+tag: String, +path: String, +opts: V.CsvOpts, +ts: List<&2, D.DType>) -
     c64 : String <- rd(path, opts, ts, ST.EncRaw{}, 64)
     d0 : String <- rd(path, opts, ts, ST.EncDict{}, 1048576)
     a0 : String <- rd(path, opts, ts, ST.EncAuto{}, 1048576)
-    IO.print(verdict(tag ++ " (" ++ first.line(base) ++ ")", base, [c1, c2, c3, c7, c64, d0, a0]))
+    s5 : String <- rd(path, opts, ts, ST.EncAutoAt{2, 4}, 5)
+    s0 : String <- rd(path, opts, ts, ST.EncAutoAt{3, 2}, 1048576)
+    IO.print(verdict(tag ++ " (" ++ first.line(base) ++ ")", base, [c1, c2, c3, c7, c64, d0, a0, s5, s0]))
+
+def st.k(r: C.Column & Bool) -> String:
+  (c, b) = r
+  Bool.pick(String, b, "dict", "raw")
+
+# the storage of every column (EncAutoAt: which Str columns fell back to Raw)
+def st.cols(cs: List<&1, C.Named>) -> String:
+  match cs:
+    case Nil{}:
+      ""
+    case C.Named{n, c} <> t:
+      " " ++ n ++ ":" ++ st.k(C.Column.is_dict(c)) ++ st.cols(t)
+
+def st.r(r: E.ResT(C.Frame)) -> String:
+  match r:
+    case Fail{e}:
+      "error"
+    case Done{C.Frame{h, cs}}:
+      st.cols(cs)
+
+def storage(+tag: String, +path: String, enc: ST.StrEnc, +chunk: U32) -> IO(Unit):
+  do IO<Unit>:
+    r : E.ResT(C.Frame) <- V.Csv.read_full(path, V.Csv.default(), [], enc, chunk, 8388608)
+    IO.print(tag ++ ":" ++ st.r(r))
 
 def o(+hdr: Bool, +inf: U32) -> V.CsvOpts:
   V.CsvOpts{',', hdr, inf}
@@ -89,6 +115,11 @@ def main() -> IO(Unit):
     chk("tiny bad dtypes", "bench/fixtures/tiny.csv", V.Csv.default(), [D.TU32{}, D.TU32{}, D.TStr{}, D.TU32{}, D.TF32{}, D.TF32{}, D.TBool{}])
     chk("tiny dtype count", "bench/fixtures/tiny.csv", V.Csv.default(), [D.TU32{}])
     chk("tiny no header", "bench/fixtures/tiny.csv", o(False{}, 100), [])
+    storage("tiny auto (floor 16)", "bench/fixtures/tiny.csv", ST.EncAutoAt{16, 2}, 1048576)
+    storage("tiny auto (floor 4)", "bench/fixtures/tiny.csv", ST.EncAutoAt{4, 8}, 1048576)
+    storage("tiny auto (floor 4, 64-byte chunks)", "bench/fixtures/tiny.csv", ST.EncAutoAt{4, 8}, 64)
+    storage("tiny auto", "bench/fixtures/tiny.csv", ST.EncAuto{}, 1048576)
+    storage("tiny dict", "bench/fixtures/tiny.csv", ST.EncDict{}, 1048576)
 
 #|tiny (frame): same
 #|products (frame): same
@@ -132,3 +163,8 @@ def main() -> IO(Unit):
 #|tiny bad dtypes (error	ParseError at line 2: column region: cannot parse "inland" as u32): same
 #|tiny dtype count (error	InvalidOperation: csv schema: 1 dtypes for 7 columns): same
 #|tiny no header (frame): same
+#|tiny auto (floor 16): id:raw region:dict product:raw qty:raw price:raw discount:raw ok:raw
+#|tiny auto (floor 4): id:raw region:raw product:raw qty:raw price:raw discount:raw ok:raw
+#|tiny auto (floor 4, 64-byte chunks): id:raw region:raw product:raw qty:raw price:raw discount:raw ok:raw
+#|tiny auto: id:raw region:dict product:dict qty:raw price:raw discount:raw ok:raw
+#|tiny dict: id:raw region:dict product:dict qty:raw price:raw discount:raw ok:raw

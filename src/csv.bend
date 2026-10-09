@@ -1075,20 +1075,23 @@ def Csv.chunk() -> U32:
 type BadL is Data:
   BadL{line: U32, text: String}
 
-# EncAuto keeps a Dictionary while its entries stay within max(floor, rows * num / den)
-# (DESIGN.md 14 M4: the measured threshold), checked after each chunk; past it the column falls
-# back to Raw, decoding the chunks coded so far (the only rescan: of a prefix)
-def Csv.dict_floor() -> U32:
-  1024
+# EncAuto keeps a Dictionary while its entries stay within max(16384, rows / 64), checked at every
+# cell (DESIGN.md 14 M4: the threshold measured on 1M-row columns: up to ~1 % distinct the
+# Dictionary costs the parse <= 5 % and wins every operation; at 10 % it costs the parse ~33 %);
+# past it the column falls back to Raw at once, decoding the rows coded so far (the only rescan:
+# of a prefix, at most ~16k rows when the column is distinct from the start). EncAutoAt{floor,
+# den} is the same with other numbers (tests); EncDict never falls back.
+def Csv.dict_over.at(+k: U32, +n: U32, +floor: U32, +den: U32) -> Bool:
+  U32.is_gt(k, U32.max(floor, U32.div(n, U32.max(den, 1))))
 
-def Csv.dict_num() -> U32:
-  1
-
-def Csv.dict_den() -> U32:
-  2
-
-def Csv.dict_over(+k: U32, +n: U32) -> Bool:
-  U32.is_gt(k, U32.max(Csv.dict_floor(), U32.div(U32.mul(n, Csv.dict_num()), Csv.dict_den())))
+def Csv.dict_over(enc: ST.StrEnc, +k: U32, +n: U32) -> Bool:
+  match enc:
+    case ST.EncAuto{}:
+      Csv.dict_over.at(k, n, 16384, 64)
+    case ST.EncAutoAt{+floor, +den}:
+      Csv.dict_over.at(k, n, floor, den)
+    case _:
+      False{}
 
 # a word cell: trimmed text, empty is null, else the dtype's reader
 def Csv.rd.bool(+s: String) -> Maybe<&2, U32>:
@@ -1138,8 +1141,15 @@ type FS is Type:
 type SS is Type:
   SS{nulls: U32, a: Array<String>, vm: Array<U32>}
 
+# k: the dictionary's entries so far
 type DS is Type:
-  DS{nulls: U32, c: Array<U32>, vm: Array<U32>, dict: ST.Dict}
+  DS{nulls: U32, k: U32, c: Array<U32>, vm: Array<U32>, dict: ST.Dict}
+
+# where a Dictionary chunk loop stopped: every cell coded, or (EncAuto past the threshold at row
+# i) switched to Raw with the cells left
+type DR is Type:
+  DDone{st: DS}
+  DSwitch{i: U32, rest: List<&2, H.CsvCell>, st: DS}
 
 def Ws.r(+i: U32, +line: U32, +f: String, st: WS, m: Maybe<&2, U32>) -> WS:
   match st m:
@@ -1212,23 +1222,32 @@ def Ss.go(cs: List<&2, H.CsvCell>, +i: U32, st: SS) -> SS:
     case Nil{}:
       st
 
-def Ds.put(+i: U32, +nulls: U32, c: Array<U32>, vm: Array<U32>, r: ST.Dict & U32) -> DS:
+# go on coding: not (EncAuto and the entries past Csv.dict_over for the rows so far)
+def Ds.put(+i: U32, +n0: U32, +auto: ST.StrEnc, +nulls: U32, +k: U32, c: Array<U32>, vm: Array<U32>, r: ST.Dict & U32) -> Bool & DS:
   (dict, +code) = r
-  DS{nulls, Array.set(U32, c, i, code), vm, dict}
+  +k2 = Bool.pick(U32, U32.is_eq(code, k), U32.inc(k), k)
+  (Bool.not(Csv.dict_over(auto, k2, U32.add(n0, U32.inc(i)))), DS{nulls, k2, Array.set(U32, c, i, code), vm, dict})
 
 # a Dictionary cell: its code (a null's text is "", code 0)
-def Ds.cell(+i: U32, c: H.CsvCell, st: DS) -> DS:
+def Ds.cell(c: H.CsvCell, +i: U32, +n0: U32, +auto: ST.StrEnc, st: DS) -> Bool & DS:
   match c st:
-    case H.CsvCell{+f, +q} DS{+nulls, codes, vm, dict}:
+    case H.CsvCell{+f, +q} DS{+nulls, +k, codes, vm, dict}:
       +ok = Csv.sok(q, f)
-      Ds.put(i, U32.add(nulls, U32.sub(1, ok)), codes, Array.set(U32, vm, i, ok), ST.Dict.code(dict, f))
+      Ds.put(i, n0, auto, U32.add(nulls, U32.sub(1, ok)), k, codes, Array.set(U32, vm, i, ok), ST.Dict.code(dict, f))
 
-def Ds.go(cs: List<&2, H.CsvCell>, +i: U32, st: DS) -> DS:
+# n0: the column's rows before this chunk; ps: (go on, the state)
+def Ds.go(cs: List<&2, H.CsvCell>, +i: U32, +n0: U32, +auto: ST.StrEnc, ps: Bool & DS) -> DR:
   match cs:
-    case c <> ct:
-      Ds.go(ct, U32.inc(i), Ds.cell(i, c, st))
     case Nil{}:
-      st
+      (go, st) = ps
+      DDone{st}
+    case c <> ct:
+      (go, st) = ps
+      match go:
+        case True{}:
+          Ds.go(ct, U32.inc(i), n0, auto, Ds.cell(c, i, n0, auto, st))
+        case False{}:
+          DSwitch{i, c <> ct, st}
 
 # ---- a column being built ------------------------------------------------------------------------
 
@@ -1237,7 +1256,7 @@ def Ds.go(cs: List<&2, H.CsvCell>, +i: U32, st: DS) -> DS:
 type SK is Type:
   KNone{}
   KRaw{}
-  KDict{dict: ST.Dict, auto: Bool}
+  KDict{dict: ST.Dict, auto: ST.StrEnc}
 
 # dtype, rows so far, nulls so far, the first bad cell, the storage, the parts (newest first)
 type CB is Type:
@@ -1282,21 +1301,38 @@ def Parts.dec(ps: List<&1, Part>, st: ST.Dict & List<&1, Part>) -> List<&1, Part
       Parts.dec(t, Parts.dec.step(p, st))
 
 # the fall back: past the threshold the column is Raw from here on
-def CB.d.over(over: Bool, +t: D.DType, +n: U32, +nulls: U32, bad: Maybe<&2, BadL>, dict: ST.Dict, +auto: Bool, parts: List<&1, Part>) -> CB:
+def CB.d.over(over: Bool, +t: D.DType, +n: U32, +nulls: U32, bad: Maybe<&2, BadL>, dict: ST.Dict, +auto: ST.StrEnc, parts: List<&1, Part>) -> CB:
   match over:
     case True{}:
       CB{t, n, nulls, bad, KRaw{}, Parts.dec(parts, (dict, Nil{}))}
     case False{}:
       CB{t, n, nulls, bad, KDict{dict, auto}, parts}
 
-def CB.d.size(+t: D.DType, +n: U32, +nulls: U32, bad: Maybe<&2, BadL>, +auto: Bool, parts: List<&1, Part>, r: ST.Dict & U32) -> CB:
+def CB.d.size(+t: D.DType, +n: U32, +nulls: U32, bad: Maybe<&2, BadL>, +auto: ST.StrEnc, parts: List<&1, Part>, r: ST.Dict & U32) -> CB:
   (dict, +k) = r
-  CB.d.over(Bool.and(auto, Csv.dict_over(k, n)), t, n, nulls, bad, dict, auto, parts)
+  CB.d.over(Csv.dict_over(auto, k, n), t, n, nulls, bad, dict, auto, parts)
 
-def CB.d.fin(+t: D.DType, +n: U32, +m: U32, +nulls: U32, bad: Maybe<&2, BadL>, +auto: Bool, parts: List<&1, Part>, st: DS) -> CB:
+# the switch inside a chunk: its rows coded so far decoded, the rest read as Raw strings, the
+# earlier chunks decoded (Parts.dec)
+def CB.d.sw2(+t: D.DType, +n: U32, +m: U32, +d: Nat, +nulls: U32, bad: Maybe<&2, BadL>, parts: List<&1, Part>, +i: U32, rest: List<&2, H.CsvCell>, +k: U32, c: Array<U32>, vm: Array<U32>, dd: ST.Dict & ST.Dict) -> CB:
+  (d1, d2) = dd
+  CB.s.fin(t, n, m, nulls, bad, Parts.dec(parts, (d1, Nil{})), Ss.go(rest, i, SS{k, ST.Dict.decode(i, d, c, d2), vm}))
+
+def CB.d.sw(+t: D.DType, +n: U32, +m: U32, +d: Nat, +nulls: U32, bad: Maybe<&2, BadL>, parts: List<&1, Part>, +i: U32, rest: List<&2, H.CsvCell>, st: DS) -> CB:
   match st:
-    case DS{+k, c, vm, dict}:
+    case DS{+k, kd, c, vm, dict}:
+      CB.d.sw2(t, n, m, d, nulls, bad, parts, i, rest, k, c, vm, ST.Dict.clone(dict))
+
+def CB.d.fin(+t: D.DType, +n: U32, +m: U32, +d: Nat, +nulls: U32, bad: Maybe<&2, BadL>, +auto: ST.StrEnc, parts: List<&1, Part>, r: DR) -> CB:
+  match r:
+    case DDone{DS{+k, kd, c, vm, dict}}:
       CB.d.size(t, U32.add(n, m), U32.add(nulls, k), bad, auto, PD{m, c, vm} <> parts, ST.Dict.size(dict))
+    case DSwitch{+i, rest, st}:
+      CB.d.sw(t, n, m, d, nulls, bad, parts, i, rest, st)
+
+def CB.d.start(cs: List<&2, H.CsvCell>, +t: D.DType, +n: U32, +m: U32, +d: Nat, +nulls: U32, bad: Maybe<&2, BadL>, +auto: ST.StrEnc, parts: List<&1, Part>, r: ST.Dict & U32) -> CB:
+  (dict, +k) = r
+  CB.d.fin(t, n, m, d, nulls, bad, auto, parts, Ds.go(cs, 0, n, auto, (True{}, DS{0, k, Array.new(U32, d, 0), Array.new(U32, d, 0), dict})))
 
 # one chunk's cells of this column (m of them) with their records' lines, as one more part
 def CB.feed.k(+m: U32, +d: Nat, cs: List<&2, H.CsvCell>, ls: List<&2, U32>, +t: D.DType, +n: U32, +nulls: U32, bad: Maybe<&2, BadL>, sk: SK, parts: List<&1, Part>) -> CB:
@@ -1304,7 +1340,7 @@ def CB.feed.k(+m: U32, +d: Nat, cs: List<&2, H.CsvCell>, ls: List<&2, U32>, +t: 
     case D.TF32{} other:
       CB.f.fin(t, n, m, nulls, other, parts, Fs.go(cs, ls, 0, FS{0, bad, Array.new(F32, d, 0.0), Array.new(U32, d, 0)}))
     case D.TStr{} KDict{dict, +auto}:
-      CB.d.fin(t, n, m, nulls, bad, auto, parts, Ds.go(cs, 0, DS{0, Array.new(U32, d, 0), Array.new(U32, d, 0), dict}))
+      CB.d.start(cs, t, n, m, d, nulls, bad, auto, parts, ST.Dict.size(dict))
     case D.TStr{} other:
       CB.s.fin(t, n, m, nulls, bad, parts, Ss.go(cs, 0, SS{0, Array.new(String, d, ""), Array.new(U32, d, 0)}))
     case _ other:
@@ -1333,10 +1369,8 @@ def CB.new.sk(+t: D.DType, enc: ST.StrEnc) -> SK:
   match t enc:
     case D.TStr{} ST.EncRaw{}:
       KRaw{}
-    case D.TStr{} ST.EncDict{}:
-      KDict{ST.Dict.empty(), False{}}
-    case D.TStr{} ST.EncAuto{}:
-      KDict{ST.Dict.empty(), True{}}
+    case D.TStr{} other:
+      KDict{ST.Dict.empty(), other}
     case _ _:
       KNone{}
 
