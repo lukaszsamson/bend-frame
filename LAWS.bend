@@ -2503,3 +2503,41 @@ law fill_str_cell:
   for +i: U32
   for hyp: FillHyp(n, d, va, xa, vb, xb, i)
   FillW(n, d, va, xa, n2, d2, vb, xb, i)
+
+# ---- when over Str columns: the storage half ---------------------------------------------------------
+
+# the string stored at row i of a Str column (the data half of ccell, validity ignored; "" for the
+# other dtypes): what Eval.when.str chooses, before Eval.when.valid decides the row's validity
+def sdata(c: C.Column, +i: U32) -> String:
+  match c:
+    case C.CStr{len, depth, valid, data}:
+      scell(data, i)
+    case other:
+      ""
+
+# the hypotheses of when's storage at row i: a's rows fit its slots, i is a row, a's data buffer is
+# well formed, the dictionary hypotheses of two Dictionaries (FillDictHyp)
+def WhenHyp(+n: U32, +d: Nat, xa: ST.Strs, xb: ST.Strs, +i: U32) -> Type:
+  {U32.is_le(n, U32.shln(1, d)) == True{} : Bool} & {U32.is_lt(i, n) == True{} : Bool} & WFStrData(d, xa) & FillDictHyp(xa, xb, i)
+
+# Eval.when.str's answer: a Str column whose stored string at row i is a's where the condition mask
+# word is set and b's where it is 0
+def WhenDataW(+n: U32, +d: Nat, -m: Array<U32>, -va: C.Valid, -vb: C.Valid, -xa: ST.Strs, -xb: ST.Strs, +i: U32) -> Type:
+  &c: C.Column -> {V.Eval.when.str(n, d, m, va, vb, xa, xb) == Done{c} : E.ResT(C.Column)} & {sdata(c, i) == Bool.pick(String, U32.is_ne(rd_at(U32, m, i), 0), scell(xa, i), scell(xb, i)) : String}
+
+# LAW: Eval.when.str (the Str case of when(c).then(a).otherwise(b), m the condition's "true and valid"
+# mask) stores at row i a's string where m is set and b's where it is 0, in both storages (two
+# Dictionaries: b's entries merged into a's, the codes chosen through Eval.zd.map and Kernel.choose;
+# otherwise the decoded strings chosen). The row's validity (Eval.when.valid: the chosen mask, or
+# AllValid when its popcount is n) is not stated here: see DESIGN.md section 8
+law when_str_data:
+  for +n: U32
+  for +d: Nat
+  for m: Array<U32>
+  for va: C.Valid
+  for vb: C.Valid
+  for xa: ST.Strs
+  for xb: ST.Strs
+  for +i: U32
+  for hyp: WhenHyp(n, d, xa, xb, i)
+  WhenDataW(n, d, m, va, vb, xa, xb, i)

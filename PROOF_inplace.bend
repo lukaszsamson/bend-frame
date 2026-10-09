@@ -1412,3 +1412,286 @@ def Laws.fill_str_cell(n, d, va, xa, n2, d2, vb, xb, i, hyp):
     case ST.SDict{ca, dca} ST.SRaw{b}:
       (+fits, +hi, wfs, m01a, m01b, dh) = hyp
       fr_law(n, d, va, ST.SDict{ca, dca}, n2, d2, vb, ST.SRaw{b}, i, fits, hi, wfs, m01a, m01b)
+
+# ---- Laws.when_str_data: the storage of when over Str columns ------------------------------------------------
+#
+# The Dictionary preparation is packaged as ONE witness (DictPreW): the merge's result triple with
+# the extended dictionary in fields, a copy mm of the map such that Eval.zd.map(n, d, mm, cb) is the
+# re-coded array M2, a well-formed copy ca1 of a's codes, and the two row facts KA / EB. A consumer
+# rewrites its production term through the three equations and runs the choose on ca1 / M2.
+
+def DictPreW(+n: U32, +d: Nat, -ca: Array<U32>, -dca: ST.Dict, -cb: Array<U32>, +kb: U32, +ddb: Nat, -strsb: Array<String>, +bb: Nat, -slotsb: Array<ST.SSlot>, +tagb: U32, +i: U32) -> Type:
+  &src2: ST.Dict -> &k2: U32 -> &dd2: Nat -> &strs2: Array<String> -> &b2: Nat -> &slots2: Array<ST.SSlot> -> &tag2: U32 -> &mm: Array<U32> -> &ca1: Array<U32> -> &M2: Array<U32> -> {ST.Dict.merge(ST.Dict{kb, ddb, strsb, bb, slotsb, tagb}, dca) == (src2, ST.Dict{k2, dd2, strs2, b2, slots2, tag2}, mm) : ST.Dict & ST.Dict & Array<U32>} & {V.Eval.zd.map(n, d, mm, cb) == M2 : Array<U32>} & {ca1 == ca : Array<U32>} & Laws.WFArray(U32, d, ca1) & KA(strs2, ca1, dca, ca, i) & EB(strs2, M2, strsb, cb, i)
+
+# the gather's output read back; the extended dictionary taken apart; the witness assembled
+def wd_pre9(+n: U32, +d: Nat, -ca: Array<U32>, -dca: ST.Dict, -cb: Array<U32>, +kb: U32, +ddb: Nat, -strsb: Array<String>, +bb: Nat, -slotsb: Array<ST.SSlot>, +tagb: U32, +i: U32, +hi: {U32.is_lt(i, n) == True{} : Bool}, src2: ST.Dict, +k2: U32, +dd2: Nat, strs2: Array<String>, +b2: Nat, slots2: Array<ST.SSlot>, +tag2: U32, +es2: List<&2, String>, mm: Array<U32>, ca1: Array<U32>, -M: Array<U32>, -m: Array<U32>, -mp: Array<U32>, -cbp: Array<U32>, pm: Array<U32>,
+  +eqm: {ST.Dict.merge(ST.Dict{kb, ddb, strsb, bb, slotsb, tagb}, dca) == (src2, ST.Dict{k2, dd2, strs2, b2, slots2, tag2}, m) : ST.Dict & ST.Dict & Array<U32>}, +emm: {mm == m : Array<U32>}, +emp: {mp == m : Array<U32>}, +ecbp: {cbp == cb : Array<U32>}, +eqg: {K.Kernel.gather(~U32, n, d, mp, cbp, 0) == (M, pm) : Array<U32> & Array<U32>},
+  +e1: {ca1 == ca : Array<U32>}, wf1: Laws.WFArray(U32, d, ca1), +ca_c: U32, +eca: {ca_c == Laws.rd_at(U32, ca, i) : U32}, +eca1: {ca_c == Laws.rd_at(U32, ca1, i) : U32}, hca: {U32.is_lt(Laws.rd_at(U32, ca, i), Laws.dk(dca)) == True{} : Bool},
+  +c: U32, +ec: {c == Laws.rd_at(U32, cb, i) : U32}, +code: U32, +ecode: {code == Laws.rd_at(U32, m, c) : U32}, hc: {U32.is_lt(Laws.rd_at(U32, cb, i), kb) == True{} : Bool},
+  spec: @j: U32 -> {U32.is_lt(j, n) == True{} : Bool} -> {Laws.rdN(U32, d, M, j) == Laws.rd_at(U32, mp, Laws.rd_at(U32, cbp, j)) : U32},
+  cvm: @j: U32 -> {Laws.rd_at(U32, m, j) == Laws.rdN(U32, ddb, m, j) : U32},
+  wf2: Laws.WFDictE(ST.Dict{k2, dd2, strs2, b2, slots2, tag2}, es2), keep: @c2: U32 -> {U32.is_lt(c2, Laws.dk(dca)) == True{} : Bool} -> {Laws.dentry(ST.Dict{k2, dd2, strs2, b2, slots2, tag2}, c2) == Laws.dentry(dca, c2) : String}, rows: Laws.EncRows(kb, ddb, strsb, m, es2),
+  w: &M2: Array<U32> -> {M2 == M : Array<U32>} & Laws.WFArray(U32, d, M2) & (@j: U32 -> {Laws.rd_at(U32, M, j) == Laws.rdN(U32, d, M, j) : U32}))
+  -> DictPreW(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i):
+  (+ek2, hle2, hpos2, h02, wfs2, ent, wfix2) = wf2
+  (M2, +eM2, wM2, cvM) = w
+  (src2, k2, dd2, strs2, b2, slots2, tag2, mm, ca1, M2, (%Equal.sym(Array<U32>, mm, m, emm) : {ST.Dict.merge(ST.Dict{kb, ddb, strsb, bb, slotsb, tagb}, dca) == (src2, ST.Dict{k2, dd2, strs2, b2, slots2, tag2}, _) : ST.Dict & ST.Dict & Array<U32>}; eqm),
+    (%Equal.sym(Array<U32>, mm, m, emm) : {V.Eval.zd.map(n, d, _, cb) == M2 : Array<U32>}; %emp : {V.Eval.zd.map(n, d, _, cb) == M2 : Array<U32>}; %ecbp : {V.Eval.zd.map(n, d, mp, _) == M2 : Array<U32>}; %Equal.sym(Array<U32> & Array<U32>, K.Kernel.gather(~U32, n, d, mp, cbp, 0), (M, pm), eqg) : {V.Eval.zd.snd(_) == M2 : Array<U32>}; Equal.sym(Array<U32>, M2, M, eM2)),
+    e1, wf1, fd_ka(strs2, k2, dd2, b2, slots2, tag2, ca1, dca, ca, i, ca_c, eca, eca1, hca, keep), fd_eb(kb, ddb, strsb, cb, cbp, k2, strs2, es2, n, d, M, M2, m, mp, eM2, emp, ecbp, ek2, i, hi, c, ec, code, ecode, cvM, spec, cvm, rows, hc, ent))
+
+def wd_pre8b(+n: U32, +d: Nat, -ca: Array<U32>, -dca: ST.Dict, -cb: Array<U32>, +kb: U32, +ddb: Nat, -strsb: Array<String>, +bb: Nat, -slotsb: Array<ST.SSlot>, +tagb: U32, +i: U32, +hi: {U32.is_lt(i, n) == True{} : Bool}, src2: ST.Dict, +k2: U32, +dd2: Nat, strs2: Array<String>, +b2: Nat, slots2: Array<ST.SSlot>, +tag2: U32, +es2: List<&2, String>, mm: Array<U32>, ca1: Array<U32>, -m: Array<U32>,
+  +eqm: {ST.Dict.merge(ST.Dict{kb, ddb, strsb, bb, slotsb, tagb}, dca) == (src2, ST.Dict{k2, dd2, strs2, b2, slots2, tag2}, m) : ST.Dict & ST.Dict & Array<U32>}, +emm: {mm == m : Array<U32>}, -mp: Array<U32>, +emp: {mp == m : Array<U32>}, -cbp: Array<U32>, +ecbp: {cbp == cb : Array<U32>},
+  +e1: {ca1 == ca : Array<U32>}, wf1: Laws.WFArray(U32, d, ca1), +ca_c: U32, +eca: {ca_c == Laws.rd_at(U32, ca, i) : U32}, +eca1: {ca_c == Laws.rd_at(U32, ca1, i) : U32}, hca: {U32.is_lt(Laws.rd_at(U32, ca, i), Laws.dk(dca)) == True{} : Bool},
+  +c: U32, +ec: {c == Laws.rd_at(U32, cb, i) : U32}, +code: U32, +ecode: {code == Laws.rd_at(U32, m, c) : U32}, hc: {U32.is_lt(Laws.rd_at(U32, cb, i), kb) == True{} : Bool},
+  cvm: @j: U32 -> {Laws.rd_at(U32, m, j) == Laws.rdN(U32, ddb, m, j) : U32},
+  wf2: Laws.WFDictE(ST.Dict{k2, dd2, strs2, b2, slots2, tag2}, es2), keep: @c2: U32 -> {U32.is_lt(c2, Laws.dk(dca)) == True{} : Bool} -> {Laws.dentry(ST.Dict{k2, dd2, strs2, b2, slots2, tag2}, c2) == Laws.dentry(dca, c2) : String}, rows: Laws.EncRows(kb, ddb, strsb, m, es2),
+  w: PST.TGW(~U32, d, n, mp, cbp, 0))
+  -> DictPreW(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i):
+  (M, pm, +eqg, epm, wM, spec) = w
+  wd_pre9(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i, hi, src2, k2, dd2, strs2, b2, slots2, tag2, es2, mm, ca1, M, m, mp, cbp, pm, eqm, emm, emp, ecbp, eqg, e1, wf1, ca_c, eca, eca1, hca, c, ec, code, ecode, hc, spec, cvm, wf2, keep, rows, PST.rd_all(U32, d, M, wM))
+
+# the gather computed (the extended dictionary taken apart first, for its entry clause)
+def wd_pre8(+n: U32, +d: Nat, -ca: Array<U32>, -dca: ST.Dict, -cb: Array<U32>, +kb: U32, +ddb: Nat, -strsb: Array<String>, +bb: Nat, -slotsb: Array<ST.SSlot>, +tagb: U32, +i: U32, +hi: {U32.is_lt(i, n) == True{} : Bool}, +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}, src2: ST.Dict, dst2: ST.Dict, +es2: List<&2, String>, mm: Array<U32>, ca1: Array<U32>, -m: Array<U32>, mp: Array<U32>, cbp: Array<U32>,
+  +eqm: {ST.Dict.merge(ST.Dict{kb, ddb, strsb, bb, slotsb, tagb}, dca) == (src2, dst2, m) : ST.Dict & ST.Dict & Array<U32>}, +emm: {mm == m : Array<U32>}, +emp: {mp == m : Array<U32>}, +ecbp: {cbp == cb : Array<U32>},
+  +e1: {ca1 == ca : Array<U32>}, wf1: Laws.WFArray(U32, d, ca1), +ca_c: U32, +eca: {ca_c == Laws.rd_at(U32, ca, i) : U32}, +eca1: {ca_c == Laws.rd_at(U32, ca1, i) : U32}, hca: {U32.is_lt(Laws.rd_at(U32, ca, i), Laws.dk(dca)) == True{} : Bool},
+  +c: U32, +ec: {c == Laws.rd_at(U32, cb, i) : U32}, +code: U32, +ecode: {code == Laws.rd_at(U32, m, c) : U32}, hc: {U32.is_lt(Laws.rd_at(U32, cb, i), kb) == True{} : Bool},
+  cvm: @j: U32 -> {Laws.rd_at(U32, m, j) == Laws.rdN(U32, ddb, m, j) : U32},
+  wf2: Laws.WFDictE(dst2, es2), keep: @c2: U32 -> {U32.is_lt(c2, Laws.dk(dca)) == True{} : Bool} -> {Laws.dentry(dst2, c2) == Laws.dentry(dca, c2) : String}, rows: Laws.EncRows(kb, ddb, strsb, m, es2))
+  -> DictPreW(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i):
+  match dst2:
+    case ST.Dict{+k2, +dd2, strs2, +b2, slots2, +tag2}:
+      wd_pre8b(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i, hi, src2, k2, dd2, strs2, b2, slots2, tag2, es2, mm, ca1, m, eqm, emm, mp, emp, cbp, ecbp, e1, wf1, ca_c, eca, eca1, hca, c, ec, code, ecode, hc, cvm, wf2, keep, rows, PST.tgather_w(~U32, d, n, mp, cbp, 0, fits))
+
+# the map's slot at b's code read on the copy m3
+def wd_pre6(+n: U32, +d: Nat, -ca: Array<U32>, -dca: ST.Dict, -cb: Array<U32>, +kb: U32, +ddb: Nat, -strsb: Array<String>, +bb: Nat, -slotsb: Array<ST.SSlot>, +tagb: U32, +i: U32, +hi: {U32.is_lt(i, n) == True{} : Bool}, +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}, src2: ST.Dict, dst2: ST.Dict, +es2: List<&2, String>, mm: Array<U32>, ca1: Array<U32>, -m: Array<U32>, mp: Array<U32>, -m3: Array<U32>, cbp: Array<U32>,
+  +eqm: {ST.Dict.merge(ST.Dict{kb, ddb, strsb, bb, slotsb, tagb}, dca) == (src2, dst2, m) : ST.Dict & ST.Dict & Array<U32>}, +emm: {mm == m : Array<U32>}, +emp: {mp == m : Array<U32>}, +em3: {m3 == m : Array<U32>}, +ecbp: {cbp == cb : Array<U32>},
+  +e1: {ca1 == ca : Array<U32>}, wf1: Laws.WFArray(U32, d, ca1), +ca_c: U32, +eca: {ca_c == Laws.rd_at(U32, ca, i) : U32}, +eca1: {ca_c == Laws.rd_at(U32, ca1, i) : U32}, hca: {U32.is_lt(Laws.rd_at(U32, ca, i), Laws.dk(dca)) == True{} : Bool},
+  +c: U32, +ec: {c == Laws.rd_at(U32, cb, i) : U32}, hc: {U32.is_lt(Laws.rd_at(U32, cb, i), kb) == True{} : Bool},
+  cvm: @j: U32 -> {Laws.rd_at(U32, m, j) == Laws.rdN(U32, ddb, m, j) : U32},
+  wf2: Laws.WFDictE(dst2, es2), keep: @c2: U32 -> {U32.is_lt(c2, Laws.dk(dca)) == True{} : Bool} -> {Laws.dentry(dst2, c2) == Laws.dentry(dca, c2) : String}, rows: Laws.EncRows(kb, ddb, strsb, m, es2),
+  w: &m4: Array<U32> -> &code: U32 -> {m4 == m3 : Array<U32>} & {Array.get(U32, m3, c) == (m3, code) : Array<U32> & U32} & {code == Laws.rd_at(U32, m3, c) : U32})
+  -> DictPreW(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i):
+  (m4, +code, em4, e1x, ecode3) = w
+  wd_pre8(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i, hi, fits, src2, dst2, es2, mm, ca1, m, mp, cbp, eqm, emm, emp, ecbp, e1, wf1, ca_c, eca, eca1, hca, c, ec, code, Equal.trans(U32, code, Laws.rd_at(U32, m3, c), Laws.rd_at(U32, m, c), ecode3, Equal.cong(Array<U32>, U32, q => Laws.rd_at(U32, q, c), m3, m, em3)), hc, cvm, wf2, keep, rows)
+
+# the map's copy cloned twice: mm is handed out, mp feeds the gather, m3 is read
+def wd_pre5b(+n: U32, +d: Nat, -ca: Array<U32>, -dca: ST.Dict, -cb: Array<U32>, +kb: U32, +ddb: Nat, -strsb: Array<String>, +bb: Nat, -slotsb: Array<ST.SSlot>, +tagb: U32, +i: U32, +hi: {U32.is_lt(i, n) == True{} : Bool}, +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}, src2: ST.Dict, dst2: ST.Dict, +es2: List<&2, String>, mm: Array<U32>, ca1: Array<U32>, -m: Array<U32>, -m2b: Array<U32>, cbp: Array<U32>,
+  +eqm: {ST.Dict.merge(ST.Dict{kb, ddb, strsb, bb, slotsb, tagb}, dca) == (src2, dst2, m) : ST.Dict & ST.Dict & Array<U32>}, +emm: {mm == m : Array<U32>}, +em2b: {m2b == m : Array<U32>}, +ecbp: {cbp == cb : Array<U32>},
+  +e1: {ca1 == ca : Array<U32>}, wf1: Laws.WFArray(U32, d, ca1), +ca_c: U32, +eca: {ca_c == Laws.rd_at(U32, ca, i) : U32}, +eca1: {ca_c == Laws.rd_at(U32, ca1, i) : U32}, hca: {U32.is_lt(Laws.rd_at(U32, ca, i), Laws.dk(dca)) == True{} : Bool},
+  +c: U32, +ec: {c == Laws.rd_at(U32, cb, i) : U32}, hc: {U32.is_lt(Laws.rd_at(U32, cb, i), kb) == True{} : Bool},
+  cvm: @j: U32 -> {Laws.rd_at(U32, m, j) == Laws.rdN(U32, ddb, m, j) : U32},
+  wf2: Laws.WFDictE(dst2, es2), keep: @c2: U32 -> {U32.is_lt(c2, Laws.dk(dca)) == True{} : Bool} -> {Laws.dentry(dst2, c2) == Laws.dentry(dca, c2) : String}, rows: Laws.EncRows(kb, ddb, strsb, m, es2),
+  w: &mp: Array<U32> -> &m3: Array<U32> -> {mp == m2b : Array<U32>} & {m3 == m2b : Array<U32>})
+  -> DictPreW(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i):
+  (mp, m3, +ep, +e3) = w
+  wd_pre6(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i, hi, fits, src2, dst2, es2, mm, ca1, m, mp, m3, cbp, eqm, emm, Equal.trans(Array<U32>, mp, m2b, m, ep, em2b), Equal.trans(Array<U32>, m3, m2b, m, e3, em2b), ecbp, e1, wf1, ca_c, eca, eca1, hca, c, ec, hc, cvm, wf2, keep, rows, PC.get_w(U32, m3, c))
+
+def wd_pre5(+n: U32, +d: Nat, -ca: Array<U32>, -dca: ST.Dict, -cb: Array<U32>, +kb: U32, +ddb: Nat, -strsb: Array<String>, +bb: Nat, -slotsb: Array<ST.SSlot>, +tagb: U32, +i: U32, +hi: {U32.is_lt(i, n) == True{} : Bool}, +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}, src2: ST.Dict, dst2: ST.Dict, +es2: List<&2, String>, ca1: Array<U32>, -m: Array<U32>, -m2: Array<U32>, cbp: Array<U32>,
+  +eqm: {ST.Dict.merge(ST.Dict{kb, ddb, strsb, bb, slotsb, tagb}, dca) == (src2, dst2, m) : ST.Dict & ST.Dict & Array<U32>}, +em2: {m2 == m : Array<U32>}, +ecbp: {cbp == cb : Array<U32>},
+  +e1: {ca1 == ca : Array<U32>}, wf1: Laws.WFArray(U32, d, ca1), +ca_c: U32, +eca: {ca_c == Laws.rd_at(U32, ca, i) : U32}, +eca1: {ca_c == Laws.rd_at(U32, ca1, i) : U32}, hca: {U32.is_lt(Laws.rd_at(U32, ca, i), Laws.dk(dca)) == True{} : Bool},
+  +c: U32, +ec: {c == Laws.rd_at(U32, cb, i) : U32}, hc: {U32.is_lt(Laws.rd_at(U32, cb, i), kb) == True{} : Bool},
+  cvm: @j: U32 -> {Laws.rd_at(U32, m, j) == Laws.rdN(U32, ddb, m, j) : U32},
+  wf2: Laws.WFDictE(dst2, es2), keep: @c2: U32 -> {U32.is_lt(c2, Laws.dk(dca)) == True{} : Bool} -> {Laws.dentry(dst2, c2) == Laws.dentry(dca, c2) : String}, rows: Laws.EncRows(kb, ddb, strsb, m, es2),
+  w: &mm: Array<U32> -> &m2b: Array<U32> -> {mm == m2 : Array<U32>} & {m2b == m2 : Array<U32>})
+  -> DictPreW(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i):
+  (mm, m2b, +emm, +em2b) = w
+  wd_pre5b(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i, hi, fits, src2, dst2, es2, mm, ca1, m, m2b, cbp, eqm, Equal.trans(Array<U32>, mm, m2, m, emm, em2), Equal.trans(Array<U32>, m2b, m2, m, em2b, em2), ecbp, e1, wf1, ca_c, eca, eca1, hca, c, ec, hc, cvm, wf2, keep, rows, PC.clone_eq(U32, m2b))
+
+# the map read back (rd_all)
+def wd_pre4(+n: U32, +d: Nat, -ca: Array<U32>, -dca: ST.Dict, -cb: Array<U32>, +kb: U32, +ddb: Nat, -strsb: Array<String>, +bb: Nat, -slotsb: Array<ST.SSlot>, +tagb: U32, +i: U32, +hi: {U32.is_lt(i, n) == True{} : Bool}, +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}, src2: ST.Dict, dst2: ST.Dict, +es2: List<&2, String>, ca1: Array<U32>, -m: Array<U32>, cbp: Array<U32>,
+  +eqm: {ST.Dict.merge(ST.Dict{kb, ddb, strsb, bb, slotsb, tagb}, dca) == (src2, dst2, m) : ST.Dict & ST.Dict & Array<U32>}, +ecbp: {cbp == cb : Array<U32>},
+  +e1: {ca1 == ca : Array<U32>}, wf1: Laws.WFArray(U32, d, ca1), +ca_c: U32, +eca: {ca_c == Laws.rd_at(U32, ca, i) : U32}, +eca1: {ca_c == Laws.rd_at(U32, ca1, i) : U32}, hca: {U32.is_lt(Laws.rd_at(U32, ca, i), Laws.dk(dca)) == True{} : Bool},
+  +c: U32, +ec: {c == Laws.rd_at(U32, cb, i) : U32}, hc: {U32.is_lt(Laws.rd_at(U32, cb, i), kb) == True{} : Bool},
+  wf2: Laws.WFDictE(dst2, es2), keep: @c2: U32 -> {U32.is_lt(c2, Laws.dk(dca)) == True{} : Bool} -> {Laws.dentry(dst2, c2) == Laws.dentry(dca, c2) : String}, rows: Laws.EncRows(kb, ddb, strsb, m, es2),
+  w: &m2: Array<U32> -> {m2 == m : Array<U32>} & Laws.WFArray(U32, ddb, m2) & (@j: U32 -> {Laws.rd_at(U32, m, j) == Laws.rdN(U32, ddb, m, j) : U32}))
+  -> DictPreW(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i):
+  (m2, +em2, wm2, cvm) = w
+  wd_pre5(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i, hi, fits, src2, dst2, es2, ca1, m, m2, cbp, eqm, em2, ecbp, e1, wf1, ca_c, eca, eca1, hca, c, ec, hc, cvm, wf2, keep, rows, PC.clone_eq(U32, m2))
+
+# b's code at i read on the copy cb2
+def wd_pre3(+n: U32, +d: Nat, -ca: Array<U32>, -dca: ST.Dict, -cb: Array<U32>, +kb: U32, +ddb: Nat, -strsb: Array<String>, +bb: Nat, -slotsb: Array<ST.SSlot>, +tagb: U32, +i: U32, +hi: {U32.is_lt(i, n) == True{} : Bool}, +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}, src2: ST.Dict, dst2: ST.Dict, +es2: List<&2, String>, ca1: Array<U32>, m: Array<U32>, cbp: Array<U32>, -cb2: Array<U32>,
+  +eqm: {ST.Dict.merge(ST.Dict{kb, ddb, strsb, bb, slotsb, tagb}, dca) == (src2, dst2, m) : ST.Dict & ST.Dict & Array<U32>}, +ecbp: {cbp == cb : Array<U32>}, +ecb2: {cb2 == cb : Array<U32>},
+  +e1: {ca1 == ca : Array<U32>}, wf1: Laws.WFArray(U32, d, ca1), +ca_c: U32, +eca: {ca_c == Laws.rd_at(U32, ca, i) : U32}, +eca1: {ca_c == Laws.rd_at(U32, ca1, i) : U32}, hca: {U32.is_lt(Laws.rd_at(U32, ca, i), Laws.dk(dca)) == True{} : Bool}, hc: {U32.is_lt(Laws.rd_at(U32, cb, i), kb) == True{} : Bool},
+  wm: Laws.WFArray(U32, ddb, m), wf2: Laws.WFDictE(dst2, es2), keep: @c2: U32 -> {U32.is_lt(c2, Laws.dk(dca)) == True{} : Bool} -> {Laws.dentry(dst2, c2) == Laws.dentry(dca, c2) : String}, rows: Laws.EncRows(kb, ddb, strsb, m, es2),
+  w: &cb3: Array<U32> -> &c: U32 -> {cb3 == cb2 : Array<U32>} & {Array.get(U32, cb2, i) == (cb2, c) : Array<U32> & U32} & {c == Laws.rd_at(U32, cb2, i) : U32})
+  -> DictPreW(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i):
+  (cb3, +c, ecb3, e1x, ec2) = w
+  wd_pre4(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i, hi, fits, src2, dst2, es2, ca1, m, cbp, eqm, ecbp, e1, wf1, ca_c, eca, eca1, hca, c, Equal.trans(U32, c, Laws.rd_at(U32, cb2, i), Laws.rd_at(U32, cb, i), ec2, Equal.cong(Array<U32>, U32, q => Laws.rd_at(U32, q, i), cb2, cb, ecb2)), hc, wf2, keep, rows, PST.rd_all(U32, ddb, m, wm))
+
+# b's codes cloned: cbp feeds the gather, cb2 is read
+def wd_pre2(+n: U32, +d: Nat, -ca: Array<U32>, -dca: ST.Dict, -cb: Array<U32>, +kb: U32, +ddb: Nat, -strsb: Array<String>, +bb: Nat, -slotsb: Array<ST.SSlot>, +tagb: U32, +i: U32, +hi: {U32.is_lt(i, n) == True{} : Bool}, +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}, src2: ST.Dict, dst2: ST.Dict, +es2: List<&2, String>, ca1: Array<U32>, m: Array<U32>,
+  +eqm: {ST.Dict.merge(ST.Dict{kb, ddb, strsb, bb, slotsb, tagb}, dca) == (src2, dst2, m) : ST.Dict & ST.Dict & Array<U32>},
+  +e1: {ca1 == ca : Array<U32>}, wf1: Laws.WFArray(U32, d, ca1), +ca_c: U32, +eca: {ca_c == Laws.rd_at(U32, ca, i) : U32}, +eca1: {ca_c == Laws.rd_at(U32, ca1, i) : U32}, hca: {U32.is_lt(Laws.rd_at(U32, ca, i), Laws.dk(dca)) == True{} : Bool}, hc: {U32.is_lt(Laws.rd_at(U32, cb, i), kb) == True{} : Bool},
+  wm: Laws.WFArray(U32, ddb, m), wf2: Laws.WFDictE(dst2, es2), keep: @c2: U32 -> {U32.is_lt(c2, Laws.dk(dca)) == True{} : Bool} -> {Laws.dentry(dst2, c2) == Laws.dentry(dca, c2) : String}, rows: Laws.EncRows(kb, ddb, strsb, m, es2),
+  w: &cbp: Array<U32> -> &cb2: Array<U32> -> {cbp == cb : Array<U32>} & {cb2 == cb : Array<U32>})
+  -> DictPreW(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i):
+  (cbp, cb2, +ecbp, +ecb2) = w
+  wd_pre3(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i, hi, fits, src2, dst2, es2, ca1, m, cbp, cb2, eqm, ecbp, ecb2, e1, wf1, ca_c, eca, eca1, hca, hc, wm, wf2, keep, rows, PC.get_w(U32, cb2, i))
+
+# a's code at i read on the copy ca2
+def wd_pre1b(+n: U32, +d: Nat, -ca: Array<U32>, -dca: ST.Dict, cb: Array<U32>, +kb: U32, +ddb: Nat, -strsb: Array<String>, +bb: Nat, -slotsb: Array<ST.SSlot>, +tagb: U32, +i: U32, +hi: {U32.is_lt(i, n) == True{} : Bool}, +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}, src2: ST.Dict, dst2: ST.Dict, +es2: List<&2, String>, ca1: Array<U32>, -ca2: Array<U32>, m: Array<U32>,
+  +eqm: {ST.Dict.merge(ST.Dict{kb, ddb, strsb, bb, slotsb, tagb}, dca) == (src2, dst2, m) : ST.Dict & ST.Dict & Array<U32>},
+  +e1: {ca1 == ca : Array<U32>}, +e2: {ca2 == ca : Array<U32>}, wf1: Laws.WFArray(U32, d, ca1), hca: {U32.is_lt(Laws.rd_at(U32, ca, i), Laws.dk(dca)) == True{} : Bool}, hc: {U32.is_lt(Laws.rd_at(U32, cb, i), kb) == True{} : Bool},
+  wm: Laws.WFArray(U32, ddb, m), wf2: Laws.WFDictE(dst2, es2), keep: @c2: U32 -> {U32.is_lt(c2, Laws.dk(dca)) == True{} : Bool} -> {Laws.dentry(dst2, c2) == Laws.dentry(dca, c2) : String}, rows: Laws.EncRows(kb, ddb, strsb, m, es2),
+  +c: U32, +ec2: {c == Laws.rd_at(U32, ca2, i) : U32})
+  -> DictPreW(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i):
+  wd_pre2(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i, hi, fits, src2, dst2, es2, ca1, m, eqm, e1, wf1, c, Equal.trans(U32, c, Laws.rd_at(U32, ca2, i), Laws.rd_at(U32, ca, i), ec2, Equal.cong(Array<U32>, U32, q => Laws.rd_at(U32, q, i), ca2, ca, e2)), Equal.trans(U32, c, Laws.rd_at(U32, ca2, i), Laws.rd_at(U32, ca1, i), ec2, Equal.cong(Array<U32>, U32, q => Laws.rd_at(U32, q, i), ca2, ca1, Equal.trans(Array<U32>, ca2, ca, ca1, e2, Equal.sym(Array<U32>, ca1, ca, e1)))), hca, hc, wm, wf2, keep, rows, PC.clone_eq(U32, cb))
+
+def wd_pre1(+n: U32, +d: Nat, -ca: Array<U32>, -dca: ST.Dict, cb: Array<U32>, +kb: U32, +ddb: Nat, -strsb: Array<String>, +bb: Nat, -slotsb: Array<ST.SSlot>, +tagb: U32, +i: U32, +hi: {U32.is_lt(i, n) == True{} : Bool}, +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}, src2: ST.Dict, dst2: ST.Dict, +es2: List<&2, String>, ca1: Array<U32>, -ca2: Array<U32>, m: Array<U32>,
+  +eqm: {ST.Dict.merge(ST.Dict{kb, ddb, strsb, bb, slotsb, tagb}, dca) == (src2, dst2, m) : ST.Dict & ST.Dict & Array<U32>},
+  +e1: {ca1 == ca : Array<U32>}, +e2: {ca2 == ca : Array<U32>}, wf1: Laws.WFArray(U32, d, ca1), hca: {U32.is_lt(Laws.rd_at(U32, ca, i), Laws.dk(dca)) == True{} : Bool}, hc: {U32.is_lt(Laws.rd_at(U32, cb, i), kb) == True{} : Bool},
+  wm: Laws.WFArray(U32, ddb, m), wf2: Laws.WFDictE(dst2, es2), keep: @c2: U32 -> {U32.is_lt(c2, Laws.dk(dca)) == True{} : Bool} -> {Laws.dentry(dst2, c2) == Laws.dentry(dca, c2) : String}, rows: Laws.EncRows(kb, ddb, strsb, m, es2),
+  w: &ca3: Array<U32> -> &c: U32 -> {ca3 == ca2 : Array<U32>} & {Array.get(U32, ca2, i) == (ca2, c) : Array<U32> & U32} & {c == Laws.rd_at(U32, ca2, i) : U32})
+  -> DictPreW(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i):
+  (ca3, +c, eca3, ea1, ec2) = w
+  wd_pre1b(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i, hi, fits, src2, dst2, es2, ca1, ca2, m, eqm, e1, e2, wf1, hca, hc, wm, wf2, keep, rows, c, ec2)
+
+# a's codes cloned (well formed): the first copy is handed out, the second is read
+def wd_pre0(+n: U32, +d: Nat, -ca: Array<U32>, -dca: ST.Dict, cb: Array<U32>, +kb: U32, +ddb: Nat, -strsb: Array<String>, +bb: Nat, -slotsb: Array<ST.SSlot>, +tagb: U32, +i: U32, +hi: {U32.is_lt(i, n) == True{} : Bool}, +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}, src2: ST.Dict, dst2: ST.Dict, +es2: List<&2, String>, m: Array<U32>,
+  +eqm: {ST.Dict.merge(ST.Dict{kb, ddb, strsb, bb, slotsb, tagb}, dca) == (src2, dst2, m) : ST.Dict & ST.Dict & Array<U32>},
+  hca: {U32.is_lt(Laws.rd_at(U32, ca, i), Laws.dk(dca)) == True{} : Bool}, hc: {U32.is_lt(Laws.rd_at(U32, cb, i), kb) == True{} : Bool},
+  wm: Laws.WFArray(U32, ddb, m), wf2: Laws.WFDictE(dst2, es2), keep: @c2: U32 -> {U32.is_lt(c2, Laws.dk(dca)) == True{} : Bool} -> {Laws.dentry(dst2, c2) == Laws.dentry(dca, c2) : String}, rows: Laws.EncRows(kb, ddb, strsb, m, es2),
+  w: &ca1: Array<U32> -> &ca2: Array<U32> -> {ca1 == ca : Array<U32>} & {ca2 == ca : Array<U32>} & Laws.WFArray(U32, d, ca1) & Laws.WFArray(U32, d, ca2))
+  -> DictPreW(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i):
+  (ca1, ca2, +e1, +e2, wf1, wfa2) = w
+  wd_pre1(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i, hi, fits, src2, dst2, es2, ca1, ca2, m, eqm, e1, e2, wf1, hca, hc, wm, wf2, keep, rows, PC.get_w(U32, ca2, i))
+
+# the merge theorem applied; its witness taken apart
+def dict_pre_m(+n: U32, +d: Nat, ca: Array<U32>, -dca: ST.Dict, cb: Array<U32>, +kb: U32, +ddb: Nat, -strsb: Array<String>, +bb: Nat, -slotsb: Array<ST.SSlot>, +tagb: U32, +i: U32, +hi: {U32.is_lt(i, n) == True{} : Bool}, +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}, wfc: Laws.WFArray(U32, d, ca),
+  hca: {U32.is_lt(Laws.rd_at(U32, ca, i), Laws.dk(dca)) == True{} : Bool}, hc: {U32.is_lt(Laws.rd_at(U32, cb, i), kb) == True{} : Bool}, +esa: List<&2, String>, w: Laws.MergeW(ST.Dict{kb, ddb, strsb, bb, slotsb, tagb}, dca, esa))
+  -> DictPreW(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i):
+  (src2, dst2, m, +es2, +eqm, esrc, ext, wm, wf2, keep, rows) = w
+  wd_pre0(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i, hi, fits, src2, dst2, es2, m, eqm, hca, hc, wm, wf2, keep, rows, PC.clone_wf(U32, d, ca, wfc))
+
+# the Dictionary preparation from the hypotheses (a's dictionary well formed, b's entries fitting,
+# both codes at i in range, the probe hypotheses of the merge)
+def dict_pre(+n: U32, +d: Nat, ca: Array<U32>, dca: ST.Dict, cb: Array<U32>, +kb: U32, +ddb: Nat, strsb: Array<String>, +bb: Nat, slotsb: Array<ST.SSlot>, +tagb: U32, +i: U32, +hi: {U32.is_lt(i, n) == True{} : Bool}, +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}, wfc: Laws.WFArray(U32, d, ca),
+  wfd: Laws.WFDict(dca), fitsb: {U32.is_le(kb, U32.shln(1, ddb)) == True{} : Bool}, hca: {U32.is_lt(Laws.rd_at(U32, ca, i), Laws.dk(dca)) == True{} : Bool}, hc: {U32.is_lt(Laws.rd_at(U32, cb, i), kb) == True{} : Bool}, probes: Laws.MergeProbe(U32.to_nat(kb), 0, strsb, dca))
+  -> DictPreW(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i):
+  (+esa, wfa) = wfd
+  dict_pre_m(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i, hi, fits, wfc, hca, hc, esa, Laws.dict_merge_spec(ST.Dict{kb, ddb, strsb, bb, slotsb, tagb}, dca, esa, fitsb, wfa, probes))
+
+# ---- when's storage: the pick algebra (no case split: the chosen string is a pick on both sides) ----------------
+
+def wd_pick(bw: Bool, -strs2: Array<String>, -ca1: Array<U32>, -M: Array<U32>, -dca: ST.Dict, -ca: Array<U32>, -strsb: Array<String>, -cb: Array<U32>, +i: U32, +w: U32, +eb: {U32.is_ne(w, 0) == bw : Bool}, ka: KA(strs2, ca1, dca, ca, i), ebb: EB(strs2, M, strsb, cb, i))
+  -> {Laws.rd_at(String, strs2, Bool.pick(U32, U32.is_ne(w, 0), Laws.rd_at(U32, ca1, i), Laws.rd_at(U32, M, i))) == Bool.pick(String, U32.is_ne(w, 0), Laws.dentry(dca, Laws.rd_at(U32, ca, i)), Laws.rd_at(String, strsb, Laws.rd_at(U32, cb, i))) : String}:
+  match bw:
+    case True{}:
+      %Equal.sym(Bool, U32.is_ne(w, 0), True{}, eb) : {Laws.rd_at(String, strs2, Bool.pick(U32, _, Laws.rd_at(U32, ca1, i), Laws.rd_at(U32, M, i))) == Bool.pick(String, _, Laws.dentry(dca, Laws.rd_at(U32, ca, i)), Laws.rd_at(String, strsb, Laws.rd_at(U32, cb, i))) : String}
+      ka
+    case False{}:
+      %Equal.sym(Bool, U32.is_ne(w, 0), False{}, eb) : {Laws.rd_at(String, strs2, Bool.pick(U32, _, Laws.rd_at(U32, ca1, i), Laws.rd_at(U32, M, i))) == Bool.pick(String, _, Laws.dentry(dca, Laws.rd_at(U32, ca, i)), Laws.rd_at(String, strsb, Laws.rd_at(U32, cb, i))) : String}
+      ebb
+
+# the Dictionary goal over the prepared arrays
+def WDict(+n: U32, +d: Nat, -m: Array<U32>, -va: C.Valid, -vb: C.Valid, -ca: Array<U32>, -dca: ST.Dict, -cb: Array<U32>, +kb: U32, +ddb: Nat, -strsb: Array<String>, +bb: Nat, -slotsb: Array<ST.SSlot>, +tagb: U32, -ca1: Array<U32>, -M: Array<U32>, +k2: U32, +dd2: Nat, -strs2: Array<String>, +b2: Nat, -slots2: Array<ST.SSlot>, +tag2: U32, +i: U32) -> Type:
+  &c: C.Column -> {V.Eval.when.sd2(n, d, va, vb, ST.Dict{k2, dd2, strs2, b2, slots2, tag2}, K.Kernel.choose(~U32, n, m, ca1, M)) == Done{c} : E.ResT(C.Column)} & {Laws.sdata(c, i) == Bool.pick(String, U32.is_ne(Laws.rd_at(U32, m, i), 0), Laws.dentry(dca, Laws.rd_at(U32, ca, i)), Laws.rd_at(String, strsb, Laws.rd_at(U32, cb, i))) : String}
+
+def WDict1(+n: U32, +d: Nat, -m: Array<U32>, -va: C.Valid, -vb: C.Valid, -ca: Array<U32>, -dca: ST.Dict, -cb: Array<U32>, +kb: U32, +ddb: Nat, -strsb: Array<String>, +bb: Nat, -slotsb: Array<ST.SSlot>, +tagb: U32, -r: Array<U32> & Array<U32>, +k2: U32, +dd2: Nat, -strs2: Array<String>, +b2: Nat, -slots2: Array<ST.SSlot>, +tag2: U32, +i: U32) -> Type:
+  &c: C.Column -> {V.Eval.when.sd2(n, d, va, vb, ST.Dict{k2, dd2, strs2, b2, slots2, tag2}, r) == Done{c} : E.ResT(C.Column)} & {Laws.sdata(c, i) == Bool.pick(String, U32.is_ne(Laws.rd_at(U32, m, i), 0), Laws.dentry(dca, Laws.rd_at(U32, ca, i)), Laws.rd_at(String, strsb, Laws.rd_at(U32, cb, i))) : String}
+
+def WDict2(+n: U32, +d: Nat, -m: Array<U32>, -va: C.Valid, -vb: C.Valid, -ca: Array<U32>, -dca: ST.Dict, -cb: Array<U32>, +kb: U32, +ddb: Nat, -strsb: Array<String>, +bb: Nat, -slotsb: Array<ST.SSlot>, +tagb: U32, -mb: Array<U32>, -o: Array<U32>, +k2: U32, +dd2: Nat, -strs2: Array<String>, +b2: Nat, -slots2: Array<ST.SSlot>, +tag2: U32, +i: U32) -> Type:
+  &c: C.Column -> {V.Eval.when.sd2(n, d, va, vb, ST.Dict{k2, dd2, strs2, b2, slots2, tag2}, (mb, o)) == Done{c} : E.ResT(C.Column)} & {Laws.sdata(c, i) == Bool.pick(String, U32.is_ne(Laws.rd_at(U32, m, i), 0), Laws.dentry(dca, Laws.rd_at(U32, ca, i)), Laws.rd_at(String, strsb, Laws.rd_at(U32, cb, i))) : String}
+
+def wd_fin(+n: U32, +d: Nat, -m: Array<U32>, va: C.Valid, vb: C.Valid, -ca: Array<U32>, -dca: ST.Dict, -cb: Array<U32>, +kb: U32, +ddb: Nat, -strsb: Array<String>, +bb: Nat, -slotsb: Array<ST.SSlot>, +tagb: U32, -ca1: Array<U32>, -M: Array<U32>, +k2: U32, +dd2: Nat, strs2: Array<String>, +b2: Nat, slots2: Array<ST.SSlot>, +tag2: U32, +i: U32,
+  ka: KA(strs2, ca1, dca, ca, i), ebb: EB(strs2, M, strsb, cb, i), mb2: Array<U32>, -o: Array<U32>, +cell: {Laws.rdN(U32, d, o, i) == Bool.pick(U32, U32.is_ne(Laws.rd_at(U32, m, i), 0), Laws.rd_at(U32, ca1, i), Laws.rd_at(U32, M, i)) : U32}, +w: U32, +ewm: {w == Laws.rd_at(U32, m, i) : U32},
+  wo2: &o2: Array<U32> -> {o2 == o : Array<U32>} & Laws.WFArray(U32, d, o2) & (@k: U32 -> {Laws.rd_at(U32, o, k) == Laws.rdN(U32, d, o, k) : U32}))
+  -> WDict2(n, d, m, va, vb, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, mb2, o, k2, dd2, strs2, b2, slots2, tag2, i):
+  (o2, +eo2, wo3, cv) = wo2
+  (C.CStr{n, d, V.Eval.when.valid(n, d, va, vb, mb2), ST.SDict{o2, ST.Dict{k2, dd2, strs2, b2, slots2, tag2}}}, (%Equal.sym(Array<U32>, o2, o, eo2) : {V.Eval.when.sd2(n, d, va, vb, ST.Dict{k2, dd2, strs2, b2, slots2, tag2}, (mb2, o)) == Done{C.CStr{n, d, V.Eval.when.valid(n, d, va, vb, mb2), ST.SDict{_, ST.Dict{k2, dd2, strs2, b2, slots2, tag2}}}} : E.ResT(C.Column)}; {==}),
+    (%Equal.sym(Array<U32>, o2, o, eo2) : {Laws.rd_at(String, strs2, Laws.rd_at(U32, _, i)) == Bool.pick(String, U32.is_ne(Laws.rd_at(U32, m, i), 0), Laws.dentry(dca, Laws.rd_at(U32, ca, i)), Laws.rd_at(String, strsb, Laws.rd_at(U32, cb, i))) : String};
+     %Equal.sym(U32, Laws.rd_at(U32, o, i), Laws.rdN(U32, d, o, i), cv(i)) : {Laws.rd_at(String, strs2, _) == Bool.pick(String, U32.is_ne(Laws.rd_at(U32, m, i), 0), Laws.dentry(dca, Laws.rd_at(U32, ca, i)), Laws.rd_at(String, strsb, Laws.rd_at(U32, cb, i))) : String};
+     %Equal.sym(U32, Laws.rdN(U32, d, o, i), Bool.pick(U32, U32.is_ne(Laws.rd_at(U32, m, i), 0), Laws.rd_at(U32, ca1, i), Laws.rd_at(U32, M, i)), cell) : {Laws.rd_at(String, strs2, _) == Bool.pick(String, U32.is_ne(Laws.rd_at(U32, m, i), 0), Laws.dentry(dca, Laws.rd_at(U32, ca, i)), Laws.rd_at(String, strsb, Laws.rd_at(U32, cb, i))) : String};
+     %ewm : {Laws.rd_at(String, strs2, Bool.pick(U32, U32.is_ne(_, 0), Laws.rd_at(U32, ca1, i), Laws.rd_at(U32, M, i))) == Bool.pick(String, U32.is_ne(_, 0), Laws.dentry(dca, Laws.rd_at(U32, ca, i)), Laws.rd_at(String, strsb, Laws.rd_at(U32, cb, i))) : String};
+     wd_pick(U32.is_ne(w, 0), strs2, ca1, M, dca, ca, strsb, cb, i, w, {==}, ka, ebb)))
+
+def wd_mk0(+n: U32, +d: Nat, -m: Array<U32>, va: C.Valid, vb: C.Valid, -ca: Array<U32>, -dca: ST.Dict, -cb: Array<U32>, +kb: U32, +ddb: Nat, -strsb: Array<String>, +bb: Nat, -slotsb: Array<ST.SSlot>, +tagb: U32, -ca1: Array<U32>, -M: Array<U32>, +k2: U32, +dd2: Nat, strs2: Array<String>, +b2: Nat, slots2: Array<ST.SSlot>, +tag2: U32, +i: U32,
+  ka: KA(strs2, ca1, dca, ca, i), ebb: EB(strs2, M, strsb, cb, i), -mb: Array<U32>, o: Array<U32>, wo: Laws.WFArray(U32, d, o), +cell: {Laws.rdN(U32, d, o, i) == Bool.pick(U32, U32.is_ne(Laws.rd_at(U32, m, i), 0), Laws.rd_at(U32, ca1, i), Laws.rd_at(U32, M, i)) : U32},
+  wr: MaskRead(m, mb, i))
+  -> WDict2(n, d, m, va, vb, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, mb, o, k2, dd2, strs2, b2, slots2, tag2, i):
+  (mb2, +w, +emb2, +ewm, ew2) = wr
+  %emb2 : WDict2(n, d, m, va, vb, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, _, o, k2, dd2, strs2, b2, slots2, tag2, i)
+  wd_fin(n, d, m, va, vb, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, ca1, M, k2, dd2, strs2, b2, slots2, tag2, i, ka, ebb, mb2, o, cell, w, ewm, PST.rd_all(U32, d, o, wo))
+
+# the choose computed
+def wd_mk(+n: U32, +d: Nat, -m: Array<U32>, va: C.Valid, vb: C.Valid, -ca: Array<U32>, -dca: ST.Dict, -cb: Array<U32>, +kb: U32, +ddb: Nat, -strsb: Array<String>, +bb: Nat, -slotsb: Array<ST.SSlot>, +tagb: U32, -ca1: Array<U32>, -M: Array<U32>, +k2: U32, +dd2: Nat, strs2: Array<String>, +b2: Nat, slots2: Array<ST.SSlot>, +tag2: U32, +i: U32,
+  ka: KA(strs2, ca1, dca, ca, i), ebb: EB(strs2, M, strsb, cb, i), w: CHW(~U32, n, d, m, ca1, M, i))
+  -> WDict(n, d, m, va, vb, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, ca1, M, k2, dd2, strs2, b2, slots2, tag2, i):
+  (mb, o, eq, +emb, wo, cell) = w
+  %Equal.sym(Array<U32> & Array<U32>, K.Kernel.choose(~U32, n, m, ca1, M), (mb, o), eq) : WDict1(n, d, m, va, vb, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, _, k2, dd2, strs2, b2, slots2, tag2, i)
+  wd_mk0(n, d, m, va, vb, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, ca1, M, k2, dd2, strs2, b2, slots2, tag2, i, ka, ebb, mb, o, wo, cell, mask_read(m, mb, i, emb))
+
+# the production term rewritten through the preparation's three equations
+def WDP(+n: U32, +d: Nat, -m: Array<U32>, -va: C.Valid, -vb: C.Valid, -ca: Array<U32>, -dca: ST.Dict, -cb: Array<U32>, +kb: U32, +ddb: Nat, -strsb: Array<String>, +bb: Nat, -slotsb: Array<ST.SSlot>, +tagb: U32, -cap: Array<U32>, -mapped: Array<U32>, +k2: U32, +dd2: Nat, -strs2: Array<String>, +b2: Nat, -slots2: Array<ST.SSlot>, +tag2: U32, +i: U32) -> Type:
+  &c: C.Column -> {V.Eval.when.sd2(n, d, va, vb, ST.Dict{k2, dd2, strs2, b2, slots2, tag2}, K.Kernel.choose(~U32, n, m, cap, mapped)) == Done{c} : E.ResT(C.Column)} & {Laws.sdata(c, i) == Bool.pick(String, U32.is_ne(Laws.rd_at(U32, m, i), 0), Laws.dentry(dca, Laws.rd_at(U32, ca, i)), Laws.rd_at(String, strsb, Laws.rd_at(U32, cb, i))) : String}
+
+def wd_dict_k(+n: U32, +d: Nat, m: Array<U32>, va: C.Valid, vb: C.Valid, -ca: Array<U32>, -dca: ST.Dict, -cb: Array<U32>, +kb: U32, +ddb: Nat, -strsb: Array<String>, +bb: Nat, -slotsb: Array<ST.SSlot>, +tagb: U32, +i: U32, +hi: {U32.is_lt(i, n) == True{} : Bool}, +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}, w: DictPreW(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i))
+  -> &c: C.Column -> {V.Eval.when.sd(n, d, m, va, vb, ca, cb, ST.Dict.merge(ST.Dict{kb, ddb, strsb, bb, slotsb, tagb}, dca)) == Done{c} : E.ResT(C.Column)} & {Laws.sdata(c, i) == Bool.pick(String, U32.is_ne(Laws.rd_at(U32, m, i), 0), Laws.dentry(dca, Laws.rd_at(U32, ca, i)), Laws.rd_at(String, strsb, Laws.rd_at(U32, cb, i))) : String}:
+  (src2, +k2, +dd2, strs2, +b2, slots2, +tag2, mm, ca1, M2, eqm, +eqz, +e1, wf1, ka, ebb) = w
+  %Equal.sym(ST.Dict & ST.Dict & Array<U32>, ST.Dict.merge(ST.Dict{kb, ddb, strsb, bb, slotsb, tagb}, dca), (src2, ST.Dict{k2, dd2, strs2, b2, slots2, tag2}, mm), eqm) : &c: C.Column -> {V.Eval.when.sd(n, d, m, va, vb, ca, cb, _) == Done{c} : E.ResT(C.Column)} & {Laws.sdata(c, i) == Bool.pick(String, U32.is_ne(Laws.rd_at(U32, m, i), 0), Laws.dentry(dca, Laws.rd_at(U32, ca, i)), Laws.rd_at(String, strsb, Laws.rd_at(U32, cb, i))) : String}
+  %e1 : WDP(n, d, m, va, vb, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, _, V.Eval.zd.map(n, d, mm, cb), k2, dd2, strs2, b2, slots2, tag2, i)
+  %Equal.sym(Array<U32>, V.Eval.zd.map(n, d, mm, cb), M2, eqz) : WDP(n, d, m, va, vb, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, ca1, _, k2, dd2, strs2, b2, slots2, tag2, i)
+  wd_mk(n, d, m, va, vb, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, ca1, M2, k2, dd2, strs2, b2, slots2, tag2, i, ka, ebb, choose_w(~U32, n, d, m, ca1, M2, i, wf1, fits, hi))
+
+def wd_dict(+n: U32, +d: Nat, m: Array<U32>, va: C.Valid, vb: C.Valid, ca: Array<U32>, dca: ST.Dict, cb: Array<U32>, dcb: ST.Dict, +i: U32, hyp: Laws.WhenHyp(n, d, ST.SDict{ca, dca}, ST.SDict{cb, dcb}, i))
+  -> Laws.WhenDataW(n, d, m, va, vb, ST.SDict{ca, dca}, ST.SDict{cb, dcb}, i):
+  match dcb:
+    case ST.Dict{+kb, +ddb, strsb, +bb, slotsb, +tagb}:
+      (+fits, +hi, wfc, wfd, fitsb, hca, hc, probes) = hyp
+      wd_dict_k(n, d, m, va, vb, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i, hi, fits, dict_pre(n, d, ca, dca, cb, kb, ddb, strsb, bb, slotsb, tagb, i, hi, fits, wfc, wfd, fitsb, hca, hc, probes))
+
+# ---- the Raw branch: both sides decoded, the strings chosen -----------------------------------------------------
+
+def WRaw(+n: U32, +d: Nat, -m: Array<U32>, -va: C.Valid, -vb: C.Valid, -xa: ST.Strs, -xb: ST.Strs, -A: Array<String>, -B: Array<String>, +i: U32) -> Type:
+  &c: C.Column -> {V.Eval.when.s(n, d, va, vb, K.Kernel.choose(~String, n, m, A, B)) == Done{c} : E.ResT(C.Column)} & {Laws.sdata(c, i) == Bool.pick(String, U32.is_ne(Laws.rd_at(U32, m, i), 0), Laws.scell(xa, i), Laws.scell(xb, i)) : String}
+
+def WRaw1(+n: U32, +d: Nat, -m: Array<U32>, -va: C.Valid, -vb: C.Valid, -xa: ST.Strs, -xb: ST.Strs, -r: Array<U32> & Array<String>, +i: U32) -> Type:
+  &c: C.Column -> {V.Eval.when.s(n, d, va, vb, r) == Done{c} : E.ResT(C.Column)} & {Laws.sdata(c, i) == Bool.pick(String, U32.is_ne(Laws.rd_at(U32, m, i), 0), Laws.scell(xa, i), Laws.scell(xb, i)) : String}
+
+def wr_fin(+n: U32, +d: Nat, -m: Array<U32>, va: C.Valid, vb: C.Valid, -xa: ST.Strs, -xb: ST.Strs, -A: Array<String>, -B: Array<String>, +i: U32, +hi: {U32.is_lt(i, n) == True{} : Bool},
+  fA: @j: U32 -> {U32.is_lt(j, n) == True{} : Bool} -> {Laws.rd_at(String, A, j) == Laws.scell(xa, j) : String}, fB: @j: U32 -> {U32.is_lt(j, n) == True{} : Bool} -> {Laws.rd_at(String, B, j) == Laws.scell(xb, j) : String},
+  mb: Array<U32>, -o: Array<String>, +cell: {Laws.rdN(String, d, o, i) == Bool.pick(String, U32.is_ne(Laws.rd_at(U32, m, i), 0), Laws.rd_at(String, A, i), Laws.rd_at(String, B, i)) : String},
+  wo2: &o2: Array<String> -> {o2 == o : Array<String>} & Laws.WFArray(String, d, o2) & (@k: U32 -> {Laws.rd_at(String, o, k) == Laws.rdN(String, d, o, k) : String}))
+  -> WRaw1(n, d, m, va, vb, xa, xb, (mb, o), i):
+  (o2, +eo2, wo3, cv) = wo2
+  (C.CStr{n, d, V.Eval.when.valid(n, d, va, vb, mb), ST.SRaw{o2}}, (%Equal.sym(Array<String>, o2, o, eo2) : {V.Eval.when.s(n, d, va, vb, (mb, o)) == Done{C.CStr{n, d, V.Eval.when.valid(n, d, va, vb, mb), ST.SRaw{_}}} : E.ResT(C.Column)}; {==}),
+    (%Equal.sym(Array<String>, o2, o, eo2) : {Laws.rd_at(String, _, i) == Bool.pick(String, U32.is_ne(Laws.rd_at(U32, m, i), 0), Laws.scell(xa, i), Laws.scell(xb, i)) : String};
+     %Equal.sym(String, Laws.rd_at(String, o, i), Laws.rdN(String, d, o, i), cv(i)) : {_ == Bool.pick(String, U32.is_ne(Laws.rd_at(U32, m, i), 0), Laws.scell(xa, i), Laws.scell(xb, i)) : String};
+     %Equal.sym(String, Laws.rdN(String, d, o, i), Bool.pick(String, U32.is_ne(Laws.rd_at(U32, m, i), 0), Laws.rd_at(String, A, i), Laws.rd_at(String, B, i)), cell) : {_ == Bool.pick(String, U32.is_ne(Laws.rd_at(U32, m, i), 0), Laws.scell(xa, i), Laws.scell(xb, i)) : String};
+     %Equal.sym(String, Laws.rd_at(String, A, i), Laws.scell(xa, i), fA(i, hi)) : {Bool.pick(String, U32.is_ne(Laws.rd_at(U32, m, i), 0), _, Laws.rd_at(String, B, i)) == Bool.pick(String, U32.is_ne(Laws.rd_at(U32, m, i), 0), Laws.scell(xa, i), Laws.scell(xb, i)) : String};
+     %Equal.sym(String, Laws.rd_at(String, B, i), Laws.scell(xb, i), fB(i, hi)) : {Bool.pick(String, U32.is_ne(Laws.rd_at(U32, m, i), 0), Laws.scell(xa, i), _) == Bool.pick(String, U32.is_ne(Laws.rd_at(U32, m, i), 0), Laws.scell(xa, i), Laws.scell(xb, i)) : String};
+     {==}))
+
+def wr_mk(+n: U32, +d: Nat, -m: Array<U32>, va: C.Valid, vb: C.Valid, -xa: ST.Strs, -xb: ST.Strs, -A: Array<String>, -B: Array<String>, +i: U32, +hi: {U32.is_lt(i, n) == True{} : Bool},
+  fA: @j: U32 -> {U32.is_lt(j, n) == True{} : Bool} -> {Laws.rd_at(String, A, j) == Laws.scell(xa, j) : String}, fB: @j: U32 -> {U32.is_lt(j, n) == True{} : Bool} -> {Laws.rd_at(String, B, j) == Laws.scell(xb, j) : String},
+  w: CHW(~String, n, d, m, A, B, i))
+  -> WRaw(n, d, m, va, vb, xa, xb, A, B, i):
+  (mb, o, eq, emb, wo, cell) = w
+  %Equal.sym(Array<U32> & Array<String>, K.Kernel.choose(~String, n, m, A, B), (mb, o), eq) : WRaw1(n, d, m, va, vb, xa, xb, _, i)
+  wr_fin(n, d, m, va, vb, xa, xb, A, B, i, hi, fA, fB, mb, o, cell, PST.rd_all(String, d, o, wo))
+
+def wr_dec(+n: U32, +d: Nat, m: Array<U32>, va: C.Valid, vb: C.Valid, -xa: ST.Strs, -xb: ST.Strs, +i: U32, +hi: {U32.is_lt(i, n) == True{} : Bool}, +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}, wa: DecodeWF(xa, n, d), wb: PA.DecodeW(xb, n, d))
+  -> &c: C.Column -> {V.Eval.when.s(n, d, va, vb, K.Kernel.choose(~String, n, m, ST.Strs.decode(n, d, xa), ST.Strs.decode(n, d, xb))) == Done{c} : E.ResT(C.Column)} & {Laws.sdata(c, i) == Bool.pick(String, U32.is_ne(Laws.rd_at(U32, m, i), 0), Laws.scell(xa, i), Laws.scell(xb, i)) : String}:
+  (A, eA, wfA, fA) = wa
+  (B, eB, fB) = wb
+  %Equal.sym(Array<String>, ST.Strs.decode(n, d, xa), A, eA) : WRaw(n, d, m, va, vb, xa, xb, _, ST.Strs.decode(n, d, xb), i)
+  %Equal.sym(Array<String>, ST.Strs.decode(n, d, xb), B, eB) : WRaw(n, d, m, va, vb, xa, xb, A, _, i)
+  wr_mk(n, d, m, va, vb, xa, xb, A, B, i, hi, fA, fB, choose_w(~String, n, d, m, A, B, i, wfA, fits, hi))
+
+def wr_law(+n: U32, +d: Nat, m: Array<U32>, va: C.Valid, vb: C.Valid, xa: ST.Strs, xb: ST.Strs, +i: U32, +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}, +hi: {U32.is_lt(i, n) == True{} : Bool}, wfs: Laws.WFStrData(d, xa))
+  -> &c: C.Column -> {V.Eval.when.s(n, d, va, vb, K.Kernel.choose(~String, n, m, ST.Strs.decode(n, d, xa), ST.Strs.decode(n, d, xb))) == Done{c} : E.ResT(C.Column)} & {Laws.sdata(c, i) == Bool.pick(String, U32.is_ne(Laws.rd_at(U32, m, i), 0), Laws.scell(xa, i), Laws.scell(xb, i)) : String}:
+  wr_dec(n, d, m, va, vb, xa, xb, i, hi, fits, decode_wf(n, d, xa, fits, wfs), PA.decode_w(n, d, xb, fits))
+
+def Laws.when_str_data(n, d, m, va, vb, xa, xb, i, hyp):
+  match xa xb:
+    case ST.SDict{ca, dca} ST.SDict{cb, dcb}:
+      wd_dict(n, d, m, va, vb, ca, dca, cb, dcb, i, hyp)
+    case ST.SRaw{a} ST.SRaw{b}:
+      (+fits, +hi, wfs, dh) = hyp
+      wr_law(n, d, m, va, vb, ST.SRaw{a}, ST.SRaw{b}, i, fits, hi, wfs)
+    case ST.SRaw{a} ST.SDict{cb, dcb}:
+      (+fits, +hi, wfs, dh) = hyp
+      wr_law(n, d, m, va, vb, ST.SRaw{a}, ST.SDict{cb, dcb}, i, fits, hi, wfs)
+    case ST.SDict{ca, dca} ST.SRaw{b}:
+      (+fits, +hi, wfs, dh) = hyp
+      wr_law(n, d, m, va, vb, ST.SDict{ca, dca}, ST.SRaw{b}, i, fits, hi, wfs)
