@@ -499,8 +499,9 @@ def describe.r(x: C.Frame & E.ResT(C.Frame)) -> E.ResT(C.Frame):
   (f, r) = x
   r
 
-# Polars-style summary statistics (a stub until the describe milestone: it
-# answers an InvalidOperation error); an error in r passes through
+# Polars-style summary statistics (count, null_count, mean, std, min, 25%, 50%, 75%, max;
+# DESIGN.md 15.5.4: numeric columns as f32, bool / str columns as text); an error in r
+# passes through
 def describe(r: E.ResT(C.Frame)) -> E.ResT(C.Frame):
   match r:
     case Fail{e}:
