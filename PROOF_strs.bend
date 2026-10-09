@@ -878,3 +878,406 @@ def empty_entries(+c: U32, hc: {U32.is_lt(c, 1) == True{} : Bool}) -> {Laws.rd_a
 
 def Laws.dict_empty_wf():
   ({==}, {==}, {==}, {==}, Unit{}, +c => hc => empty_entries(c, hc), ((Unit{}, ({==}, {==})), (Unit{}, Unit{})))
+
+# ---- the index: SlotOk / WFIx structural lemmas (every lemma hands the inspected tree back) ---------------
+
+# a SlotOk proof is Data: two copies
+def dup2(-k: U32, -es: List<&2, String>, -key: String, -id: U32, +h1: {U32.is_lt(U32.sub(id, 1), k) == True{} : Bool}, +h2: {Laws.nthd(es, U32.sub(id, 1)) == key : String}) -> Laws.SlotOk.k(False{}, k, es, key, id) & Laws.SlotOk.k(False{}, k, es, key, id):
+  ((h1, h2), (h1, h2))
+
+def slotok_dup_k(e: Bool, +k: U32, +es: List<&2, String>, +key: String, +id: U32, p: Laws.SlotOk.k(e, k, es, key, id)) -> Laws.SlotOk.k(e, k, es, key, id) & Laws.SlotOk.k(e, k, es, key, id):
+  match e:
+    case True{}:
+      (Unit{}, Unit{})
+    case False{}:
+      (h1, h2) = p
+      dup2(k, es, key, id, h1, h2)
+
+def slotok_dup(+k: U32, +es: List<&2, String>, x: ST.SSlot, p: Laws.SlotOk(k, es, x)) -> Laws.SlotOk(k, es, x) & Laws.SlotOk(k, es, x):
+  match x:
+    case ST.SSlot{+key, +id}:
+      slotok_dup_k(U32.is_eq(id, 0), k, es, key, id, p)
+
+# Array.size of a sound index: the tree back, 2^b slots
+def wfix_size_node(+k: U32, +es: List<&2, String>, -xs: Array<ST.SSlot>, ys: Array<ST.SSlot>, +p: Nat, wr: Laws.WFIx(k, es, p, ys), w: &b: Array<ST.SSlot> -> {b == xs : Array<ST.SSlot>} & Laws.WFIx(k, es, p, b) & {Array.size(ST.SSlot, xs) == (b, U32.shln(1, p)) : Array<ST.SSlot> & U32})
+  -> &b2: Array<ST.SSlot> -> {b2 == ANode{xs, ys} : Array<ST.SSlot>} & Laws.WFIx(k, es, 1n+p, b2) & {Array.size(ST.SSlot, ANode{xs, ys}) == (b2, U32.shln(1, 1n+p)) : Array<ST.SSlot> & U32}:
+  (b, eb, wb, es2) = w
+  (ANode{b, ys}, (%eb : {ANode{b, ys} == ANode{_, ys} : Array<ST.SSlot>}; {==}), (wb, wr), (%Equal.sym(Array<ST.SSlot> & U32, Array.size(ST.SSlot, xs), (b, U32.shln(1, p)), es2) : {Array.size.node(ST.SSlot, ys, _) == (ANode{b, ys}, U32.shln(1, 1n+p)) : Array<ST.SSlot> & U32}; {==}))
+
+def wfix_size(+k: U32, +es: List<&2, String>, b: Nat, t: Array<ST.SSlot>, wfx: Laws.WFIx(k, es, b, t)) -> &t2: Array<ST.SSlot> -> {t2 == t : Array<ST.SSlot>} & Laws.WFIx(k, es, b, t2) & {Array.size(ST.SSlot, t) == (t2, U32.shln(1, b)) : Array<ST.SSlot> & U32}:
+  match b t:
+    case 0n ALeaf{+x}:
+      (ALeaf{x}, {==}, wfx, {==})
+    case 1n++p ANode{xs, ys}:
+      (wl, wr) = wfx
+      wfix_size_node(k, es, xs, ys, p, wr, wfix_size(k, es, p, xs, wl))
+    case 0n ANode{xs, ys}:
+      Empty.absurd(&t2: Array<ST.SSlot> -> {t2 == ANode{xs, ys} : Array<ST.SSlot>} & Laws.WFIx(k, es, 0n, t2) & {Array.size(ST.SSlot, ANode{xs, ys}) == (t2, U32.shln(1, 0n)) : Array<ST.SSlot> & U32}, wfx)
+    case 1n+p ALeaf{x}:
+      Empty.absurd(&t2: Array<ST.SSlot> -> {t2 == ALeaf{x} : Array<ST.SSlot>} & Laws.WFIx(k, es, 1n+p, t2) & {Array.size(ST.SSlot, ALeaf{x}) == (t2, U32.shln(1, 1n+p)) : Array<ST.SSlot> & U32}, wfx)
+
+# Array.swap.go with a sound slot keeps the index sound (the write goes down one path)
+def wfix_swap_lo(+k: U32, +es: List<&2, String>, +p: Nat, -xs: Array<ST.SSlot>, ys: Array<ST.SSlot>, wr: Laws.WFIx(k, es, p, ys), +n: U32, +i: U32, +v: ST.SSlot,
+  w: &c: Array<ST.SSlot> -> &o: ST.SSlot -> {Array.swap.go(ST.SSlot, xs, U32.shr(n), i, v, U32.is_lt(i, U32.shr(U32.shr(n)))) == (c, o) : Array<ST.SSlot> & ST.SSlot} & Laws.WFIx(k, es, p, c))
+  -> &c2: Array<ST.SSlot> -> &o2: ST.SSlot -> {Array.swap.lo(ST.SSlot, ys, Array.swap.go(ST.SSlot, xs, U32.shr(n), i, v, U32.is_lt(i, U32.shr(U32.shr(n))))) == (c2, o2) : Array<ST.SSlot> & ST.SSlot} & Laws.WFIx(k, es, 1n+p, c2):
+  (c, o, e, wc) = w
+  %Equal.sym(Array<ST.SSlot> & ST.SSlot, Array.swap.go(ST.SSlot, xs, U32.shr(n), i, v, U32.is_lt(i, U32.shr(U32.shr(n)))), (c, o), e) : &c2: Array<ST.SSlot> -> &o2: ST.SSlot -> {Array.swap.lo(ST.SSlot, ys, _) == (c2, o2) : Array<ST.SSlot> & ST.SSlot} & Laws.WFIx(k, es, 1n+p, c2)
+  (ANode{c, ys}, o, {==}, (wc, wr))
+
+def wfix_swap_hi(+k: U32, +es: List<&2, String>, +p: Nat, xs: Array<ST.SSlot>, -ys: Array<ST.SSlot>, wl: Laws.WFIx(k, es, p, xs), +n: U32, +i: U32, +v: ST.SSlot,
+  w: &c: Array<ST.SSlot> -> &o: ST.SSlot -> {Array.swap.go(ST.SSlot, ys, U32.shr(n), U32.sub(i, U32.shr(n)), v, U32.is_lt(U32.sub(i, U32.shr(n)), U32.shr(U32.shr(n)))) == (c, o) : Array<ST.SSlot> & ST.SSlot} & Laws.WFIx(k, es, p, c))
+  -> &c2: Array<ST.SSlot> -> &o2: ST.SSlot -> {Array.swap.hi(ST.SSlot, xs, Array.swap.go(ST.SSlot, ys, U32.shr(n), U32.sub(i, U32.shr(n)), v, U32.is_lt(U32.sub(i, U32.shr(n)), U32.shr(U32.shr(n))))) == (c2, o2) : Array<ST.SSlot> & ST.SSlot} & Laws.WFIx(k, es, 1n+p, c2):
+  (c, o, e, wc) = w
+  %Equal.sym(Array<ST.SSlot> & ST.SSlot, Array.swap.go(ST.SSlot, ys, U32.shr(n), U32.sub(i, U32.shr(n)), v, U32.is_lt(U32.sub(i, U32.shr(n)), U32.shr(U32.shr(n)))), (c, o), e) : &c2: Array<ST.SSlot> -> &o2: ST.SSlot -> {Array.swap.hi(ST.SSlot, xs, _) == (c2, o2) : Array<ST.SSlot> & ST.SSlot} & Laws.WFIx(k, es, 1n+p, c2)
+  (ANode{xs, c}, o, {==}, (wl, wc))
+
+def wfix_swap(+k: U32, +es: List<&2, String>, b: Nat, t: Array<ST.SSlot>, +n: U32, +i: U32, +v: ST.SSlot, z: Bool, wfx: Laws.WFIx(k, es, b, t), ok: Laws.SlotOk(k, es, v)) -> &c: Array<ST.SSlot> -> &o: ST.SSlot -> {Array.swap.go(ST.SSlot, t, n, i, v, z) == (c, o) : Array<ST.SSlot> & ST.SSlot} & Laws.WFIx(k, es, b, c):
+  match b t z:
+    case 0n ALeaf{x} _:
+      (ALeaf{v}, x, {==}, ok)
+    case 1n++p ANode{xs, ys} True{}:
+      (wl, wr) = wfx
+      wfix_swap_lo(k, es, p, xs, ys, wr, n, i, v, wfix_swap(k, es, p, xs, U32.shr(n), i, v, U32.is_lt(i, U32.shr(U32.shr(n))), wl, ok))
+    case 1n++p ANode{xs, ys} False{}:
+      (wl, wr) = wfx
+      wfix_swap_hi(k, es, p, xs, ys, wl, n, i, v, wfix_swap(k, es, p, ys, U32.shr(n), U32.sub(i, U32.shr(n)), v, U32.is_lt(U32.sub(i, U32.shr(n)), U32.shr(U32.shr(n))), wr, ok))
+    case 0n ANode{xs, ys} zz:
+      Empty.absurd(&c: Array<ST.SSlot> -> &o: ST.SSlot -> {Array.swap.go(ST.SSlot, ANode{xs, ys}, n, i, v, zz) == (c, o) : Array<ST.SSlot> & ST.SSlot} & Laws.WFIx(k, es, 0n, c), wfx)
+    case 1n+p ALeaf{x} zz:
+      Empty.absurd(&c: Array<ST.SSlot> -> &o: ST.SSlot -> {Array.swap.go(ST.SSlot, ALeaf{x}, n, i, v, zz) == (c, o) : Array<ST.SSlot> & ST.SSlot} & Laws.WFIx(k, es, 1n+p, c), wfx)
+
+# Array.set of a sound slot keeps the index sound
+def wfix_set_k2(+k: U32, +es: List<&2, String>, +b: Nat, -t2: Array<ST.SSlot>, +i: U32, +v: ST.SSlot,
+  w: &c: Array<ST.SSlot> -> &o: ST.SSlot -> {Array.swap.go(ST.SSlot, t2, U32.shln(1, b), U32.and(i, U32.sub(U32.shln(1, b), 1)), v, U32.is_lt(U32.and(i, U32.sub(U32.shln(1, b), 1)), U32.shr(U32.shln(1, b)))) == (c, o) : Array<ST.SSlot> & ST.SSlot} & Laws.WFIx(k, es, b, c))
+  -> &c2: Array<ST.SSlot> -> {Array.set.fin(ST.SSlot, Array.swap.at(ST.SSlot, i, v, (t2, U32.shln(1, b)))) == c2 : Array<ST.SSlot>} & Laws.WFIx(k, es, b, c2):
+  (c, o, e, wc) = w
+  %Equal.sym(Array<ST.SSlot> & ST.SSlot, Array.swap.go(ST.SSlot, t2, U32.shln(1, b), U32.and(i, U32.sub(U32.shln(1, b), 1)), v, U32.is_lt(U32.and(i, U32.sub(U32.shln(1, b), 1)), U32.shr(U32.shln(1, b)))), (c, o), e) : &c2: Array<ST.SSlot> -> {Array.set.fin(ST.SSlot, _) == c2 : Array<ST.SSlot>} & Laws.WFIx(k, es, b, c2)
+  (c, {==}, wc)
+
+def wfix_set_k1(+k: U32, +es: List<&2, String>, +b: Nat, -t: Array<ST.SSlot>, +i: U32, +v: ST.SSlot, ok: Laws.SlotOk(k, es, v),
+  w: &t2: Array<ST.SSlot> -> {t2 == t : Array<ST.SSlot>} & Laws.WFIx(k, es, b, t2) & {Array.size(ST.SSlot, t) == (t2, U32.shln(1, b)) : Array<ST.SSlot> & U32})
+  -> &c: Array<ST.SSlot> -> {Array.set(ST.SSlot, t, i, v) == c : Array<ST.SSlot>} & Laws.WFIx(k, es, b, c):
+  (t2, et, w2, es2) = w
+  %Equal.sym(Array<ST.SSlot> & U32, Array.size(ST.SSlot, t), (t2, U32.shln(1, b)), es2) : &c: Array<ST.SSlot> -> {Array.set.fin(ST.SSlot, Array.swap.at(ST.SSlot, i, v, _)) == c : Array<ST.SSlot>} & Laws.WFIx(k, es, b, c)
+  wfix_set_k2(k, es, b, t2, i, v, wfix_swap(k, es, b, t2, U32.shln(1, b), U32.and(i, U32.sub(U32.shln(1, b), 1)), v, U32.is_lt(U32.and(i, U32.sub(U32.shln(1, b), 1)), U32.shr(U32.shln(1, b))), w2, ok))
+
+def wfix_set(+k: U32, +es: List<&2, String>, +b: Nat, t: Array<ST.SSlot>, +i: U32, +v: ST.SSlot, wfx: Laws.WFIx(k, es, b, t), ok: Laws.SlotOk(k, es, v)) -> &c: Array<ST.SSlot> -> {Array.set(ST.SSlot, t, i, v) == c : Array<ST.SSlot>} & Laws.WFIx(k, es, b, c):
+  wfix_set_k1(k, es, b, t, i, v, ok, wfix_size(k, es, b, t, wfx))
+
+# the slot read at any index of a sound index is sound (the tree back, still sound)
+def wfix_rd_leaf(+k: U32, +es: List<&2, String>, +x: ST.SSlot, -n: U32, -i: U32, -z: Bool, w: Laws.SlotOk(k, es, x) & Laws.SlotOk(k, es, x)) -> &t2: Array<ST.SSlot> -> {t2 == ALeaf{x} : Array<ST.SSlot>} & Laws.WFIx(k, es, 0n, t2) & Laws.SlotOk(k, es, Laws.rd(ST.SSlot, ALeaf{x}, n, i, z)):
+  (p1, p2) = w
+  (ALeaf{x}, {==}, p1, p2)
+
+def wfix_rd_lo(+k: U32, +es: List<&2, String>, +p: Nat, -xs: Array<ST.SSlot>, ys: Array<ST.SSlot>, wr: Laws.WFIx(k, es, p, ys), +n: U32, +i: U32,
+  w: &xs2: Array<ST.SSlot> -> {xs2 == xs : Array<ST.SSlot>} & Laws.WFIx(k, es, p, xs2) & Laws.SlotOk(k, es, Laws.rd(ST.SSlot, xs, U32.shr(n), i, U32.is_lt(i, U32.shr(U32.shr(n))))))
+  -> &t2: Array<ST.SSlot> -> {t2 == ANode{xs, ys} : Array<ST.SSlot>} & Laws.WFIx(k, es, 1n+p, t2) & Laws.SlotOk(k, es, Laws.rd(ST.SSlot, ANode{xs, ys}, n, i, True{})):
+  (xs2, e, w2, ok) = w
+  (ANode{xs2, ys}, (%e : {ANode{xs2, ys} == ANode{_, ys} : Array<ST.SSlot>}; {==}), (w2, wr), ok)
+
+def wfix_rd_hi(+k: U32, +es: List<&2, String>, +p: Nat, xs: Array<ST.SSlot>, -ys: Array<ST.SSlot>, wl: Laws.WFIx(k, es, p, xs), +n: U32, +i: U32,
+  w: &ys2: Array<ST.SSlot> -> {ys2 == ys : Array<ST.SSlot>} & Laws.WFIx(k, es, p, ys2) & Laws.SlotOk(k, es, Laws.rd(ST.SSlot, ys, U32.shr(n), U32.sub(i, U32.shr(n)), U32.is_lt(U32.sub(i, U32.shr(n)), U32.shr(U32.shr(n))))))
+  -> &t2: Array<ST.SSlot> -> {t2 == ANode{xs, ys} : Array<ST.SSlot>} & Laws.WFIx(k, es, 1n+p, t2) & Laws.SlotOk(k, es, Laws.rd(ST.SSlot, ANode{xs, ys}, n, i, False{})):
+  (ys2, e, w2, ok) = w
+  (ANode{xs, ys2}, (%e : {ANode{xs, ys2} == ANode{xs, _} : Array<ST.SSlot>}; {==}), (wl, w2), ok)
+
+def wfix_rd_go(+k: U32, +es: List<&2, String>, b: Nat, t: Array<ST.SSlot>, +n: U32, +i: U32, z: Bool, wfx: Laws.WFIx(k, es, b, t)) -> &t2: Array<ST.SSlot> -> {t2 == t : Array<ST.SSlot>} & Laws.WFIx(k, es, b, t2) & Laws.SlotOk(k, es, Laws.rd(ST.SSlot, t, n, i, z)):
+  match b t z:
+    case 0n ALeaf{+x} zz:
+      wfix_rd_leaf(k, es, x, n, i, zz, slotok_dup(k, es, x, wfx))
+    case 1n++p ANode{xs, ys} True{}:
+      (wl, wr) = wfx
+      wfix_rd_lo(k, es, p, xs, ys, wr, n, i, wfix_rd_go(k, es, p, xs, U32.shr(n), i, U32.is_lt(i, U32.shr(U32.shr(n))), wl))
+    case 1n++p ANode{xs, ys} False{}:
+      (wl, wr) = wfx
+      wfix_rd_hi(k, es, p, xs, ys, wl, n, i, wfix_rd_go(k, es, p, ys, U32.shr(n), U32.sub(i, U32.shr(n)), U32.is_lt(U32.sub(i, U32.shr(n)), U32.shr(U32.shr(n))), wr))
+    case 0n ANode{xs, ys} zz:
+      Empty.absurd(&t2: Array<ST.SSlot> -> {t2 == ANode{xs, ys} : Array<ST.SSlot>} & Laws.WFIx(k, es, 0n, t2) & Laws.SlotOk(k, es, Laws.rd(ST.SSlot, ANode{xs, ys}, n, i, zz)), wfx)
+    case 1n+p ALeaf{x} zz:
+      Empty.absurd(&t2: Array<ST.SSlot> -> {t2 == ALeaf{x} : Array<ST.SSlot>} & Laws.WFIx(k, es, 1n+p, t2) & Laws.SlotOk(k, es, Laws.rd(ST.SSlot, ALeaf{x}, n, i, zz)), wfx)
+
+def wfix_rd_fin(+k: U32, +es: List<&2, String>, +b: Nat, -t: Array<ST.SSlot>, -t2: Array<ST.SSlot>, et: {t2 == t : Array<ST.SSlot>}, +j: U32,
+  w: &t3: Array<ST.SSlot> -> {t3 == t2 : Array<ST.SSlot>} & Laws.WFIx(k, es, b, t3) & Laws.SlotOk(k, es, Laws.rd(ST.SSlot, t2, U32.shln(1, b), U32.and(j, U32.sub(U32.shln(1, b), 1)), U32.is_lt(U32.and(j, U32.sub(U32.shln(1, b), 1)), U32.shr(U32.shln(1, b))))))
+  -> &t3: Array<ST.SSlot> -> {t3 == t : Array<ST.SSlot>} & Laws.WFIx(k, es, b, t3) & Laws.SlotOk(k, es, Laws.rd_size(ST.SSlot, j, (t2, U32.shln(1, b)))):
+  (t3, e3, w3, ok) = w
+  (t3, Equal.trans(Array<ST.SSlot>, t3, t2, t, e3, et), w3, ok)
+
+def wfix_rd_k(+k: U32, +es: List<&2, String>, +b: Nat, -t: Array<ST.SSlot>, +j: U32, w: &t2: Array<ST.SSlot> -> {t2 == t : Array<ST.SSlot>} & Laws.WFIx(k, es, b, t2) & {Array.size(ST.SSlot, t) == (t2, U32.shln(1, b)) : Array<ST.SSlot> & U32})
+  -> &t3: Array<ST.SSlot> -> {t3 == t : Array<ST.SSlot>} & Laws.WFIx(k, es, b, t3) & Laws.SlotOk(k, es, Laws.rd_at(ST.SSlot, t, j)):
+  (t2, +et, w2, es2) = w
+  %Equal.sym(Array<ST.SSlot> & U32, Array.size(ST.SSlot, t), (t2, U32.shln(1, b)), es2) : &t3: Array<ST.SSlot> -> {t3 == t : Array<ST.SSlot>} & Laws.WFIx(k, es, b, t3) & Laws.SlotOk(k, es, Laws.rd_size(ST.SSlot, j, _))
+  wfix_rd_fin(k, es, b, t, t2, et, j, wfix_rd_go(k, es, b, t2, U32.shln(1, b), U32.and(j, U32.sub(U32.shln(1, b), 1)), U32.is_lt(U32.and(j, U32.sub(U32.shln(1, b), 1)), U32.shr(U32.shln(1, b))), w2))
+
+def wfix_rd(+k: U32, +es: List<&2, String>, +b: Nat, t: Array<ST.SSlot>, +j: U32, wfx: Laws.WFIx(k, es, b, t)) -> &t3: Array<ST.SSlot> -> {t3 == t : Array<ST.SSlot>} & Laws.WFIx(k, es, b, t3) & Laws.SlotOk(k, es, Laws.rd_at(ST.SSlot, t, j)):
+  wfix_rd_k(k, es, b, t, j, wfix_size(k, es, b, t, wfx))
+
+# a sound index stays sound for more entries (k2 >= k with es2 extending es)
+def slotok_mono_k(e: Bool, +k: U32, +k2: U32, +es: List<&2, String>, +es2: List<&2, String>, +more: List<&2, String>, +e2: {es2 == List.append(&2, String, es, more) : List<&2, String>}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, +hk: {U32.is_le(k, k2) == True{} : Bool}, +key: String, +id: U32, p: Laws.SlotOk.k(e, k, es, key, id)) -> Laws.SlotOk.k(e, k2, es2, key, id):
+  match e:
+    case True{}:
+      Unit{}
+    case False{}:
+      (+h1, h2) = p
+      (lt_le_trans_u(U32.sub(id, 1), k, k2, h1, hk), (%Equal.sym(List<&2, String>, es2, List.append(&2, String, es, more), e2) : {Laws.nthn(_, U32.to_nat(U32.sub(id, 1))) == key : String}; %Equal.sym(String, Laws.nthn(List.append(&2, String, es, more), U32.to_nat(U32.sub(id, 1))), Laws.nthn(es, U32.to_nat(U32.sub(id, 1))), nth_app_lt(es, more, U32.to_nat(U32.sub(id, 1)), (%ek : {Cmp.is_lt(Nat.cmp(U32.to_nat(U32.sub(id, 1)), _)) == True{} : Bool}; lt_nat_of_u(U32.sub(id, 1), k, h1)))) : {_ == key : String}; h2))
+
+def slotok_mono(+k: U32, +k2: U32, +es: List<&2, String>, +es2: List<&2, String>, +more: List<&2, String>, +e2: {es2 == List.append(&2, String, es, more) : List<&2, String>}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, +hk: {U32.is_le(k, k2) == True{} : Bool}, x: ST.SSlot, p: Laws.SlotOk(k, es, x)) -> Laws.SlotOk(k2, es2, x):
+  match x:
+    case ST.SSlot{+key, +id}:
+      slotok_mono_k(U32.is_eq(id, 0), k, k2, es, es2, more, e2, ek, hk, key, id, p)
+
+def wfix_mono_node(+k2: U32, +es2: List<&2, String>, -xs: Array<ST.SSlot>, -ys: Array<ST.SSlot>, +p: Nat, wx: &x2: Array<ST.SSlot> -> {x2 == xs : Array<ST.SSlot>} & Laws.WFIx(k2, es2, p, x2), wy: &y2: Array<ST.SSlot> -> {y2 == ys : Array<ST.SSlot>} & Laws.WFIx(k2, es2, p, y2)) -> &t2: Array<ST.SSlot> -> {t2 == ANode{xs, ys} : Array<ST.SSlot>} & Laws.WFIx(k2, es2, 1n+p, t2):
+  (x2, ex, wx2) = wx
+  (y2, ey, wy2) = wy
+  (ANode{x2, y2}, (%ey : {ANode{x2, y2} == ANode{xs, _} : Array<ST.SSlot>}; %ex : {ANode{x2, y2} == ANode{_, y2} : Array<ST.SSlot>}; {==}), (wx2, wy2))
+
+def wfix_mono(+k: U32, +k2: U32, +es: List<&2, String>, +es2: List<&2, String>, +more: List<&2, String>, +e2: {es2 == List.append(&2, String, es, more) : List<&2, String>}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, +hk: {U32.is_le(k, k2) == True{} : Bool}, b: Nat, t: Array<ST.SSlot>, wfx: Laws.WFIx(k, es, b, t)) -> &t2: Array<ST.SSlot> -> {t2 == t : Array<ST.SSlot>} & Laws.WFIx(k2, es2, b, t2):
+  match b t:
+    case 0n ALeaf{+x}:
+      (ALeaf{x}, {==}, slotok_mono(k, k2, es, es2, more, e2, ek, hk, x, wfx))
+    case 1n++p ANode{xs, ys}:
+      (wl, wr) = wfx
+      wfix_mono_node(k2, es2, xs, ys, p, wfix_mono(k, k2, es, es2, more, e2, ek, hk, p, xs, wl), wfix_mono(k, k2, es, es2, more, e2, ek, hk, p, ys, wr))
+    case 0n ANode{xs, ys}:
+      Empty.absurd(&t2: Array<ST.SSlot> -> {t2 == ANode{xs, ys} : Array<ST.SSlot>} & Laws.WFIx(k2, es2, 0n, t2), wfx)
+    case 1n+p ALeaf{x}:
+      Empty.absurd(&t2: Array<ST.SSlot> -> {t2 == ALeaf{x} : Array<ST.SSlot>} & Laws.WFIx(k2, es2, 1n+p, t2), wfx)
+
+# ---- the probe Ix.seek is pure: the slots back, some index --------------------------------------------
+
+def look_red(-t: Array<ST.SSlot>, +s: String, x: ST.SSlot) -> {ST.Ix.look(s, (t, x)) == (t, Laws.look_bit(s, x)) : Array<ST.SSlot> & Bool}:
+  match x:
+    case ST.SSlot{key, id}:
+      {==}
+
+def SeekW(-t: Array<ST.SSlot>, +n: Nat, +c: Bool, +s: String, +mask: U32, +i: U32) -> Type:
+  &t2: Array<ST.SSlot> -> &i2: U32 -> {ST.Ix.seek.go(n, (t, c), s, mask, i) == (t2, i2) : Array<ST.SSlot> & U32} & {t2 == t : Array<ST.SSlot>}
+
+def seek_step(p: Nat, -t: Array<ST.SSlot>, +s: String, +mask: U32, +i: U32,
+  w: &t2: Array<ST.SSlot> -> &x: ST.SSlot -> {t2 == t : Array<ST.SSlot>} & {Array.get(ST.SSlot, t, U32.and(U32.inc(i), mask)) == (t, x) : Array<ST.SSlot> & ST.SSlot} & {x == Laws.rd_at(ST.SSlot, t, U32.and(U32.inc(i), mask)) : ST.SSlot},
+  ih: @t3: Array<ST.SSlot> -> @c3: Bool -> SeekW(t3, p, c3, s, mask, U32.and(U32.inc(i), mask)))
+  -> SeekW(t, 1n+p, True{}, s, mask, i):
+  (t2, +x, et, e1, ex) = w
+  %Equal.sym(Array<ST.SSlot> & ST.SSlot, Array.get(ST.SSlot, t, U32.and(U32.inc(i), mask)), (t, x), e1) : &t4: Array<ST.SSlot> -> &i4: U32 -> {ST.Ix.seek.go(p, ST.Ix.look(s, _), s, mask, U32.and(U32.inc(i), mask)) == (t4, i4) : Array<ST.SSlot> & U32} & {t4 == t : Array<ST.SSlot>}
+  %Equal.sym(Array<ST.SSlot> & Bool, ST.Ix.look(s, (t, x)), (t, Laws.look_bit(s, x)), look_red(t, s, x)) : &t4: Array<ST.SSlot> -> &i4: U32 -> {ST.Ix.seek.go(p, _, s, mask, U32.and(U32.inc(i), mask)) == (t4, i4) : Array<ST.SSlot> & U32} & {t4 == t : Array<ST.SSlot>}
+  %et : SeekW(_, p, Laws.look_bit(s, x), s, mask, U32.and(U32.inc(i), mask))
+  ih(t2, Laws.look_bit(s, x))
+
+def seek_go_w(n: Nat, t: Array<ST.SSlot>, c: Bool, +s: String, +mask: U32, +i: U32) -> SeekW(t, n, c, s, mask, i):
+  match n c:
+    case 0n False{}:
+      (t, i, {==}, {==})
+    case 0n True{}:
+      (t, i, {==}, {==})
+    case 1n+p False{}:
+      (t, i, {==}, {==})
+    case 1n++p True{}:
+      seek_step(p, t, s, mask, i, PC.get_w(ST.SSlot, t, U32.and(U32.inc(i), mask)), t3 => c3 => seek_go_w(p, t3, c3, s, mask, U32.and(U32.inc(i), mask)))
+
+def seek_w_k(+b: Nat, -slots: Array<ST.SSlot>, +h: U32, +s: String,
+  w: &t2: Array<ST.SSlot> -> &x: ST.SSlot -> {t2 == slots : Array<ST.SSlot>} & {Array.get(ST.SSlot, slots, ST.Ix.slot(h, b)) == (slots, x) : Array<ST.SSlot> & ST.SSlot} & {x == Laws.rd_at(ST.SSlot, slots, ST.Ix.slot(h, b)) : ST.SSlot})
+  -> &t3: Array<ST.SSlot> -> &i3: U32 -> {ST.Ix.seek(b, slots, h, s) == (t3, i3) : Array<ST.SSlot> & U32} & {t3 == slots : Array<ST.SSlot>}:
+  (t2, +x, et, e1, ex) = w
+  %Equal.sym(Array<ST.SSlot> & ST.SSlot, Array.get(ST.SSlot, slots, ST.Ix.slot(h, b)), (slots, x), e1) : &t3: Array<ST.SSlot> -> &i3: U32 -> {ST.Ix.seek.go(U32.to_nat(U32.shln(1, b)), ST.Ix.look(s, _), s, U32.sub(U32.shln(1, b), 1), ST.Ix.slot(h, b)) == (t3, i3) : Array<ST.SSlot> & U32} & {t3 == slots : Array<ST.SSlot>}
+  %Equal.sym(Array<ST.SSlot> & Bool, ST.Ix.look(s, (slots, x)), (slots, Laws.look_bit(s, x)), look_red(slots, s, x)) : &t3: Array<ST.SSlot> -> &i3: U32 -> {ST.Ix.seek.go(U32.to_nat(U32.shln(1, b)), _, s, U32.sub(U32.shln(1, b), 1), ST.Ix.slot(h, b)) == (t3, i3) : Array<ST.SSlot> & U32} & {t3 == slots : Array<ST.SSlot>}
+  %et : SeekW(_, U32.to_nat(U32.shln(1, b)), Laws.look_bit(s, x), s, U32.sub(U32.shln(1, b), 1), ST.Ix.slot(h, b))
+  seek_go_w(U32.to_nat(U32.shln(1, b)), t2, Laws.look_bit(s, x), s, U32.sub(U32.shln(1, b), 1), ST.Ix.slot(h, b))
+
+# Ix.seek(b, slots, h, s) == (t, i) with t == slots
+def seek_w(+b: Nat, slots: Array<ST.SSlot>, +h: U32, +s: String) -> &t3: Array<ST.SSlot> -> &i3: U32 -> {ST.Ix.seek(b, slots, h, s) == (t3, i3) : Array<ST.SSlot> & U32} & {t3 == slots : Array<ST.SSlot>}:
+  seek_w_k(b, slots, h, s, PC.get_w(ST.SSlot, slots, ST.Ix.slot(h, b)))
+
+# the id of a slot (what Ix.id reads)
+def sid(x: ST.SSlot) -> U32:
+  match x:
+    case ST.SSlot{k, id}:
+      id
+
+def idk_red(-t: Array<ST.SSlot>, x: ST.SSlot) -> {ST.Ix.id.k((t, x)) == (t, sid(x)) : Array<ST.SSlot> & U32}:
+  match x:
+    case ST.SSlot{k, id}:
+      {==}
+
+# casts along equations
+def wfix_cast(+k: U32, +es: List<&2, String>, +b: Nat, -t: Array<ST.SSlot>, -t2: Array<ST.SSlot>, e: {t2 == t : Array<ST.SSlot>}, w: Laws.WFIx(k, es, b, t)) -> Laws.WFIx(k, es, b, t2):
+  %Equal.sym(Array<ST.SSlot>, t2, t, e) : Laws.WFIx(k, es, b, _)
+  w
+
+def slotok_cast(+k: U32, +es: List<&2, String>, -x: ST.SSlot, -y: ST.SSlot, e: {x == y : ST.SSlot}, p: Laws.SlotOk(k, es, y)) -> Laws.SlotOk(k, es, x):
+  %Equal.sym(ST.SSlot, x, y, e) : Laws.SlotOk(k, es, _)
+  p
+
+# the fresh index of Ix.grow is sound (every slot empty)
+def wfix_new(+k: U32, +es: List<&2, String>, b: Nat) -> Laws.WFIx(k, es, b, Array.new(ST.SSlot, b, ST.SSlot{"", 0})):
+  match b:
+    case 0n:
+      Unit{}
+    case 1n++p:
+      (wfix_new(k, es, p), wfix_new(k, es, p))
+
+# ---- Ix.grow keeps the index sound at the doubled depth ---------------------------------------------------
+
+# Ix.move: one old slot re-inserted into the new table (an empty old slot is skipped)
+def MoveW(+k: U32, +es: List<&2, String>, +b2: Nat, -nt: Array<ST.SSlot>, +x: ST.SSlot) -> Type:
+  &g: Array<ST.SSlot> -> {ST.Ix.move(b2, nt, x) == g : Array<ST.SSlot>} & Laws.WFIx(k, es, b2, g)
+
+def MoveK(+k: U32, +es: List<&2, String>, +b2: Nat, -nt: Array<ST.SSlot>, +key: String, +id: U32, +e: Bool, -r: Array<ST.SSlot> & U32) -> Type:
+  &g: Array<ST.SSlot> -> {ST.Ix.move.k(Bool.not(e), key, id, r) == g : Array<ST.SSlot>} & Laws.WFIx(k, es, b2, g)
+
+def move_k2(+k: U32, +es: List<&2, String>, +b2: Nat, nt2: Array<ST.SSlot>, +key: String, +id: U32, e: Bool, +i: U32, ee: {U32.is_eq(id, 0) == e : Bool}, ok: Laws.SlotOk.k(e, k, es, key, id), wf: Laws.WFIx(k, es, b2, nt2)) -> MoveK(k, es, b2, nt2, key, id, e, (nt2, i)):
+  match e:
+    case True{}:
+      (nt2, {==}, wf)
+    case False{}:
+      wfix_set(k, es, b2, nt2, i, ST.SSlot{key, id}, wf, (%Equal.sym(Bool, U32.is_eq(id, 0), False{}, ee) : Laws.SlotOk.k(_, k, es, key, id); ok))
+
+def move_k(+k: U32, +es: List<&2, String>, +b2: Nat, -nt: Array<ST.SSlot>, +key: String, +id: U32, e: Bool, ee: {U32.is_eq(id, 0) == e : Bool}, ok: Laws.SlotOk.k(e, k, es, key, id), wf: Laws.WFIx(k, es, b2, nt),
+  w: &nt2: Array<ST.SSlot> -> &i: U32 -> {ST.Ix.seek(b2, nt, ST.Str.hash(key), key) == (nt2, i) : Array<ST.SSlot> & U32} & {nt2 == nt : Array<ST.SSlot>})
+  -> MoveK(k, es, b2, nt, key, id, e, ST.Ix.seek(b2, nt, ST.Str.hash(key), key)):
+  (nt2, +i, eq, et) = w
+  %Equal.sym(Array<ST.SSlot> & U32, ST.Ix.seek(b2, nt, ST.Str.hash(key), key), (nt2, i), eq) : MoveK(k, es, b2, nt, key, id, e, _)
+  move_k2(k, es, b2, nt2, key, id, e, i, ee, ok, wfix_cast(k, es, b2, nt, nt2, et, wf))
+
+def move_w(+k: U32, +es: List<&2, String>, +b2: Nat, nt: Array<ST.SSlot>, x: ST.SSlot, wf: Laws.WFIx(k, es, b2, nt), ok: Laws.SlotOk(k, es, x)) -> MoveW(k, es, b2, nt, x):
+  match x:
+    case ST.SSlot{+key, +id}:
+      move_k(k, es, b2, nt, key, id, U32.is_eq(id, 0), {==}, ok, wf, seek_w(b2, nt, ST.Str.hash(key), key))
+
+# the loop: f old slots from i re-inserted into nt
+def GrowW(+k: U32, +es: List<&2, String>, +b2: Nat, -nt: Array<ST.SSlot>, +f: Nat, +i: U32, -old: Array<ST.SSlot>) -> Type:
+  &g: Array<ST.SSlot> -> {ST.Ix.grow.go(f, i, b2, nt, Array.get(ST.SSlot, old, i)) == g : Array<ST.SSlot>} & Laws.WFIx(k, es, b2, g)
+
+def GrowMid(+k: U32, +es: List<&2, String>, +b2: Nat, -nt: Array<ST.SSlot>, +p: Nat, +i: U32, -old: Array<ST.SSlot>, +x: ST.SSlot) -> Type:
+  &g: Array<ST.SSlot> -> {ST.Ix.grow.go(p, U32.inc(i), b2, ST.Ix.move(b2, nt, x), Array.get(ST.SSlot, old, U32.inc(i))) == g : Array<ST.SSlot>} & Laws.WFIx(k, es, b2, g)
+
+def grow_step3(+k: U32, +es: List<&2, String>, +b: Nat, +b2: Nat, +p: Nat, +i: U32, -nt: Array<ST.SSlot>, old3: Array<ST.SSlot>, +x: ST.SSlot, wf3: Laws.WFIx(k, es, b, old3),
+  ih: @nt3: Array<ST.SSlot> -> @old4: Array<ST.SSlot> -> Laws.WFIx(k, es, b2, nt3) -> Laws.WFIx(k, es, b, old4) -> GrowW(k, es, b2, nt3, p, U32.inc(i), old4),
+  w: MoveW(k, es, b2, nt, x))
+  -> GrowMid(k, es, b2, nt, p, i, old3, x):
+  (m, em, wm) = w
+  %Equal.sym(Array<ST.SSlot>, ST.Ix.move(b2, nt, x), m, em) : &g: Array<ST.SSlot> -> {ST.Ix.grow.go(p, U32.inc(i), b2, _, Array.get(ST.SSlot, old3, U32.inc(i))) == g : Array<ST.SSlot>} & Laws.WFIx(k, es, b2, g)
+  ih(m, old3, wm, wf3)
+
+def grow_step2(+k: U32, +es: List<&2, String>, +b: Nat, +b2: Nat, +p: Nat, +i: U32, nt: Array<ST.SSlot>, -old: Array<ST.SSlot>, -old2: Array<ST.SSlot>, +eo: {old2 == old : Array<ST.SSlot>}, +x: ST.SSlot, ex: {x == Laws.rd_at(ST.SSlot, old, i) : ST.SSlot}, wf_nt: Laws.WFIx(k, es, b2, nt),
+  ih: @nt3: Array<ST.SSlot> -> @old4: Array<ST.SSlot> -> Laws.WFIx(k, es, b2, nt3) -> Laws.WFIx(k, es, b, old4) -> GrowW(k, es, b2, nt3, p, U32.inc(i), old4),
+  w: &old3: Array<ST.SSlot> -> {old3 == old2 : Array<ST.SSlot>} & Laws.WFIx(k, es, b, old3) & Laws.SlotOk(k, es, Laws.rd_at(ST.SSlot, old2, i)))
+  -> GrowMid(k, es, b2, nt, p, i, old2, x):
+  (old3, e3, wf3, ok) = w
+  %e3 : GrowMid(k, es, b2, nt, p, i, _, x)
+  grow_step3(k, es, b, b2, p, i, nt, old3, x, wf3, ih, move_w(k, es, b2, nt, x, wf_nt, slotok_cast(k, es, x, Laws.rd_at(ST.SSlot, old2, i), Equal.trans(ST.SSlot, x, Laws.rd_at(ST.SSlot, old, i), Laws.rd_at(ST.SSlot, old2, i), ex, Equal.cong(Array<ST.SSlot>, ST.SSlot, a => Laws.rd_at(ST.SSlot, a, i), old, old2, Equal.sym(Array<ST.SSlot>, old2, old, eo))), ok)))
+
+def grow_step(+k: U32, +es: List<&2, String>, +b: Nat, +b2: Nat, +p: Nat, +i: U32, nt: Array<ST.SSlot>, -old: Array<ST.SSlot>, wf_nt: Laws.WFIx(k, es, b2, nt), wf_old: Laws.WFIx(k, es, b, old),
+  ih: @nt3: Array<ST.SSlot> -> @old4: Array<ST.SSlot> -> Laws.WFIx(k, es, b2, nt3) -> Laws.WFIx(k, es, b, old4) -> GrowW(k, es, b2, nt3, p, U32.inc(i), old4),
+  w: &old2: Array<ST.SSlot> -> &x: ST.SSlot -> {old2 == old : Array<ST.SSlot>} & {Array.get(ST.SSlot, old, i) == (old, x) : Array<ST.SSlot> & ST.SSlot} & {x == Laws.rd_at(ST.SSlot, old, i) : ST.SSlot})
+  -> GrowW(k, es, b2, nt, 1n+p, i, old):
+  (old2, +x, +eo, e1, ex) = w
+  %Equal.sym(Array<ST.SSlot> & ST.SSlot, Array.get(ST.SSlot, old, i), (old, x), e1) : &g: Array<ST.SSlot> -> {ST.Ix.grow.go(1n+p, i, b2, nt, _) == g : Array<ST.SSlot>} & Laws.WFIx(k, es, b2, g)
+  %eo : GrowMid(k, es, b2, nt, p, i, _, x)
+  grow_step2(k, es, b, b2, p, i, nt, old, old2, eo, x, ex, wf_nt, ih, wfix_rd(k, es, b, old2, i, wfix_cast(k, es, b, old, old2, eo, wf_old)))
+
+def grow_zero(+k: U32, +es: List<&2, String>, +b2: Nat, +i: U32, nt: Array<ST.SSlot>, -old: Array<ST.SSlot>, wf_nt: Laws.WFIx(k, es, b2, nt),
+  w: &old2: Array<ST.SSlot> -> &x: ST.SSlot -> {old2 == old : Array<ST.SSlot>} & {Array.get(ST.SSlot, old, i) == (old, x) : Array<ST.SSlot> & ST.SSlot} & {x == Laws.rd_at(ST.SSlot, old, i) : ST.SSlot})
+  -> GrowW(k, es, b2, nt, 0n, i, old):
+  (old2, +x, eo, e1, ex) = w
+  %Equal.sym(Array<ST.SSlot> & ST.SSlot, Array.get(ST.SSlot, old, i), (old, x), e1) : &g: Array<ST.SSlot> -> {ST.Ix.grow.go(0n, i, b2, nt, _) == g : Array<ST.SSlot>} & Laws.WFIx(k, es, b2, g)
+  (nt, {==}, wf_nt)
+
+def grow_go(f: Nat, +k: U32, +es: List<&2, String>, +b: Nat, +b2: Nat, +i: U32, nt: Array<ST.SSlot>, old: Array<ST.SSlot>, wf_nt: Laws.WFIx(k, es, b2, nt), wf_old: Laws.WFIx(k, es, b, old)) -> GrowW(k, es, b2, nt, f, i, old):
+  match f:
+    case 0n:
+      grow_zero(k, es, b2, i, nt, old, wf_nt, PC.get_w(ST.SSlot, old, i))
+    case 1n++p:
+      grow_step(k, es, b, b2, p, i, nt, old, wf_nt, wf_old, nt3 => old4 => w3 => wo4 => grow_go(p, k, es, b, b2, U32.inc(i), nt3, old4, w3, wo4), PC.get_w(ST.SSlot, old, i))
+
+def add_one(b: Nat) -> {Nat.add(b, 1n) == 1n+b : Nat}:
+  match b:
+    case 0n:
+      {==}
+    case 1n+p:
+      %Equal.sym(Nat, Nat.add(p, 1n), 1n+p, add_one(p)) : {1n+_ == 2n+p : Nat}
+      {==}
+
+# Ix.grow(b, slots) == g with the index sound at depth b + 1 (production spells the depth Nat.add(b, 1n))
+def grow_wf(+k: U32, +es: List<&2, String>, +b: Nat, slots: Array<ST.SSlot>, wfx: Laws.WFIx(k, es, b, slots)) -> &g: Array<ST.SSlot> -> {ST.Ix.grow(b, slots) == g : Array<ST.SSlot>} & Laws.WFIx(k, es, 1n+b, g):
+  %Equal.sym(Nat, Nat.add(b, 1n), 1n+b, add_one(b)) : &g: Array<ST.SSlot> -> {ST.Ix.grow.go(U32.to_nat(U32.shln(1, b)), 0, _, Array.new(ST.SSlot, _, ST.SSlot{"", 0}), Array.get(ST.SSlot, slots, 0)) == g : Array<ST.SSlot>} & Laws.WFIx(k, es, 1n+b, g)
+  grow_go(U32.to_nat(U32.shln(1, b)), k, es, b, 1n+b, 0, Array.new(ST.SSlot, 1n+b, ST.SSlot{"", 0}), slots, wfix_new(k, es, 1n+b), wfx)
+
+# ---- Dict.add's pieces: the new slot, the entry bounds, the doubled entry array -----------------------
+
+# the slot of the new entry s (code k, id k + 1) is sound for the extended list
+def new_slot_ok(+k: U32, +es: List<&2, String>, +s: String, +small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}) -> Laws.SlotOk(U32.inc(k), List.append(&2, String, es, s <> Nil{}), ST.SSlot{s, U32.inc(k)}):
+  %Equal.sym(Bool, U32.is_eq(U32.inc(k), 0), False{}, inc_ne_zero(k, small)) : Laws.SlotOk.k(_, U32.inc(k), List.append(&2, String, es, s <> Nil{}), s, U32.inc(k))
+  %Equal.sym(U32, U32.sub(U32.inc(k), 1), k, dec_inc(k)) : {U32.is_lt(_, U32.inc(k)) == True{} : Bool} & {Laws.nthd(List.append(&2, String, es, s <> Nil{}), _) == s : String}
+  (lt_inc(k, small), (%Equal.sym(Nat, U32.to_nat(k), List.length(&2, String, es), ek) : {Laws.nthn(List.append(&2, String, es, s <> Nil{}), _) == s : String}; nth_app_end(es, s)))
+
+# the new entry count: one more, in Nat
+def ek_new(+k: U32, +es: List<&2, String>, +s: String, small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}) -> {U32.to_nat(U32.inc(k)) == List.length(&2, String, List.append(&2, String, es, s <> Nil{})) : Nat}:
+  %Equal.sym(Nat, U32.to_nat(U32.inc(k)), 1n+U32.to_nat(k), inc_small(k, small)) : {_ == List.length(&2, String, List.append(&2, String, es, s <> Nil{})) : Nat}
+  %Equal.sym(Nat, List.length(&2, String, List.append(&2, String, es, s <> Nil{})), 1n+List.length(&2, String, es), len_app1(es, s)) : {1n+U32.to_nat(k) == _ : Nat}
+  %Equal.sym(Nat, U32.to_nat(k), List.length(&2, String, es), ek) : {1n+_ == 1n+List.length(&2, String, es) : Nat}
+  {==}
+
+# 0 < inc(k)
+def pos_inc(+k: U32, small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}) -> {U32.is_lt(0, U32.inc(k)) == True{} : Bool}:
+  lt_u_of_nat(0, U32.inc(k), (%Equal.sym(Nat, U32.to_nat(U32.inc(k)), 1n+U32.to_nat(k), inc_small(k, small)) : {Cmp.is_lt(Nat.cmp(U32.to_nat(0), _)) == True{} : Bool}; {==}))
+
+# entry 0 of the extended list is still ""
+def zero_new(+k: U32, +es: List<&2, String>, +s: String, hpos: {U32.is_lt(0, k) == True{} : Bool}, ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, h0: {Laws.nthn(es, 0n) == "" : String}) -> {Laws.nthn(List.append(&2, String, es, s <> Nil{}), 0n) == "" : String}:
+  %Equal.sym(String, Laws.nthn(List.append(&2, String, es, s <> Nil{}), 0n), Laws.nthn(es, 0n), nth_app_lt(es, s <> Nil{}, 0n, (%ek : {Cmp.is_lt(Nat.cmp(0n, _)) == True{} : Bool}; lt_nat_of_u(0, k, hpos)))) : {_ == "" : String}
+  h0
+
+# the new code k decodes to s in the extended list
+def code_new(+k: U32, +es: List<&2, String>, +s: String, ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}) -> {Laws.nthd(List.append(&2, String, es, s <> Nil{}), k) == s : String}:
+  %Equal.sym(Nat, U32.to_nat(k), List.length(&2, String, es), ek) : {Laws.nthn(List.append(&2, String, es, s <> Nil{}), _) == s : String}
+  nth_app_end(es, s)
+
+# the extended list is one longer
+def len_new(+es: List<&2, String>, +s: String) -> {Nat.is_le(List.length(&2, String, List.append(&2, String, es, s <> Nil{})), 1n+List.length(&2, String, es)) == True{} : Bool}:
+  %Equal.sym(Nat, List.length(&2, String, List.append(&2, String, es, s <> Nil{})), 1n+List.length(&2, String, es), len_app1(es, s)) : {Nat.is_le(_, 1n+List.length(&2, String, es)) == True{} : Bool}
+  nat_le_refl(1n+List.length(&2, String, es))
+
+# not full: k < 2^dd gives inc(k) <= 2^dd
+def fit_nf(+k: U32, +dd: Nat, small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, hk: {U32.is_lt(k, U32.shln(1, dd)) == True{} : Bool}) -> {U32.is_le(U32.inc(k), U32.shln(1, dd)) == True{} : Bool}:
+  le_u_of_nat(U32.inc(k), U32.shln(1, dd), (%Equal.sym(Nat, U32.to_nat(U32.inc(k)), 1n+U32.to_nat(k), inc_small(k, small)) : {Nat.is_le(_, U32.to_nat(U32.shln(1, dd))) == True{} : Bool}; succ_le_of_lt(U32.to_nat(k), U32.to_nat(U32.shln(1, dd)), lt_nat_of_u(k, U32.shln(1, dd), hk))))
+
+# full: k == 2^dd gives inc(k) <= 2^(dd + 1) (= shl k) and k < 2^(dd + 1)
+def fit_full(+k: U32, +dd: Nat, +small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, hpos: {U32.is_lt(0, k) == True{} : Bool}, ekp: {k == U32.shln(1, dd) : U32}) -> {U32.is_le(U32.inc(k), U32.shln(1, 1n+dd)) == True{} : Bool}:
+  %ekp : {U32.is_le(U32.inc(k), U32.shl(_)) == True{} : Bool}
+  le_u_of_nat(U32.inc(k), U32.shl(k), (%Equal.sym(Nat, U32.to_nat(U32.inc(k)), 1n+U32.to_nat(k), inc_small(k, small)) : {Nat.is_le(_, U32.to_nat(U32.shl(k))) == True{} : Bool}; (%Equal.sym(Nat, U32.to_nat(U32.shl(k)), Nat.double(U32.to_nat(k)), shl_nat(k, small)) : {Nat.is_le(1n+U32.to_nat(k), _) == True{} : Bool}; succ_le_double(U32.to_nat(k), lt_nat_of_u(0, k, hpos)))))
+
+def lt_shl(+k: U32, small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, hpos: {U32.is_lt(0, k) == True{} : Bool}) -> {U32.is_lt(k, U32.shl(k)) == True{} : Bool}:
+  lt_u_of_nat(k, U32.shl(k), (%Equal.sym(Nat, U32.to_nat(U32.shl(k)), Nat.double(U32.to_nat(k)), shl_nat(k, small)) : {Cmp.is_lt(Nat.cmp(U32.to_nat(k), _)) == True{} : Bool}; lt_of_succ_le(U32.to_nat(k), Nat.double(U32.to_nat(k)), succ_le_double(U32.to_nat(k), lt_nat_of_u(0, k, hpos)))))
+
+# 0 == double(n) is impossible for 0 < n
+def nat_disc0(n: Nat) -> Type:
+  match n:
+    case 0n:
+      Unit
+    case 1n+p:
+      Empty
+
+def nat_double_zero(n: Nat, h: {Cmp.is_lt(Nat.cmp(0n, n)) == True{} : Bool}, e: {0n == Nat.double(n) : Nat}) -> Empty:
+  match n:
+    case 0n:
+      L.false_true(h)
+    case 1n+p:
+      %e : nat_disc0(_)
+      Unit{}
+
+# shl(k) == 0 is impossible for 0 < k < 2^30
+def shl_zero_absurd(+k: U32, small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, hpos: {U32.is_lt(0, k) == True{} : Bool}, hz: {U32.shl(k) == 0 : U32}) -> Empty:
+  nat_double_zero(U32.to_nat(k), lt_nat_of_u(0, k, hpos), Equal.trans(Nat, 0n, U32.to_nat(U32.shl(k)), Nat.double(U32.to_nat(k)), Equal.cong(U32, Nat, x => U32.to_nat(x), 0, U32.shl(k), Equal.sym(U32, U32.shl(k), 0, hz)), shl_nat(k, small)))
+
+# 2^(dd + 1) is not 0 when 2^dd = k with 0 < k < 2^30: U32.shr of it is 2^dd
+def shr_pow_k(bb: Bool, +k: U32, +dd: Nat, sp: B.ShrSpec(bb, dd), small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, hpos: {U32.is_lt(0, k) == True{} : Bool}, ekp: {k == U32.shln(1, dd) : U32}) -> {U32.shr(U32.shln(1, 1n+dd)) == U32.shln(1, dd) : U32}:
+  match bb:
+    case True{}:
+      sp
+    case False{}:
+      Empty.absurd({U32.shr(U32.shln(1, 1n+dd)) == U32.shln(1, dd) : U32}, shl_zero_absurd(k, small, hpos, (%Equal.sym(U32, k, U32.shln(1, dd), ekp) : {U32.shl(_) == 0 : U32}; sp)))
+
+def shr_pow_fin(+k: U32, +dd: Nat, w: &bb: Bool -> B.ShrSpec(bb, dd), small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, hpos: {U32.is_lt(0, k) == True{} : Bool}, ekp: {k == U32.shln(1, dd) : U32}) -> {U32.shr(U32.shln(1, 1n+dd)) == U32.shln(1, dd) : U32}:
+  (bb, sp) = w
+  shr_pow_k(bb, k, dd, sp, small, hpos, ekp)
+
+def shr_pow(+k: U32, +dd: Nat, small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, hpos: {U32.is_lt(0, k) == True{} : Bool}, ekp: {k == U32.shln(1, dd) : U32}) -> {U32.shr(U32.shln(1, 1n+dd)) == U32.shln(1, dd) : U32}:
+  shr_pow_fin(k, dd, B.shr_shln(dd), small, hpos, ekp)
