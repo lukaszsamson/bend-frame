@@ -756,3 +756,88 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
   component is still structural on `cs`.
 - `Bool.pick` evaluates both arms: an op dispatcher over a linear frame must `match` an enum
   (bench/strbench.bend `Op`), never chain `Bool.pick`s that each consume the frame.
+
+## M3 facade leftovers (DF.column, schema, height, collect_show)
+
+- **A Data alias works inside a pair type**: `-> C.Frame & Schema()` (frame.bend's `Schema()` is Data)
+  type-checks, as does `DF.Frame() & DF.Schema()` in a test helper's annotation. Writing the list type
+  out (`List<&2, S.Field>`) is the fallback, not a necessity.
+- **A facade def may share a name with a parameter**: `def schema(f)` sits beside
+  `scan_csv_schema(path, opts, schema: ..)`; the parameter shadows inside its own body, and
+  `--check-only` accepts both.
+- **Pair results stay pairs in the facade**: `C.Frame.height` answers `Frame & U32`, so `DF.height` is
+  the same annotation; a test reads it through a helper `hgt.s(x: DF.Frame() & U32)` that destructures
+  `(f, h) = x` (the frame is unused there, as in `show.s`).
+- **An IO wrapper over an existing IO result** follows `write_csv.io`: `do IO<String>:` with a typed
+  bind `r : E.ResT(C.Frame) <- Q.Lazy.collect(p, env)` and `return show(r)`.
+- **Test expectations**: `IO.print` adds the newline, so a table or an error line prints as one line
+  with no blank separator; a null cell in a column of width 3 is five spaces between the bars.
+
+## M5 proofs (P1 buffer contents: distinct paths, gather, compact, map/zip/iota, fold)
+
+- **The rewrite direction, as a rule of thumb**: with `e : {a == b}` the hole `_` marks b in the
+  goal and a replaces it. So to replace X by Y in the goal you need `e : {Y == X}` and the hole
+  at X; a hypothesis `h : {X == Y}` replaces Y by X as it is, and X by Y only after
+  `Equal.sym`. Nearly every first-try failure in this milestone was this; the checker's
+  `expected` is the goal and `observed` is the motive with b, so a mismatch at one spot means
+  flip.
+- **Reusable (`+`) destructured components**: `(b, +x, +ea, e1, ex) = w` works for Data (U32,
+  equalities over U32 / Bool / Array<T>); the LAST component of a Sigma cannot be marked `+`
+  ("cannot infer" at Pair), nor can an equality over a pair type (`{.. == (b, n) : Array<T> &
+  U32}`). Put the component that must be reused earlier in the Sigma or use it once (one
+  rewrite with several holes replaces every occurrence at once).
+- **Type-valued goal defs with erased array parameters** (`GGoal(f, j, d, -src, -out, -perm,
+  -r)`, `MC`, `CK`, `CS`...) keep the rewrite motives short: the hole goes at a def ARGUMENT
+  (`%ep : GGoal(.., _, (_, x))`) and conversion unfolds the def and the kernel step. In a
+  Type-valued def an erased `-a: Array<T>` may be mentioned in any number of equalities and
+  passed to other erased parameters; a live array parameter may be passed on once (to
+  `WFArray`). The holes must still match the goal's syntax up to conversion: when the kernel
+  has computed one step, state the next shape as its own def (`GGoal` -> `GMid` -> `GSet` ->
+  `GC`) rather than guessing the computed term.
+- **Forall hypotheses are affine.** `g: @k -> {..}` and the `fj` component of `set_other_w`
+  can be applied once; `+g` is refused ("must be Data"), and a variable cannot be passed as a
+  template argument (`~g`; only a literal lambda instantiates a template). So an invariant that
+  needs the write facts for many positions cannot be transported row by row. What works:
+  arrays are duplicable (`clone_eq` / `clone_wf` rebuild two live copies with equations to the
+  original, by induction over the tree), finite Type-level chains are duplicable by induction
+  (`croom_dup`), so the remaining run is analysed twice on separate copies (compact: `ckeep`
+  for the row just written, `cspec_run` for the rows to come) and the two facts are restated to
+  one copy through the clone equations (`row_clause`).
+- **Reading an array hands it back live**: `get_w(a, i) -> &b -> &x -> {b == a} &
+  {Array.get(a, i) == (a, x)} & {x == rd_at(a, i)}`; after rewriting the pending read in the
+  goal, rewrite `a -> b` everywhere (hole at every a) and continue with b. `rd_at(T, a, i)` as a
+  live TERM consumes a: pass the Data value x and its equation instead.
+- **Match order**: a nested `match` on an earlier parameter after matching a later one is
+  refused; write `match a c:` with both. A destructuring let of a parameter after another let is
+  fine, but destructure parameters in parameter order (`(hj, room2) = room` before `(perm2, ..)
+  = w` when room comes first).
+- **Termination reads arguments left to right**: a recursive proof def whose shrinking argument
+  is not first must pass every earlier argument unchanged; put the Nat fuel first (`room_of(f,
+  d, j)`, not `room_of(d, j, f)` when j changes).
+- **Never write a concrete all-ones 32-bit word** (`ones(32n)`): `Word.to_nat` of it normalises
+  to 2^32 - 1 successors and the checker overflows its stack. "Maximal" is stated as "nothing
+  compares GT to it" (`IncSpec` False case), and the contradiction uses `U32.cmp(N, j) == GT`.
+  `U32.to_nat(0)` and `U32.shln(1, d)` are fine (small or stuck).
+- **The BendTT kernel (`--verdict`) is stricter than `bend` on templates**: (1) a template
+  lambda must be spelled identically wherever it must be the same term: the laws about
+  `Kernel.popcount` use `~(acc => x => U32.add(acc, x))` exactly as `kernels.bend` does, and an
+  alpha-renamed copy `(x2 => y => ..)` in a helper made `--verdict` answer "mismatch" while
+  `bend` accepted it; (2) a `%` rewrite whose replaced term contains a template application
+  (`Array.set(U, out, j, f(x))`) is refused: carry the value as a variable `y` with `ey : {y ==
+  f(x)}` (`map_step2`, `zip_step3`). Bisect such a failure by cutting the file at def boundaries
+  (laws dropped) and instantiating each template def at U32 in a probe def; an uninstantiated
+  template is not checked by BendTT at all.
+- **Laws over templates**: state the law at an instance (`K.Kernel.mask_not(n, d, a)`,
+  `K.Kernel.compact_keep(~U32, ..)`), prove the template def with its conclusion written over
+  the unfolded loop (`K.Kernel.map.go(~T, ~U, ~f, U32.to_nat(n), 0, Array.new(U, d, z),
+  Array.get(T, a, 0))`), and let the law's side unfold the wrapper (as `mask_not_slots` did).
+- **A `(%e : P; t)` rewrite needs an expected type**: it cannot be the right-hand side of a
+  plain let (`+h = (%e : P; t)` is "cannot infer"); use it in argument position or restate.
+- **A `match` stays stuck on a computed Bool**: `Kernel.depth_for.go(0n, n, d, U32.is_le(..))`
+  does not reduce to `d` while the exit test is open, so an `Empty.absurd` motive must spell
+  the goal with the unreduced call.
+- **Long hole patterns**: when the goal is a deep production unfolding (`Column.slice` ->
+  `gather.c` -> `Valid.gather.k` -> `Kernel.gather.go`), generate the proof text from a script
+  with the recurring sub-terms as variables (`gen_slice.py`): the patterns are too long to
+  type twice without a slip.
+- **Timings**: 90 laws, `bend PROOF.bend` ~0.6 s wall / 1.7 s CPU; `--verdict` ~2.0 s wall.

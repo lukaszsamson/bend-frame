@@ -44,6 +44,9 @@ import ./src/table.bend as TV
 def Frame() -> Type:
   C.Frame
 
+def Column() -> Type:
+  C.Column
+
 def Expr() -> Data:
   X.Expr
 
@@ -381,6 +384,20 @@ def named(name: String, c: C.Column) -> C.Named:
 def from_columns(cols: List<&1, C.Named>) -> E.ResT(C.Frame):
   C.Frame.from_columns(cols)
 
+# a checked nullable column of dtype t: an SNull is a null row; the first scalar of another dtype
+# is TypeMismatch{"from_scalars", <t>, <scalar dtype or "null">}; more than 2^23 scalars is an
+# InvalidOperation before anything is built (DESIGN.md 15.2.1, 15.8)
+def column(t: D.DType, xs: List<&2, D.Scalar>) -> E.ResT(C.Column):
+  C.Column.from_scalars(xs, t)
+
+# the frame's schema (names and dtypes, in order); the frame comes back unchanged, as a pair
+def schema(f: C.Frame) -> C.Frame & Schema():
+  S.Frame.schema(f)
+
+# the number of rows; the frame comes back unchanged, as a pair
+def height(f: C.Frame) -> C.Frame & U32:
+  C.Frame.height(f)
+
 # CSV options: separator, has_header, rows that decide each column's dtype (0 = all)
 # (DESIGN.md 15.6.3). `read_csv` and `scan_csv` use (',', True, 100).
 def csv_opts(sep: Char, has_header: Bool, infer_rows: U32) -> R.CsvOpts:
@@ -710,6 +727,13 @@ def optimize_full(p: P.Plan) -> P.Plan:
 # plan's schema error, then a binding error, then IO / data errors)
 def collect(p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
   Q.Lazy.collect(p, env)
+
+# collect, then the table or the error text (DESIGN.md 15.2.1): the same errors as collect, the
+# same text as show
+def collect_show(p: P.Plan, env: P.Env) -> IO(String):
+  do IO<String>:
+    r : E.ResT(C.Frame) <- Q.Lazy.collect(p, env)
+    return show(r)
 
 # execute the plan as written (no rewrite)
 def collect_raw(p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):

@@ -763,17 +763,22 @@ therefore sequential inside a column and parallel ACROSS independent work:
 
 ## 8. Laws (`LAWS.bend`) and how they are proven (`PROOF*.bend`) [opus]
 
-Status (M2 checkpoint): `LAWS.bend` states 71 laws over `src/`; `PROOF.bend`
+Status (M5, P1 closed): `LAWS.bend` states 90 laws over `src/`; `PROOF.bend`
 imports `PROOF_lib`, `PROOF_schema`, `PROOF_expr`, `PROOF_plan`,
-`PROOF_kernels` and `PROOF_exec` (one file per area; `L.*` is the shared
-toolkit) and proves all of them: `bend PROOF.bend` prints ALL PROOFS CHECK in
-~1.0 s (`make proofs`), `bend PROOF.bend --verdict` prints it again under the
-independent BendTT kernel in ~1.1 s (`make verdict`). No `@unsafe`, no foreign
-code, no open law, no axiom. Two negative fixtures in `tests/proof_negative/`
+`PROOF_kernels`, `PROOF_exec`, `PROOF_bits` and `PROOF_contents` (one file per
+area; `L.*` is the shared toolkit, `B.*` the word-level toolkit) and proves all
+of them: `bend PROOF.bend` prints ALL PROOFS CHECK in ~0.6 s wall (1.6 s CPU,
+`make proofs`), `bend PROOF.bend --verdict` prints it again under the
+independent BendTT kernel in ~1.9 s (`make verdict`). No `@unsafe`, no foreign
+code, no open law, no axiom. Four negative fixtures in `tests/proof_negative/`
 (plan M_01 T5) show the claims are load-bearing: a slots law falsified to
-2^(d+1), and a mutated copy of the production head rule `Opt.hmin` (the outer
-limit wins) that the real R1 proof term is refused for, with the mutated and
-the real limit in the checker's `expected` / `observed`.
+2^(d+1); a mutated copy of the production head rule `Opt.hmin` (the outer
+limit wins) that the real R1 proof term is refused for; a copy of
+`Kernel.gather.go` reading the source at the wrong index (plus one) that the
+real `gather_contents` term is refused for; and a copy of
+`Kernel.compact_keep.go` with a flipped mask (the cursor advances on a 0 word)
+that the real `compact_contents` term is refused for, each with the mutated
+kernel in the checker's `expected` and the production one in `observed`.
 
 Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 
@@ -789,6 +794,8 @@ Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 | 8 The production runner (`PROOF_exec`) | `frame_head_head`, `head_step`, `head_merge_run` (R1 as a rule: `Exec.run_pure(Head{n, Head{m, x}}, env) == Exec.run_pure(Head{Opt.hmin(m, Some n), x}, env)` for every plan x, env, n, m), `head_pass_keeps_sources`, `head_pass_run` (R1 as the pass: `Opt.head` on the merge-only fragment, any pending limit, suffix code and runner state), `release_merge_only` (`Exec.run_pure(Optimize.release(p), env) == Exec.run_pure(p, env)` for every well-typed merge-only plan), `release_merge_only_obs` (the same through `DF.dump`) |
 | 9 P0 well-formedness (`PROOF_kernels`) | `u32_min_le`, `wf_new`, `wf_new_words`, `wf_frame_empty`, `wf_column_head`, `wf_frame_head` over the Type-valued predicates `WFArray`, `WFWords`, `WFMaskedW/T`, `WFValidW/T`, `WFColumn`, `WFColumnH`, `WFCols`, `WFFrame` (len <= 2^depth, perfect trees, 0/1 mask and bool words, null slots at the default, equal heights, unique names, the zero-column convention) |
 | 10 Buffer contents (`PROOF_kernels`) | `array_get_pure` (`Array.get(a, i) == (a, rd_at(a, i))`: the real getter is pure and reads the model `rd`, which makes the production halving decisions), `array_set_get` (read-after-write at the same index through the real `Array.set`), `gather_step`, `compact_step`, `compact_step_cell` (one iteration of the production `Kernel.gather.go` / `compact.go`, at the U32 instance) |
+| 11 Buffer contents, the full theorems (`PROOF_bits`, `PROOF_contents`; plan P1, M5) | `rd_at_wf` (`rd_at` of a well-formed array reads with the slot count 2^d), `paths_distinct` (THE distinct-paths bit-vector lemma: two indices below 2^d whose halving decisions through `Array.get`/`Array.set`'s descent agree are equal, over `Word.and / shr / sub / cmp`), `array_set_other` (a write at i leaves every other slot j below 2^d alone), `wf_array_set`, `gather_contents` (`Kernel.gather` at the U32 instance: `out[k] == src[perm[k]]` for every k < n when n <= 2^d) and `gather_keeps_perm`, `mask_not_cell` / `mask_and_cell` / `mask_or_cell` (`Kernel.map` / `Kernel.zip` slot contents: the validity combinators' truth tables slot by slot), `iota_cell` (`Kernel.iota_from`: `off + k`), `u32_fold_sum` / `u32_fold_keeps` (the production U32 fold with `U32.add` is the modulo-2^32 running sum of the first n cells, `FSum`), `popcount_sum` (the kept-row / valid-cell count is the sum of the mask words), `compact_contents` (`Kernel.compact_keep` at the U32 instance writes the kept rows in order at the cursor positions, `CSpec`, under the explicit precondition `CRoom`: 0/1 words and a cursor below 2^d) and `compact_keeps_mask` (data and validity stay aligned: one mask filters every buffer) |
+| 12 Column cells (`PROOF_contents`) | `cell_pure` (`Column.cell(c, i) == (c, ccell(c, i))` for all five column kinds: the production cell reader is pure and reads the model `ccell`, validity then data), `head_cell` (`Column.head` keeps every cell; with `head_len` / `head_dtype` the exact prefix), `depth_for_fits` (`Kernel.depth_for(n)` gives at least n slots for n <= 2^31), `slice_cell_u32` (row k of `Column.slice(c, off, n)` is row `off + k` of c for every k below the slice's length, data and validity, on a U32 column: the exact subrange, through `gather_contents` and `iota_cell`) |
 
 ### 8.1 Assurance matrix (plan M_01 section 6: theorem -> production function -> assumptions -> checker)
 
@@ -803,6 +810,14 @@ Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 | `wf_*` | `Array.new` (= `Kernel.const`, the kernels' output allocation), `Frame.empty`, `Column.head`, `Frame.head` | the P0 predicates; the other verbs' preservation is M5 (P1) | bend, --verdict |
 | `array_get_pure`, `array_set_get` | Base `Array.get`, `Array.set` as every kernel calls them | none (all indices; the masking `i & (n-1)` is in the model) | bend, --verdict |
 | `gather_step`, `compact_step(_cell)` | `Kernel.gather.go`, `Kernel.compact.go`, `Kernel.gather.put`, `Kernel.compact.put` | one iteration (fuel 1); U32 instance (BendTT refuses the template at a quantified type) | bend, --verdict |
+| `paths_distinct`, `array_set_other`, `wf_array_set`, `rd_at_wf` | Base `Array.get`, `Array.set`, `Array.size` as every kernel calls them (the index arithmetic `i & (2^d - 1)`, `i < n/2`, `i - n/2` over Base's `Word`) | `WFArray(d, a)`; indices below `U32.shln(1, d)` (vacuous when 2^d wraps to 0, i.e. d >= 32: the row cap keeps d <= 23) | bend, --verdict |
+| `gather_contents`, `gather_keeps_perm` | `Kernel.gather` = `Kernel.gather.go` + `Kernel.gather.put` (U32 instance: the word buffers of Bool/U32/I32 columns and every validity mask; the F32/String instances are the same template text, not separately stated) | `n <= 2^d` (what `Column.gather`'s `depth_for(n)` provides); indexes read through `perm` wrap as `Array.get` wraps them | bend, --verdict |
+| `mask_not_cell`, `mask_and_cell`, `mask_or_cell`, `iota_cell` | `Kernel.map`, `Kernel.zip`, `Kernel.iota_from` (template loop lemmas `map_go` / `zip_go` instantiated at the mask combinators) | `n <= 2^d` | bend, --verdict |
+| `u32_fold_sum`, `u32_fold_keeps`, `popcount_sum` | `Kernel.fold` with `U32.add` (`Eval.agg.w` Sum over U32, `Kernel.popcount` behind filter's kept count, `Valid.count`, `Eval.dropnull`) | none (any n; the spec `FSum` is the modulo-2^32 running sum over the first n cells; "valid cells" = the cells left after `Eval.dropnull`'s compaction, see `compact_contents`) | bend, --verdict |
+| `compact_contents`, `compact_keeps_mask` | `Kernel.compact_keep` = `compact_keep.go` + `compact.put` (U32 instance), the loop behind `Column.compact`, hence `Frame.filter_mask` (filter) and `Eval.dropnull` | `CRoom(to_nat n, 0, 0, d, mask)`: every mask word is 0/1 and the write cursor stays below 2^d at each step. `Column.compact` allocates `depth_for(kept + 1)` slots, so the cursor (<= the kept count) always fits; that arithmetic ("cursor <= popcount < 2^d") is NOT yet proven, `CRoom` is the hypothesis | bend, --verdict |
+| `cell_pure`, `head_cell` | `Column.cell` (= `Column.take_valid`, `Valid.get`, `Column.cell.a/b/c`, `Column.data_cell`, `Column.cell.w/f/s`, `Column.mk_w`), `Column.head` | none (every column, every index; the model `ccell` reads validity then data with `rd_at`) | bend, --verdict |
+| `depth_for_fits` | `Kernel.depth_for` (= `depth_for.go`, fuel 32) | `n <= 2^31` (for larger n the loop runs out of fuel and answers 32, whose slot count wraps to 0; the row cap keeps n <= 2^23) | bend, --verdict |
+| `slice_cell_u32` | `Column.slice` (= `slice.a/b/c`, `Column.gather`, `Column.gather.b/c/d/data`, `Valid.gather`, `Column.out.w`, `Kernel.iota_from`, `Kernel.gather`), on `CU32` columns | `n <= 2^31`, `k < slice_len(off, n, len)`; U32 instance (Bool / I32 columns are the same word buffers and the same proof text; F32 / String need `gather_contents` at those instances) | bend, --verdict |
 | sections 1-5b (schema, typing, plan schema, optimizer schema level, slots) | as listed in the table above | as stated per law | bend, --verdict |
 
 What the R1 chain does NOT cover, stated exactly:
@@ -829,15 +844,19 @@ Not provable or not true as stated, recorded here instead of as open laws:
   and outside the guarantee, so these laws are not scheduled.
 - `Opt.merge` does NOT keep the schema of an ill-typed plan (the error text
   differs); hence the `Plan.schema(p) == Done{s}` hypothesis.
-- Full `gather` / `compact` contents (`out[i] == in[index[i]]` for all i < n;
-  the order-preserving subsequence and `count == length`): the per-step lemmas
-  of section 10 compose to them once "writes at distinct indices below 2^d
-  take distinct paths" is proven; that is a bit-vector fact about
-  `Word.and / shr / sub / is_lt` on 32-bit words (M5, P1). `compact`'s count is
-  the popcount of the mask (the per-step `k + bit` is proven).
-- Null slots after kernels, `fill_null`, `when`, the U32 fold, the grouped
-  scatter invariant (P1), `Eval` typing soundness and the analysis soundness
-  (P2), R2-R5 (P3): M5.
+- Full `gather` / `compact` contents: PROVEN in M5 (section 11:
+  `paths_distinct` is the bit-vector lemma, `gather_contents`,
+  `compact_contents`; the count is `popcount_sum`). What section 11 does not
+  cover: the F32 / String instances of the template kernels (same text as the
+  U32 instance; BendTT refuses a law at a quantified cell type), the derivation
+  of `compact_contents`' precondition `CRoom` from "popcount < 2^d" (what
+  `Column.compact`'s `depth_for(kept + 1)` guarantees), and, at the column
+  level (section 12 has `cell_pure`, `head_cell` for every kind and
+  `slice_cell_u32`), `Column.gather` / `Column.compact` as cell theorems and
+  `Column.slice` on F32 / String columns. `Kernel.choose` (fill_null / when
+  cells), `Kernel.mask_data` (null slots after kernels), the grouped scatter
+  invariant, `Eval` typing soundness and the analysis soundness (P2), R2-R5
+  (P3): not done in M5 (see section 14, M5).
 - Floating error bounds, hash-join and radix-sort correctness, CSV: not v0.1
   proof deliverables (tested).
 
@@ -863,12 +882,20 @@ template proof defs, and a law about a template is stated at a concrete
 instance when `--verdict` must accept it.
 
 
-**G6 interim claim (decided after M2, 2026-10-09; to be widened by M5).** The default
+**G6 claim (decided after M2, 2026-10-09; confirmed after M5).** The default
 optimizer's result-equivalence theorem over the production runner (`release_merge_only`,
 checked by `--verdict`) covers the head-merge fragment: plans in which every
-Select/WithColumns acts as a Head barrier. Head sinking below analysis-certified nodes (R3)
-is tested (regressions, differential generator) but not yet proved. Until M5 closes R2–R5,
-README and release notes must state the claim this narrowly.
+Select/WithColumns acts as a Head barrier (every other node, the M3a nodes Drop / Rename /
+Slice / Tail / Unique / Concat and semi / anti joins included, is a barrier for the release
+optimizer and is covered). Head sinking below analysis-certified nodes (R3) is tested
+(regressions, differential generator) but not proved: it needs cell-level theorems for every
+`Eval` operation under `Frame.head` (an observational, not structural, commutation: the
+sunk Head allocates smaller buffers), i.e. the P2 evaluator soundness, which M5 did not
+reach; R2 / R4 / R5 are not in `Optimize.release` at all. M5 closed P1 instead: the buffer
+content theorems of section 11 (distinct paths, gather, compact, map / zip / iota, the U32
+fold and popcount) over the production kernels. README and release notes must state G6 as
+"the default optimizer is proven result-preserving on plans whose Select/WithColumns are
+Head barriers; its only other rewrite, the certified Head sink, is tested, not proved".
 
 
 ## 9. Idiom checklist for implementers (copy into every module's header)
@@ -1945,12 +1972,75 @@ to ONE instruction `ITable{TOp}` (so a proof's Instr case split grows by one cas
    15.2.1 dtype / scalar builders `DF.t_bool .. DF.t_str` and `DF.s_null / s_bool / s_u32 / s_i32 /
    s_f32 / s_str` (needed by try_cast, is_in and clip without a src/ import; `DF.s_i32` takes a
    `D.I32`, i.e. `DF.i32(v)`'s value). Not added here: `DF.column`, `DF.schema`, `DF.height`,
-   `DF.collect_show` (15.2.1; not in this group).
+   `DF.collect_show` (15.2.1; added in "M3 facade leftovers" below).
 7. **Expr.show**: an is_in list shows each literal with `Expr.show.lit` (`nan`, `0`, `"a"`); a
    string pattern is shown raw inside the quotes (no escaping, as `lit("..")`).
 8. **bench/diff**: the EXPRS rows and oracle functions existed from M0; `model.t_is_in` now reports
    the first offending literal in list order (null or dtype), as `Expr.type` does, and the
    generator injects a null literal into is_in / clip in invalid cases.
+
+### M3 facade leftovers
+
+1. **Gap check against 15.2.** Every `DF.<name>` token of section 15.2 (83 names) and every bare
+   builder name in its rows was compared with the `def`s of `frame.bend`. Four had no facade def,
+   all in 15.2.1, and are now added as thin wrappers (no new logic in `src/`):
+   - `DF.column(t: D.DType, xs: List<&2, D.Scalar>) -> ResT(Column)` = `C.Column.from_scalars(xs, t)`.
+     Its type name `DF.Column()` is added beside `DF.Frame()` so the result can be annotated.
+   - `DF.schema(f: Frame) -> Frame & Schema` = `S.Frame.schema(f)`. The contract's `Schema` is the
+     `Schema()` alias (Data); written `C.Frame & Schema()` it type-checks, so the signature is exact.
+   - `DF.height(f: Frame) -> Frame & U32` = `C.Frame.height(f)`. Both pair results hand the frame
+     back, as `Frame` is linear.
+   - `DF.collect_show(p: Plan, env: Env) -> IO(String)` = `Q.Lazy.collect(p, env)`, then `show`, in a
+     do block (as `write_csv.io`). Its errors are `collect`'s, rendered by `show`.
+2. **No contract row needs new logic in `src/`**, and no signature is impossible in Bend, so
+   nothing is substituted. `DF.schema` and `DF.height` have no error path (15.2.1 says none).
+3. **Tests**: `tests/facade_m3.bend` (success and one invalid input for `column` and
+   `collect_show`; success for `schema` and `height`; `height` of the empty frame is the edge case).
+   Expectations were reasoned from the table format and the error texts of 15.9 before the run.
+
+### M5 (proof closure: P1 buffer contents; P2 / P3 not reached)
+
+1. **What M5 delivered**: LAWS.bend section 11 and `PROOF_bits.bend` /
+   `PROOF_contents.bend`: the distinct-paths lemma over the production index arithmetic
+   (`paths_distinct`), `Array.set` separation on well-formed arrays (`array_set_other`,
+   `wf_array_set`), and the full content theorems of the kernels `Kernel.gather`,
+   `Kernel.compact_keep`, `Kernel.map` / `zip` (as the mask combinators), `Kernel.iota_from`,
+   `Kernel.fold` with `U32.add` and `Kernel.popcount`; at the column level (section 12)
+   `Column.cell` purity against the cell model `ccell`, `Column.head`'s cells and
+   `Column.slice`'s exact subrange on U32 columns. 90 laws, `make proofs` and `make verdict`
+   green; four negative fixtures. The assurance matrix (section 8.1) names the hypotheses of
+   each.
+2. **Deviation: the compaction theorem carries an explicit precondition.** `compact_contents`
+   assumes `CRoom(to_nat n, 0, 0, d, mask)`: every mask word is 0/1 and the write cursor is
+   below 2^d at every step. Production (`Column.compact`) allocates `depth_for(kept + 1)`
+   slots with `kept = popcount`, which implies `CRoom` (the cursor never exceeds the kept
+   count), but that arithmetic is not proven; the plan's "count = length" is `popcount_sum`
+   (the kept count is the sum of the mask words) plus `CSpec` (every kept row sits at its
+   cursor position), stated separately.
+3. **Deviation: instances, not templates, in the laws.** The kernel laws are stated at the
+   U32 instance (word buffers: Bool / U32 / I32 columns and every validity mask) because the
+   BendTT kernel refuses a law applying a template kernel at a quantified cell type (as in
+   M2). The proofs are template defs (`map_go`, `zip_go`, `ckeep`, `cspec_run`) and the
+   F32 / String instances are the same text; `gather_go` is written at U32 only.
+4. **BendTT constraints found** (both accepted by `bend PROOF.bend`, refused by `--verdict`):
+   a template lambda must be spelled identically everywhere it is meant to be the same
+   (`~(acc => x => U32.add(acc, x))` as in `Kernel.popcount`, not an alpha-variant), and a
+   `%` rewrite whose replaced term contains a template application (`Array.set(U, out, j,
+   f(x))`) is refused; the written value is carried as a variable `y` with `y == f(x)`.
+   Recorded in IMPLEMENTING.md.
+5. **Hypotheses the law binders had to make reusable**: `paths_distinct` takes `+hi`, `+hj`
+   (the in-range facts are spent twice: for the mask identity and for the induction);
+   `gather_keeps_perm` gained the `fits` hypothesis (it is derived from the same loop lemma).
+6. **Not done (honest scope)**: P2 (soundness of `A.Expr.analyse`, typing soundness of
+   `Eval.full`; the M3b nodes When / IsIn / Clip / StrPred / LenChars and Std / Var / Median
+   therefore have no analysis lemmas yet), P3 R2–R5 and the composition theorem, the
+   column-level `Column.gather` / `Column.compact` cell theorems and `Column.slice` on F32 /
+   String columns, `Kernel.choose` / `mask_data` cells, the grouped scatter invariant, and
+   the dictionary lemmas (M4's representation was not merged into this branch). R3 is the
+   one that would widen G6, and it needs the P2 cell-level evaluator theorems first: a sunk
+   Head changes buffer depths, so `Eval.select(Frame.head(f, n), es)` and
+   `Frame.head(Eval.select(f, es), n)` are equal only observationally (through `DF.dump` /
+   `Column.cell`), never structurally. The G6 wording stays as section 8 states it.
 
 ## 15. v0.1 contract (frozen)
 
