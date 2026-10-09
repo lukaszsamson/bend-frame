@@ -2250,3 +2250,59 @@ law dict_same_sound:
   for x: ST.Dict
   for y: ST.Dict
   SameW(x, y)
+
+# ---- Dict.find and Dict.recode: codes of one dictionary in another, Dict.miss() when absent --------
+
+# a lookup's answer: the miss word, or a code below k naming s (soundness of the index; completeness,
+# "every entry is found", is what the builders maintain and tests check, not stated here)
+def FoundK(e: Bool, +c: U32, +k: U32, +es: List<&2, String>, +s: String) -> Type:
+  match e:
+    case True{}:
+      {c == ST.Dict.miss() : U32}
+    case False{}:
+      {U32.is_lt(c, k) == True{} : Bool} & {nthd(es, c) == s : String}
+
+# Dict.find's answer: the dictionary back unchanged (still well formed) and a code that is a miss or
+# names s
+def FindW(-d: ST.Dict, +es: List<&2, String>, +s: String) -> Type:
+  &d2: ST.Dict -> &c: U32 -> {ST.Dict.find(d, s) == (d2, c) : ST.Dict & U32} & {d2 == d : ST.Dict} & WFDictE(d2, es) & (&e: Bool -> FoundK(e, c, dk(d), es, s))
+
+# LAW: Dict.find (Dict.find.k over the probe Ix.seek / Ix.id) never invents a code: its answer is
+# Dict.miss() or a code in range whose entry is s; the dictionary comes back unchanged
+law dict_find_spec:
+  for d: ST.Dict
+  for +es: List<&2, String>
+  for +s: String
+  for wf: WFDictE(d, es)
+  for probe: Probe(d, s)
+  FindW(d, es, s)
+
+# the probe hypotheses along Dict.recode (Dict.rc.go without ins): entry c of src against dst, which
+# every Dict.find hands back unchanged (the chain threads the production's dictionary all the same)
+def FindProbe(f: Nat, +c: U32, -strs: Array<String>, -d: ST.Dict) -> Type:
+  match f:
+    case 0n:
+      Unit
+    case 1n+p:
+      Probe(d, rd_at(String, strs, c)) & FindProbe(p, U32.inc(c), strs, Pair.fst(ST.Dict, U32, ST.Dict.find(d, rd_at(String, strs, c))))
+
+# the rows below c of the map m: entry j of src re-coded to Dict.miss() or to a code of dst naming it
+def RecRows(+c: U32, +dd: Nat, -strs: Array<String>, -m: Array<U32>, +kd: U32, +esd: List<&2, String>) -> Type:
+  @j: U32 -> {U32.is_lt(j, c) == True{} : Bool} -> @code: U32 -> {code == rdN(U32, dd, m, j) : U32} -> &e: Bool -> FoundK(e, code, kd, esd, rd_at(String, strs, j))
+
+# Dict.recode's answer: both dictionaries back unchanged (dst well formed); the map m (2^ddd(src) slots,
+# well formed) re-codes every entry of src into dst or answers Dict.miss() (never a code there:
+# dict_miss_not_code)
+def RecodeW(-src: ST.Dict, -dst: ST.Dict, +esd: List<&2, String>) -> Type:
+  &src2: ST.Dict -> &dst2: ST.Dict -> &m: Array<U32> -> {ST.Dict.recode(src, dst) == (src2, dst2, m) : ST.Dict & ST.Dict & Array<U32>} & {src2 == src : ST.Dict} & {dst2 == dst : ST.Dict} & WFArray(U32, ddd(src), m) & WFDictE(dst2, esd) & RecRows(dk(src), ddd(src), dstrs(src), m, dk(dst), esd)
+
+# LAW: Dict.recode(src, dst) (Dict.rc without ins over Dict.find) maps src's codes into dst's, a miss
+# where dst lacks the entry; src fits its slots; under the probe hypotheses
+law dict_recode_spec:
+  for src: ST.Dict
+  for dst: ST.Dict
+  for +esd: List<&2, String>
+  for fits: {U32.is_le(dk(src), U32.shln(1, ddd(src))) == True{} : Bool}
+  for wfd: WFDictE(dst, esd)
+  for probes: FindProbe(U32.to_nat(dk(src)), 0, dstrs(src), dst)
+  RecodeW(src, dst, esd)

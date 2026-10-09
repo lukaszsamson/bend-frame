@@ -2350,3 +2350,236 @@ def Laws.dict_same_sound(x, y):
   match x y:
     case ST.Dict{+k, +dd, a, +b, ts, +tag} ST.Dict{+k2, +dd2, a2, +b2, ts2, +tag2}:
       same_u(U32.is_eq(k, k2), k, dd, a, b, ts, tag, k2, dd2, a2, b2, ts2, tag2, {==})
+
+# ---- Laws.dict_find_spec --------------------------------------------------------------------------------------------
+
+# the goal shapes along Dict.find (the pending term as a parameter); sl is the array the result must equal
+def FG(+k: U32, +dd: Nat, -strs: Array<String>, +b: Nat, -sl: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, -r: Array<ST.SSlot> & U32) -> Type:
+  &d2: ST.Dict -> &c: U32 -> {ST.Dict.find.k(k, dd, strs, b, tag, ST.Ix.id(r)) == (d2, c) : ST.Dict & U32} & {d2 == ST.Dict{k, dd, strs, b, sl, tag} : ST.Dict} & Laws.WFDictE(d2, es) & (&e: Bool -> Laws.FoundK(e, c, k, es, s))
+
+def FGG(+k: U32, +dd: Nat, -strs: Array<String>, +b: Nat, sl: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, -r: Array<ST.SSlot> & U32) -> Type:
+  Laws.WFIx(k, es, b, sl) -> (&x: ST.SSlot -> {x == Laws.rd_at(ST.SSlot, sl, Pair.snd(Array<ST.SSlot>, U32, r)) : ST.SSlot} & {Laws.look_bit(s, x) == False{} : Bool}) -> FG(k, dd, strs, b, sl, tag, es, s, r)
+
+def FG2(+k: U32, +dd: Nat, -strs: Array<String>, +b: Nat, -sl: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, -rr: Array<ST.SSlot> & ST.SSlot) -> Type:
+  &d2: ST.Dict -> &c: U32 -> {ST.Dict.find.k(k, dd, strs, b, tag, ST.Ix.id.at(i, ST.Ix.id.k(rr))) == (d2, c) : ST.Dict & U32} & {d2 == ST.Dict{k, dd, strs, b, sl, tag} : ST.Dict} & Laws.WFDictE(d2, es) & (&e: Bool -> Laws.FoundK(e, c, k, es, s))
+
+def FG3(+k: U32, +dd: Nat, -strs: Array<String>, +b: Nat, -sl: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, -q: Array<ST.SSlot> & U32) -> Type:
+  &d2: ST.Dict -> &c: U32 -> {ST.Dict.find.k(k, dd, strs, b, tag, ST.Ix.id.at(i, q)) == (d2, c) : ST.Dict & U32} & {d2 == ST.Dict{k, dd, strs, b, sl, tag} : ST.Dict} & Laws.WFDictE(d2, es) & (&e: Bool -> Laws.FoundK(e, c, k, es, s))
+
+def FGP(+k: U32, +dd: Nat, -strs: Array<String>, +b: Nat, -sl: Array<ST.SSlot>, -t: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, +x: ST.SSlot) -> Type:
+  &d2: ST.Dict -> &c: U32 -> {ST.Dict.find.k(k, dd, strs, b, tag, (sid(x), i, t)) == (d2, c) : ST.Dict & U32} & {d2 == ST.Dict{k, dd, strs, b, sl, tag} : ST.Dict} & Laws.WFDictE(d2, es) & (&e: Bool -> Laws.FoundK(e, c, k, es, s))
+
+# the slot found: empty (a miss) or holding s at a sound id
+def find_found_k(+k: U32, +es: List<&2, String>, +s: String, +key: String, +id: U32, ok: Laws.SlotOk.k(False{}, k, es, key, id), eks: {key == s : String}) -> {U32.is_lt(U32.sub(id, 1), k) == True{} : Bool} & {Laws.nthd(es, U32.sub(id, 1)) == s : String}:
+  (h1, h2) = ok
+  (h1, Equal.trans(String, Laws.nthd(es, U32.sub(id, 1)), key, s, h2, eks))
+
+def find_found(e: Bool, +k: U32, +es: List<&2, String>, +s: String, +key: String, +id: U32, ee: {U32.is_eq(id, 0) == e : Bool}, ok: Laws.SlotOk.k(e, k, es, key, id)) -> ({Bool.and(U32.is_ne(id, 0), Bool.not(ST.Str.same(key, s))) == False{} : Bool} -> Laws.FoundK(e, Bool.pick(U32, e, ST.Dict.miss(), U32.sub(id, 1)), k, es, s)):
+  match e:
+    case True{}:
+      hit => {==}
+    case False{}:
+      %Equal.sym(Bool, Cmp.is_eq(U32.cmp(id, 0)), False{}, ee) : {Bool.and(Bool.not(_), Bool.not(ST.Str.same(key, s))) == False{} : Bool} -> {U32.is_lt(U32.sub(id, 1), k) == True{} : Bool} & {Laws.nthd(es, U32.sub(id, 1)) == s : String}
+      hit => find_found_k(k, es, s, key, id, ok, Laws.str_same_sound(key, s, not_false(ST.Str.same(key, s), hit)))
+
+def find_x(+k: U32, +dd: Nat, strs: Array<String>, +b: Nat, -sl: Array<ST.SSlot>, t4: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, x: ST.SSlot, hit: {Laws.look_bit(s, x) == False{} : Bool}, ok: Laws.SlotOk(k, es, x), +et4: {t4 == sl : Array<ST.SSlot>}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, hle: {U32.is_le(k, U32.shln(1, dd)) == True{} : Bool}, hpos: {U32.is_lt(0, k) == True{} : Bool}, h0: {Laws.nthn(es, 0n) == "" : String}, wfs: Laws.WFArray(String, dd, strs), ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String}, wfix4: Laws.WFIx(k, es, b, t4))
+  -> FGP(k, dd, strs, b, sl, t4, tag, es, s, i, x):
+  match x:
+    case ST.SSlot{+key, +id}:
+      (ST.Dict{k, dd, strs, b, t4, tag}, Bool.pick(U32, U32.is_eq(id, 0), ST.Dict.miss(), U32.sub(id, 1)), {==}, (%et4 : {ST.Dict{k, dd, strs, b, t4, tag} == ST.Dict{k, dd, strs, b, _, tag} : ST.Dict}; {==}), (ek, hle, hpos, h0, wfs, ent, wfix4), (U32.is_eq(id, 0), find_found(U32.is_eq(id, 0), k, es, s, key, id, {==}, ok)(hit)))
+
+def find_slot(+k: U32, +dd: Nat, strs: Array<String>, +b: Nat, -sl: Array<ST.SSlot>, -t3: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, +x: ST.SSlot, hit: {Laws.look_bit(s, x) == False{} : Bool}, exx: {x == Laws.rd_at(ST.SSlot, t3, i) : ST.SSlot}, +et3: {t3 == sl : Array<ST.SSlot>}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, hle: {U32.is_le(k, U32.shln(1, dd)) == True{} : Bool}, hpos: {U32.is_lt(0, k) == True{} : Bool}, h0: {Laws.nthn(es, 0n) == "" : String}, wfs: Laws.WFArray(String, dd, strs), ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String},
+  w: &t4: Array<ST.SSlot> -> {t4 == t3 : Array<ST.SSlot>} & Laws.WFIx(k, es, b, t4) & Laws.SlotOk(k, es, Laws.rd_at(ST.SSlot, t3, i)))
+  -> FGP(k, dd, strs, b, sl, t3, tag, es, s, i, x):
+  (t4, +e4, wfix4, ok) = w
+  %e4 : FGP(k, dd, strs, b, sl, _, tag, es, s, i, x)
+  find_x(k, dd, strs, b, sl, t4, tag, es, s, i, x, hit, slotok_cast(k, es, x, Laws.rd_at(ST.SSlot, t3, i), exx, ok), Equal.trans(Array<ST.SSlot>, t4, t3, sl, e4, et3), ek, hle, hpos, h0, wfs, ent, wfix4)
+
+def find_id3(+k: U32, +dd: Nat, strs: Array<String>, +b: Nat, -sl: Array<ST.SSlot>, -t2: Array<ST.SSlot>, t3: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, +x: ST.SSlot, +et3: {t3 == t2 : Array<ST.SSlot>}, +ex: {x == Laws.rd_at(ST.SSlot, t2, i) : ST.SSlot}, +et2: {t2 == sl : Array<ST.SSlot>}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, hle: {U32.is_le(k, U32.shln(1, dd)) == True{} : Bool}, hpos: {U32.is_lt(0, k) == True{} : Bool}, h0: {Laws.nthn(es, 0n) == "" : String}, wfs: Laws.WFArray(String, dd, strs), ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String}, wfix: Laws.WFIx(k, es, b, t2),
+  probe: &xp: ST.SSlot -> {xp == Laws.rd_at(ST.SSlot, t2, i) : ST.SSlot} & {Laws.look_bit(s, xp) == False{} : Bool})
+  -> FGP(k, dd, strs, b, sl, t3, tag, es, s, i, x):
+  find_slot(k, dd, strs, b, sl, t3, tag, es, s, i, x, hit_of(s, t2, i, x, probe, ex), Equal.trans(ST.SSlot, x, Laws.rd_at(ST.SSlot, t2, i), Laws.rd_at(ST.SSlot, t3, i), ex, Equal.cong(Array<ST.SSlot>, ST.SSlot, a => Laws.rd_at(ST.SSlot, a, i), t2, t3, Equal.sym(Array<ST.SSlot>, t3, t2, et3))), Equal.trans(Array<ST.SSlot>, t3, t2, sl, et3, et2), ek, hle, hpos, h0, wfs, ent, wfix_rd(k, es, b, t3, i, wfix_cast(k, es, b, t2, t3, et3, wfix)))
+
+def find_id(+k: U32, +dd: Nat, strs: Array<String>, +b: Nat, -sl: Array<ST.SSlot>, -t2: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, +et2: {t2 == sl : Array<ST.SSlot>}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, hle: {U32.is_le(k, U32.shln(1, dd)) == True{} : Bool}, hpos: {U32.is_lt(0, k) == True{} : Bool}, h0: {Laws.nthn(es, 0n) == "" : String}, wfs: Laws.WFArray(String, dd, strs), ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String}, wfix: Laws.WFIx(k, es, b, t2),
+  probe: &xp: ST.SSlot -> {xp == Laws.rd_at(ST.SSlot, t2, i) : ST.SSlot} & {Laws.look_bit(s, xp) == False{} : Bool},
+  w: &t3: Array<ST.SSlot> -> &x: ST.SSlot -> {t3 == t2 : Array<ST.SSlot>} & {Array.get(ST.SSlot, t2, i) == (t2, x) : Array<ST.SSlot> & ST.SSlot} & {x == Laws.rd_at(ST.SSlot, t2, i) : ST.SSlot})
+  -> FG(k, dd, strs, b, sl, tag, es, s, (t2, i)):
+  (t3, +x, +et3, e1, ex) = w
+  %Equal.sym(Array<ST.SSlot> & ST.SSlot, Array.get(ST.SSlot, t2, i), (t2, x), e1) : FG2(k, dd, strs, b, sl, tag, es, s, i, _)
+  %Equal.sym(Array<ST.SSlot> & U32, ST.Ix.id.k((t2, x)), (t2, sid(x)), idk_red(t2, x)) : FG3(k, dd, strs, b, sl, tag, es, s, i, _)
+  %et3 : FGP(k, dd, strs, b, sl, _, tag, es, s, i, x)
+  find_id3(k, dd, strs, b, sl, t2, t3, tag, es, s, i, x, et3, ex, et2, ek, hle, hpos, h0, wfs, ent, wfix, probe)
+
+def find_seek(+k: U32, +dd: Nat, strs: Array<String>, +b: Nat, -slots: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, hle: {U32.is_le(k, U32.shln(1, dd)) == True{} : Bool}, hpos: {U32.is_lt(0, k) == True{} : Bool}, h0: {Laws.nthn(es, 0n) == "" : String}, wfs: Laws.WFArray(String, dd, strs), ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String},
+  w: &t2: Array<ST.SSlot> -> &i: U32 -> {ST.Ix.seek(b, slots, ST.Str.hash(s), s) == (t2, i) : Array<ST.SSlot> & U32} & {t2 == slots : Array<ST.SSlot>})
+  -> FGG(k, dd, strs, b, slots, tag, es, s, ST.Ix.seek(b, slots, ST.Str.hash(s), s)):
+  (t2, +i, eq, et) = w
+  %Equal.sym(Array<ST.SSlot> & U32, ST.Ix.seek(b, slots, ST.Str.hash(s), s), (t2, i), eq) : FGG(k, dd, strs, b, slots, tag, es, s, _)
+  %et : FGG(k, dd, strs, b, _, tag, es, s, (t2, i))
+  wfix => probe => find_id(k, dd, strs, b, t2, t2, tag, es, s, i, {==}, ek, hle, hpos, h0, wfs, ent, wfix, probe, PC.get_w(ST.SSlot, t2, i))
+
+def find_wf(+k: U32, +dd: Nat, strs: Array<String>, +b: Nat, slots: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, wf: Laws.WFDictE(ST.Dict{k, dd, strs, b, slots, tag}, es), probe: Laws.Probe(ST.Dict{k, dd, strs, b, slots, tag}, s)) -> Laws.FindW(ST.Dict{k, dd, strs, b, slots, tag}, es, s):
+  (ek, hle, hpos, h0, wfs, ent, wfix) = wf
+  find_seek(k, dd, strs, b, slots, tag, es, s, ek, hle, hpos, h0, wfs, ent, seek_w(b, slots, ST.Str.hash(s), s))(wfix)(probe)
+
+def Laws.dict_find_spec(d, es, s, wf, probe):
+  match d:
+    case ST.Dict{+k, +dd, strs, +b, slots, +tag}:
+      find_wf(k, dd, strs, b, slots, tag, es, s, wf, probe)
+
+# ---- Laws.dict_recode_spec: Dict.rc.go without ins over Dict.find ---------------------------------------------------
+#
+# The merge loop with the dictionary unchanged (every Dict.find hands it back equal: the equation to the starting
+# dictionary dst0 is carried as Data) and FoundK per row.
+
+def RGoal(f: Nat, +c: U32, +dd: Nat, -strs: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, dst: ST.Dict, -out: Array<U32>, -r: Array<String> & String) -> Type:
+  Laws.RecRows(c, dd, strs, out, k0, esd) -> Laws.WFDictE(dst, esd) -> Laws.FindProbe(f, c, strs, dst) -> &strs2: Array<String> -> &dst2: ST.Dict -> &m: Array<U32> -> {ST.Dict.rc.go(f, c, False{}, (dst, out), r) == (strs2, (dst2, m)) : Array<String> & (ST.Dict & Array<U32>)} & {strs2 == strs : Array<String>} & {dst2 == dst0 : ST.Dict} & Laws.WFArray(U32, dd, m) & Laws.WFDictE(dst2, esd) & Laws.RecRows(Laws.addn(c, f), dd, strs, m, k0, esd)
+
+def RSig(p: Nat, +c: U32, +dd: Nat, -a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, -dst: ST.Dict, -out: Array<U32>, +x: String) -> Type:
+  &strs2: Array<String> -> &dst2: ST.Dict -> &m: Array<U32> -> {ST.Dict.rc.go(p, U32.inc(c), False{}, ST.Dict.rc.step(False{}, c, x, (dst, out)), Array.get(String, a2, U32.inc(c))) == (strs2, (dst2, m)) : Array<String> & (ST.Dict & Array<U32>)} & {strs2 == a2 : Array<String>} & {dst2 == dst0 : ST.Dict} & Laws.WFArray(U32, dd, m) & Laws.WFDictE(dst2, esd) & Laws.RecRows(Laws.addn(c, 1n+p), dd, a2, m, k0, esd)
+
+def RMid(p: Nat, +c: U32, +dd: Nat, -a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, dst: ST.Dict, -out: Array<U32>, +x: String) -> Type:
+  Laws.RecRows(c, dd, a2, out, k0, esd) -> Laws.WFDictE(dst, esd) -> Laws.FindProbe(1n+p, c, a2, dst) -> RSig(p, c, dd, a2, dst0, k0, esd, dst, out, x)
+
+def RStep(p: Nat, +c: U32, +dd: Nat, -a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, -dst: ST.Dict, -out: Array<U32>, +x: String, +s: String) -> Type:
+  Laws.Probe(dst, s) -> Laws.FindProbe(p, U32.inc(c), a2, Pair.fst(ST.Dict, U32, ST.Dict.find(dst, s))) -> RSig(p, c, dd, a2, dst0, k0, esd, dst, out, x)
+
+def RStep2(p: Nat, +c: U32, +dd: Nat, -a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, -out: Array<U32>, -q: ST.Dict & U32) -> Type:
+  Laws.FindProbe(p, U32.inc(c), a2, Pair.fst(ST.Dict, U32, q)) -> &strs2: Array<String> -> &dst2: ST.Dict -> &m: Array<U32> -> {ST.Dict.rc.go(p, U32.inc(c), False{}, ST.Dict.rc.put(c, out, q), Array.get(String, a2, U32.inc(c))) == (strs2, (dst2, m)) : Array<String> & (ST.Dict & Array<U32>)} & {strs2 == a2 : Array<String>} & {dst2 == dst0 : ST.Dict} & Laws.WFArray(U32, dd, m) & Laws.WFDictE(dst2, esd) & Laws.RecRows(Laws.addn(c, 1n+p), dd, a2, m, k0, esd)
+
+def RStep3(p: Nat, +c: U32, +dd: Nat, -a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, -d3: ST.Dict, -out: Array<U32>, +cc: U32) -> Type:
+  Laws.FindProbe(p, U32.inc(c), a2, d3) -> &strs2: Array<String> -> &dst2: ST.Dict -> &m: Array<U32> -> {ST.Dict.rc.go(p, U32.inc(c), False{}, (d3, Array.set(U32, out, c, cc)), Array.get(String, a2, U32.inc(c))) == (strs2, (dst2, m)) : Array<String> & (ST.Dict & Array<U32>)} & {strs2 == a2 : Array<String>} & {dst2 == dst0 : ST.Dict} & Laws.WFArray(U32, dd, m) & Laws.WFDictE(dst2, esd) & Laws.RecRows(Laws.addn(c, 1n+p), dd, a2, m, k0, esd)
+
+def RStep5(p: Nat, +c: U32, +dd: Nat, -a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, -d3: ST.Dict, -c1: Array<U32>, +bound: U32) -> Type:
+  Laws.FindProbe(p, U32.inc(c), a2, d3) -> &strs2: Array<String> -> &dst2: ST.Dict -> &m: Array<U32> -> {ST.Dict.rc.go(p, U32.inc(c), False{}, (d3, c1), Array.get(String, a2, U32.inc(c))) == (strs2, (dst2, m)) : Array<String> & (ST.Dict & Array<U32>)} & {strs2 == a2 : Array<String>} & {dst2 == dst0 : ST.Dict} & Laws.WFArray(U32, dd, m) & Laws.WFDictE(dst2, esd) & Laws.RecRows(bound, dd, a2, m, k0, esd)
+
+def RIH(p: Nat, +c: U32, +dd: Nat, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>) -> Type:
+  @a3: Array<String> -> @dict3: ST.Dict -> @out3: Array<U32> -> Laws.WFArray(U32, dd, out3) -> Laws.Room(dd, U32.inc(c), p) -> {dict3 == dst0 : ST.Dict} -> RGoal(p, U32.inc(c), dd, a3, dst0, k0, esd, dict3, out3, Array.get(String, a3, U32.inc(c)))
+
+# the rows below inc(c) after the write of cc at c: the old rows by the invariant, row c by Dict.find's answer
+def rrow_lt(+c: U32, +dd: Nat, -a2: Array<String>, -out: Array<U32>, -c1: Array<U32>, +k0: U32, +esd: List<&2, String>, +cc: U32, +hi: {U32.is_lt(c, U32.shln(1, dd)) == True{} : Bool}, +j: U32, +code: U32, +ecode: {code == Laws.rdN(U32, dd, c1, j) : U32}, +hb: {U32.is_lt(j, c) == True{} : Bool},
+  g: Laws.RecRows(c, dd, a2, out, k0, esd), fj: @j2: U32 -> {Laws.rdN(U32, dd, c1, j2) == Bool.pick(U32, Laws.same_at(dd, c, j2), cc, Laws.rdN(U32, dd, out, j2)) : U32})
+  -> &e: Bool -> Laws.FoundK(e, code, k0, esd, Laws.rd_at(String, a2, j)):
+  g(j, hb, code, Equal.trans(U32, code, Laws.rdN(U32, dd, c1, j), Laws.rdN(U32, dd, out, j), ecode, (%PC.same_false_lt(dd, c, j, hi, hb) : {Laws.rdN(U32, dd, c1, j) == Bool.pick(U32, _, cc, Laws.rdN(U32, dd, out, j)) : U32}; fj(j))))
+
+def rrow_eq(+c: U32, +dd: Nat, -a2: Array<String>, -out: Array<U32>, -c1: Array<U32>, -dst: ST.Dict, +k0: U32, +esd: List<&2, String>, +x: String, +ex2: {x == Laws.rd_at(String, a2, c) : String}, +cc: U32, +edk: {Laws.dk(dst) == k0 : U32}, +j: U32, +code: U32, +ecode: {code == Laws.rdN(U32, dd, c1, j) : U32}, +hb: {j == c : U32},
+  fj: @j2: U32 -> {Laws.rdN(U32, dd, c1, j2) == Bool.pick(U32, Laws.same_at(dd, c, j2), cc, Laws.rdN(U32, dd, out, j2)) : U32}, fnd: &e: Bool -> Laws.FoundK(e, cc, Laws.dk(dst), esd, x))
+  -> &e: Bool -> Laws.FoundK(e, code, k0, esd, Laws.rd_at(String, a2, j)):
+  %Equal.sym(U32, j, c, hb) : &e: Bool -> Laws.FoundK(e, code, k0, esd, Laws.rd_at(String, a2, _))
+  %Equal.sym(U32, code, cc, Equal.trans(U32, code, Laws.rdN(U32, dd, c1, j), cc, ecode, (%same_at_of_eq(dd, c, j, hb) : {Laws.rdN(U32, dd, c1, j) == Bool.pick(U32, _, cc, Laws.rdN(U32, dd, out, j)) : U32}; fj(j)))) : &e: Bool -> Laws.FoundK(e, _, k0, esd, Laws.rd_at(String, a2, c))
+  %edk : &e: Bool -> Laws.FoundK(e, cc, _, esd, Laws.rd_at(String, a2, c))
+  %ex2 : &e: Bool -> Laws.FoundK(e, cc, Laws.dk(dst), esd, _)
+  fnd
+
+def rrow_b(bb: Bool, +c: U32, +dd: Nat, -a2: Array<String>, -out: Array<U32>, -c1: Array<U32>, -dst: ST.Dict, +k0: U32, +esd: List<&2, String>, +x: String, +ex2: {x == Laws.rd_at(String, a2, c) : String}, +cc: U32, +edk: {Laws.dk(dst) == k0 : U32}, +hi: {U32.is_lt(c, U32.shln(1, dd)) == True{} : Bool}, +j: U32, +code: U32, +ecode: {code == Laws.rdN(U32, dd, c1, j) : U32}, hb: PC.IncLtU(bb, j, c),
+  g: Laws.RecRows(c, dd, a2, out, k0, esd), fj: @j2: U32 -> {Laws.rdN(U32, dd, c1, j2) == Bool.pick(U32, Laws.same_at(dd, c, j2), cc, Laws.rdN(U32, dd, out, j2)) : U32}, fnd: &e: Bool -> Laws.FoundK(e, cc, Laws.dk(dst), esd, x))
+  -> &e: Bool -> Laws.FoundK(e, code, k0, esd, Laws.rd_at(String, a2, j)):
+  match bb:
+    case True{}:
+      rrow_lt(c, dd, a2, out, c1, k0, esd, cc, hi, j, code, ecode, hb, g, fj)
+    case False{}:
+      rrow_eq(c, dd, a2, out, c1, dst, k0, esd, x, ex2, cc, edk, j, code, ecode, hb, fj, fnd)
+
+def rrow_k(+c: U32, +dd: Nat, -a2: Array<String>, -out: Array<U32>, -c1: Array<U32>, -dst: ST.Dict, +k0: U32, +esd: List<&2, String>, +x: String, +ex2: {x == Laws.rd_at(String, a2, c) : String}, +cc: U32, +edk: {Laws.dk(dst) == k0 : U32}, +hi: {U32.is_lt(c, U32.shln(1, dd)) == True{} : Bool}, +j: U32, +code: U32, +ecode: {code == Laws.rdN(U32, dd, c1, j) : U32}, w: &bb: Bool -> PC.IncLtU(bb, j, c),
+  g: Laws.RecRows(c, dd, a2, out, k0, esd), fj: @j2: U32 -> {Laws.rdN(U32, dd, c1, j2) == Bool.pick(U32, Laws.same_at(dd, c, j2), cc, Laws.rdN(U32, dd, out, j2)) : U32}, fnd: &e: Bool -> Laws.FoundK(e, cc, Laws.dk(dst), esd, x))
+  -> &e: Bool -> Laws.FoundK(e, code, k0, esd, Laws.rd_at(String, a2, j)):
+  (bb, hb) = w
+  rrow_b(bb, c, dd, a2, out, c1, dst, k0, esd, x, ex2, cc, edk, hi, j, code, ecode, hb, g, fj, fnd)
+
+def rrows_next(+c: U32, +dd: Nat, -a2: Array<String>, -out: Array<U32>, -c1: Array<U32>, -dst: ST.Dict, +k0: U32, +esd: List<&2, String>, +x: String, +ex2: {x == Laws.rd_at(String, a2, c) : String}, +cc: U32, +edk: {Laws.dk(dst) == k0 : U32}, +hi: {U32.is_lt(c, U32.shln(1, dd)) == True{} : Bool},
+  g: Laws.RecRows(c, dd, a2, out, k0, esd), fj: @j2: U32 -> {Laws.rdN(U32, dd, c1, j2) == Bool.pick(U32, Laws.same_at(dd, c, j2), cc, Laws.rdN(U32, dd, out, j2)) : U32}, fnd: &e: Bool -> Laws.FoundK(e, cc, Laws.dk(dst), esd, x))
+  -> Laws.RecRows(U32.inc(c), dd, a2, c1, k0, esd):
+  +j => hj => +code => ecode => rrow_k(c, dd, a2, out, c1, dst, k0, esd, x, ex2, cc, edk, hi, j, code, ecode, PC.inc_lt_u(j, c, hj), g, fj, fnd)
+
+def rstep7(+p: Nat, +c: U32, +dd: Nat, a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, -dst: ST.Dict, d3: ST.Dict, -out: Array<U32>, +x: String, +ex2: {x == Laws.rd_at(String, a2, c) : String}, +cc: U32, +ed: {dst == dst0 : ST.Dict}, +ed3: {d3 == dst : ST.Dict}, +ekk0: {k0 == Laws.dk(dst0) : U32}, wf3: Laws.WFDictE(d3, esd), fnd: &e: Bool -> Laws.FoundK(e, cc, Laws.dk(dst), esd, x),
+  +hi: {U32.is_lt(c, U32.shln(1, dd)) == True{} : Bool}, room2: Laws.Room(dd, U32.inc(c), p), ih: RIH(p, c, dd, dst0, k0, esd), g: Laws.RecRows(c, dd, a2, out, k0, esd),
+  w: &c1: Array<U32> -> {Array.set(U32, out, c, cc) == c1 : Array<U32>} & Laws.WFArray(U32, dd, c1) & (@j: U32 -> {Laws.rdN(U32, dd, c1, j) == Bool.pick(U32, Laws.same_at(dd, c, j), cc, Laws.rdN(U32, dd, out, j)) : U32}) & (@j: U32 -> {Laws.rd_at(U32, out, j) == Laws.rdN(U32, dd, out, j) : U32}))
+  -> RStep3(p, c, dd, a2, dst0, k0, esd, d3, out, cc):
+  (c1, ec1, wc1, fj, cv) = w
+  %Equal.sym(Array<U32>, Array.set(U32, out, c, cc), c1, ec1) : RStep5(p, c, dd, a2, dst0, k0, esd, d3, _, Laws.addn(c, 1n+p))
+  %PC.addn_inc(c, p) : RStep5(p, c, dd, a2, dst0, k0, esd, d3, c1, _)
+  pr => ih(a2, d3, c1, wc1, room2, Equal.trans(ST.Dict, d3, dst, dst0, ed3, ed))(rrows_next(c, dd, a2, out, c1, dst, k0, esd, x, ex2, cc, Equal.trans(U32, Laws.dk(dst), Laws.dk(dst0), k0, Equal.cong(ST.Dict, U32, q => Laws.dk(q), dst, dst0, ed), Equal.sym(U32, k0, Laws.dk(dst0), ekk0)), hi, g, fj, fnd))(wf3)(pr)
+
+def rstep6(p: Nat, +c: U32, +dd: Nat, a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, -dst: ST.Dict, out: Array<U32>, +x: String, +ex2: {x == Laws.rd_at(String, a2, c) : String}, wfo: Laws.WFArray(U32, dd, out), +ed: {dst == dst0 : ST.Dict}, +ekk0: {k0 == Laws.dk(dst0) : U32},
+  +hi: {U32.is_lt(c, U32.shln(1, dd)) == True{} : Bool}, room2: Laws.Room(dd, U32.inc(c), p), ih: RIH(p, c, dd, dst0, k0, esd), g: Laws.RecRows(c, dd, a2, out, k0, esd), w: Laws.FindW(dst, esd, x))
+  -> RStep2(p, c, dd, a2, dst0, k0, esd, out, ST.Dict.find(dst, x)):
+  (d3, +cc, eq, +ed3, wf3, fnd) = w
+  %Equal.sym(ST.Dict & U32, ST.Dict.find(dst, x), (d3, cc), eq) : RStep2(p, c, dd, a2, dst0, k0, esd, out, _)
+  rstep7(p, c, dd, a2, dst0, k0, esd, dst, d3, out, x, ex2, cc, ed, ed3, ekk0, wf3, fnd, hi, room2, ih, g, PC.set_other_w(U32, dd, out, c, cc, wfo))
+
+def rstep5(p: Nat, +c: U32, +dd: Nat, a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, dst: ST.Dict, out: Array<U32>, +x: String, +ex2: {x == Laws.rd_at(String, a2, c) : String}, wfo: Laws.WFArray(U32, dd, out), +ed: {dst == dst0 : ST.Dict}, +ekk0: {k0 == Laws.dk(dst0) : U32},
+  +hi: {U32.is_lt(c, U32.shln(1, dd)) == True{} : Bool}, room2: Laws.Room(dd, U32.inc(c), p), ih: RIH(p, c, dd, dst0, k0, esd), g: Laws.RecRows(c, dd, a2, out, k0, esd), wf: Laws.WFDictE(dst, esd))
+  -> RStep(p, c, dd, a2, dst0, k0, esd, dst, out, x, Laws.rd_at(String, a2, c)):
+  %ex2 : RStep(p, c, dd, a2, dst0, k0, esd, dst, out, x, _)
+  pb => prest => rstep6(p, c, dd, a2, dst0, k0, esd, dst, out, x, ex2, wfo, ed, ekk0, hi, room2, ih, g, Laws.dict_find_spec(dst, esd, x, wf, pb))(prest)
+
+def rstep4(p: Nat, +c: U32, +dd: Nat, a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, dst: ST.Dict, out: Array<U32>, +x: String, +ex2: {x == Laws.rd_at(String, a2, c) : String}, wfo: Laws.WFArray(U32, dd, out), +ed: {dst == dst0 : ST.Dict}, +ekk0: {k0 == Laws.dk(dst0) : U32},
+  +hi: {U32.is_lt(c, U32.shln(1, dd)) == True{} : Bool}, room2: Laws.Room(dd, U32.inc(c), p), ih: RIH(p, c, dd, dst0, k0, esd), g: Laws.RecRows(c, dd, a2, out, k0, esd), wf: Laws.WFDictE(dst, esd), pr: Laws.FindProbe(1n+p, c, a2, dst))
+  -> RSig(p, c, dd, a2, dst0, k0, esd, dst, out, x):
+  (pb, prest) = pr
+  rstep5(p, c, dd, a2, dst0, k0, esd, dst, out, x, ex2, wfo, ed, ekk0, hi, room2, ih, g, wf)(pb)(prest)
+
+def rstep2(p: Nat, +c: U32, +dd: Nat, a2: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, dst: ST.Dict, out: Array<U32>, +x: String, +ex2: {x == Laws.rd_at(String, a2, c) : String}, wfo: Laws.WFArray(U32, dd, out), +ed: {dst == dst0 : ST.Dict}, +ekk0: {k0 == Laws.dk(dst0) : U32},
+  +hi: {U32.is_lt(c, U32.shln(1, dd)) == True{} : Bool}, room2: Laws.Room(dd, U32.inc(c), p), ih: RIH(p, c, dd, dst0, k0, esd))
+  -> RMid(p, c, dd, a2, dst0, k0, esd, dst, out, x):
+  g => wf => pr => rstep4(p, c, dd, a2, dst0, k0, esd, dst, out, x, ex2, wfo, ed, ekk0, hi, room2, ih, g, wf, pr)
+
+def rstep1(p: Nat, +c: U32, +dd: Nat, -a: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, dst: ST.Dict, out: Array<U32>, wfo: Laws.WFArray(U32, dd, out), room: Laws.Room(dd, c, 1n+p), +ed: {dst == dst0 : ST.Dict}, +ekk0: {k0 == Laws.dk(dst0) : U32}, ih: RIH(p, c, dd, dst0, k0, esd),
+  w: &b: Array<String> -> &x: String -> {b == a : Array<String>} & {Array.get(String, a, c) == (a, x) : Array<String> & String} & {x == Laws.rd_at(String, a, c) : String})
+  -> RGoal(1n+p, c, dd, a, dst0, k0, esd, dst, out, Array.get(String, a, c)):
+  (+hi, room2) = room
+  (a2, +x, +ea, e1, ex) = w
+  %Equal.sym(Array<String> & String, Array.get(String, a, c), (a, x), e1) : RGoal(1n+p, c, dd, a, dst0, k0, esd, dst, out, _)
+  %ea : RGoal(1n+p, c, dd, _, dst0, k0, esd, dst, out, (_, x))
+  rstep2(p, c, dd, a2, dst0, k0, esd, dst, out, x, Equal.trans(String, x, Laws.rd_at(String, a, c), Laws.rd_at(String, a2, c), ex, Equal.cong(Array<String>, String, q => Laws.rd_at(String, q, c), a, a2, Equal.sym(Array<String>, a2, a, ea))), wfo, ed, ekk0, hi, room2, ih)
+
+def rzero(+c: U32, +dd: Nat, -a: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, dst: ST.Dict, out: Array<U32>, wfo: Laws.WFArray(U32, dd, out), +ed: {dst == dst0 : ST.Dict},
+  w: &b: Array<String> -> &x: String -> {b == a : Array<String>} & {Array.get(String, a, c) == (a, x) : Array<String> & String} & {x == Laws.rd_at(String, a, c) : String})
+  -> RGoal(0n, c, dd, a, dst0, k0, esd, dst, out, Array.get(String, a, c)):
+  (a2, +x, +ea, e1, ex) = w
+  %Equal.sym(Array<String> & String, Array.get(String, a, c), (a, x), e1) : RGoal(0n, c, dd, a, dst0, k0, esd, dst, out, _)
+  %ea : RGoal(0n, c, dd, _, dst0, k0, esd, dst, out, (_, x))
+  g => wf => pr => (a2, dst, out, {==}, {==}, ed, wfo, wf, g)
+
+def rgo(f: Nat, +c: U32, +dd: Nat, a: Array<String>, -dst0: ST.Dict, +k0: U32, +esd: List<&2, String>, dst: ST.Dict, out: Array<U32>, wfo: Laws.WFArray(U32, dd, out), room: Laws.Room(dd, c, f), +ed: {dst == dst0 : ST.Dict}, +ekk0: {k0 == Laws.dk(dst0) : U32}) -> RGoal(f, c, dd, a, dst0, k0, esd, dst, out, Array.get(String, a, c)):
+  match f:
+    case 0n:
+      rzero(c, dd, a, dst0, k0, esd, dst, out, wfo, ed, PC.get_w(String, a, c))
+    case 1n++p:
+      rstep1(p, c, dd, a, dst0, k0, esd, dst, out, wfo, room, ed, ekk0, a3 => dict3 => out3 => wfo3 => room3 => ed3 => rgo(p, U32.inc(c), dd, a3, dst0, k0, esd, dict3, out3, wfo3, room3, ed3, ekk0), PC.get_w(String, a, c))
+
+def rrows0(+dd: Nat, -a: Array<String>, -out: Array<U32>, +k0: U32, +esd: List<&2, String>) -> Laws.RecRows(0, dd, a, out, k0, esd):
+  +j => hj => +code => ecode => Empty.absurd(&e: Bool -> Laws.FoundK(e, code, k0, esd, Laws.rd_at(String, a, j)), PC.lt0(j, hj))
+
+# ---- the law: src taken apart, dst's entry count as a word, the loop from code 0 -------------------------------------
+
+def RLaw(+k: U32, +dd: Nat, -strs: Array<String>, +b: Nat, -slots: Array<ST.SSlot>, +tag: U32, -dst1: ST.Dict, +k0: U32, +esd: List<&2, String>) -> Type:
+  &src2: ST.Dict -> &dst2: ST.Dict -> &m: Array<U32> -> {ST.Dict.rc.fin(k, dd, b, slots, tag, ST.Dict.rc.go(U32.to_nat(k), 0, False{}, (dst1, Array.new(U32, dd, 0)), Array.get(String, strs, 0))) == (src2, dst2, m) : ST.Dict & ST.Dict & Array<U32>} & {src2 == ST.Dict{k, dd, strs, b, slots, tag} : ST.Dict} & {dst2 == dst1 : ST.Dict} & Laws.WFArray(U32, dd, m) & Laws.WFDictE(dst2, esd) & Laws.RecRows(k, dd, strs, m, k0, esd)
+
+def rfin(+k: U32, +dd: Nat, -strs: Array<String>, +b: Nat, slots: Array<ST.SSlot>, +tag: U32, -dst1: ST.Dict, +k0: U32, +esd: List<&2, String>,
+  w: &strs2: Array<String> -> &dst2: ST.Dict -> &m: Array<U32> -> {ST.Dict.rc.go(U32.to_nat(k), 0, False{}, (dst1, Array.new(U32, dd, 0)), Array.get(String, strs, 0)) == (strs2, (dst2, m)) : Array<String> & (ST.Dict & Array<U32>)} & {strs2 == strs : Array<String>} & {dst2 == dst1 : ST.Dict} & Laws.WFArray(U32, dd, m) & Laws.WFDictE(dst2, esd) & Laws.RecRows(Laws.addn(0, U32.to_nat(k)), dd, strs, m, k0, esd))
+  -> RLaw(k, dd, strs, b, slots, tag, dst1, k0, esd):
+  (strs2, dst2, m, eq, +estr, ed2, wm, wf2, g) = w
+  %Equal.sym(Array<String> & (ST.Dict & Array<U32>), ST.Dict.rc.go(U32.to_nat(k), 0, False{}, (dst1, Array.new(U32, dd, 0)), Array.get(String, strs, 0)), (strs2, (dst2, m)), eq) : &src3: ST.Dict -> &dst3: ST.Dict -> &m3: Array<U32> -> {ST.Dict.rc.fin(k, dd, b, slots, tag, _) == (src3, dst3, m3) : ST.Dict & ST.Dict & Array<U32>} & {src3 == ST.Dict{k, dd, strs, b, slots, tag} : ST.Dict} & {dst3 == dst1 : ST.Dict} & Laws.WFArray(U32, dd, m3) & Laws.WFDictE(dst3, esd) & Laws.RecRows(k, dd, strs, m3, k0, esd)
+  %B.addn_to_nat(k) : &src3: ST.Dict -> &dst3: ST.Dict -> &m3: Array<U32> -> {ST.Dict.rc.fin(k, dd, b, slots, tag, (strs2, (dst2, m))) == (src3, dst3, m3) : ST.Dict & ST.Dict & Array<U32>} & {src3 == ST.Dict{k, dd, strs, b, slots, tag} : ST.Dict} & {dst3 == dst1 : ST.Dict} & Laws.WFArray(U32, dd, m3) & Laws.WFDictE(dst3, esd) & Laws.RecRows(_, dd, strs, m3, k0, esd)
+  (ST.Dict{k, dd, strs2, b, slots, tag}, dst2, m, {==}, (%estr : {ST.Dict{k, dd, strs2, b, slots, tag} == ST.Dict{k, dd, _, b, slots, tag} : ST.Dict}; {==}), ed2, wm, wf2, g)
+
+def recode_k(+k: U32, +dd: Nat, strs: Array<String>, +b: Nat, slots: Array<ST.SSlot>, +tag: U32, dst1: ST.Dict, +k0: U32, +esd: List<&2, String>, fits: {U32.is_le(k, U32.shln(1, dd)) == True{} : Bool}, +ekk: {k0 == Laws.dk(dst1) : U32}, wf1: Laws.WFDictE(dst1, esd), probes: Laws.FindProbe(U32.to_nat(k), 0, strs, dst1))
+  -> RLaw(k, dd, strs, b, slots, tag, dst1, k0, esd):
+  rfin(k, dd, strs, b, slots, tag, dst1, k0, esd, rgo(U32.to_nat(k), 0, dd, strs, dst1, k0, esd, dst1, Array.new(U32, dd, 0), Laws.wf_new(U32, dd, 0), B.room_from(dd, k, fits), {==}, ekk)(rrows0(dd, strs, Array.new(U32, dd, 0), k0, esd))(wf1)(probes))
+
+def RLawP(+k: U32, +dd: Nat, -strs: Array<String>, +b: Nat, -slots: Array<ST.SSlot>, +tag: U32, -dst: ST.Dict, +esd: List<&2, String>) -> Type:
+  Laws.FindProbe(U32.to_nat(k), 0, strs, dst) -> Laws.RecodeW(ST.Dict{k, dd, strs, b, slots, tag}, dst, esd)
+
+def recode_w(+k: U32, +dd: Nat, strs: Array<String>, +b: Nat, slots: Array<ST.SSlot>, +tag: U32, -dst: ST.Dict, +esd: List<&2, String>, fits: {U32.is_le(k, U32.shln(1, dd)) == True{} : Bool},
+  w: &dst1: ST.Dict -> &k0: U32 -> {dst1 == dst : ST.Dict} & {k0 == Laws.dk(dst1) : U32} & {U32.to_nat(k0) == List.length(&2, String, esd) : Nat} & Laws.WFDictE(dst1, esd))
+  -> RLawP(k, dd, strs, b, slots, tag, dst, esd):
+  (dst1, +k0, ed, +ekk, ek0, wf1) = w
+  %ed : RLawP(k, dd, strs, b, slots, tag, _, esd)
+  %ekk : Laws.FindProbe(U32.to_nat(k), 0, strs, dst1) -> &src2: ST.Dict -> &dst2: ST.Dict -> &m: Array<U32> -> {ST.Dict.recode(ST.Dict{k, dd, strs, b, slots, tag}, dst1) == (src2, dst2, m) : ST.Dict & ST.Dict & Array<U32>} & {src2 == ST.Dict{k, dd, strs, b, slots, tag} : ST.Dict} & {dst2 == dst1 : ST.Dict} & Laws.WFArray(U32, dd, m) & Laws.WFDictE(dst2, esd) & Laws.RecRows(k, dd, strs, m, _, esd)
+  probes => recode_k(k, dd, strs, b, slots, tag, dst1, k0, esd, fits, ekk, wf1, probes)
+
+def Laws.dict_recode_spec(src, dst, esd, fits, wfd, probes):
+  match src:
+    case ST.Dict{+k, +dd, strs, +b, slots, +tag}:
+      recode_w(k, dd, strs, b, slots, tag, dst, esd, fits, wf_ek(dst, esd, wfd))(probes)
