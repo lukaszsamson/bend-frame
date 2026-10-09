@@ -40,8 +40,9 @@
 #
 # Shape. One walk over the string builds finished fields and records directly: no token
 # list and no state record. Mode, line counters and accumulators are separate arguments of
-# `go`; the walk is tail recursive over them, so it can be resumed on the next chunk of a
-# file (M4: line-by-line parsing over 1 MB chunks) by threading the same arguments.
+# `go`; the walk is tail recursive over them and answers its state when the input runs out,
+# so `step` resumes it on the next chunk of a file (M4: src/csv.bend reads files in chunks
+# and hands each chunk's records to the column builders) and `close` ends it.
 
 import Base
 
@@ -102,9 +103,19 @@ def cls_u(+sep: U32, +u: U32) -> CK:
 def cls(+sep: U32, +c: Char) -> CK:
   cls_u(sep, Char.to_u32(c))
 
+# M4: a field's text accumulates REVERSED (`SCon{c, txt}`: one cell per character; the old
+# `String.append(txt, one(c))` copied the field so far at every character) and is turned
+# round once when the field ends (`txt_of`).
+def txt_of(txt: String) -> String:
+  String.reverse(txt)
+
 # the record that ends here (rl: its first line); rows are newest first, cells oldest first
 def row(+txt: String, +q: Bool, +flds: List<&2, CsvCell>, +rows: List<&2, CsvRec>, +rl: U32) -> List<&2, CsvRec>:
-  Con{CsvRec{rl, List.reverse(&2, CsvCell, Con{CsvCell{txt, q}, flds})}, rows}
+  Con{CsvRec{rl, List.reverse(&2, CsvCell, Con{CsvCell{txt_of(txt), q}, flds})}, rows}
+
+# a finished field (not the last of its record)
+def cell(+txt: String, +q: Bool, +flds: List<&2, CsvCell>) -> List<&2, CsvCell>:
+  Con{CsvCell{txt_of(txt), q}, flds}
 
 # the end of input at a field start: an unfinished record ends with one more empty field
 def close_empty(+flds: List<&2, CsvCell>, +rows: List<&2, CsvRec>, +rl: U32) -> List<&2, CsvRec>:
@@ -117,24 +128,42 @@ def close_empty(+flds: List<&2, CsvCell>, +rows: List<&2, CsvRec>, +rl: U32) -> 
 def one(+c: Char) -> String:
   SCon{c, SNil{}}
 
-def fin(+m: FM, +txt: String, +flds: List<&2, CsvCell>, +rows: List<&2, CsvRec>, +rl: U32) -> Ans:
+# the records of the end of input, newest first (None: a quoted field never closed)
+def fin.rows(+m: FM, +txt: String, +flds: List<&2, CsvCell>, +rows: List<&2, CsvRec>, +rl: U32) -> Maybe<&2, List<&2, CsvRec>>:
   match m:
     case MS{}:
-      Parsed{List.reverse(&2, CsvRec, close_empty(flds, rows, rl))}
+      Some{close_empty(flds, rows, rl)}
     case MSC{}:
-      Parsed{List.reverse(&2, CsvRec, row(SNil{}, False{}, flds, rows, rl))}
+      Some{row(SNil{}, False{}, flds, rows, rl)}
     case MB{}:
-      Parsed{List.reverse(&2, CsvRec, row(txt, False{}, flds, rows, rl))}
+      Some{row(txt, False{}, flds, rows, rl)}
     case MBC{}:
-      Parsed{List.reverse(&2, CsvRec, row(txt, False{}, flds, rows, rl))}
+      Some{row(txt, False{}, flds, rows, rl)}
     case MQ{}:
-      Parsed{List.reverse(&2, CsvRec, row(txt, True{}, flds, rows, rl))}
+      Some{row(txt, True{}, flds, rows, rl)}
     case MQC{}:
-      Parsed{List.reverse(&2, CsvRec, row(txt, True{}, flds, rows, rl))}
+      Some{row(txt, True{}, flds, rows, rl)}
     case ME{}:
-      Rejected{}
+      None{}
     case MBad{}:
+      None{}
+
+def fin.ans(r: Maybe<&2, List<&2, CsvRec>>) -> Ans:
+  match r:
+    case Some{rows}:
+      Parsed{List.reverse(&2, CsvRec, rows)}
+    case None{}:
       Rejected{}
+
+def fin(+m: FM, +txt: String, +flds: List<&2, CsvCell>, +rows: List<&2, CsvRec>, +rl: U32) -> Ans:
+  fin.ans(fin.rows(m, txt, flds, rows, rl))
+
+# where a walk stopped: the input ran out (a chunk ended, or the text) in mode m with the
+# current field's text (reversed), the current record's fields (newest first), the records
+# finished in this walk (newest first) and the line counters; or a rejecting pair was met
+type Out is Data:
+  ORej{}
+  OMore{m: FM, txt: String, flds: List<&2, CsvCell>, rows: List<&2, CsvRec>, ln: U32, rl: U32}
 
 # class of the first character of a string (CText for the empty string: unused)
 def cls_of(+sep: U32, +s: String) -> CK:
@@ -148,11 +177,13 @@ def cls_of(+sep: U32, +s: String) -> CK:
 # character (computed once, by the caller), then everything else. ONE match on
 # (input, mode, class) per character; a rejecting pair returns at once.
 # ln: LFs seen so far (the physical line of the next character is ln + 1... counted from
-# `ln0`, the first line, 1); rl: the line the current record started on.
-def go(+s: String, +m: FM, +k: CK, +sep: U32, +txt: String, +flds: List<&2, CsvCell>, +rows: List<&2, CsvRec>, +ln: U32, +rl: U32) -> Ans:
+# `ln0`, the first line, 1); rl: the line the current record started on. The end of the
+# input answers the state (OMore): `parse_sep` finishes it, the chunked reader (src/csv.bend,
+# Csv.st) resumes it on the next chunk.
+def go(+s: String, +m: FM, +k: CK, +sep: U32, +txt: String, +flds: List<&2, CsvCell>, +rows: List<&2, CsvRec>, +ln: U32, +rl: U32) -> Out:
   match s m k:
     case SNil{} _ _:
-      fin(m, txt, flds, rows, rl)
+      OMore{m, txt, flds, rows, ln, rl}
     case SCon{c, t} MS{} CLf{}:
       go(t, MS{}, cls_of(sep, t), sep, SNil{}, Nil{}, row(SNil{}, False{}, flds, rows, rl), U32.add(ln, 1), U32.add(ln, 1))
     case SCon{c, t} MS{} CCr{}:
@@ -168,29 +199,29 @@ def go(+s: String, +m: FM, +k: CK, +sep: U32, +txt: String, +flds: List<&2, CsvC
     case SCon{c, t} MB{} CCr{}:
       go(t, MBC{}, cls_of(sep, t), sep, txt, flds, rows, ln, rl)
     case SCon{c, t} MB{} CSep{}:
-      go(t, MS{}, cls_of(sep, t), sep, SNil{}, Con{CsvCell{txt, False{}}, flds}, rows, ln, rl)
+      go(t, MS{}, cls_of(sep, t), sep, SNil{}, cell(txt, False{}, flds), rows, ln, rl)
     case SCon{_, _} MB{} CQuote{}:
-      Rejected{}
+      ORej{}
     case SCon{c, t} MB{} CText{}:
-      go(t, MB{}, cls_of(sep, t), sep, String.append(txt, one(c)), flds, rows, ln, rl)
+      go(t, MB{}, cls_of(sep, t), sep, SCon{c, txt}, flds, rows, ln, rl)
     case SCon{c, t} ME{} CQuote{}:
       go(t, MQ{}, cls_of(sep, t), sep, txt, flds, rows, ln, rl)
     case SCon{c, t} ME{} CLf{}:
-      go(t, ME{}, cls_of(sep, t), sep, String.append(txt, one(Chr{10})), flds, rows, U32.add(ln, 1), rl)
+      go(t, ME{}, cls_of(sep, t), sep, SCon{Chr{10}, txt}, flds, rows, U32.add(ln, 1), rl)
     case SCon{c, t} ME{} CCr{}:
-      go(t, ME{}, cls_of(sep, t), sep, String.append(txt, one(Chr{13})), flds, rows, ln, rl)
+      go(t, ME{}, cls_of(sep, t), sep, SCon{Chr{13}, txt}, flds, rows, ln, rl)
     case SCon{c, t} ME{} _:
-      go(t, ME{}, cls_of(sep, t), sep, String.append(txt, one(c)), flds, rows, ln, rl)
+      go(t, ME{}, cls_of(sep, t), sep, SCon{c, txt}, flds, rows, ln, rl)
     case SCon{c, t} MQ{} CLf{}:
       go(t, MS{}, cls_of(sep, t), sep, SNil{}, Nil{}, row(txt, True{}, flds, rows, rl), U32.add(ln, 1), U32.add(ln, 1))
     case SCon{c, t} MQ{} CCr{}:
       go(t, MQC{}, cls_of(sep, t), sep, txt, flds, rows, ln, rl)
     case SCon{c, t} MQ{} CSep{}:
-      go(t, MS{}, cls_of(sep, t), sep, SNil{}, Con{CsvCell{txt, True{}}, flds}, rows, ln, rl)
+      go(t, MS{}, cls_of(sep, t), sep, SNil{}, cell(txt, True{}, flds), rows, ln, rl)
     case SCon{c, t} MQ{} CQuote{}:
-      go(t, ME{}, cls_of(sep, t), sep, String.append(txt, one(Chr{34})), flds, rows, ln, rl)
+      go(t, ME{}, cls_of(sep, t), sep, SCon{Chr{34}, txt}, flds, rows, ln, rl)
     case SCon{_, _} MQ{} CText{}:
-      Rejected{}
+      ORej{}
     case SCon{c, t} MSC{} CLf{}:
       go(t, MS{}, cls_of(sep, t), sep, SNil{}, Nil{}, row(SNil{}, False{}, flds, rows, rl), U32.add(ln, 1), U32.add(ln, 1))
     case SCon{c, t} MSC{} CCr{}:
@@ -198,28 +229,68 @@ def go(+s: String, +m: FM, +k: CK, +sep: U32, +txt: String, +flds: List<&2, CsvC
     case SCon{c, t} MSC{} CSep{}:
       go(t, MS{}, cls_of(sep, t), sep, SNil{}, Con{CsvCell{one(Chr{13}), False{}}, flds}, rows, ln, rl)
     case SCon{_, _} MSC{} CQuote{}:
-      Rejected{}
+      ORej{}
     case SCon{c, t} MSC{} CText{}:
-      go(t, MB{}, cls_of(sep, t), sep, SCon{Chr{13}, one(c)}, flds, rows, ln, rl)
+      go(t, MB{}, cls_of(sep, t), sep, SCon{c, one(Chr{13})}, flds, rows, ln, rl)
     case SCon{c, t} MBC{} CLf{}:
       go(t, MS{}, cls_of(sep, t), sep, SNil{}, Nil{}, row(txt, False{}, flds, rows, rl), U32.add(ln, 1), U32.add(ln, 1))
     case SCon{c, t} MBC{} CCr{}:
-      go(t, MBC{}, cls_of(sep, t), sep, String.append(txt, one(Chr{13})), flds, rows, ln, rl)
+      go(t, MBC{}, cls_of(sep, t), sep, SCon{Chr{13}, txt}, flds, rows, ln, rl)
     case SCon{c, t} MBC{} CSep{}:
-      go(t, MS{}, cls_of(sep, t), sep, SNil{}, Con{CsvCell{String.append(txt, one(Chr{13})), False{}}, flds}, rows, ln, rl)
+      go(t, MS{}, cls_of(sep, t), sep, SNil{}, cell(SCon{Chr{13}, txt}, False{}, flds), rows, ln, rl)
     case SCon{_, _} MBC{} CQuote{}:
-      Rejected{}
+      ORej{}
     case SCon{c, t} MBC{} CText{}:
-      go(t, MB{}, cls_of(sep, t), sep, String.append(String.append(txt, one(Chr{13})), one(c)), flds, rows, ln, rl)
+      go(t, MB{}, cls_of(sep, t), sep, SCon{c, SCon{Chr{13}, txt}}, flds, rows, ln, rl)
     case SCon{c, t} MQC{} CLf{}:
       go(t, MS{}, cls_of(sep, t), sep, SNil{}, Nil{}, row(txt, True{}, flds, rows, rl), U32.add(ln, 1), U32.add(ln, 1))
     case SCon{_, _} MQC{} _:
-      Rejected{}
+      ORej{}
     case SCon{_, _} MBad{} _:
+      ORej{}
+
+def finish(o: Out) -> Ans:
+  match o:
+    case ORej{}:
       Rejected{}
+    case OMore{m, txt, flds, rows, ln, rl}:
+      fin(m, txt, flds, rows, rl)
 
 def parse_sep(+sep: U32, +s: String) -> Ans:
-  go(s, MS{}, cls_of(sep, s), sep, SNil{}, Nil{}, Nil{}, 1, 1)
+  finish(go(s, MS{}, cls_of(sep, s), sep, SNil{}, Nil{}, Nil{}, 1, 1))
 
 def parse(+s: String) -> Ans:
   parse_sep(44, s)
+
+# ---- resumable walks (M4: the chunked reader) ----------------------------------------------
+
+# the parser state between chunks: mode, current field (reversed), current record's fields
+# (newest first), line counters
+type St is Data:
+  St{m: FM, txt: String, flds: List<&2, CsvCell>, ln: U32, rl: U32}
+
+def start() -> St:
+  St{MS{}, SNil{}, Nil{}, 1, 1}
+
+# one more piece of input: the records it finishes (newest first) and the state after it
+type Step is Data:
+  SRej{}
+  SMore{rows: List<&2, CsvRec>, st: St}
+
+def step.k(o: Out) -> Step:
+  match o:
+    case ORej{}:
+      SRej{}
+    case OMore{m, txt, flds, rows, ln, rl}:
+      SMore{rows, St{m, txt, flds, ln, rl}}
+
+def step(+sep: U32, +s: String, st: St) -> Step:
+  match st:
+    case St{m, txt, flds, ln, rl}:
+      step.k(go(s, m, cls_of(sep, s), sep, txt, flds, Nil{}, ln, rl))
+
+# the end of the input in state st: the last records (newest first; None: an unclosed quote)
+def close(st: St) -> Maybe<&2, List<&2, CsvRec>>:
+  match st:
+    case St{m, txt, flds, ln, rl}:
+      fin.rows(m, txt, flds, Nil{}, rl)

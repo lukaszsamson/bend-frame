@@ -40,6 +40,13 @@ type Strs is Type:
   SRaw{data: Array<String>}
   SDict{codes: Array<U32>, dict: Dict}
 
+# the storage a reader gives a Str column: Raw, Dictionary, or by measured cardinality (a
+# Dictionary while its entries stay few for the rows read, else Raw: src/csv.bend Csv.dict_over)
+type StrEnc is Data:
+  EncRaw{}
+  EncDict{}
+  EncAuto{}
+
 def Dict.miss() -> U32:
   4294967295
 

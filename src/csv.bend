@@ -12,6 +12,7 @@ import ./dtype.bend as D
 import ./err.bend as E
 import ./kernels.bend as K
 import ./column.bend as C
+import ./strs.bend as ST
 import ./fmt.bend as F
 
 type CsvOpts is Data:
@@ -658,35 +659,6 @@ def Csv.rows.cap(+cap: U32, rows: List<&2, H.CsvRec>, +hdr: Bool, inf: U32, ts: 
 def Csv.rows(rows: List<&2, H.CsvRec>, hdr: Bool, inf: U32, ts: List<&2, D.DType>) -> E.ResT(C.Frame):
   Csv.rows.cap(K.Kernel.max_rows(), rows, hdr, inf, ts)
 
-def Csv.parse.a(+cap: U32, ans: H.Ans, hdr: Bool, inf: U32, ts: List<&2, D.DType>) -> E.ResT(C.Frame):
-  match ans:
-    case H.Rejected{}:
-      Fail{E.ParseError{0, "malformed csv"}}
-    case H.Parsed{rows}:
-      Csv.rows.cap(cap, rows, hdr, inf, ts)
-
-# Strict schema: dtypes by column position, a value that does not parse is a
-# ParseError (no lenient nulls); the dtype count must equal the column count.
-# cap: the row cap (K.Kernel.max_rows() for every real read; lowered in the tests)
-def Csv.parse_with.k(bad: Maybe<&2, E.Err>, +cap: U32, text: String, sep: Char, hdr: Bool, inf: U32, ts: List<&2, D.DType>) -> E.ResT(C.Frame):
-  match bad:
-    case Some{e}:
-      Fail{e}
-    case None{}:
-      Csv.parse.a(cap, H.parse_sep(Char.to_u32(sep), text), hdr, inf, ts)
-
-def Csv.parse_with.cap(+cap: U32, text: String, opts: CsvOpts, ts: List<&2, D.DType>) -> E.ResT(C.Frame):
-  match opts:
-    case CsvOpts{+sep, hdr, inf}:
-      Csv.parse_with.k(Csv.sep_err(sep), cap, text, sep, hdr, inf, ts)
-
-def Csv.parse_with(text: String, opts: CsvOpts, ts: List<&2, D.DType>) -> E.ResT(C.Frame):
-  Csv.parse_with.cap(K.Kernel.max_rows(), text, opts, ts)
-
-# Inferred schema (first infer_rows rows; 0 = all): bool, u32, i32, f32, str.
-def Csv.parse(text: String, opts: CsvOpts) -> E.ResT(C.Frame):
-  Csv.parse_with(text, opts, Nil{})
-
 # ---- Csv.infer: names + dtypes only ---------------------------------------------------------------------------
 
 def Csv.infer.fields(names: List<&2, String>, cs: List<&2, List<&2, H.CsvCell>>, +k: Nat) -> List<&2, CsvField>:
@@ -1297,69 +1269,748 @@ def Csv.render_with(f: C.Frame, w: CsvWriteOpts) -> C.Frame & String:
 def Csv.render(f: C.Frame, prec: Maybe<&2, U32>) -> C.Frame & String:
   Csv.render_with(f, CsvWriteOpts{',', True{}, prec})
 
-# ---- files ---------------------------------------------------------------------------------------------------------------------
+# ---- M4: the streaming reader (plans/M_01.txt section 5) ------------------------------------------
+# A file is read in chunks (File.read_at, `Csv.chunk()` bytes, cut after the last LF so no UTF-8
+# sequence is split; a chunk without an LF doubles), each chunk is decoded (Csv.u8) and walked
+# by the resumable parser (H.step: the parser's state crosses chunk ends, so a quoted field may
+# hold line ends across them), and the chunk's records go straight to typed column builders:
+# Str cells are coded as they are produced (Dictionary: a hash probe per cell), numbers are read
+# from the field text into word / f32 buffers. There is no whole-file string, no list of every
+# record and no per-column Scalar list. What remains transient per chunk: the chunk's bytes,
+# its decoded text, its records and their cells (and, while inference runs, the first
+# `infer_rows` records; `infer_rows = 0` keeps every record until the end: the documented
+# fallback). A string (Csv.parse_with) is the same machinery fed as one chunk.
+#
+# Order of errors (as before M4): malformed quoting anywhere; no records -> the empty frame or the
+# dtype-count error; the first ragged record; the dtype count; the row cap; then the first column
+# (in column order) holding a cell that does not parse, at its first such row.
 
-# the file is read whole (size, then read), closed, then parsed; every IO failure is an IoError value
-def Csv.read.fin(opts: CsvOpts, ts: List<&2, D.DType>, f: File, res: Result<&1, &1, U32 & String, String>) -> IO(E.ResT(C.Frame)):
+# 1 MiB (plan section 5)
+def Csv.chunk() -> U32:
+  1048576
+
+# a column's first cell that does not parse: the record's line and the field's text
+type BadL is Data:
+  BadL{line: U32, text: String}
+
+# a builder's buffer: words (bool / u32 / i32), f32, Raw strings, Dictionary codes
+type Buf is Type:
+  BW{a: Array<U32>}
+  BF{a: Array<F32>}
+  BS{a: Array<String>}
+  BD{c: Array<U32>, dict: ST.Dict}
+
+# a column being built: dtype, rows n in 2^d slots, data, validity words, nulls so far, the
+# first bad cell, and for a Dictionary whether it may fall back to Raw (EncAuto)
+type CB is Type:
+  CB{t: D.DType, n: U32, d: Nat, buf: Buf, vm: Array<U32>, nulls: U32, bad: Maybe<&2, BadL>, auto: Bool}
+
+# 2^d slots doubled to 2^(d+1) when full (the old slots keep their indices: the left half)
+def Grow.u(full: Bool, +d: Nat, a: Array<U32>) -> Array<U32>:
+  match full:
+    case True{}:
+      ANode{a, Array.new(U32, d, 0)}
+    case False{}:
+      a
+
+def Grow.f(full: Bool, +d: Nat, a: Array<F32>) -> Array<F32>:
+  match full:
+    case True{}:
+      ANode{a, Array.new(F32, d, 0.0)}
+    case False{}:
+      a
+
+def Grow.s(full: Bool, +d: Nat, a: Array<String>) -> Array<String>:
+  match full:
+    case True{}:
+      ANode{a, Array.new(String, d, "")}
+    case False{}:
+      a
+
+def Grow.buf(+full: Bool, +d: Nat, b: Buf) -> Buf:
+  match b:
+    case BW{a}:
+      BW{Grow.u(full, d, a)}
+    case BF{a}:
+      BF{Grow.f(full, d, a)}
+    case BS{a}:
+      BS{Grow.s(full, d, a)}
+    case BD{c, dict}:
+      BD{Grow.u(full, d, c), dict}
+
+# the first-level trims: keep the left subtree k times (2^d slots down to 2^(d-k))
+def Trim.u(k: Nat, a: Array<U32>) -> Array<U32>:
+  match k a:
+    case 1n+p ANode{xs, ys}:
+      Trim.u(p, xs)
+    case _ other:
+      other
+
+def Trim.f(k: Nat, a: Array<F32>) -> Array<F32>:
+  match k a:
+    case 1n+p ANode{xs, ys}:
+      Trim.f(p, xs)
+    case _ other:
+      other
+
+def Trim.s(k: Nat, a: Array<String>) -> Array<String>:
+  match k a:
+    case 1n+p ANode{xs, ys}:
+      Trim.s(p, xs)
+    case _ other:
+      other
+
+# EncAuto keeps a Dictionary while its entries stay within max(floor, rows * num / den)
+# (DESIGN.md 14 M4: the measured threshold); past it the column falls back to Raw, decoding the
+# rows coded so far (the only rescan, of a prefix)
+def Csv.dict_floor() -> U32:
+  1024
+
+def Csv.dict_num() -> U32:
+  1
+
+def Csv.dict_den() -> U32:
+  2
+
+def Csv.dict_over(+k: U32, +n: U32) -> Bool:
+  U32.is_gt(k, U32.max(Csv.dict_floor(), U32.div(U32.mul(n, Csv.dict_num()), Csv.dict_den())))
+
+# a word cell: trimmed text, empty is null, else the dtype's reader
+def Csv.rd.bool(+s: String) -> Maybe<&2, U32>:
+  Bool.pick(Maybe<&2, U32>, Csv.is_bool(s), Some{Bool.to_u32(Bool.or(String.eq(s, "true"), String.eq(s, "True")))}, None{})
+
+def Csv.rd.i32(m: Maybe<&2, D.I32>) -> Maybe<&2, U32>:
+  match m:
+    case Some{D.I32{x}}:
+      Some{x}
+    case None{}:
+      None{}
+
+def Csv.rd.w(t: D.DType, +s: String) -> Maybe<&2, U32>:
+  match t:
+    case D.TI32{}:
+      Csv.rd.i32(D.I32.read(s))
+    case D.TBool{}:
+      Csv.rd.bool(s)
+    case _:
+      U32.read(s)
+
+def CB.mk(+t: D.DType, +n: U32, +d: Nat, b: Buf, vm: Array<U32>, +nulls: U32, bad: Maybe<&2, BadL>, +auto: Bool) -> CB:
+  CB{t, n, d, b, vm, nulls, bad, auto}
+
+def CB.badk(bad: Maybe<&2, BadL>, +line: U32, +f: String) -> Maybe<&2, BadL>:
+  match bad:
+    case Some{x}:
+      Some{x}
+    case None{}:
+      Some{BadL{line, f}}
+
+# a read word cell: Some -> valid, None -> null and (the first) bad cell
+def CB.word.r(+t: D.DType, +n: U32, +d: Nat, a: Array<U32>, vm: Array<U32>, +nulls: U32, bad: Maybe<&2, BadL>, +line: U32, +f: String, m: Maybe<&2, U32>) -> CB:
+  match m:
+    case Some{x}:
+      CB{t, U32.inc(n), d, BW{Array.set(U32, a, n, x)}, Array.set(U32, vm, n, 1), nulls, bad, False{}}
+    case None{}:
+      CB{t, U32.inc(n), d, BW{a}, vm, U32.inc(nulls), CB.badk(bad, line, f), False{}}
+
+def CB.word.e(empty: Bool, +t: D.DType, +n: U32, +d: Nat, a: Array<U32>, vm: Array<U32>, +nulls: U32, bad: Maybe<&2, BadL>, +line: U32, +f: String, +s: String) -> CB:
+  match empty:
+    case True{}:
+      CB{t, U32.inc(n), d, BW{a}, vm, U32.inc(nulls), bad, False{}}
+    case False{}:
+      CB.word.r(t, n, d, a, vm, nulls, bad, line, f, Csv.rd.w(t, s))
+
+def CB.f32.r(+t: D.DType, +n: U32, +d: Nat, a: Array<F32>, vm: Array<U32>, +nulls: U32, bad: Maybe<&2, BadL>, +line: U32, +f: String, m: Maybe<&2, F32>) -> CB:
+  match m:
+    case Some{x}:
+      CB{t, U32.inc(n), d, BF{Array.set(F32, a, n, x)}, Array.set(U32, vm, n, 1), nulls, bad, False{}}
+    case None{}:
+      CB{t, U32.inc(n), d, BF{a}, vm, U32.inc(nulls), CB.badk(bad, line, f), False{}}
+
+def CB.f32.e(empty: Bool, +t: D.DType, +n: U32, +d: Nat, a: Array<F32>, vm: Array<U32>, +nulls: U32, bad: Maybe<&2, BadL>, +line: U32, +f: String, +s: String) -> CB:
+  match empty:
+    case True{}:
+      CB{t, U32.inc(n), d, BF{a}, vm, U32.inc(nulls), bad, False{}}
+    case False{}:
+      CB.f32.r(t, n, d, a, vm, nulls, bad, line, f, F32.read(s))
+
+# a Dictionary cell: the code (0 for a null row: its text is ""), then the EncAuto check
+def CB.dict.sw(over: Bool, +t: D.DType, +n: U32, +d: Nat, c: Array<U32>, dict: ST.Dict, vm: Array<U32>, +nulls: U32, bad: Maybe<&2, BadL>, +auto: Bool) -> CB:
+  match over:
+    case True{}:
+      CB{t, n, d, BS{ST.Dict.decode(n, d, c, dict)}, vm, nulls, bad, False{}}
+    case False{}:
+      CB{t, n, d, BD{c, dict}, vm, nulls, bad, auto}
+
+def CB.dict.s(+t: D.DType, +n: U32, +d: Nat, c: Array<U32>, vm: Array<U32>, +nulls: U32, bad: Maybe<&2, BadL>, +auto: Bool, r: ST.Dict & U32) -> CB:
+  (dict, +k) = r
+  CB.dict.sw(Bool.and(auto, Csv.dict_over(k, n)), t, n, d, c, dict, vm, nulls, bad, auto)
+
+def CB.dict.k(+t: D.DType, +n: U32, +n1: U32, +d: Nat, c: Array<U32>, vm: Array<U32>, +nulls: U32, bad: Maybe<&2, BadL>, +auto: Bool, r: ST.Dict & U32) -> CB:
+  (dict, +code) = r
+  CB.dict.s(t, n1, d, Array.set(U32, c, n, code), vm, nulls, bad, auto, ST.Dict.size(dict))
+
+def CB.str.k(+t: D.DType, +n: U32, +n1: U32, +d: Nat, b: Buf, vm: Array<U32>, +nulls: U32, bad: Maybe<&2, BadL>, +auto: Bool, +f: String) -> CB:
+  match b:
+    case BD{c, dict}:
+      CB.dict.k(t, n, n1, d, c, vm, nulls, bad, auto, ST.Dict.code(dict, f))
+    case BS{a}:
+      CB{t, n1, d, BS{Array.set(String, a, n, f)}, vm, nulls, bad, auto}
+    case other:
+      CB{t, n1, d, other, vm, nulls, bad, auto}
+
+# a str cell: quoted, or unquoted and non-empty, is valid (15.6.1); a null's text is ""
+def CB.str(+t: D.DType, +n: U32, +d: Nat, b: Buf, vm: Array<U32>, +nulls: U32, bad: Maybe<&2, BadL>, +auto: Bool, +q: Bool, +f: String) -> CB:
+  +ok = Bool.or(q, Bool.not(String.is_empty(f)))
+  +n1 = U32.inc(n)
+  +nl = U32.add(nulls, Bool.to_u32(Bool.not(ok)))
+  CB.str.k(t, n, n1, d, b, Array.set(U32, vm, n, Bool.to_u32(ok)), nl, bad, auto, f)
+
+def CB.cell(c: H.CsvCell, +line: U32, +t: D.DType, +n: U32, +d: Nat, b: Buf, vm: Array<U32>, +nulls: U32, bad: Maybe<&2, BadL>, +auto: Bool) -> CB:
+  match c:
+    case H.CsvCell{+f, +q}:
+      match b:
+        case BW{a}:
+          +s = String.trim(f)
+          CB.word.e(String.is_empty(s), t, n, d, a, vm, nulls, bad, line, f, s)
+        case BF{a}:
+          +s = String.trim(f)
+          CB.f32.e(String.is_empty(s), t, n, d, a, vm, nulls, bad, line, f, s)
+        case other:
+          CB.str(t, n, d, other, vm, nulls, bad, auto, q, f)
+
+# one more row (the buffers double when full)
+def CB.put(cb: CB, c: H.CsvCell, +line: U32) -> CB:
+  match cb:
+    case CB{+t, +n, +d, b, vm, +nulls, bad, +auto}:
+      +full = U32.is_eq(n, U32.shln(1, d))
+      +d2 = Bool.pick(Nat, full, Nat.add(d, 1n), d)
+      CB.cell(c, line, t, n, d2, Grow.buf(full, d, b), Grow.u(full, d, vm), nulls, bad, auto)
+
+# a chunk's cells of this column with their records' lines
+def CB.feed(cs: List<&2, H.CsvCell>, ls: List<&2, U32>, cb: CB) -> CB:
+  match cs ls:
+    case c <> ct l <> lt:
+      CB.feed(ct, lt, CB.put(cb, c, l))
+    case _ _:
+      cb
+
+def CBs.feed.k(a: CB, r: List<&1, CB>) -> List<&1, CB>:
+  a <> r
+
+# every column fed in parallel (a parallel let per column, as Csv.cols built them)
+def CBs.feed(cbs: List<&1, CB>, cols: List<&2, List<&2, H.CsvCell>>, +ls: List<&2, U32>) -> List<&1, CB>:
+  match cbs cols:
+    case cb <> ct c <> cst:
+      a r = CB.feed(c, ls, cb) CBs.feed(ct, cst, ls)
+      CBs.feed.k(a, r)
+    case _ _:
+      Nil{}
+
+# a new builder of dtype t (a Str one in the requested storage)
+def CB.new.b(+t: D.DType, enc: ST.StrEnc) -> Buf:
+  match t enc:
+    case D.TF32{} _:
+      BF{Array.new(F32, 0n, 0.0)}
+    case D.TStr{} ST.EncRaw{}:
+      BS{Array.new(String, 0n, "")}
+    case D.TStr{} _:
+      BD{Array.new(U32, 0n, 0), ST.Dict.empty()}
+    case _ _:
+      BW{Array.new(U32, 0n, 0)}
+
+def CB.new.auto(enc: ST.StrEnc) -> Bool:
+  match enc:
+    case ST.EncAuto{}:
+      True{}
+    case _:
+      False{}
+
+def CB.new(+t: D.DType, +enc: ST.StrEnc) -> CB:
+  CB{t, 0, 0n, CB.new.b(t, enc), Array.new(U32, 0n, 0), 0, None{}, CB.new.auto(enc)}
+
+def CBs.new(ts: List<&2, D.DType>, +enc: ST.StrEnc) -> List<&1, CB>:
+  match ts:
+    case Nil{}:
+      Nil{}
+    case t <> tt:
+      CB.new(t, enc) <> CBs.new(tt, enc)
+
+# ---- builders -> columns ------------------------------------------------------------------------
+
+def CB.valid(+n: U32, +k: Nat, +nulls: U32, vm: Array<U32>) -> C.Valid:
+  Bool.pick(C.Valid, U32.is_zero(nulls), C.AllValid{}, C.Mask{Trim.u(k, vm)})
+
+def CB.col.b(+t: D.DType, +n: U32, +d: Nat, +k: Nat, b: Buf, v: C.Valid) -> C.Column:
+  match b:
+    case BW{a}:
+      C.Column.mk_w(t, n, Nat.sub(d, k), v, Trim.u(k, a))
+    case BF{a}:
+      C.CF32{n, Nat.sub(d, k), v, Trim.f(k, a)}
+    case BS{a}:
+      C.CStr{n, Nat.sub(d, k), v, ST.SRaw{Trim.s(k, a)}}
+    case BD{c, dict}:
+      C.CStr{n, Nat.sub(d, k), v, ST.SDict{Trim.u(k, c), dict}}
+
+def CB.col.k(+name: String, bad: Maybe<&2, BadL>, +t: D.DType, +n: U32, +d: Nat, b: Buf, vm: Array<U32>, +nulls: U32) -> E.ResT(C.Named):
+  match bad:
+    case Some{BadL{line, text}}:
+      Csv.col.err(name, t, text, line)
+    case None{}:
+      +k = Nat.sub(d, K.Kernel.depth_for(U32.max(n, 1)))
+      Done{C.Named{name, CB.col.b(t, n, d, k, b, CB.valid(n, k, nulls, vm))}}
+
+# the column (2^depth_for(n) slots, AllValid without nulls), or the first bad cell's ParseError
+def CB.col(+name: String, cb: CB) -> E.ResT(C.Named):
+  match cb:
+    case CB{+t, +n, +d, b, vm, +nulls, bad, auto}:
+      CB.col.k(name, bad, t, n, d, b, vm, nulls)
+
+# the first error in column order, else every column
+def CBs.cols(names: List<&2, String>, cbs: List<&1, CB>) -> E.ResT(List<&1, C.Named>):
+  match names cbs:
+    case n <> nt cb <> ct:
+      Csv.cols.k(CB.col(n, cb), CBs.cols(nt, ct))
+    case _ _:
+      Done{Nil{}}
+
+# ---- the sink: records -> header, inference, builders ---------------------------------------------
+
+# where the records go: hdr, before the header (blank lines skipped); no hdr, before the first
+# non-blank record (the blank ones so far kept, newest first); inference (the first records kept,
+# newest first, nb of them); building; or only counting and checking (an error is certain)
+type Ph is Type:
+  PLead{}
+  PPend{blanks: List<&2, H.CsvRec>}
+  PInf{names: List<&2, String>, w: Nat, buf: List<&2, H.CsvRec>, nb: U32}
+  PBuild{names: List<&2, String>, w: Nat, cbs: List<&1, CB>}
+  PDead{w: Nat}
+
+# the phase as Data: before the header, before the width, or past it (width w)
+type PM is Data:
+  MLead{}
+  MPend{}
+  MData{w: Nat}
+
+# options (hdr, inference limit k, dtypes, row cap, Str storage), the phase, the first ragged
+# record's error, the dtype-count error, the data records so far
+type Sink is Type:
+  Sink{hdr: Bool, k: U32, ts: List<&2, D.DType>, cap: U32, enc: ST.StrEnc, ph: Ph, rag: Maybe<&2, E.Err>, tse: Maybe<&2, E.Err>, count: U32}
+
+def Sink.ph0(hdr: Bool) -> Ph:
+  match hdr:
+    case True{}:
+      PLead{}
+    case False{}:
+      PPend{Nil{}}
+
+def Sink.new(+hdr: Bool, +k: U32, ts: List<&2, D.DType>, +cap: U32, enc: ST.StrEnc) -> Sink:
+  Sink{hdr, k, ts, cap, enc, Sink.ph0(hdr), None{}, None{}, 0}
+
+def Sink.with_ph(s: Sink, ph: Ph) -> Sink:
+  match s:
+    case Sink{hdr, k, ts, cap, enc, old, rag, tse, count}:
+      Sink{hdr, k, ts, cap, enc, ph, rag, tse, count}
+
+# xs reversed onto acc
+def Sink.app(xs: List<&2, H.CsvRec>, acc: List<&2, H.CsvRec>) -> List<&2, H.CsvRec>:
+  match xs:
+    case Nil{}:
+      acc
+    case h <> t:
+      Sink.app(t, h <> acc)
+
+# a batch of data records (oldest first) to the builders
+def Sink.feed(+w: Nat, cbs: List<&1, CB>, +recs: List<&2, H.CsvRec>) -> List<&1, CB>:
+  CBs.feed(cbs, Csv.tr(List.reverse(&2, H.CsvRec, recs), Csv.nils(w)), Csv.rec_lines(recs))
+
+def Sink.infer.ts(cs: List<&2, List<&2, H.CsvCell>>, +k: Nat) -> List<&2, D.DType>:
+  match cs:
+    case Nil{}:
+      Nil{}
+    case c <> ct:
+      Csv.infer.col(c, k) <> Sink.infer.ts(ct, k)
+
+# inference over the kept records (newest first: Csv.tr's order), then the builders, fed with them
+def Sink.infer(+w: Nat, +k: U32, +enc: ST.StrEnc, +buf: List<&2, H.CsvRec>) -> List<&1, CB>:
+  Sink.feed(w, CBs.new(Sink.infer.ts(Csv.tr(buf, Csv.nils(w)), U32.to_nat(k)), enc), List.reverse(&2, H.CsvRec, buf))
+
+def Sink.inf(full: Bool, names: List<&2, String>, +w: Nat, +k: U32, +enc: ST.StrEnc, buf: List<&2, H.CsvRec>, +nb: U32) -> Ph:
+  match full:
+    case True{}:
+      PBuild{names, w, Sink.infer(w, k, enc, buf)}
+    case False{}:
+      PInf{names, w, buf, nb}
+
+# phase after a batch: dead when an error is certain, else the kept records grow (and inference
+# runs once k are kept) or the builders are fed
+def Sink.go(dead: Bool, ph: Ph, +k: U32, +enc: ST.StrEnc, +n: U32, recs: List<&2, H.CsvRec>) -> Ph:
+  match dead ph:
+    case True{} PInf{names, +w, buf, nb}:
+      PDead{w}
+    case True{} PBuild{names, +w, cbs}:
+      PDead{w}
+    case False{} PInf{names, +w, buf, +nb}:
+      Sink.inf(U32.is_ge(U32.add(nb, n), k), names, w, k, enc, Sink.app(recs, buf), U32.add(nb, n))
+    case False{} PBuild{names, +w, cbs}:
+      PBuild{names, w, Sink.feed(w, cbs, recs)}
+    case _ other:
+      other
+
+def Sink.batch.d(+hdr: Bool, +k: U32, ts: List<&2, D.DType>, +cap: U32, +enc: ST.StrEnc, ph: Ph, +rag: Maybe<&2, E.Err>, +tse: Maybe<&2, E.Err>, +c2: U32, +n: U32, recs: List<&2, H.CsvRec>) -> Sink:
+  Sink{hdr, k, ts, cap, enc, Sink.go(Bool.or(Bool.or(Maybe.is_some(&2, E.Err, rag), Maybe.is_some(&2, E.Err, tse)), U32.is_gt(c2, cap)), ph, k, enc, n, recs), rag, tse, c2}
+
+def Sink.batch.r(+w: Nat, +hdr: Bool, +k: U32, ts: List<&2, D.DType>, +cap: U32, +enc: ST.StrEnc, ph: Ph, rag: Maybe<&2, E.Err>, tse: Maybe<&2, E.Err>, +count: U32, +recs: List<&2, H.CsvRec>) -> Sink:
+  +n = K.Kernel.count(~H.CsvRec, recs, 0)
+  Sink.batch.d(hdr, k, ts, cap, enc, ph, Csv.first_err(rag, Csv.ragged(recs, w, None{})), tse, U32.add(count, n), n, recs)
+
+# a batch of data records (oldest first; header and width known): blank lines dropped when w > 1,
+# the first ragged record noted, counted, then on to the phase
+def Sink.batch(+w: Nat, s: Sink, recs: List<&2, H.CsvRec>) -> Sink:
+  match s:
+    case Sink{+hdr, +k, ts, +cap, +enc, ph, rag, tse, +count}:
+      Sink.batch.r(w, hdr, k, ts, cap, enc, ph, rag, tse, count, Csv.skip_blank(Nat.is_gt(w, 1n), recs))
+
+# the header (or the width) is known: dtypes given -> builders at once, else inference
+def Sink.begin.ph(ts: List<&2, D.DType>, names: List<&2, String>, +w: Nat, +enc: ST.StrEnc) -> Ph:
+  match ts:
+    case Nil{}:
+      PInf{names, w, Nil{}, 0}
+    case t <> tt:
+      PBuild{names, w, CBs.new(t <> tt, enc)}
+
+def Sink.begin(+names: List<&2, String>, s: Sink, recs: List<&2, H.CsvRec>) -> Sink:
+  match s:
+    case Sink{+hdr, +k, +ts, +cap, +enc, ph, rag, tse, +count}:
+      +w = List.length(&2, String, names)
+      Sink.batch(w, Sink{hdr, k, ts, cap, enc, Sink.begin.ph(ts, names, w, enc), rag, Csv.ts.err(ts, w), count}, recs)
+
+def Sink.mark.k(ph: Ph) -> Ph & PM:
+  match ph:
+    case PLead{}:
+      (PLead{}, MLead{})
+    case PPend{bl}:
+      (PPend{bl}, MPend{})
+    case PInf{names, +w, buf, nb}:
+      (PInf{names, w, buf, nb}, MData{w})
+    case PBuild{names, +w, cbs}:
+      (PBuild{names, w, cbs}, MData{w})
+    case PDead{+w}:
+      (PDead{w}, MData{w})
+
+def Sink.mark.p(+hdr: Bool, +k: U32, ts: List<&2, D.DType>, +cap: U32, enc: ST.StrEnc, rag: Maybe<&2, E.Err>, tse: Maybe<&2, E.Err>, +count: U32, r: Ph & PM) -> Sink & PM:
+  (ph, m) = r
+  (Sink{hdr, k, ts, cap, enc, ph, rag, tse, count}, m)
+
+def Sink.mark(s: Sink) -> Sink & PM:
+  match s:
+    case Sink{+hdr, +k, ts, +cap, enc, ph, rag, tse, +count}:
+      Sink.mark.p(hdr, k, ts, cap, enc, rag, tse, count, Sink.mark.k(ph))
+
+def Csv.lead.width(r: H.CsvRec) -> Nat:
+  match r:
+    case H.CsvRec{l, cs}:
+      List.length(&2, H.CsvCell, cs)
+
+def Csv.lead.names(r: H.CsvRec) -> List<&2, String>:
+  match r:
+    case H.CsvRec{l, cs}:
+      Csv.names(cs)
+
+# hdr: the records from the first non-blank one (Csv.lead): its cells are the names
+def Sink.hdr(rows: List<&2, H.CsvRec>, s: Sink) -> Sink:
+  match rows:
+    case Nil{}:
+      s
+    case h <> t:
+      Sink.begin(Csv.lead.names(h), s, t)
+
+# no hdr: a chunk of only blank records is kept; else the first non-blank record's width fixes
+# the names and every record so far is data
+def Sink.pend.k(lead: List<&2, H.CsvRec>, recs: List<&2, H.CsvRec>, bl: List<&2, H.CsvRec>, s: Sink) -> Sink:
+  match lead:
+    case Nil{}:
+      Sink.with_ph(s, PPend{Sink.app(recs, bl)})
+    case h <> t:
+      Sink.begin(Csv.gen_names(Csv.lead.width(h), 0n), s, Sink.app(bl, recs))
+
+def Sink.pend.b(ph: Ph, +recs: List<&2, H.CsvRec>, s: Sink) -> Sink:
+  match ph:
+    case PPend{bl}:
+      Sink.pend.k(Csv.lead(recs, True{}), recs, bl, s)
+    case other:
+      Sink.with_ph(s, other)
+
+def Sink.pend(s: Sink, +recs: List<&2, H.CsvRec>) -> Sink:
+  match s:
+    case Sink{hdr, k, ts, cap, enc, ph, rag, tse, count}:
+      Sink.pend.b(ph, recs, Sink{hdr, k, ts, cap, enc, PLead{}, rag, tse, count})
+
+def Sink.recs.m(r: Sink & PM, recs: List<&2, H.CsvRec>) -> Sink:
+  (s, m) = r
+  match m:
+    case MLead{}:
+      Sink.hdr(Csv.lead(recs, True{}), s)
+    case MPend{}:
+      Sink.pend(s, recs)
+    case MData{+w}:
+      Sink.batch(w, s, recs)
+
+# a chunk's records (oldest first) into the sink
+def Sink.recs(recs: List<&2, H.CsvRec>, s: Sink) -> Sink:
+  Sink.recs.m(Sink.mark(s), recs)
+
+# ---- the end ----------------------------------------------------------------------------------
+
+def Sink.cols(names: List<&2, String>, cbs: List<&1, CB>) -> E.ResT(C.Frame):
+  Csv.fin(CBs.cols(names, cbs))
+
+def Sink.fin.ph(+k: U32, +enc: ST.StrEnc, ph: Ph) -> E.ResT(C.Frame):
+  match ph:
+    case PInf{names, +w, buf, nb}:
+      Sink.cols(names, Sink.infer(w, k, enc, buf))
+    case PBuild{names, w, cbs}:
+      Sink.cols(names, cbs)
+    case other:
+      Fail{E.InvalidOperation{"csv: reader state (not reachable)"}}
+
+def Sink.fin.e(err: Maybe<&2, E.Err>, +k: U32, +enc: ST.StrEnc, ph: Ph) -> E.ResT(C.Frame):
+  match err:
+    case Some{e}:
+      Fail{e}
+    case None{}:
+      Sink.fin.ph(k, enc, ph)
+
+def Sink.fin.k(+k: U32, ts: List<&2, D.DType>, +cap: U32, +enc: ST.StrEnc, ph: Ph, rag: Maybe<&2, E.Err>, tse: Maybe<&2, E.Err>, +count: U32) -> E.ResT(C.Frame):
+  match ph:
+    case PLead{}:
+      Csv.rows.none(Csv.ts.err(ts, 0n))
+    case PPend{bl}:
+      Csv.rows.none(Csv.ts.err(ts, 0n))
+    case other:
+      Sink.fin.e(Csv.first_err(rag, Csv.first_err(tse, K.Kernel.check_rows.cap(cap, count))), k, enc, other)
+
+def Sink.fin.bl(s: Sink, bl: List<&2, H.CsvRec>) -> Sink:
+  match bl:
+    case Nil{}:
+      s
+    case h <> t:
+      Sink.begin(Csv.gen_names(1n, 0n), s, Sink.app(h <> t, Nil{}))
+
+def Sink.fin.pp(+hdr: Bool, +k: U32, ts: List<&2, D.DType>, +cap: U32, +enc: ST.StrEnc, ph: Ph, rag: Maybe<&2, E.Err>, tse: Maybe<&2, E.Err>, +count: U32) -> Sink:
+  match ph:
+    case PPend{bl}:
+      Sink.fin.bl(Sink{hdr, k, ts, cap, enc, PPend{Nil{}}, rag, tse, count}, bl)
+    case other:
+      Sink{hdr, k, ts, cap, enc, other, rag, tse, count}
+
+# the end of the input: kept blank records (no hdr, all blank) become data of width 1
+def Sink.fin.p(s: Sink) -> Sink:
+  match s:
+    case Sink{+hdr, +k, ts, +cap, +enc, ph, rag, tse, +count}:
+      Sink.fin.pp(hdr, k, ts, cap, enc, ph, rag, tse, count)
+
+def Sink.fin.s(s: Sink) -> E.ResT(C.Frame):
+  match s:
+    case Sink{hdr, +k, ts, +cap, +enc, ph, rag, tse, +count}:
+      Sink.fin.k(k, ts, cap, enc, ph, rag, tse, count)
+
+def Sink.fin(s: Sink) -> E.ResT(C.Frame):
+  Sink.fin.s(Sink.fin.p(s))
+
+# ---- strings ------------------------------------------------------------------------------------
+
+def Csv.malformed() -> E.Err:
+  E.ParseError{0, "malformed csv"}
+
+def Csv.st.close(s: Sink, m: Maybe<&2, List<&2, H.CsvRec>>) -> E.ResT(C.Frame):
+  match m:
+    case None{}:
+      Fail{Csv.malformed()}
+    case Some{rows}:
+      Sink.fin(Sink.recs(List.reverse(&2, H.CsvRec, rows), s))
+
+def Csv.st.one(s: Sink, st: H.Step) -> E.ResT(C.Frame):
+  match st:
+    case H.SRej{}:
+      Fail{Csv.malformed()}
+    case H.SMore{rows, pst}:
+      Csv.st.close(Sink.recs(List.reverse(&2, H.CsvRec, rows), s), H.close(pst))
+
+# a whole text, as one chunk
+def Csv.parse_enc.k(bad: Maybe<&2, E.Err>, +cap: U32, text: String, +sep: Char, +hdr: Bool, +inf: U32, ts: List<&2, D.DType>, enc: ST.StrEnc) -> E.ResT(C.Frame):
+  match bad:
+    case Some{e}:
+      Fail{e}
+    case None{}:
+      Csv.st.one(Sink.new(hdr, Csv.limit(inf), ts, cap, enc), H.step(Char.to_u32(sep), text, H.start()))
+
+def Csv.parse_enc.cap(+cap: U32, text: String, opts: CsvOpts, ts: List<&2, D.DType>, enc: ST.StrEnc) -> E.ResT(C.Frame):
+  match opts:
+    case CsvOpts{+sep, hdr, inf}:
+      Csv.parse_enc.k(Csv.sep_err(sep), cap, text, sep, hdr, inf, ts, enc)
+
+# the Str storage of the readers that take no option (Csv.read, Csv.read_with, Csv.parse,
+# Csv.parse_with, scan_csv's collect): ST.EncRaw (DESIGN.md 14 M4 records the gate's decision)
+def Csv.enc_default() -> ST.StrEnc:
+  ST.EncRaw{}
+
+# Csv.parse_with with the Str storage chosen: EncRaw, EncDict (every Str column), EncAuto (by
+# measured cardinality, Csv.dict_over)
+def Csv.parse_enc(text: String, opts: CsvOpts, ts: List<&2, D.DType>, enc: ST.StrEnc) -> E.ResT(C.Frame):
+  Csv.parse_enc.cap(K.Kernel.max_rows(), text, opts, ts, enc)
+
+# Strict schema: dtypes by column position, a value that does not parse is a
+# ParseError (no lenient nulls); the dtype count must equal the column count.
+# cap: the row cap (K.Kernel.max_rows() for every real read; lowered in the tests)
+def Csv.parse_with.cap(+cap: U32, text: String, opts: CsvOpts, ts: List<&2, D.DType>) -> E.ResT(C.Frame):
+  Csv.parse_enc.cap(cap, text, opts, ts, Csv.enc_default())
+
+def Csv.parse_with(text: String, opts: CsvOpts, ts: List<&2, D.DType>) -> E.ResT(C.Frame):
+  Csv.parse_with.cap(K.Kernel.max_rows(), text, opts, ts)
+
+# Inferred schema (first infer_rows rows; 0 = all): bool, u32, i32, f32, str.
+def Csv.parse(text: String, opts: CsvOpts) -> E.ResT(C.Frame):
+  Csv.parse_with(text, opts, Nil{})
+
+# ---- files: the chunk loop --------------------------------------------------------------------
+
+# the read state: the file, the next offset, the chunk size, the parser state, the sink
+type RSt is Type:
+  RRun{f: File, off: U32, chunk: U32, sep: U32, pst: H.St, s: Sink}
+  REnd{r: E.ResT(C.Frame)}
+
+def Csv.rd.end(f: File, r: E.ResT(C.Frame)) -> IO(RSt):
+  do IO<RSt>:
+    File.close(f)
+    return REnd{r}
+
+# a parsed piece: on, or the end of the file
+def Csv.rd.more(f: File, +off: U32, +chunk: U32, +sep: U32, s: Sink, st: H.Step, last: Bool) -> IO(RSt):
+  match st last:
+    case H.SRej{} _:
+      Csv.rd.end(f, Fail{Csv.malformed()})
+    case H.SMore{rows, pst} True{}:
+      Csv.rd.end(f, Csv.st.close(Sink.recs(List.reverse(&2, H.CsvRec, rows), s), H.close(pst)))
+    case H.SMore{rows, pst} False{}:
+      IO.pure(RSt, RRun{f, off, chunk, sep, pst, Sink.recs(List.reverse(&2, H.CsvRec, rows), s)})
+
+def Csv.rd.cut.k(stuck: Bool, +eof: Bool, f: File, +c: U32, bs: List<&2, U32>, +off: U32, +chunk: U32, +sep: U32, pst: H.St, s: Sink) -> IO(RSt):
+  match stuck:
+    case True{}:
+      IO.pure(RSt, RRun{f, off, U32.mul(chunk, 2), sep, pst, s})
+    case False{}:
+      Csv.rd.more(f, U32.add(off, c), chunk, sep, s, H.step(sep, Csv.u8(U32.to_nat(c), bs), pst), eof)
+
+# c: the bytes of this read the parser takes (everything at the end of the file, else up to and
+# including the last LF); a full chunk without an LF is read again twice as large
+def Csv.rd.cut(f: File, +n: U32, +last: U32, +bs: List<&2, U32>, +off: U32, +chunk: U32, +sep: U32, pst: H.St, s: Sink) -> IO(RSt):
+  +eof = U32.is_lt(n, chunk)
+  +c = Bool.pick(U32, eof, n, last)
+  Csv.rd.cut.k(Bool.and(Bool.not(eof), U32.is_eq(last, 0)), eof, f, c, bs, off, chunk, sep, pst, s)
+
+def Csv.rd.ln(f: File, ln: Ln, +bs: List<&2, U32>, +off: U32, +chunk: U32, +sep: U32, pst: H.St, s: Sink) -> IO(RSt):
+  match ln:
+    case Ln{+n, +last}:
+      Csv.rd.cut(f, n, last, bs, off, chunk, sep, pst, s)
+
+def Csv.rd.res(f: File, res: Result<&1, &1, U32 & String, List<&2, U32>>, +off: U32, +chunk: U32, +sep: U32, pst: H.St, s: Sink) -> IO(RSt):
   match res:
-    case Done{text}:
+    case Fail{(code, msg)}:
+      Csv.rd.end(f, Fail{E.IoError{code, msg}})
+    case Done{+bs}:
+      Csv.rd.ln(f, Csv.ln(bs, 0, 0), bs, off, chunk, sep, pst, s)
+
+def Csv.rd.got(r: File & Result<&1, &1, U32 & String, List<&2, U32>>, +off: U32, +chunk: U32, +sep: U32, pst: H.St, s: Sink) -> IO(RSt):
+  (f, res) = r
+  Csv.rd.res(f, res, off, chunk, sep, pst, s)
+
+def Csv.rd.step(st: RSt) -> IO(RSt):
+  match st:
+    case REnd{r}:
+      IO.pure(RSt, REnd{r})
+    case RRun{f, +off, +chunk, +sep, pst, s}:
+      do IO<RSt>:
+        r : File & Result<&1, &1, U32 & String, List<&2, U32>> <- File.read_at(f, off, chunk)
+        Csv.rd.got(r, off, chunk, sep, pst, s)
+
+# one step per read; the fuel (file size + 2) can never run out before the file does
+def Csv.rd.loop(fuel: Nat, st: RSt) -> IO(RSt):
+  match fuel:
+    case 0n:
+      IO.pure(RSt, st)
+    case 1n+p:
+      match st:
+        case REnd{r}:
+          IO.pure(RSt, REnd{r})
+        case RRun{f, off, chunk, sep, pst, s}:
+          do IO<RSt>:
+            st2 : RSt <- Csv.rd.step(RRun{f, off, chunk, sep, pst, s})
+            Csv.rd.loop(p, st2)
+
+def Csv.rd.out(st: RSt) -> IO(E.ResT(C.Frame)):
+  match st:
+    case REnd{r}:
+      IO.pure(E.ResT(C.Frame), r)
+    case RRun{f, off, chunk, sep, pst, s}:
       do IO<E.ResT(C.Frame)>:
         File.close(f)
-        return Csv.parse_with(text, opts, ts)
+        return Fail{E.InvalidOperation{"csv: read did not finish"}}
+
+def Csv.read.sized(+chunk: U32, +sep: U32, s: Sink, f: File, res: Result<&1, &1, U32 & String, U32>) -> IO(E.ResT(C.Frame)):
+  match res:
+    case Done{+n}:
+      do IO<E.ResT(C.Frame)>:
+        st : RSt <- Csv.rd.loop(Nat.add(U32.to_nat(n), 2n), RRun{f, 0, chunk, sep, H.start(), s})
+        Csv.rd.out(st)
     case Fail{(code, msg)}:
       do IO<E.ResT(C.Frame)>:
         File.close(f)
         return Fail{E.IoError{code, msg}}
 
-def Csv.read.got(opts: CsvOpts, ts: List<&2, D.DType>, r: File & Result<&1, &1, U32 & String, String>) -> IO(E.ResT(C.Frame)):
+def Csv.read.size(+chunk: U32, +sep: U32, s: Sink, r: File & Result<&1, &1, U32 & String, U32>) -> IO(E.ResT(C.Frame)):
   (f, res) = r
-  Csv.read.fin(opts, ts, f, res)
+  Csv.read.sized(chunk, sep, s, f, res)
 
-def Csv.read.sized(opts: CsvOpts, ts: List<&2, D.DType>, f: File, res: Result<&1, &1, U32 & String, U32>) -> IO(E.ResT(C.Frame)):
-  match res:
-    case Done{n}:
-      do IO<E.ResT(C.Frame)>:
-        r : File & Result<&1, &1, U32 & String, String> <- File.read(f, n)
-        Csv.read.got(opts, ts, r)
-    case Fail{(code, msg)}:
-      do IO<E.ResT(C.Frame)>:
-        File.close(f)
-        return Fail{E.IoError{code, msg}}
-
-def Csv.read.size(opts: CsvOpts, ts: List<&2, D.DType>, r: File & Result<&1, &1, U32 & String, U32>) -> IO(E.ResT(C.Frame)):
-  (f, res) = r
-  Csv.read.sized(opts, ts, f, res)
-
-def Csv.read.opened(opts: CsvOpts, ts: List<&2, D.DType>, o: Result<&1, &1, U32 & String, File>) -> IO(E.ResT(C.Frame)):
+def Csv.read.opened(+chunk: U32, +sep: U32, s: Sink, o: Result<&1, &1, U32 & String, File>) -> IO(E.ResT(C.Frame)):
   match o:
     case Done{f}:
       do IO<E.ResT(C.Frame)>:
         r : File & Result<&1, &1, U32 & String, U32> <- File.size(f)
-        Csv.read.size(opts, ts, r)
+        Csv.read.size(chunk, sep, s, r)
     case Fail{(code, msg)}:
       IO.pure(E.ResT(C.Frame), Fail{E.IoError{code, msg}})
 
-def Csv.read_open(path: String, opts: CsvOpts, ts: List<&2, D.DType>) -> IO(E.ResT(C.Frame)):
+def Csv.read_open(path: String, +chunk: U32, +sep: U32, s: Sink) -> IO(E.ResT(C.Frame)):
   do IO<E.ResT(C.Frame)>:
     o : Result<&1, &1, U32 & String, File> <- File.open(path, "r")
-    Csv.read.opened(opts, ts, o)
+    Csv.read.opened(chunk, sep, s, o)
 
 # a refused separator is answered before the file is opened (as Csv.scan_fields_with does)
-def Csv.read_chk(bad: Maybe<&2, E.Err>, path: String, opts: CsvOpts, ts: List<&2, D.DType>) -> IO(E.ResT(C.Frame)):
+def Csv.read_chk(bad: Maybe<&2, E.Err>, path: String, +chunk: U32, +sep: U32, s: Sink) -> IO(E.ResT(C.Frame)):
   match bad:
     case Some{e}:
       IO.pure(E.ResT(C.Frame), Fail{e})
     case None{}:
-      Csv.read_open(path, opts, ts)
+      Csv.read_open(path, chunk, sep, s)
+
+# the reader with every knob: chunk size (tests use tiny chunks), row cap, Str storage
+def Csv.read_full(path: String, +opts: CsvOpts, ts: List<&2, D.DType>, enc: ST.StrEnc, +chunk: U32, +cap: U32) -> IO(E.ResT(C.Frame)):
+  match opts:
+    case CsvOpts{+sep, +hdr, +inf}:
+      Csv.read_chk(Csv.sep_err(sep), path, chunk, Char.to_u32(sep), Sink.new(hdr, Csv.limit(inf), ts, cap, enc))
+
+# Csv.read_with with the Str storage chosen (EncRaw / EncDict / EncAuto)
+def Csv.read_enc(path: String, opts: CsvOpts, ts: List<&2, D.DType>, enc: ST.StrEnc) -> IO(E.ResT(C.Frame)):
+  Csv.read_full(path, opts, ts, enc, Csv.chunk(), K.Kernel.max_rows())
 
 # Strict explicit dtypes (by column position), see Csv.parse_with.
-def Csv.read_with(path: String, +opts: CsvOpts, ts: List<&2, D.DType>) -> IO(E.ResT(C.Frame)):
-  match opts:
-    case CsvOpts{+sep, hdr, inf}:
-      Csv.read_chk(Csv.sep_err(sep), path, CsvOpts{sep, hdr, inf}, ts)
+def Csv.read_with(path: String, opts: CsvOpts, ts: List<&2, D.DType>) -> IO(E.ResT(C.Frame)):
+  Csv.read_enc(path, opts, ts, Csv.enc_default())
 
 def Csv.read(path: String, opts: CsvOpts) -> IO(E.ResT(C.Frame)):
   Csv.read_with(path, opts, Nil{})
+
 
 def Csv.write.done(f: C.Frame, file: File, w: Result<&1, &1, U32 & String, Unit>) -> IO(C.Frame & Result<&1, &1, U32 & String, Unit>):
   do IO<C.Frame & Result<&1, &1, U32 & String, Unit>>:
