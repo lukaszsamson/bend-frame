@@ -38,10 +38,28 @@ Plan: plans/M_01.txt. Contract: DESIGN.md §15. Agent brief: plans/AGENT_BRIEF.m
   column-level cell theorems, dictionary lemmas (M4 not merged into the proof branch). The
   G6 claim stays at the merge-only fragment (DESIGN §8, final wording there).
 
+## M3 (merged 2026-10-09)
+- M3a: table verbs (drop/rename/slice/tail/unique/concat_vertical/semi/anti). M3b: when/is_in/
+  clip/is_between, string predicates, std/var/median. Facade leftovers (DF.column/schema/height/
+  collect_show). Examples dedupe, sales_summary, dirty_csv use only the facade.
+
+## M5 part 1 (merged 2026-10-09)
+- 90 laws: distinct-paths lemma; gather/compact/map/zip/iota/U32 fold/popcount content theorems;
+  column cell/head/slice theorems; mutation fixtures for gather and compact.
+
+## In progress
+- M4 (string storage): branch `worktree-agent-a7d278e15908e046e`. Raw/Dictionary storage,
+  streaming CSV reader, decode-equivalence tests, generator mode, concat merging are done; the
+  measurements, the gate decision and the merge are not.
+- M5 part 2: P2 (evaluator typing soundness) and R3, or else the fallback of dropping the head
+  sink from `Optimize.release`.
+
+## Decisions
+- 2026-10-09 (user): no throwaway hub publish in M6. The clean-consumer check uses a local
+  import from a clean clone; the only publish is the proper `bend-frame@0.1.0.0`, done when
+  ready and with explicit approval.
+
 ## Next (per plan §7)
-After M2 merges: M3 (minimum API) and M4 (string experiment) in parallel
-with M5 (proof closure: P1/P2, R2–R5), then M6 (release candidate). M6
-includes a hub publish to a throwaway name, which is permanent and needs
-explicit approval.
+Finish M4 and M5, then M6 (release candidate; no throwaway publish, see Decisions).
 Not yet measured: the cost of the narrower default optimizer (no predicate
 or projection pushdown) on the q1–q6 benchmark.
