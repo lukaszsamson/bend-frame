@@ -1,0 +1,72 @@
+{"engine": "bend", "op": "group", "n": 100000, "threads": "1", "rep": 0, "load1": 16.30029296875, "rss": 119848960, "wall": 2.81, "rows": 100000, "collect_ms": 983, "check": "identical (100000 rows)"}
+{"engine": "bend", "op": "group", "n": 100000, "threads": "1", "rep": 1, "load1": 15.31494140625, "rss": 119865344, "wall": 2.04, "rows": 100000, "collect_ms": 997}
+{"engine": "bend", "op": "group", "n": 100000, "threads": "1", "rep": 2, "load1": 15.31494140625, "rss": 119865344, "wall": 2.14, "rows": 100000, "collect_ms": 1001}
+{"engine": "polars", "op": "group", "n": 100000, "threads": "1", "rep": 0, "load1": 14.80908203125, "rss": 115736576, "first": 0.01501666591502726, "best": 0.011570250149816275}
+{"engine": "polars", "op": "group", "n": 100000, "threads": "1", "rep": 1, "load1": 14.80908203125, "rss": 115605504, "first": 0.015641750069335103, "best": 0.010680125094950199}
+{"engine": "polars", "op": "group", "n": 100000, "threads": "1", "rep": 2, "load1": 14.80908203125, "rss": 118292480, "first": 0.017041750019416213, "best": 0.011055291863158345}
+{"engine": "bend", "op": "group", "n": 100000, "threads": "12", "rep": 0, "load1": 14.80908203125, "rss": 129187840, "wall": 1.51, "rows": 100000, "collect_ms": 641, "check": "identical (100000 rows)"}
+{"engine": "bend", "op": "group", "n": 100000, "threads": "12", "rep": 1, "load1": 14.80908203125, "rss": 128483328, "wall": 1.49, "rows": 100000, "collect_ms": 650}
+{"engine": "bend", "op": "group", "n": 100000, "threads": "12", "rep": 2, "load1": 13.86328125, "rss": 121831424, "wall": 2.06, "rows": 100000, "collect_ms": 871}
+{"engine": "polars", "op": "group", "n": 100000, "threads": "12", "rep": 0, "load1": 13.86328125, "rss": 169476096, "first": 0.011036416050046682, "best": 0.005787750007584691}
+{"engine": "polars", "op": "group", "n": 100000, "threads": "12", "rep": 1, "load1": 13.86328125, "rss": 169394176, "first": 0.014290791004896164, "best": 0.005818416131660342}
+{"engine": "polars", "op": "group", "n": 100000, "threads": "12", "rep": 2, "load1": 13.86328125, "rss": 167837696, "first": 0.018452208023518324, "best": 0.0067331669852137566}
+{"engine": "bend", "op": "unique", "n": 100000, "threads": "1", "rep": 0, "load1": 13.86328125, "rss": 114704384, "wall": 1.79, "rows": 100000, "collect_ms": 1018, "check": "identical (100000 rows)"}
+{"engine": "bend", "op": "unique", "n": 100000, "threads": "1", "rep": 1, "load1": 15.9560546875, "rss": 115490816, "wall": 1.5, "rows": 100000, "collect_ms": 910}
+{"engine": "bend", "op": "unique", "n": 100000, "threads": "1", "rep": 2, "load1": 15.9560546875, "rss": 115507200, "wall": 1.39, "rows": 100000, "collect_ms": 834}
+{"engine": "polars", "op": "unique", "n": 100000, "threads": "1", "rep": 0, "load1": 15.9560546875, "rss": 92258304, "first": 0.00470220809802413, "best": 0.0036518750712275505}
+{"engine": "polars", "op": "unique", "n": 100000, "threads": "1", "rep": 1, "load1": 15.9560546875, "rss": 92585984, "first": 0.004913917044177651, "best": 0.0036239998880773783}
+{"engine": "polars", "op": "unique", "n": 100000, "threads": "1", "rep": 2, "load1": 15.9560546875, "rss": 92356608, "first": 0.0048185831401497126, "best": 0.003467000089585781}
+{"engine": "bend", "op": "unique", "n": 100000, "threads": "12", "rep": 0, "load1": 15.9560546875, "rss": 122798080, "wall": 1.04, "rows": 100000, "collect_ms": 568, "check": "identical (100000 rows)"}
+{"engine": "bend", "op": "unique", "n": 100000, "threads": "12", "rep": 1, "load1": 15.9560546875, "rss": 125583360, "wall": 1.06, "rows": 100000, "collect_ms": 577}
+{"engine": "bend", "op": "unique", "n": 100000, "threads": "12", "rep": 2, "load1": 15.23876953125, "rss": 123650048, "wall": 1.16, "rows": 100000, "collect_ms": 654}
+{"engine": "polars", "op": "unique", "n": 100000, "threads": "12", "rep": 0, "load1": 15.23876953125, "rss": 117751808, "first": 0.005099958041682839, "best": 0.004494542023167014}
+{"engine": "polars", "op": "unique", "n": 100000, "threads": "12", "rep": 1, "load1": 15.23876953125, "rss": 125648896, "first": 0.0063493328634649515, "best": 0.0045967919286340475}
+{"engine": "polars", "op": "unique", "n": 100000, "threads": "12", "rep": 2, "load1": 15.23876953125, "rss": 128352256, "first": 0.005847082938998938, "best": 0.004202333046123385}
+{"engine": "bend", "op": "join", "n": 100000, "threads": "1", "rep": 0, "load1": 15.23876953125, "rss": 134316032, "wall": 1.28, "rows": 90000, "collect_ms": 421, "check": "identical (90000 rows)"}
+{"engine": "bend", "op": "join", "n": 100000, "threads": "1", "rep": 1, "load1": 15.23876953125, "rss": 134316032, "wall": 1.23, "rows": 90000, "collect_ms": 420}
+{"engine": "bend", "op": "join", "n": 100000, "threads": "1", "rep": 2, "load1": 15.23876953125, "rss": 134316032, "wall": 1.33, "rows": 90000, "collect_ms": 502}
+{"engine": "polars", "op": "join", "n": 100000, "threads": "1", "rep": 0, "load1": 14.49853515625, "rss": 102121472, "first": 0.009162249974906445, "best": 0.006330208154395223}
+{"engine": "polars", "op": "join", "n": 100000, "threads": "1", "rep": 1, "load1": 14.49853515625, "rss": 100925440, "first": 0.008950958959758282, "best": 0.00632545817643404}
+{"engine": "polars", "op": "join", "n": 100000, "threads": "1", "rep": 2, "load1": 14.49853515625, "rss": 100827136, "first": 0.008904166985303164, "best": 0.00638879113830626}
+{"engine": "bend", "op": "join", "n": 100000, "threads": "12", "rep": 0, "load1": 14.49853515625, "rss": 139722752, "wall": 1.2, "rows": 90000, "collect_ms": 384, "check": "identical (90000 rows)"}
+{"engine": "bend", "op": "join", "n": 100000, "threads": "12", "rep": 1, "load1": 14.49853515625, "rss": 135233536, "wall": 1.22, "rows": 90000, "collect_ms": 459}
+{"engine": "bend", "op": "join", "n": 100000, "threads": "12", "rep": 2, "load1": 14.49853515625, "rss": 139755520, "wall": 1.24, "rows": 90000, "collect_ms": 502}
+{"engine": "polars", "op": "join", "n": 100000, "threads": "12", "rep": 0, "load1": 13.81787109375, "rss": 121798656, "first": 0.002642666921019554, "best": 0.0018429590854793787}
+{"engine": "polars", "op": "join", "n": 100000, "threads": "12", "rep": 1, "load1": 13.81787109375, "rss": 122650624, "first": 0.0026840840000659227, "best": 0.0018690831493586302}
+{"engine": "polars", "op": "join", "n": 100000, "threads": "12", "rep": 2, "load1": 13.81787109375, "rss": 122060800, "first": 0.002681792015209794, "best": 0.0018285838887095451}
+{"engine": "bend", "op": "group", "n": 1000000, "threads": "1", "rep": 0, "load1": 13.81787109375, "rss": 1088045056, "wall": 28.88, "rows": 1000000, "collect_ms": 17314, "check": "identical (1000000 rows)"}
+{"engine": "bend", "op": "group", "n": 1000000, "threads": "1", "rep": 1, "load1": 14.0517578125, "rss": 1093976064, "wall": 28.32, "rows": 1000000, "collect_ms": 17554}
+{"engine": "bend", "op": "group", "n": 1000000, "threads": "1", "rep": 2, "load1": 10.0673828125, "rss": 1091289088, "wall": 26.96, "rows": 1000000, "collect_ms": 16438}
+{"engine": "polars", "op": "group", "n": 1000000, "threads": "1", "rep": 0, "load1": 9.9990234375, "rss": 367034368, "first": 0.1236654999665916, "best": 0.11807574983686209}
+{"engine": "polars", "op": "group", "n": 1000000, "threads": "1", "rep": 1, "load1": 9.3583984375, "rss": 368672768, "first": 0.15326808393001556, "best": 0.13852766598574817}
+{"engine": "polars", "op": "group", "n": 1000000, "threads": "1", "rep": 2, "load1": 9.3583984375, "rss": 387399680, "first": 0.15287895896472037, "best": 0.13080399995669723}
+{"engine": "bend", "op": "group", "n": 1000000, "threads": "12", "rep": 0, "load1": 9.3583984375, "rss": 1112932352, "wall": 22.84, "rows": 1000000, "collect_ms": 10875, "check": "identical (1000000 rows)"}
+{"engine": "bend", "op": "group", "n": 1000000, "threads": "12", "rep": 1, "load1": 9.263671875, "rss": 1099251712, "wall": 23.92, "rows": 1000000, "collect_ms": 11906}
+{"engine": "bend", "op": "group", "n": 1000000, "threads": "12", "rep": 2, "load1": 11.2919921875, "rss": 1107296256, "wall": 23.97, "rows": 1000000, "collect_ms": 11708}
+{"engine": "polars", "op": "group", "n": 1000000, "threads": "12", "rep": 0, "load1": 10.40380859375, "rss": 595968000, "first": 0.06297483295202255, "best": 0.045043665915727615}
+{"engine": "polars", "op": "group", "n": 1000000, "threads": "12", "rep": 1, "load1": 10.40380859375, "rss": 613892096, "first": 0.06819008383899927, "best": 0.04365229210816324}
+{"engine": "polars", "op": "group", "n": 1000000, "threads": "12", "rep": 2, "load1": 10.40380859375, "rss": 622379008, "first": 0.07265274995006621, "best": 0.03987450012937188}
+{"engine": "bend", "op": "unique", "n": 1000000, "threads": "1", "rep": 0, "load1": 10.37109375, "rss": 1070006272, "wall": 27.44, "rows": 1000000, "collect_ms": 19914, "check": "identical (1000000 rows)"}
+{"engine": "bend", "op": "unique", "n": 1000000, "threads": "1", "rep": 1, "load1": 11.0927734375, "rss": 1093369856, "wall": 24.8, "rows": 1000000, "collect_ms": 17993}
+{"engine": "bend", "op": "unique", "n": 1000000, "threads": "1", "rep": 2, "load1": 9.9833984375, "rss": 1095598080, "wall": 22.99, "rows": 1000000, "collect_ms": 16686}
+{"engine": "polars", "op": "unique", "n": 1000000, "threads": "1", "rep": 0, "load1": 7.8828125, "rss": 224690176, "first": 0.05428991699591279, "best": 0.05428991699591279}
+{"engine": "polars", "op": "unique", "n": 1000000, "threads": "1", "rep": 1, "load1": 7.8828125, "rss": 225378304, "first": 0.05335404095239937, "best": 0.05335404095239937}
+{"engine": "polars", "op": "unique", "n": 1000000, "threads": "1", "rep": 2, "load1": 7.8828125, "rss": 225411072, "first": 0.05389166600070894, "best": 0.05388162494637072}
+{"engine": "bend", "op": "unique", "n": 1000000, "threads": "12", "rep": 0, "load1": 7.8828125, "rss": 1147863040, "wall": 15.92, "rows": 1000000, "collect_ms": 9937, "check": "identical (1000000 rows)"}
+{"engine": "bend", "op": "unique", "n": 1000000, "threads": "12", "rep": 1, "load1": 6.9609375, "rss": 1143881728, "wall": 15.42, "rows": 1000000, "collect_ms": 9718}
+{"engine": "bend", "op": "unique", "n": 1000000, "threads": "12", "rep": 2, "load1": 5.98486328125, "rss": 1139605504, "wall": 15.33, "rows": 1000000, "collect_ms": 9593}
+{"engine": "polars", "op": "unique", "n": 1000000, "threads": "12", "rep": 0, "load1": 5.0888671875, "rss": 348717056, "first": 0.0621800001244992, "best": 0.05496624996885657}
+{"engine": "polars", "op": "unique", "n": 1000000, "threads": "12", "rep": 1, "load1": 5.0888671875, "rss": 349896704, "first": 0.053935791132971644, "best": 0.053935791132971644}
+{"engine": "polars", "op": "unique", "n": 1000000, "threads": "12", "rep": 2, "load1": 5.56201171875, "rss": 352092160, "first": 0.0589888331014663, "best": 0.0567841250449419}
+{"engine": "bend", "op": "join", "n": 1000000, "threads": "1", "rep": 0, "load1": 5.56201171875, "rss": 1255882752, "wall": 13.88, "rows": 900000, "collect_ms": 5116, "check": "identical (900000 rows)"}
+{"engine": "bend", "op": "join", "n": 1000000, "threads": "1", "rep": 1, "load1": 5.333984375, "rss": 1254965248, "wall": 14.06, "rows": 900000, "collect_ms": 5165}
+{"engine": "bend", "op": "join", "n": 1000000, "threads": "1", "rep": 2, "load1": 4.72412109375, "rss": 1235632128, "wall": 14.28, "rows": 900000, "collect_ms": 5132}
+{"engine": "polars", "op": "join", "n": 1000000, "threads": "1", "rep": 0, "load1": 5.18994140625, "rss": 278773760, "first": 0.1608235000167042, "best": 0.1608235000167042}
+{"engine": "polars", "op": "join", "n": 1000000, "threads": "1", "rep": 1, "load1": 5.18994140625, "rss": 264437760, "first": 0.20317295799031854, "best": 0.1617054999805987}
+{"engine": "polars", "op": "join", "n": 1000000, "threads": "1", "rep": 2, "load1": 5.41455078125, "rss": 268075008, "first": 0.19278137502260506, "best": 0.15341470786370337}
+{"engine": "bend", "op": "join", "n": 1000000, "threads": "12", "rep": 0, "load1": 5.41455078125, "rss": 1208795136, "wall": 14.94, "rows": 900000, "collect_ms": 5847, "check": "identical (900000 rows)"}
+{"engine": "bend", "op": "join", "n": 1000000, "threads": "12", "rep": 1, "load1": 5.5244140625, "rss": 1209663488, "wall": 14.85, "rows": 900000, "collect_ms": 5802}
+{"engine": "bend", "op": "join", "n": 1000000, "threads": "12", "rep": 2, "load1": 5.11083984375, "rss": 1198325760, "wall": 15.05, "rows": 900000, "collect_ms": 5850}
+{"engine": "polars", "op": "join", "n": 1000000, "threads": "12", "rep": 0, "load1": 4.9931640625, "rss": 408158208, "first": 0.02494758297689259, "best": 0.019819166976958513}
+{"engine": "polars", "op": "join", "n": 1000000, "threads": "12", "rep": 1, "load1": 4.9931640625, "rss": 422854656, "first": 0.02447391697205603, "best": 0.021311833057552576}
+{"engine": "polars", "op": "join", "n": 1000000, "threads": "12", "rep": 2, "load1": 4.9931640625, "rss": 417136640, "first": 0.024254250107333064, "best": 0.021662291139364243}

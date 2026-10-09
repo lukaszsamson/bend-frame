@@ -99,6 +99,38 @@ Plan: plans/M_01.txt. Contract: DESIGN.md §15. Agent brief: plans/AGENT_BRIEF.m
   (`Kernel.mask_data`, in place), `Eval.fill.sd/.sd2` and `Eval.when.sd/.sd2` (`Kernel.choose`,
   in place; their `Dict.merge` half is proven), `WFStrs` for an encoded column.
 
+## M6 release-candidate validation (master after the m6-wip merge; no hub publish, per Decisions)
+Machine: M2 Pro, 12 cores; load average 3-25 throughout (other agents running; per-measurement load recorded in the jsonl files).
+- **Differential, 22,000 generated cases, 0 failing, 0 crashes, 0 oracle errors.** `--features deep`, Raw: seeds 601-605 x 2000
+  (10,000; 6-11 inadmissible-for-T2.1 per seed, ~12 % invalid programs); Dictionary (`--dict`): seeds 611-613 x 2000;
+  join-cardinality stress (`--features deep,joinstress`: 20-110 rows per side, keys from a 1-4 value domain + nulls/NaN/-0.0, many-to-many
+  inner/left/semi/anti): seeds 621, 622 x 2000, plus seed 631 x 1000 in Dictionary mode; `--backend both` seed 641 x 1000 (interpreter vs native
+  compile, 5 + 5 runs, 262 s, jobs 3, timeout 900): 0 failing. `make diff-reduce SEED=1|2 REDUCE_N=2000`: no findings (tightest bound
+  use 1.0 of the derived bound, i.e. within it). Summaries `build/m6out/diff_*.json` (not tracked).
+- **Scale vs Polars goldens**, `CHECK_MAX=1000000 BENCH_MODE=check scripts/bench.sh`: q1-q6 at 1k, 100k, 1M all pass (16 of 18 byte-identical;
+  q6 at 100k 1 and at 1M 2 float cells within rtol 5e-5; q3 vs the f32 reference). Comparator self-test 28/28.
+- **High cardinality** (all keys distinct, `bench/hc.py`, `bench/results/m6_hc.jsonl`): group_by / unique / inner join at 100k and 1M,
+  results identical to Polars in all 12 (op, n, threads) cells' first runs. Timing: correct but slow. 1 thread, collect ms vs Polars:
+  group 997 vs 16 (100k), 17,314 vs 153 (1M); unique 910 vs 5, 17,993 vs 54; join 421 vs 9, 5,132 vs 193 (30-330x). 100k -> 1M costs
+  12-20x. RSS 1.1-1.26 GB vs 0.23-0.37 GB at 1M. Not a correctness issue; documented as the weak spot (bench/README.md).
+- **Repeated query** (`bench/repeat.py`, 20 iterations in one process, q1-q6 at 100k and 1M): all 20 result hashes equal for every query
+  and equal to the one-iteration hash; peak RSS 20 iterations vs 1: -32 .. +39 MB at 1M (<= 3 %, run-to-run variation; q5 1M at 1/20/60
+  iterations: 1345.55 / 1345.59 / 1345.67 MB), -0.2 .. +4.7 MB at 100k. No growth. (The harness renders and hashes each result outside the
+  timed region: that takes 2.4 min (q1) and 27 min (q2) at 1M rows x 20.)
+- **Re-measured table** (540 measurements x 2 runs: `bench/results/m6.jsonl`, `m6b.jsonl`, agree within 1 ms / 10 %; bench/README.md and
+  README.md carry m6b). 1M, 1 thread, Bend vs Polars warm: q1 11 vs 1.36 ms (8.1x), q2 15 vs 0.91 (17x), q3 23 vs 11.5 (2.0x), q4 47 vs 13.3
+  (3.5x), q5 19 vs 22.2 (0.9x), q6 108 vs 34.5 (3.1x); 12 threads 3-18x (Bend does not scale with threads: 1.0x on q1-q6); peak RSS 1.3 GB
+  vs 168 MB. Large gain vs the pre-M4 table (q3 327 -> 23 ms, q4 384 -> 47, q5 399 -> 19). Polars cold first-collect ratios also listed.
+- **optimize_full vs default** on q1-q6 (the "not yet measured" item): q3/q4/q6 equal; q1 at 1M 0.6x (7 vs 11 ms), q5 at 1M 0.7-0.8x
+  (14-15 vs 19 ms) in both runs; nothing slower beyond noise. The narrower default optimizer costs <= 5 ms on these queries.
+- **Clean consumer** (`scripts/consumer_check.sh`, no publish, bend --publish has no dry run): clone of HEAD into /tmp, `--check-only` of
+  frame.bend, native build + run of examples/quickstart.bend (output pinned), a separate consumer dir importing the clone by relative and by
+  absolute path (`--check-only`, native build, run, output verified; interpreter output equal). All green (about 1 min).
+- Gates: `make check` and `make test` (141/141, 0 XFAIL) green on this tree; `make proofs` / `make verdict` not re-run here (no proof file touched).
+- Stale prose noticed, not changed (other owners): README.md says "71 laws" and its "Not yet proven" paragraph predates M5; both should
+  be refreshed with the final proof counts (see 'M5 part 2': 116 laws) when the proof agent finishes.
+- Defects found: none (no regression test or fix needed).
+
 ## In progress
 - nothing (M5 part 3 stops at the laws above; the remaining Dictionary items are listed under
   M5 part 3 "Not done").

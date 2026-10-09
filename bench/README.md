@@ -78,77 +78,167 @@ q1 (old 8, 10; new 10, 8 ms) and q3 (old 36, 38; new 36, 34 ms) scatter the same
   1k and 100k, while Polars' f32 accumulation is 1-2 ulp away in 5 of 8 groups at 1k. (Before M1, Bend summed groups with a plain
   sequential add: 1M up to 1.3e-5 relative error.)
 
-### Results
+### Results (M6 re-measurement, 2026-10-09)
 
-Machine: Apple M2 Pro (`sysctl machdep.cpu.brand_string`), 12 cores (8P+4E), 32 GB, macOS 26.7; Bend 2.0.36 native (clang, C lane),
-Polars 2.0.0 (`run_polars.py`: best of 5, parsed untimed, default = 12 threads, 1 = `POLARS_MAX_THREADS=1`).
-Times are ms per `collect`; ratio = Bend / Polars (above 1x Bend is slower); last column = Bend 1 thread / Bend 12 threads.
+Release candidate `HEAD` after M4 (Auto strings: Dictionary below max(16384, rows/64) distinct values) and M5 (release optimizer =
+adjacent-Head merge). Machine: Apple M2 Pro, 12 cores (8P+4E), 32 GB, macOS 26.7; Bend 2.0.36 native (clang), Polars 2.0.0.
+**Method** (`bench/m6.py run`): for every cell, 5 processes with ONE measurement per process (median reported), variants interleaved
+within each repetition with the order rotated so a load change hits all alike; Bend = `build/bench` (default optimizer, default
+string storage), parsed untimed, `collect` timed with `IO.now` (1 ms clock; batches of 500/40 collects at 1k, 8 for q2 at 100k, 3 for q2
+at 1M, so the 100k/1M cells below ~10 ms are integer milliseconds +-1); Polars = 5 collects in the process after an untimed parse, the
+table shows the BEST of the five (the number `run_polars.py` always reported; "Polars cold" below is the first collect of a fresh
+process). 1t = one thread for both engines (`--threads 1`, `POLARS_MAX_THREADS=1`), 12t = defaults. Peak RSS from `/usr/bin/time -l`
+covers the whole process (parse included; both engines keep the parsed inputs alive). **Machine load: not quiet.** The one-minute load
+average, recorded before every run, was 3-20 (other work on the machine, plus the 12 threads of the runs themselves; last column);
+the first full run of the same 540 measurements (`bench/results/m6.jsonl`, load 4-25) and this one (`bench/results/m6b.jsonl`)
+agree within 1 ms or 10 % on every cell except noisy q2 at 1M, so the table is not a load artefact, but absolute numbers can move by
+that much. Raw data: `bench/results/m6b.jsonl`; `python bench/m6.py table bench/results/m6b.jsonl` prints these tables.
 
-| query | n | Bend 1t (ms) | Polars 1t (ms) | ratio 1t | Bend all (ms) | Polars all (ms) | ratio all | Bend 1t/all |
+Times are ms per `collect`; ratio = Bend / Polars (above 1x Bend is slower).
+
+| q | n | Bend 1t ms | Polars 1t ms | ratio | Bend 12t ms | Polars 12t ms | ratio | Bend RSS MB (1t) | Polars RSS MB (1t) | load1 min..max |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| q1 | 1,000 | 0.05 | 0.09 | 0.6x | 0.06 | 0.16 | 0.4x | 63 | 74 | 7..9 |
+| q2 | 1,000 | 0.05 | 0.08 | 0.7x | 0.06 | 0.18 | 0.3x | 63 | 74 | 6..6 |
+| q3 | 1,000 | 0.20 | 0.39 | 0.5x | 0.20 | 1.20 | 0.2x | 9 | 77 | 7..9 |
+| q4 | 1,000 | 0.35 | 0.25 | 1.4x | 0.35 | 1.24 | 0.3x | 9 | 75 | 8..9 |
+| q5 | 1,000 | 0.28 | 0.47 | 0.6x | 0.45 | 1.59 | 0.3x | 10 | 76 | 8..13 |
+| q6 | 1,000 | 0.62 | 2.70 | 0.2x | 0.65 | 6.01 | 0.1x | 9 | 77 | 13..13 |
+| q1 | 100,000 | 2.00 | 0.20 | 9.9x | 2.00 | 0.22 | 9.1x | 137 | 82 | 12..13 |
+| q2 | 100,000 | 1.25 | 0.16 | 7.9x | 1.25 | 0.27 | 4.6x | 178 | 82 | 5..13 |
+| q3 | 100,000 | 2.00 | 1.27 | 1.6x | 2.00 | 1.35 | 1.5x | 136 | 86 | 5..5 |
+| q4 | 100,000 | 3.00 | 1.34 | 2.2x | 4.00 | 1.09 | 3.7x | 136 | 87 | 5..5 |
+| q5 | 100,000 | 2.00 | 2.20 | 0.9x | 2.00 | 1.51 | 1.3x | 137 | 93 | 4..5 |
+| q6 | 100,000 | 10.00 | 8.33 | 1.2x | 11.00 | 7.04 | 1.6x | 134 | 87 | 4..4 |
+| q1 | 1,000,000 | 11.00 | 1.36 | 8.1x | 11.00 | 0.62 | 18x | 1324 | 168 | 4..5 |
+| q2 | 1,000,000 | 15.00 | 0.91 | 17x | 8.67 | 0.54 | 16x | 1332 | 168 | 3..14 |
+| q3 | 1,000,000 | 23.00 | 11.48 | 2.0x | 23.00 | 3.15 | 7.3x | 1294 | 168 | 12..20 |
+| q4 | 1,000,000 | 47.00 | 13.32 | 3.5x | 46.00 | 3.33 | 14x | 1290 | 168 | 9..12 |
+| q5 | 1,000,000 | 19.00 | 22.22 | 0.9x | 19.00 | 6.36 | 3.0x | 1298 | 169 | 9..11 |
+| q6 | 1,000,000 | 108 | 34.49 | 3.1x | 104 | 23.73 | 4.4x | 1281 | 168 | 11..14 |
+
+Polars' first collect in a fresh process is much slower than its best of five (e.g. q1 at 1M, 1 thread: 17 ms cold vs 1.4 ms warm), and
+Bend's measurement is by construction one cold collect, so the cold comparison is the like-for-like one for a "run the query once"
+workload:
+
+| q | n | Polars cold 1t | ratio | Polars cold 12t | ratio |
+|---|---:|---:|---:|---:|---:|
+| q1 | 1,000 | 0.67 | 0.1x | 0.87 | 0.1x |
+| q2 | 1,000 | 0.61 | 0.1x | 0.92 | 0.1x |
+| q3 | 1,000 | 1.43 | 0.1x | 3.16 | 0.1x |
+| q4 | 1,000 | 0.95 | 0.4x | 4.99 | 0.1x |
+| q5 | 1,000 | 1.59 | 0.2x | 3.96 | 0.1x |
+| q6 | 1,000 | 6.54 | 0.1x | 8.72 | 0.1x |
+| q1 | 100,000 | 1.06 | 1.9x | 0.91 | 2.2x |
+| q2 | 100,000 | 19.90 | 0.1x | 0.85 | 1.5x |
+| q3 | 100,000 | 2.18 | 0.9x | 2.82 | 0.7x |
+| q4 | 100,000 | 2.21 | 1.4x | 1.87 | 2.1x |
+| q5 | 100,000 | 3.58 | 0.6x | 3.14 | 0.6x |
+| q6 | 100,000 | 9.50 | 1.1x | 8.91 | 1.2x |
+| q1 | 1,000,000 | 17.18 | 0.6x | 1.37 | 8.0x |
+| q2 | 1,000,000 | 15.95 | 0.9x | 1.41 | 6.1x |
+| q3 | 1,000,000 | 38.19 | 0.6x | 4.99 | 4.6x |
+| q4 | 1,000,000 | 30.57 | 1.5x | 6.23 | 7.4x |
+| q5 | 1,000,000 | 47.12 | 0.4x | 11.32 | 1.7x |
+| q6 | 1,000,000 | 60.83 | 1.8x | 28.47 | 3.7x |
+
+Correctness of every one of these queries against Polars goldens at 1k, 100k and 1M: `CHECK_MAX=1000000 BENCH_MODE=check
+scripts/bench.sh` (16 of 18 byte-identical; q6 at 100k and 1M differ in 1 and 2 float cells, within rtol 5e-5).
+
+### optimize_full vs the default optimizer (q1-q6)
+
+`BF_OPT=full ./build/bench ...` runs the plan through `Plan.optimize_full` (every rewrite incl. predicate/projection pushdown) instead of the
+release optimizer (adjacent-Head merge only). Median ms of 5 processes; ratio = full / default (below 1x full is faster):
+
+| q | n | default 1t | full 1t | full/default | default 12t | full 12t | full/default |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| q1 | 1,000 | 0.05 | 0.06 | 1.2x | 0.06 | 0.08 | 1.3x |
+| q2 | 1,000 | 0.05 | 0.07 | 1.2x | 0.06 | 0.08 | 1.3x |
+| q3 | 1,000 | 0.20 | 0.20 | 1.0x | 0.20 | 0.20 | 1.0x |
+| q4 | 1,000 | 0.35 | 0.35 | 1.0x | 0.35 | 0.38 | 1.1x |
+| q5 | 1,000 | 0.28 | 0.30 | 1.1x | 0.45 | 0.30 | 0.7x |
+| q6 | 1,000 | 0.62 | 0.62 | 1.0x | 0.65 | 0.62 | 1.0x |
+| q1 | 100,000 | 2.00 | 1.00 | 0.5x | 2.00 | 1.00 | 0.5x |
+| q2 | 100,000 | 1.25 | 1.00 | 0.8x | 1.25 | 1.00 | 0.8x |
+| q3 | 100,000 | 2.00 | 2.00 | 1.0x | 2.00 | 2.00 | 1.0x |
+| q4 | 100,000 | 3.00 | 4.00 | 1.3x | 4.00 | 5.00 | 1.2x |
+| q5 | 100,000 | 2.00 | 2.00 | 1.0x | 2.00 | 2.00 | 1.0x |
+| q6 | 100,000 | 10.00 | 10.00 | 1.0x | 11.00 | 10.00 | 0.9x |
+| q1 | 1,000,000 | 11.00 | 7.00 | 0.6x | 11.00 | 7.00 | 0.6x |
+| q2 | 1,000,000 | 15.00 | 9.67 | 0.6x | 8.67 | 7.33 | 0.8x |
+| q3 | 1,000,000 | 23.00 | 22.00 | 1.0x | 23.00 | 21.00 | 0.9x |
+| q4 | 1,000,000 | 47.00 | 47.00 | 1.0x | 46.00 | 46.00 | 1.0x |
+| q5 | 1,000,000 | 19.00 | 15.00 | 0.8x | 19.00 | 18.00 | 0.9x |
+| q6 | 1,000,000 | 108 | 107 | 1.0x | 104 | 105 | 1.0x |
+
+q3, q4, q6 unchanged (1.0x, +-1 ms). q1 and q5 at 1M are 1.4-1.6x faster with `optimize_full` (11 -> 7 ms and 19 -> 14-15 ms in both runs), so the
+release optimizer leaves up to ~35 % of those two queries on the table; q2 at 1M and the 1-2 ms cells are inside the noise. No cell is
+slower beyond noise. The cost of the narrower default optimizer is therefore small in absolute terms (4-5 ms at 1M) and confined to
+queries with a filter or join above a wide scan.
+
+### High-cardinality workloads (every string key distinct; `bench/hc.py`, `bench/m6.bend`)
+
+`t(k str, v u32, x f32)` with n distinct keys, `dim(k str, w u32)` = 90 % of t's keys (shuffled) + n/10 keys not in t.
+`group` = `group_by(k).agg(sum v, len)`, `unique` = `select(k).unique(k)`, `join` = inner join on k. Auto picks Raw storage here (distinct >
+max(16384, rows/64)). Results compared with Polars 2.0.0 on the same files (group/unique as ordered frames, join as a multiset):
+all 12 (op, size) results identical. Median of 3 processes, collect ms (parse untimed); Polars = first collect of a fresh process;
+peak RSS MB; load average 5-16 during these runs (`bench/results/m6_hc.jsonl`).
+
+| op | n | Bend 1t | Polars 1t | ratio | Bend 12t | Polars 12t | ratio | RSS Bend / Polars (1t) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| q1 | 1,000 | 0.07 | 0.09 | 0.8x | 0.07 | 0.13 | 0.6x | 1.0x |
-| q2 | 1,000 | 0.05 | 0.09 | 0.6x | 0.05 | 0.13 | 0.4x | 1.1x |
-| q3 | 1,000 | 0.45 | 0.26 | 1.8x | 0.55 | 0.90 | 0.6x | 0.8x |
-| q4 | 1,000 | 0.57 | 0.17 | 3.4x | 0.62 | 0.60 | 1.0x | 0.9x |
-| q5 | 1,000 | 0.55 | 0.27 | 2.0x | 0.62 | 0.91 | 0.7x | 0.9x |
-| q6 | 1,000 | 0.50 | 1.48 | 0.3x | 0.55 | 4.44 | 0.1x | 0.9x |
-| q1 | 100,000 | 4.00 | 0.18 | 23x | 4.00 | 0.15 | 26x | 1.0x |
-| q2 | 100,000 | 0.88 | 0.15 | 6.0x | 0.75 | 0.18 | 4.1x | 1.2x |
-| q3 | 100,000 | 30.00 | 1.20 | 25x | 14.00 | 1.27 | 11x | 2.1x |
-| q4 | 100,000 | 33.00 | 1.31 | 25x | 17.00 | 1.09 | 16x | 1.9x |
-| q5 | 100,000 | 39.00 | 2.10 | 19x | 26.00 | 1.40 | 19x | 1.5x |
-| q6 | 100,000 | 11.00 | 8.14 | 1.4x | 11.00 | 6.56 | 1.7x | 1.0x |
-| q1 | 1,000,000 | 62.00 | 1.30 | 48x | 63.00 | 0.63 | 100x | 1.0x |
-| q2 | 1,000,000 | 7.67 | 0.85 | 9.0x | 7.00 | 0.55 | 13x | 1.1x |
-| q3 | 1,000,000 | 327 | 10.93 | 30x | 179 | 3.30 | 54x | 1.8x |
-| q4 | 1,000,000 | 384 | 12.47 | 31x | 210 | 3.09 | 68x | 1.8x |
-| q5 | 1,000,000 | 399 | 20.88 | 19x | 213 | 5.12 | 42x | 1.9x |
-| q6 | 1,000,000 | 119 | 32.32 | 3.7x | 119 | 22.12 | 5.4x | 1.0x |
+| group | 100k | 997 | 16 | 62x | 650 | 14 | 46x | 120 / 116 |
+| unique | 100k | 910 | 5 | 190x | 577 | 6 | 96x | 115 / 92 |
+| join | 100k | 421 | 9 | 47x | 459 | 3 | 170x | 134 / 101 |
+| group | 1M | 17,314 | 153 | 113x | 11,708 | 68 | 172x | 1091 / 369 |
+| unique | 1M | 17,993 | 54 | 333x | 9,718 | 59 | 165x | 1093 / 225 |
+| join | 1M | 5,132 | 193 | 27x | 5,847 | 24 | 244x | 1255 / 268 |
+
+Honest reading: fully distinct string keys are Bend's weak spot. 100k -> 1M rows costs 17-20x for group/unique and 12x for the join (a
+little worse than linear), and at 1M a group_by over a million distinct strings takes 17 s (about 17 us per key) where Polars takes
+0.15 s. Correct, but 30-330x slower than Polars; the Dictionary storage does not help here because Auto (rightly) keeps Raw.
+The same 1M-row sales queries with low-cardinality strings are 1-18x (table above): the gap is the cons-list string cell, not the
+engine around it. Not a regression: M4's "fully distinct controls" measured Auto = Raw (0.88-1.24x).
+
+### Repeated query (the same query 20 times in one process; `bench/repeat.py`)
+
+`./build/m6 repeat qK sales.csv 20`: one parse, 20 collects over fresh clones, each result rendered (4 decimals) and hashed. Result: the
+20 hashes are identical for every query at 100k and 1M (and equal to the single-run hash). Peak RSS of a 20-iteration process vs a
+1-iteration one: -0.2 .. +4.7 MB at 100k, -32 .. +39 MB (<= 3 %, run-to-run variation) at 1M; for q5 at 1M the peak is 1345.55 MB / 1345.59 MB / 1345.67 MB for 1 / 20 / 60
+iterations, i.e. flat: a collect leaves nothing behind. Per-iteration times are stable (first / median / last ms at 1M: q1 11 / 18 / 18,
+q3 23 / 19 / 19, q4 46 / 38 / 33, q5 23 / 15 / 15, q6 103 / 101 / 101; the harness runs at load 10-14, and the first collect is
+the cold one). The q1 and q2 1M runs spend 2.5-27 minutes outside the timed region rendering and hashing 1M-row results.
+Data: `bench/results/m6_repeat.jsonl`.
 
 ### Analysis
 
-**Where Bend's time goes (1M rows, 12 threads; probes of the same engine, not part of the table).**
-- *Strings.* Every string cell is a cons list. Numeric-only variants of the queries are 1.5-3x cheaper than their string
-  counterparts: filter + select of numeric columns 43 ms vs q1 63 ms (the extra `region` gather); group_by on a numeric key
-  (100 groups, q3's aggregates) 60 ms vs q3's 179 ms with `region`; group_by region sum(qty) alone 172 ms (almost all of it is coding the 1M
-  strings once); sort (price desc, id) + head 130 ms vs sort by `region` + head 196 ms vs q4 210 ms; the join alone is 104 ms
-  (hashing every `product` string, ~70 ms) and q5 is 213 ms because the joined `category` strings are gathered and coded again for the group_by.
-  Numeric kernels are cheap: q2 (qty*price*(1-fill_null(discount)), 1M rows, 6 passes) is 7-8 ms, 9-13x Polars.
-- *CSV.* The parse is untimed but is the biggest single cost in the process: the 41 MB `sales_1000000.csv` takes 5.0 s to read at
-  12 threads (5.9 s at 1 thread, i.e. barely parallel), plus 0.44 s for the first walk of the result (the pending work);
-  100k rows: 0.35 s / 0.48 s. ~120 ns per input byte: every field is a cons list of `Char`s, then a column of such lists.
-- *Freeing inputs.* Bend frames are linear: a query that consumes the parsed 1M-row frames pays to free their string cells inside the
-  timed region. With `consume` (inputs not kept) q1 takes 311 ms instead of 63 ms, q3 412 vs 179, q5 513 vs 213 (12 threads);
-  the ~250-300 ms difference is the freeing of the unused string cells. The table uses the "inputs stay alive" mode, like Polars.
-- *Fixed engine costs* are small: at 1k rows Bend's q1/q2 take 50-70 us, q3-q6 0.45-0.6 ms (Polars default threads: 0.13-4.4 ms,
-  its thread-pool overhead dominates there; at 1 thread Polars is 1.8-3.4x faster than Bend on q3-q5 and Bend wins q6 and q1/q2).
+*What changed since the M7 table (strings as cons lists, 2026-10).* With Auto string storage the string-heavy queries moved from
+19-48x (1 thread; 54-100x at 12 threads) to 0.9-3.5x (1 thread) of Polars at 1M: q3 327 -> 23 ms (1 thread; 2.0x Polars, was 30x), q4 384 -> 47 ms (3.5x, was 31x), q5 399 -> 19 ms (0.9x:
+Bend wins at one thread, was 19x), q1 62 -> 11 ms, q6 119 -> 108 ms. The remaining gap is the numeric work and the thread pool.
 
-**What parallelism bought.** Only operators that fork explicitly scale: q3, q4, q5 run 1.8-2.1x faster on 12 threads (q3 at 100k 2.1x:
-string coding in 8 parallel blocks, the join probe forked over 16 blocks, group_by scatter), q1, q2 and q6 gain nothing (1.0-1.2x),
-and at 1k rows threads cost 10-20 % (0.8-0.9x). No kernel is forked: `Kernel.fork_depth` is a constant 0 that nothing reads, and there
-is no `Eval.parallel_exprs`, so a 12-core machine is mostly idle in the timed region. Polars gains 3.3-4.1x
-on q3/q4/q5 at 1M (e.g. q5 21 ms -> 5.1 ms) from the same 12 cores. Bend's 1-thread numbers are therefore the fairer engine comparison:
-9-48x slower than 1-thread Polars at 1M (3.7x for q6), 19-25x at 100k (q1, q3-q5); with all threads the gap widens to 13-100x because Polars
-keeps scaling and Bend does not.
+*Where Bend is still slower.* q1 and q2 at 1M (8-18x, 11-15 ms against about 1 ms) are flat numeric kernels with no parallelism (q2 is
+11-15 ms for 1M rows, ~15 ns per row); q6 (describe, 3.1-4.4x) does the sort/sum work of four columns; q4 (3.5x at 1 thread) is a full
+sort of 1M rows by (region, price desc, id) plus a head. (Reasons not re-profiled in M6; the M7 probes above attributed the older
+numbers to string handling, which the dictionary has since removed.)
 
-**Top 3 optimisation opportunities.**
-1. *Strings as dictionary codes (or bytes) instead of cons lists*: dictionary-encode low-cardinality string columns at parse time
-   (U32 codes + a small dictionary), or hold string columns as flat byte buffers. It removes the per-query coding passes (~120-150 ms
-   of q3, q4, q5 at 1M, the 70 ms join hash walk), makes the sort ranks and group keys free, shrinks the gathers, and attacks the 5 s CSV parse and
-   the ~300 ms of freeing strings.
-2. *Sort + head as top-k, and gather only what is needed*: `Head{10, Sort}` still sorts and gathers all 7 columns of 1M rows (q4 =
-   210 ms, most of the difference to the key coding being the gather); an optimiser rule that pushes the limit into `Sort.frame` (argsort, then gather 10 rows)
-   or a single-pass top-k would make q4 mostly the key coding. Likewise q5 gathers/codes the joined `category` column for 1M rows when a
-   group_by over the 64-row dimension's codes (aggregate by `product` first, then join) would touch 64 groups.
-3. *Real parallelism in the numeric kernels and across expressions*: fork the flat kernels (`Kernel.map/zip/fold/compact`) over `ANode`
-   halves (the `fork_depth` knob exists but is unused; intra-column speedup was measured at <=1.8x in the probes, so go for fewer, fatter
-   blocks) and evaluate independent expressions of a `with_columns`/`select` in parallel; q1, q2 and q6 are flat today and a 12-core
-   machine could take them from 8-120 ms towards Polars' range. Smaller items: sum f32 in `group_by` with compensation or pairwise
-   (error 1e-5 vs Polars 1e-7 at 1M), and `Plan.optimize` pushing the projection into `Csv.read_with` (the CSV is still parsed whole).
+*Parallelism.* None to speak of: Bend 12 threads vs 1 thread is 1.0x (+-5 %) on q1-q6 at 100k and 1M (q3 23 / 23 ms, q4 47 / 46,
+q5 19 / 19, q6 108 / 104; q2 at 1M, 15 vs 8.7 ms, is the one noisy cell), where the M7 table had 1.8-2.1x on q3-q5 (the parallel
+string coding and join probe are no longer on the critical path with dictionary codes). Polars gains 3.5-4.0x on q3-q5 (1M, warm), 1.5-2.2x on q1, q2, q6,
+so against all 12 threads the gap is 3-18x at 1M. The 1-thread comparison is the fair engine comparison.
 
-Decision for DESIGN M7: `Kernel.fork_depth` stays 0 and `Eval.parallel_exprs` is not added: there is nothing to tune until kernels
-actually fork (item 3), and the numbers do not justify it before the string work (item 1), which is the dominant cost.
+*Small inputs.* At 1k rows Bend is faster than Polars on q1-q3, q5, q6 (0.2-0.7x; Polars pays thread-pool and plan overhead) and 1.4x slower
+on q4 at 1 thread (sort + head).
 
+*Memory.* Peak RSS at 1M is 1.28-1.33 GB for Bend against 168 MB for Polars (7.8x; the process holds the parsed 1M-row frames and
+the clone the query consumes; not profiled further). 100k: 134-178 MB vs 82-93 MB (1.5-2x). RSS does not grow with repeated queries (above).
+
+*Reading the numbers.* One cold collect per process, 1 ms clock, load 3-20 on a shared machine: differences below ~10 % or ~1 ms are
+not findings. The headline claims this table supports: Bend (default Auto strings) is within 0.9-3.5x of one-thread Polars on q3-q6 at
+1M and 100k, 8-17x on the pure-numeric q1/q2 at 1M, faster at 1k; it does not scale with threads; fully distinct string keys are 30-330x
+slower; it uses ~8x the memory at 1M. It does not support "Polars-class performance".
+
+*Next optimisation opportunities (not done in v0.1).* (1) fork the flat numeric kernels and independent expressions (`Kernel.fork_depth`
+is still a constant 0; nothing scales with threads today); (2) a faster path for fully distinct (Raw) string keys: group/unique/join over
+1M distinct strings take 5-18 s; (3) top-k for `sort + head` (q4 still sorts and gathers every row); (4) memory: 1.3 GB at 1M rows.
 
 ## M4 string experiment: Raw / Dictionary storage (plans/M_01.txt section 5)
 

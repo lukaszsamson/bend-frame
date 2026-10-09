@@ -158,24 +158,24 @@ Not yet proven (recorded in `DESIGN.md` section 8): the head sink below a certif
 
 ## Performance
 
-1M-row rows of the table in [`bench/README.md`](bench/README.md) (Apple M2 Pro, 12 cores; Bend 2.0.36 native, Polars 2.0.0; ms per `collect`, ratio = Bend / Polars):
+1M-row rows of the M6 re-measurement in [`bench/README.md`](bench/README.md) (Apple M2 Pro, 12 cores; Bend 2.0.36 native with the default string storage and optimizer, Polars 2.0.0; median ms per `collect` of 5 processes, Polars = best of 5 collects in its process; machine load average 3-20, so read differences under ~10 % as noise; ratio = Bend / Polars):
 
-| query | n | Bend 1t (ms) | Polars 1t (ms) | ratio 1t | Bend all (ms) | Polars all (ms) | ratio all | Bend 1t/all |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| q1 | 1,000,000 | 62.00 | 1.30 | 48x | 63.00 | 0.63 | 100x | 1.0x |
-| q2 | 1,000,000 | 7.67 | 0.85 | 9.0x | 7.00 | 0.55 | 13x | 1.1x |
-| q3 | 1,000,000 | 327 | 10.93 | 30x | 179 | 3.30 | 54x | 1.8x |
-| q4 | 1,000,000 | 384 | 12.47 | 31x | 210 | 3.09 | 68x | 1.8x |
-| q5 | 1,000,000 | 399 | 20.88 | 19x | 213 | 5.12 | 42x | 1.9x |
-| q6 | 1,000,000 | 119 | 32.32 | 3.7x | 119 | 22.12 | 5.4x | 1.0x |
+| query | n | Bend 1t (ms) | Polars 1t (ms) | ratio 1t | Bend 12t (ms) | Polars 12t (ms) | ratio 12t |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| q1 | 1,000,000 | 11 | 1.36 | 8.1x | 11 | 0.62 | 18x |
+| q2 | 1,000,000 | 15 | 0.91 | 17x | 8.7 | 0.54 | 16x |
+| q3 | 1,000,000 | 23 | 11.5 | 2.0x | 23 | 3.15 | 7.3x |
+| q4 | 1,000,000 | 47 | 13.3 | 3.5x | 46 | 3.33 | 14x |
+| q5 | 1,000,000 | 19 | 22.2 | 0.9x | 19 | 6.36 | 3.0x |
+| q6 | 1,000,000 | 108 | 34.5 | 3.1x | 104 | 23.7 | 4.4x |
 
-On one thread, Bend is 3.7x (`describe`) to 48x (q1) slower than Polars at 1M rows; the cost is mostly string handling, and no numeric kernel forks yet. Full results, query definitions and analysis are in [`bench/README.md`](bench/README.md).
+On one thread, Bend is 0.9x (q5 `join` + `group_by`) to 17x (q2) of Polars at 1M rows, and about 2-3.5x on the string-keyed queries q3 and q4 since the Dictionary string storage (M4). Bend does not scale with threads (12 threads: 1.0x on q1-q6), so against all 12 cores the gap is 3-18x. Peak RSS at 1M is 1.3 GB against Polars' 0.17 GB. Where every string key is distinct (group_by, unique or join over 1M distinct keys) Bend takes 5-18 s against 0.02-0.2 s, 30-330x slower. Results are identical to Polars on all of it (q6 within 5e-5 relative). Full results, the high-cardinality and repeated-query measurements, query definitions and analysis are in [`bench/README.md`](bench/README.md).
 
 Top optimization opportunities, from the analysis there:
 
-1. Strings as dictionary codes or flat bytes instead of cons lists. This removes the per-query coding passes and most of the 5 s CSV parse.
-2. Sort plus head as top-k, pushing the limit into the sort so only the needed rows are gathered.
-3. Real parallelism in the flat numeric kernels and across the expressions of one `with_columns`.
+1. Real parallelism in the flat numeric kernels and across the expressions of one `with_columns`.
+2. A faster path for fully distinct (Raw) string keys in group_by, unique and joins.
+3. Sort plus head as top-k, pushing the limit into the sort so only the needed rows are gathered.
 
 ## Development
 
