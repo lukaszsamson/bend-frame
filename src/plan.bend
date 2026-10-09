@@ -46,14 +46,12 @@
 # Optimizers (DESIGN.md 15.2.8). Both run only on plans whose schema resolves
 # (an ill-typed plan comes back unchanged, so the schema is kept trivially on
 # errors).
-#   Optimize.release (DF.optimize, used by collect): the certified fragment,
-#     today only Opt.head: Head{n, Head{m, x}} -> Head{min n m, x}, and a Head
-#     sinks below a Select/WithColumns ONLY when the analysis certifies it as
-#     height preserving (Ana.preserving: a non-empty list of KRow, total
-#     expressions). Literal-only, reduction, mixed, empty and fallible (strict
-#     cast) nodes are barriers (B01-a, B01-f, B04-j); so is every other node, the M3
-#     table verbs included (no rewrite moves anything across Drop, Rename, Slice, Tail,
-#     Unique, Concat or a semi / anti Join, in either optimizer).
+#   Optimize.release (DF.optimize, used by collect): the proven fragment, exactly
+#     Opt.hmerge: Head{n, Head{m, x}} -> Head{min n m, x}, and nothing else. Every
+#     other node is a barrier, Select / WithColumns included whatever the analysis
+#     says of them (M5 part 2 decision, DESIGN.md 8 / 14: the analysis-certified
+#     Head sink, R3, is not proven, so it moved to optimize_full). The theorem
+#     `release_run` (LAWS.bend 8) covers every plan and every env.
 #   Plan.optimize_full (DF.optimize_full, opt-in, outside the guarantee): four
 #     structural passes, in this order:
 #   1. Opt.merge  Filter{p, Filter{q, x}} -> Filter{q & p, x}; applied only
@@ -70,7 +68,14 @@
 #                 height preserving: some KRow); every other Filter/node is a
 #                 barrier. Conjuncts that cannot move stay where they are
 #                 (re-joined with `&`).
-#   3. Opt.head   as in Optimize.release.
+#   3. Opt.head   Head merging as Opt.hmerge, plus the Head sink below a
+#                 Select/WithColumns the analysis certifies as height preserving
+#                 (Opt.sinks = Ana.preserving: a non-empty list of KRow, total,
+#                 local expressions). Literal-only, reduction, mixed, empty and
+#                 fallible (strict cast) nodes are barriers (B01-a, B01-f,
+#                 B04-j); so is every other node, the M3 table verbs included
+#                 (no rewrite moves anything across Drop, Rename, Slice, Tail,
+#                 Unique, Concat or a semi / anti Join, in either optimizer).
 #   4. Opt.proj   projection pushdown: the names needed above each node; a
 #                 `Select{[Col ..]}` of the needed columns (source order) is
 #                 inserted directly over a Source/ScanCsv when it narrows it
@@ -731,7 +736,8 @@ def Opt.hstop(ok: Bool, n: Maybe<&2, U32>) -> Maybe<&2, U32>:
 
 # sink the pending row limit `n` (to be applied on top of p): below a
 # Select/WithColumns only when the analysis certifies it height preserving
-# (Opt.sinks); every other node keeps the limit above it
+# (Opt.sinks); every other node keeps the limit above it. optimize_full only
+# (the sink is tested, not proven); Optimize.release uses Opt.hmerge
 def Opt.head(p: Plan, +n: Maybe<&2, U32>) -> Plan:
   match p:
     case ScanCsv{path, o, s}:
@@ -766,6 +772,47 @@ def Opt.head(p: Plan, +n: Maybe<&2, U32>) -> Plan:
       Opt.hwrap(n, Unique{ss, Opt.head(x, None{})})
     case Concat{i, l, r}:
       Opt.hwrap(n, Concat{i, Opt.head(l, None{}), Opt.head(r, None{})})
+
+# ---- the release optimizer's head pass: Head merging only -----------------------------------
+
+# the pending row limit `n` (to be applied on top of p) merges with a Head directly
+# below it (Head{n, Head{m, x}} -> Head{min n m, x}) and stays above every other
+# node, Select / WithColumns included whatever the analysis says of them: the
+# certified Head sink is Opt.head, optimize_full only (DESIGN.md 8, 14 "M5 part 2").
+# Proven result preserving for every plan and env (LAWS.bend 8, hmerge_run /
+# release_run, against Exec.run_pure)
+def Opt.hmerge(p: Plan, n: Maybe<&2, U32>) -> Plan:
+  match p:
+    case ScanCsv{path, o, s}:
+      Opt.hwrap(n, ScanCsv{path, o, s})
+    case Source{nm, s}:
+      Opt.hwrap(n, Source{nm, s})
+    case Select{es, x}:
+      Opt.hwrap(n, Select{es, Opt.hmerge(x, None{})})
+    case WithColumns{es, x}:
+      Opt.hwrap(n, WithColumns{es, Opt.hmerge(x, None{})})
+    case Filter{e, x}:
+      Opt.hwrap(n, Filter{e, Opt.hmerge(x, None{})})
+    case Sort{ks, x}:
+      Opt.hwrap(n, Sort{ks, Opt.hmerge(x, None{})})
+    case GroupBy{ks, as, mo, x}:
+      Opt.hwrap(n, GroupBy{ks, as, mo, Opt.hmerge(x, None{})})
+    case Join{how, lo, ro, l, r}:
+      Opt.hwrap(n, Join{how, lo, ro, Opt.hmerge(l, None{}), Opt.hmerge(r, None{})})
+    case Head{m, x}:
+      Opt.hmerge(x, Some{Opt.hmin(m, n)})
+    case Drop{ns, x}:
+      Opt.hwrap(n, Drop{ns, Opt.hmerge(x, None{})})
+    case Rename{ps, x}:
+      Opt.hwrap(n, Rename{ps, Opt.hmerge(x, None{})})
+    case Slice{o, l, x}:
+      Opt.hwrap(n, Slice{o, l, Opt.hmerge(x, None{})})
+    case Tail{m, x}:
+      Opt.hwrap(n, Tail{m, Opt.hmerge(x, None{})})
+    case Unique{ss, x}:
+      Opt.hwrap(n, Unique{ss, Opt.hmerge(x, None{})})
+    case Concat{i, l, r}:
+      Opt.hwrap(n, Concat{i, Opt.hmerge(l, None{}), Opt.hmerge(r, None{})})
 
 # ---- pass 4: projection pushdown ------------------------------------------------------------
 
@@ -929,11 +976,12 @@ def Optimize.release.k(r: E.Res(List<&2, S.Field>), p: Plan) -> Plan:
     case Fail{e}:
       p
     case Done{s}:
-      Opt.head(p, None{})
+      Opt.hmerge(p, None{})
 
-# the default optimizer (DF.optimize, collect): only the certified rewrites
-# (DESIGN.md 15.2.8): Head merging and the analysis-restricted Head sink. An
-# ill-typed plan comes back unchanged.
+# the default optimizer (DF.optimize, collect): only the proven rewrite
+# (DESIGN.md 15.2.8, 8): adjacent Head merging (Opt.hmerge). An ill-typed plan
+# comes back unchanged. `release_run` (LAWS.bend 8): Exec.run_pure gives the same
+# result for Optimize.release(p) and p, for every plan p and every env.
 def Optimize.release(+p: Plan) -> Plan:
   Optimize.release.k(Plan.schema(p), p)
 

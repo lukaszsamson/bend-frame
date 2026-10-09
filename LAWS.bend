@@ -550,6 +550,19 @@ law head_pass_merges:
   for +n: Maybe<&2, U32>
   {no_adjacent_heads(P.Opt.head(p, n)) == True{} : Bool}
 
+# LAW: the release optimizer's head pass (Opt.hmerge: Head merging only, every other node
+# a barrier) keeps the schema of every plan, for any pending row limit
+law hmerge_keeps_schema:
+  for p: P.Plan
+  for +n: Maybe<&2, U32>
+  {P.Plan.schema(P.Opt.hmerge(p, n)) == P.Plan.schema(p) : E.Res(List<&2, S.Field>)}
+
+# LAW: after it no Head sits directly on another Head
+law hmerge_merges:
+  for p: P.Plan
+  for +n: Maybe<&2, U32>
+  {no_adjacent_heads(P.Opt.hmerge(p, n)) == True{} : Bool}
+
 # =====================================================================================
 # 5. Columns (src/column.bend)
 # =====================================================================================
@@ -670,10 +683,12 @@ def markw(code: List<&2, Q.Instr>, +suffix: List<&2, Q.Instr>) -> List<&2, Q.Ins
     case i <> +t:
       Q.Exec.mark.i(i, List.append(&2, Q.Instr, t, suffix)) <> markw(t, suffix)
 
-# the R1 fragment: a plan in which every Select / WithColumns is a Head barrier
-# (the analysis does not certify it: Opt.sinks is False), so Opt.head only ever
-# merges adjacent Heads. Head sinking through certified nodes is R3 (plan M_01
-# section 6 P3), not claimed here.
+# the R1 fragment of optimize_full's head pass (Opt.head): a plan in which every
+# Select / WithColumns is a Head barrier (the analysis does not certify it: Opt.sinks
+# is False), so Opt.head only ever merges adjacent Heads. Head sinking through
+# certified nodes is R3 (plan M_01 section 6 P3), not claimed anywhere: since M5 part
+# 2 the release optimizer runs Opt.hmerge, which never sinks (hmerge_run,
+# release_run below need no such hypothesis).
 def merge_only(p: P.Plan) -> Bool:
   match p:
     case P.ScanCsv{path, o, s}:
@@ -773,24 +788,39 @@ law head_pass_run:
   for rf: @s: Q.St -> {Q.Exec.loop(Q.Exec.mark(List.append(&2, Q.Instr, hcode(n), s1)), s) == Q.Exec.loop(Q.Exec.mark(s2), s) : Q.St}
   {Q.Exec.loop(Q.Exec.mark(List.append(&2, Q.Instr, Q.Exec.compile(P.Opt.head(p, n), Nil{}), s1)), st) == Q.Exec.loop(Q.Exec.mark(List.append(&2, Q.Instr, Q.Exec.compile(p, Nil{}), s2)), st) : Q.St}
 
-# LAW G6 on the R1 fragment: the release optimizer preserves the production
-# runner's result for every well-typed merge-only plan
-law release_merge_only:
+# LAW: Opt.hmerge never changes which Sources the code reads, in which order
+law hmerge_keeps_sources:
+  for p: P.Plan
+  for +n: Maybe<&2, U32>
+  for +acc: List<&2, Q.Instr>
+  {srcs(Q.Exec.compile(P.Opt.hmerge(p, n), acc)) == srcs(Q.Exec.compile(P.Opt.hwrap(n, p), acc)) : List<&2, String>}
+
+# LAW R1 (the release pass): Opt.hmerge with a pending limit n followed by the code s1
+# runs exactly like the plan followed by s2, for EVERY plan, whenever "hcode(n) then s1"
+# and s2 read the same Sources (rs) and run alike from every state (rf). With n = None
+# and s1 = s2 = Nil this is Optimize.release's body on a well-typed plan.
+law hmerge_run:
+  for p: P.Plan
+  for +n: Maybe<&2, U32>
+  for +s1: List<&2, Q.Instr>
+  for +s2: List<&2, Q.Instr>
+  for st: Q.St
+  for +rs: {srcs(List.append(&2, Q.Instr, hcode(n), s1)) == srcs(s2) : List<&2, String>}
+  for rf: @s: Q.St -> {Q.Exec.loop(Q.Exec.mark(List.append(&2, Q.Instr, hcode(n), s1)), s) == Q.Exec.loop(Q.Exec.mark(s2), s) : Q.St}
+  {Q.Exec.loop(Q.Exec.mark(List.append(&2, Q.Instr, Q.Exec.compile(P.Opt.hmerge(p, n), Nil{}), s1)), st) == Q.Exec.loop(Q.Exec.mark(List.append(&2, Q.Instr, Q.Exec.compile(p, Nil{}), s2)), st) : Q.St}
+
+# LAW G6: the release optimizer preserves the production runner's result for EVERY
+# plan (well typed or not: an ill-typed plan comes back unchanged) and every env
+law release_run:
   for +p: P.Plan
-  for s: List<&2, S.Field>
   for env: P.Env
-  for ok: {P.Plan.schema(p) == Done{s} : E.Res(List<&2, S.Field>)}
-  for +mo: {merge_only(p) == True{} : Bool}
   {Q.Exec.run_pure(P.Optimize.release(p), env) == Q.Exec.run_pure(p, env) : E.ResT(C.Frame)}
 
 # LAW: the same, observed through the typed oracle (dtypes, ordered names,
 # height, validity, cells as DF.dump prints them, or the error)
-law release_merge_only_obs:
+law release_run_obs:
   for +p: P.Plan
-  for s: List<&2, S.Field>
   for env: P.Env
-  for ok: {P.Plan.schema(p) == Done{s} : E.Res(List<&2, S.Field>)}
-  for +mo: {merge_only(p) == True{} : Bool}
   {DP.Dump.result(Q.Exec.run_pure(P.Optimize.release(p), env)) == DP.Dump.result(Q.Exec.run_pure(p, env)) : String}
 
 # =====================================================================================
