@@ -2231,3 +2231,22 @@ law dict_merge_spec:
   for wfd: WFDictE(dst, esd)
   for probes: MergeProbe(U32.to_nat(dk(src)), 0, dstrs(src), dst)
   MergeW(src, dst, esd)
+
+# ---- Dict.same: the equality test that lets two columns compare codes directly ---------------------
+
+# the entries in code order agree below k
+def SameRows(+k: U32, -x: ST.Dict, -y: ST.Dict) -> Type:
+  @c: U32 -> {U32.is_lt(c, k) == True{} : Bool} -> {dentry(x, c) == dentry(y, c) : String}
+
+# Dict.same's answer: both dictionaries back unchanged; a True answer means equal entry counts and
+# equal entries code by code (the tag is only a fingerprint: it is verified entry by entry)
+def SameW(-x: ST.Dict, -y: ST.Dict) -> Type:
+  &x2: ST.Dict -> &y2: ST.Dict -> &ok: Bool -> {ST.Dict.same(x, y) == (x2, y2, ok) : ST.Dict & ST.Dict & Bool} & {x2 == x : ST.Dict} & {y2 == y : ST.Dict} & ({ok == True{} : Bool} -> {dk(x) == dk(y) : U32} & SameRows(dk(x), x, y))
+
+# LAW: Dict.same (Dict.same.k / .u / .t / .v / .w / .go / .fin over Dict.size, Dict.tag, Str.same) is
+# sound: True only for dictionaries with the same entries in the same order (so equal codes mean
+# equal strings across the two columns, Eval.zd.eq.*)
+law dict_same_sound:
+  for x: ST.Dict
+  for y: ST.Dict
+  SameW(x, y)

@@ -2228,3 +2228,125 @@ def Laws.dict_merge_spec(src, dst, esd, fits, wfd, probes):
   match src:
     case ST.Dict{+k, +dd, strs, +b, slots, +tag}:
       merge_w(k, dd, strs, b, slots, tag, dst, esd, fits, wf_ek(dst, esd, wfd))(probes)
+
+# ---- Laws.dict_same_sound ----------------------------------------------------------------------------------------
+
+def SRows(+c: U32, -a: Array<String>, -a2: Array<String>) -> Type:
+  @j: U32 -> {U32.is_lt(j, c) == True{} : Bool} -> {Laws.rd_at(String, a, j) == Laws.rd_at(String, a2, j) : String}
+
+# the loop Dict.same.go with f steps left at code c: acc True means the codes below c agree; afterwards the
+# arrays back and ok True means the codes below addn(c, f) agree
+def SGoal(f: Nat, +c: U32, +acc: Bool, -a: Array<String>, -a2: Array<String>, -r: Array<String> & String, -r2: Array<String> & String) -> Type:
+  ({acc == True{} : Bool} -> SRows(c, a, a2)) -> &b1: Array<String> -> &b2: Array<String> -> &ok: Bool -> {ST.Dict.same.go(f, c, acc, r, r2) == (b1, b2, ok) : Array<String> & Array<String> & Bool} & {b1 == a : Array<String>} & {b2 == a2 : Array<String>} & ({ok == True{} : Bool} -> SRows(Laws.addn(c, f), a, a2))
+
+def SNextB(p: Nat, +c: U32, +acc: Bool, -b1: Array<String>, -b2: Array<String>, +x: String, +y: String, +bound: U32) -> Type:
+  &c1: Array<String> -> &c2: Array<String> -> &ok: Bool -> {ST.Dict.same.go(p, U32.inc(c), Bool.and(acc, ST.Str.same(x, y)), Array.get(String, b1, U32.inc(c)), Array.get(String, b2, U32.inc(c))) == (c1, c2, ok) : Array<String> & Array<String> & Bool} & {c1 == b1 : Array<String>} & {c2 == b2 : Array<String>} & ({ok == True{} : Bool} -> SRows(bound, b1, b2))
+
+def SIH(p: Nat, +c: U32) -> Type:
+  @a3: Array<String> -> @a4: Array<String> -> @acc3: Bool -> SGoal(p, U32.inc(c), acc3, a3, a4, Array.get(String, a3, U32.inc(c)), Array.get(String, a4, U32.inc(c)))
+
+# the rows below inc(c) agree: the old rows by the invariant, row c by Str.same's soundness
+def srow_b(bb: Bool, +c: U32, -b1: Array<String>, -b2: Array<String>, +x: String, +y: String, +ex: {x == Laws.rd_at(String, b1, c) : String}, +ey: {y == Laws.rd_at(String, b2, c) : String}, +exy: {x == y : String}, +j: U32, hb: PC.IncLtU(bb, j, c), g: SRows(c, b1, b2))
+  -> {Laws.rd_at(String, b1, j) == Laws.rd_at(String, b2, j) : String}:
+  match bb:
+    case True{}:
+      g(j, hb)
+    case False{}:
+      %Equal.sym(U32, j, c, hb) : {Laws.rd_at(String, b1, _) == Laws.rd_at(String, b2, _) : String}
+      Equal.trans(String, Laws.rd_at(String, b1, c), x, Laws.rd_at(String, b2, c), Equal.sym(String, x, Laws.rd_at(String, b1, c), ex), Equal.trans(String, x, y, Laws.rd_at(String, b2, c), exy, ey))
+
+def srow_k(+c: U32, -b1: Array<String>, -b2: Array<String>, +x: String, +y: String, +ex: {x == Laws.rd_at(String, b1, c) : String}, +ey: {y == Laws.rd_at(String, b2, c) : String}, +exy: {x == y : String}, +j: U32, w: &bb: Bool -> PC.IncLtU(bb, j, c), g: SRows(c, b1, b2))
+  -> {Laws.rd_at(String, b1, j) == Laws.rd_at(String, b2, j) : String}:
+  (bb, hb) = w
+  srow_b(bb, c, b1, b2, x, y, ex, ey, exy, j, hb, g)
+
+def gnext_j(+c: U32, -b1: Array<String>, -b2: Array<String>, +x: String, +y: String, +ex: {x == Laws.rd_at(String, b1, c) : String}, +ey: {y == Laws.rd_at(String, b2, c) : String}, g: SRows(c, b1, b2), +exy: {x == y : String}) -> SRows(U32.inc(c), b1, b2):
+  +j => hj => srow_k(c, b1, b2, x, y, ex, ey, exy, j, PC.inc_lt_u(j, c, hj), g)
+
+def gnext_k(+c: U32, +acc: Bool, -b1: Array<String>, -b2: Array<String>, +x: String, +y: String, +ex: {x == Laws.rd_at(String, b1, c) : String}, +ey: {y == Laws.rd_at(String, b2, c) : String}, g: {acc == True{} : Bool} -> SRows(c, b1, b2), w: {acc == True{} : Bool} & {ST.Str.same(x, y) == True{} : Bool}) -> SRows(U32.inc(c), b1, b2):
+  (hacc, hs) = w
+  gnext_j(c, b1, b2, x, y, ex, ey, g(hacc), Laws.str_same_sound(x, y, hs))
+
+def gnext(+c: U32, +acc: Bool, -b1: Array<String>, -b2: Array<String>, +x: String, +y: String, +ex: {x == Laws.rd_at(String, b1, c) : String}, +ey: {y == Laws.rd_at(String, b2, c) : String}, g: {acc == True{} : Bool} -> SRows(c, b1, b2)) -> ({Bool.and(acc, ST.Str.same(x, y)) == True{} : Bool} -> SRows(U32.inc(c), b1, b2)):
+  h => gnext_k(c, acc, b1, b2, x, y, ex, ey, g, and_split(acc, ST.Str.same(x, y), h))
+
+def sstep2(p: Nat, +c: U32, +acc: Bool, b1: Array<String>, b2: Array<String>, +x: String, +y: String, +ex: {x == Laws.rd_at(String, b1, c) : String}, +ey: {y == Laws.rd_at(String, b2, c) : String}, ih: SIH(p, c))
+  -> ({acc == True{} : Bool} -> SRows(c, b1, b2)) -> SNextB(p, c, acc, b1, b2, x, y, Laws.addn(c, 1n+p)):
+  %PC.addn_inc(c, p) : ({acc == True{} : Bool} -> SRows(c, b1, b2)) -> SNextB(p, c, acc, b1, b2, x, y, _)
+  g => ih(b1, b2, Bool.and(acc, ST.Str.same(x, y)))(gnext(c, acc, b1, b2, x, y, ex, ey, g))
+
+def sstep1(p: Nat, +c: U32, +acc: Bool, -a: Array<String>, -a2: Array<String>, ih: SIH(p, c),
+  w1: &b: Array<String> -> &x: String -> {b == a : Array<String>} & {Array.get(String, a, c) == (a, x) : Array<String> & String} & {x == Laws.rd_at(String, a, c) : String},
+  w2: &b: Array<String> -> &y: String -> {b == a2 : Array<String>} & {Array.get(String, a2, c) == (a2, y) : Array<String> & String} & {y == Laws.rd_at(String, a2, c) : String})
+  -> SGoal(1n+p, c, acc, a, a2, Array.get(String, a, c), Array.get(String, a2, c)):
+  (b1, +x, +eb1, e1, ex) = w1
+  (b2, +y, +eb2, e2, ey) = w2
+  %Equal.sym(Array<String> & String, Array.get(String, a, c), (a, x), e1) : SGoal(1n+p, c, acc, a, a2, _, Array.get(String, a2, c))
+  %Equal.sym(Array<String> & String, Array.get(String, a2, c), (a2, y), e2) : SGoal(1n+p, c, acc, a, a2, (a, x), _)
+  %eb1 : SGoal(1n+p, c, acc, _, a2, (_, x), (a2, y))
+  %eb2 : SGoal(1n+p, c, acc, b1, _, (b1, x), (_, y))
+  sstep2(p, c, acc, b1, b2, x, y, Equal.trans(String, x, Laws.rd_at(String, a, c), Laws.rd_at(String, b1, c), ex, Equal.cong(Array<String>, String, q => Laws.rd_at(String, q, c), a, b1, Equal.sym(Array<String>, b1, a, eb1))), Equal.trans(String, y, Laws.rd_at(String, a2, c), Laws.rd_at(String, b2, c), ey, Equal.cong(Array<String>, String, q => Laws.rd_at(String, q, c), a2, b2, Equal.sym(Array<String>, b2, a2, eb2))), ih)
+
+def szero(+c: U32, +acc: Bool, -a: Array<String>, -a2: Array<String>,
+  w1: &b: Array<String> -> &x: String -> {b == a : Array<String>} & {Array.get(String, a, c) == (a, x) : Array<String> & String} & {x == Laws.rd_at(String, a, c) : String},
+  w2: &b: Array<String> -> &y: String -> {b == a2 : Array<String>} & {Array.get(String, a2, c) == (a2, y) : Array<String> & String} & {y == Laws.rd_at(String, a2, c) : String})
+  -> SGoal(0n, c, acc, a, a2, Array.get(String, a, c), Array.get(String, a2, c)):
+  (b1, +x, +eb1, e1, ex) = w1
+  (b2, +y, +eb2, e2, ey) = w2
+  %Equal.sym(Array<String> & String, Array.get(String, a, c), (a, x), e1) : SGoal(0n, c, acc, a, a2, _, Array.get(String, a2, c))
+  %Equal.sym(Array<String> & String, Array.get(String, a2, c), (a2, y), e2) : SGoal(0n, c, acc, a, a2, (a, x), _)
+  %eb1 : SGoal(0n, c, acc, _, a2, (_, x), (a2, y))
+  %eb2 : SGoal(0n, c, acc, b1, _, (b1, x), (_, y))
+  g => (b1, b2, acc, {==}, {==}, {==}, g)
+
+def sgo(f: Nat, +c: U32, +acc: Bool, a: Array<String>, a2: Array<String>) -> SGoal(f, c, acc, a, a2, Array.get(String, a, c), Array.get(String, a2, c)):
+  match f:
+    case 0n:
+      szero(c, acc, a, a2, PC.get_w(String, a, c), PC.get_w(String, a2, c))
+    case 1n++p:
+      sstep1(p, c, acc, a, a2, a3 => a4 => acc3 => sgo(p, U32.inc(c), acc3, a3, a4), PC.get_w(String, a, c), PC.get_w(String, a2, c))
+
+def srows0(-a: Array<String>, -a2: Array<String>) -> ({True{} == True{} : Bool} -> SRows(0, a, a2)):
+  h => +j => hj => Empty.absurd({Laws.rd_at(String, a, j) == Laws.rd_at(String, a2, j) : String}, PC.lt0(j, hj))
+
+# ---- the Bool tests (sizes, tags), then the loop; the law's shape over the fields ---------------------------------
+
+def SRes(+k: U32, +dd: Nat, -a: Array<String>, +b: Nat, -ts: Array<ST.SSlot>, +tag: U32, +k2: U32, +dd2: Nat, -a2: Array<String>, +b2: Nat, -ts2: Array<ST.SSlot>, +tag2: U32, x2: ST.Dict, y2: ST.Dict, +ok: Bool) -> Type:
+  {x2 == ST.Dict{k, dd, a, b, ts, tag} : ST.Dict} & {y2 == ST.Dict{k2, dd2, a2, b2, ts2, tag2} : ST.Dict} & ({ok == True{} : Bool} -> {k == k2 : U32} & SRows(k, a, a2))
+
+def SW(+k: U32, +dd: Nat, -a: Array<String>, +b: Nat, -ts: Array<ST.SSlot>, +tag: U32, +k2: U32, +dd2: Nat, -a2: Array<String>, +b2: Nat, -ts2: Array<ST.SSlot>, +tag2: U32) -> Type:
+  &x2: ST.Dict -> &y2: ST.Dict -> &ok: Bool -> {ST.Dict.same.w(ST.Dict{k, dd, a, b, ts, tag}, ST.Dict{k2, dd2, a2, b2, ts2, tag2}) == (x2, y2, ok) : ST.Dict & ST.Dict & Bool} & SRes(k, dd, a, b, ts, tag, k2, dd2, a2, b2, ts2, tag2, x2, y2, ok)
+
+def SV(bt: Bool, +k: U32, +dd: Nat, -a: Array<String>, +b: Nat, -ts: Array<ST.SSlot>, +tag: U32, +k2: U32, +dd2: Nat, -a2: Array<String>, +b2: Nat, -ts2: Array<ST.SSlot>, +tag2: U32) -> Type:
+  &x2: ST.Dict -> &y2: ST.Dict -> &ok: Bool -> {ST.Dict.same.v(bt, ST.Dict{k, dd, a, b, ts, tag}, ST.Dict{k2, dd2, a2, b2, ts2, tag2}) == (x2, y2, ok) : ST.Dict & ST.Dict & Bool} & SRes(k, dd, a, b, ts, tag, k2, dd2, a2, b2, ts2, tag2, x2, y2, ok)
+
+def SU(bk: Bool, +k: U32, +dd: Nat, -a: Array<String>, +b: Nat, -ts: Array<ST.SSlot>, +tag: U32, +k2: U32, +dd2: Nat, -a2: Array<String>, +b2: Nat, -ts2: Array<ST.SSlot>, +tag2: U32) -> Type:
+  &x2: ST.Dict -> &y2: ST.Dict -> &ok: Bool -> {ST.Dict.same.u(bk, ST.Dict{k, dd, a, b, ts, tag}, ST.Dict{k2, dd2, a2, b2, ts2, tag2}) == (x2, y2, ok) : ST.Dict & ST.Dict & Bool} & SRes(k, dd, a, b, ts, tag, k2, dd2, a2, b2, ts2, tag2, x2, y2, ok)
+
+# the loop's answer finished by Dict.same.fin
+def same_w(+k: U32, +dd: Nat, -a: Array<String>, +b: Nat, ts: Array<ST.SSlot>, +tag: U32, +k2: U32, +dd2: Nat, -a2: Array<String>, +b2: Nat, ts2: Array<ST.SSlot>, +tag2: U32, +kk: {k == k2 : U32},
+  w: &r1: Array<String> -> &r2: Array<String> -> &ok: Bool -> {ST.Dict.same.go(U32.to_nat(k), 0, True{}, Array.get(String, a, 0), Array.get(String, a2, 0)) == (r1, r2, ok) : Array<String> & Array<String> & Bool} & {r1 == a : Array<String>} & {r2 == a2 : Array<String>} & ({ok == True{} : Bool} -> SRows(Laws.addn(0, U32.to_nat(k)), a, a2)))
+  -> SW(k, dd, a, b, ts, tag, k2, dd2, a2, b2, ts2, tag2):
+  (r1, r2, +ok, eq, +er1, +er2, hok) = w
+  %Equal.sym(Array<String> & Array<String> & Bool, ST.Dict.same.go(U32.to_nat(k), 0, True{}, Array.get(String, a, 0), Array.get(String, a2, 0)), (r1, r2, ok), eq) : &x2: ST.Dict -> &y2: ST.Dict -> &ok2: Bool -> {ST.Dict.same.fin(k, dd, b, ts, tag, k2, dd2, b2, ts2, tag2, _) == (x2, y2, ok2) : ST.Dict & ST.Dict & Bool} & SRes(k, dd, a, b, ts, tag, k2, dd2, a2, b2, ts2, tag2, x2, y2, ok2)
+  %B.addn_to_nat(k) : &x2: ST.Dict -> &y2: ST.Dict -> &ok2: Bool -> {ST.Dict.same.fin(k, dd, b, ts, tag, k2, dd2, b2, ts2, tag2, (r1, r2, ok)) == (x2, y2, ok2) : ST.Dict & ST.Dict & Bool} & {x2 == ST.Dict{k, dd, a, b, ts, tag} : ST.Dict} & {y2 == ST.Dict{k2, dd2, a2, b2, ts2, tag2} : ST.Dict} & ({ok2 == True{} : Bool} -> {k == k2 : U32} & SRows(_, a, a2))
+  (ST.Dict{k, dd, r1, b, ts, tag}, ST.Dict{k2, dd2, r2, b2, ts2, tag2}, ok, {==}, (%er1 : {ST.Dict{k, dd, r1, b, ts, tag} == ST.Dict{k, dd, _, b, ts, tag} : ST.Dict}; {==}), (%er2 : {ST.Dict{k2, dd2, r2, b2, ts2, tag2} == ST.Dict{k2, dd2, _, b2, ts2, tag2} : ST.Dict}; {==}), h => (kk, hok(h)))
+
+def same_v(bt: Bool, +k: U32, +dd: Nat, a: Array<String>, +b: Nat, ts: Array<ST.SSlot>, +tag: U32, +k2: U32, +dd2: Nat, a2: Array<String>, +b2: Nat, ts2: Array<ST.SSlot>, +tag2: U32, +kk: {k == k2 : U32}) -> SV(bt, k, dd, a, b, ts, tag, k2, dd2, a2, b2, ts2, tag2):
+  match bt:
+    case True{}:
+      same_w(k, dd, a, b, ts, tag, k2, dd2, a2, b2, ts2, tag2, kk, sgo(U32.to_nat(k), 0, True{}, a, a2)(srows0(a, a2)))
+    case False{}:
+      (ST.Dict{k, dd, a, b, ts, tag}, ST.Dict{k2, dd2, a2, b2, ts2, tag2}, False{}, {==}, {==}, {==}, h => Empty.absurd({k == k2 : U32} & SRows(k, a, a2), L.false_true(h)))
+
+def same_u(bk: Bool, +k: U32, +dd: Nat, a: Array<String>, +b: Nat, ts: Array<ST.SSlot>, +tag: U32, +k2: U32, +dd2: Nat, a2: Array<String>, +b2: Nat, ts2: Array<ST.SSlot>, +tag2: U32, ebk: {U32.is_eq(k, k2) == bk : Bool}) -> SU(bk, k, dd, a, b, ts, tag, k2, dd2, a2, b2, ts2, tag2):
+  match bk:
+    case True{}:
+      same_v(U32.is_eq(tag, tag2), k, dd, a, b, ts, tag, k2, dd2, a2, b2, ts2, tag2, u32_eq(k, k2, ebk))
+    case False{}:
+      (ST.Dict{k, dd, a, b, ts, tag}, ST.Dict{k2, dd2, a2, b2, ts2, tag2}, False{}, {==}, {==}, {==}, h => Empty.absurd({k == k2 : U32} & SRows(k, a, a2), L.false_true(h)))
+
+def Laws.dict_same_sound(x, y):
+  match x y:
+    case ST.Dict{+k, +dd, a, +b, ts, +tag} ST.Dict{+k2, +dd2, a2, +b2, ts2, +tag2}:
+      same_u(U32.is_eq(k, k2), k, dd, a, b, ts, tag, k2, dd2, a2, b2, ts2, tag2, {==})
