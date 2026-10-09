@@ -843,45 +843,73 @@ def Laws.frame_schema_w(f):
     case C.Frame{+h, cols}:
       fschema_fin(h, cols, cschema_w(cols))
 
-# a column of height h (WFColumnH) has U32.is_eq(clen, h)
-def colh_eq(+h: U32, c: C.Column, hc: Laws.WFColumnH(h, c)) -> {U32.is_eq(Laws.clen(c), h) == True{} : Bool}:
+# a column of height h (WFColumnH) has U32.is_eq(clen, h): the column back as a witness
+def colh_eq_w(+h: U32, c: C.Column, hc: Laws.WFColumnH(h, c)) -> &c2: C.Column -> {c2 == c : C.Column} & {U32.is_eq(Laws.clen(c2), h) == True{} : Bool}:
   match c:
     case C.CBool{+len, d, v, x}:
       (hl, hw) = hc
-      %Equal.sym(U32, len, h, hl) : {U32.is_eq(_, h) == True{} : Bool}
-      u32_eq_refl(h)
+      (C.CBool{len, d, v, x}, {==}, (%Equal.sym(U32, len, h, hl) : {U32.is_eq(_, h) == True{} : Bool}; u32_eq_refl(h)))
     case C.CU32{+len, d, v, x}:
       (hl, hw) = hc
-      %Equal.sym(U32, len, h, hl) : {U32.is_eq(_, h) == True{} : Bool}
-      u32_eq_refl(h)
+      (C.CU32{len, d, v, x}, {==}, (%Equal.sym(U32, len, h, hl) : {U32.is_eq(_, h) == True{} : Bool}; u32_eq_refl(h)))
     case C.CI32{+len, d, v, x}:
       (hl, hw) = hc
-      %Equal.sym(U32, len, h, hl) : {U32.is_eq(_, h) == True{} : Bool}
-      u32_eq_refl(h)
+      (C.CI32{len, d, v, x}, {==}, (%Equal.sym(U32, len, h, hl) : {U32.is_eq(_, h) == True{} : Bool}; u32_eq_refl(h)))
     case C.CF32{+len, d, v, x}:
       (hl, hw) = hc
-      %Equal.sym(U32, len, h, hl) : {U32.is_eq(_, h) == True{} : Bool}
-      u32_eq_refl(h)
+      (C.CF32{len, d, v, x}, {==}, (%Equal.sym(U32, len, h, hl) : {U32.is_eq(_, h) == True{} : Bool}; u32_eq_refl(h)))
     case C.CStr{+len, d, v, x}:
       (hl, hw) = hc
-      %Equal.sym(U32, len, h, hl) : {U32.is_eq(_, h) == True{} : Bool}
-      u32_eq_refl(h)
+      (C.CStr{len, d, v, x}, {==}, (%Equal.sym(U32, len, h, hl) : {U32.is_eq(_, h) == True{} : Bool}; u32_eq_refl(h)))
 
-def cols_ok_of(+h: U32, cols: List<&1, C.Named>, +seen: List<&2, String>, wf: Laws.WFCols(h, cols, seen)) -> {Laws.cols_ok(h, cols, seen) == True{} : Bool}:
+# the shape facts of WFCols as a Bool over a copy of the columns (the copy equals the original)
+def ColsOkW(+h: U32, -cols: List<&1, C.Named>, +seen: List<&2, String>) -> Type:
+  &cols2: List<&1, C.Named> -> {cols2 == cols : List<&1, C.Named>} & {Laws.cols_ok(h, cols2, seen) == True{} : Bool}
+
+# one column's shape facts composed into the Bool for the cons
+def cols_ok_step(+h: U32, +n: String, -c2: C.Column, -rest2: List<&1, C.Named>, +seen: List<&2, String>, hn: {C.Names.has(seen, n) == False{} : Bool}, hl: {U32.is_eq(Laws.clen(c2), h) == True{} : Bool}, hr: {Laws.cols_ok(h, rest2, n <> seen) == True{} : Bool}) -> {Laws.cols_ok(h, C.Named{n, c2} <> rest2, seen) == True{} : Bool}:
+  %Equal.sym(Bool, C.Names.has(seen, n), False{}, hn) : {Bool.and(Bool.not(_), Bool.and(U32.is_eq(Laws.clen(c2), h), Laws.cols_ok(h, rest2, n <> seen))) == True{} : Bool}
+  %Equal.sym(Bool, U32.is_eq(Laws.clen(c2), h), True{}, hl) : {Bool.and(_, Laws.cols_ok(h, rest2, n <> seen)) == True{} : Bool}
+  hr
+
+def cols_ok_cons(+h: U32, +n: String, -c: C.Column, -rest: List<&1, C.Named>, +seen: List<&2, String>, hn: {C.Names.has(seen, n) == False{} : Bool},
+  wc: &c2: C.Column -> {c2 == c : C.Column} & {U32.is_eq(Laws.clen(c2), h) == True{} : Bool}, wr: ColsOkW(h, rest, n <> seen)) -> ColsOkW(h, C.Named{n, c} <> rest, seen):
+  (c2, ec, hl) = wc
+  (rest2, er, hr) = wr
+  (C.Named{n, c2} <> rest2, (%ec : {C.Named{n, c2} <> rest2 == C.Named{n, _} <> rest : List<&1, C.Named>}; %er : {C.Named{n, c2} <> rest2 == C.Named{n, c2} <> _ : List<&1, C.Named>}; {==}), cols_ok_step(h, n, c2, rest2, seen, hn, hl, hr))
+
+def cols_ok_w(+h: U32, cols: List<&1, C.Named>, +seen: List<&2, String>, wf: Laws.WFCols(h, cols, seen)) -> ColsOkW(h, cols, seen):
   match cols:
     case Nil{}:
-      {==}
+      (Nil{}, {==}, {==})
     case C.Named{+n, c} <> rest:
       (hn, hc, hrest) = wf
-      %Equal.sym(Bool, C.Names.has(seen, n), False{}, hn) : {Bool.and(Bool.not(_), Bool.and(U32.is_eq(Laws.clen(c), h), Laws.cols_ok(h, rest, n <> seen))) == True{} : Bool}
-      %Equal.sym(Bool, U32.is_eq(Laws.clen(c), h), True{}, colh_eq(h, c, hc)) : {Bool.and(_, Laws.cols_ok(h, rest, n <> seen)) == True{} : Bool}
-      cols_ok_of(h, rest, n <> seen, hrest)
+      cols_ok_cons(h, n, c, rest, seen, hn, colh_eq_w(h, c, hc), cols_ok_w(h, rest, n <> seen, hrest))
 
-def Laws.wf_frame_ok(f, wf):
+# the WF bridge in witness form: the frame back (equal to f) with its shape facts as a Bool
+def WfOkW(-f: C.Frame) -> Type:
+  &f2: C.Frame -> {f2 == f : C.Frame} & {Laws.frame_ok(Laws.fheight(f2), f2) == True{} : Bool}
+
+def frame_ok_step(+h: U32, -cols2: List<&1, C.Named>, hb: {Laws.cols_ok(h, cols2, Nil{}) == True{} : Bool}) -> {Laws.frame_ok(Laws.fheight(C.Frame{h, cols2}), C.Frame{h, cols2}) == True{} : Bool}:
+  %Equal.sym(Bool, U32.is_eq(h, h), True{}, u32_eq_refl(h)) : {Bool.and(_, Laws.cols_ok(h, cols2, Nil{})) == True{} : Bool}
+  hb
+
+def wf_frame_ok_k(+h: U32, -cols: List<&1, C.Named>, w: ColsOkW(h, cols, Nil{})) -> WfOkW(C.Frame{h, cols}):
+  (cols2, e, hb) = w
+  (C.Frame{h, cols2}, (%e : {C.Frame{h, cols2} == C.Frame{h, _} : C.Frame}; {==}), frame_ok_step(h, cols2, hb))
+
+def wf_frame_ok_w(f: C.Frame, wf: Laws.WFFrame(f)) -> WfOkW(f):
   match f:
     case C.Frame{+h, cols}:
-      %Equal.sym(Bool, U32.is_eq(h, h), True{}, u32_eq_refl(h)) : {Bool.and(_, Laws.cols_ok(h, cols, Nil{})) == True{} : Bool}
-      cols_ok_of(h, cols, Nil{}, wf)
+      wf_frame_ok_k(h, cols, cols_ok_w(h, cols, Nil{}, wf))
+
+def wf_frame_ok_fin(-f: C.Frame, w: WfOkW(f)) -> {Laws.frame_ok(Laws.fheight(f), f) == True{} : Bool}:
+  (f2, e, hb) = w
+  %e : {Laws.frame_ok(Laws.fheight(_), _) == True{} : Bool}
+  hb
+
+def Laws.wf_frame_ok(f, wf):
+  wf_frame_ok_fin(f, wf_frame_ok_w(f, wf))
 
 
 # ---- Frame.get_cloned: the loop Cols.cg.go walks the columns, cloning the one named n ---------------

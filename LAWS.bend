@@ -1724,3 +1724,63 @@ law eval_agg_typed:
   for +t: D.DType
   for hok: {X.Expr.type.agg.ok(op, cdtype(c)) == Done{t} : E.Res(D.DType)}
   ResW(True{}, t, 1, V.Eval.agg(op, c))
+
+# ---- the stack machine (Eval.compile + Eval.run) and the entry points Eval.full / Eval.expr ------
+#
+# The main theorem: the postfix code of an expression the analysis accepts, run from a
+# frame of h rows (frame_ok: every column h rows, names unique) whose schema s the
+# analysis saw, on a stack whose slots have shape sh, leaves the frame unchanged and
+# pushes one slot of the analysis' dtype and kind (klen rows), or fails where the
+# analysis allowed (tot False). By induction over the expression with the stack
+# invariant StkTy; every operation's typing law (above) supplies the step.
+
+# LAW: the stack machine's typing invariant (P2)
+law run_typed:
+  for +e: X.Expr
+  for +s: List<&2, S.Field>
+  for +h: U32
+  for +acc: List<&2, V.Instr>
+  for f: C.Frame
+  for stk: List<&1, V.Slot>
+  for +sh: List<&2, Sh>
+  for +hs: {fschema(f) == s : List<&2, S.Field>}
+  for +hf: {frame_ok(h, f) == True{} : Bool}
+  for ev: StkTy(h, sh, stk)
+  for +t: D.DType
+  for +rs: List<&2, String>
+  for +k: A.AKind
+  for +tot: Bool
+  for +loc: Bool
+  for ha: {A.Expr.analyse(e, s) == Done{A.Ana{t, rs, k, tot, loc}} : E.Res(A.Ana)}
+  RunW(h, t, skind(k), tot, f, sh, stk, acc, V.Eval.compile(e, acc))
+
+# LAW (P2, the theorem the release claim names): over a well-formed frame, an expression
+# the shared analysis types as (dtype t, total tot) evaluates with Eval.full to the frame
+# unchanged and a column of dtype t with the frame's height; it fails only when tot is
+# False (a fallible strict cast), with the frame unchanged too
+law eval_full_typed:
+  for f: C.Frame
+  for +e: X.Expr
+  for wf: WFFrame(f)
+  for +t: D.DType
+  for +rs: List<&2, String>
+  for +k: A.AKind
+  for +tot: Bool
+  for +loc: Bool
+  for ha: {A.Expr.analyse(e, fschema(f)) == Done{A.Ana{t, rs, k, tot, loc}} : E.Res(A.Ana)}
+  EvalTy(t, tot, fheight(f), f, V.Eval.full(f, e))
+
+# LAW: Eval.expr (select's per-expression evaluation): the same, with the analysis' kind
+# deciding the height: a reduction (KRed) answers one row, a row-wise or literal expression
+# the frame's height (elen)
+law eval_expr_typed:
+  for f: C.Frame
+  for +e: X.Expr
+  for wf: WFFrame(f)
+  for +t: D.DType
+  for +rs: List<&2, String>
+  for +k: A.AKind
+  for +tot: Bool
+  for +loc: Bool
+  for ha: {A.Expr.analyse(e, fschema(f)) == Done{A.Ana{t, rs, k, tot, loc}} : E.Res(A.Ana)}
+  EvalTy(t, tot, elen(k, fheight(f)), f, V.Eval.expr(f, e))
