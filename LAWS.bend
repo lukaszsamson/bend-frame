@@ -1349,6 +1349,21 @@ def vbit(v: C.Valid, +i: U32) -> Bool:
     case C.Mask{m}:
       U32.is_ne(rd_at(U32, m, i), 0)
 
+# the entry of code c of a dictionary
+def dentry(d: ST.Dict, +c: U32) -> String:
+  match d:
+    case ST.Dict{k, dd, strs, b, slots, tag}:
+      rd_at(String, strs, c)
+
+# the string of row i of a Str column's storage (M4): Raw, the slot; Dictionary, the entry of the
+# row's code
+def scell(s: ST.Strs, +i: U32) -> String:
+  match s:
+    case ST.SRaw{a}:
+      rd_at(String, a, i)
+    case ST.SDict{codes, d}:
+      dentry(d, rd_at(U32, codes, i))
+
 # the scalar at row i (SNull when the row is invalid), as a pure function of the buffers: the
 # model of Column.cell (Column.cell.word's dtype dispatch written out per constructor)
 def ccell(c: C.Column, +i: U32) -> D.Scalar:
@@ -1362,7 +1377,7 @@ def ccell(c: C.Column, +i: U32) -> D.Scalar:
     case C.CF32{len, depth, valid, data}:
       Bool.pick(D.Scalar, vbit(valid, i), D.SF32{rd_at(F32, data, i)}, D.SNull{})
     case C.CStr{len, depth, valid, data}:
-      Bool.pick(D.Scalar, vbit(valid, i), D.SStr{rd_at(String, data, i)}, D.SNull{})
+      Bool.pick(D.Scalar, vbit(valid, i), D.SStr{scell(data, i)}, D.SNull{})
 
 # the row count Column.slice(c, off, n) answers: min(n, len - off), 0 past the end
 def slice_len(+off: U32, +n: U32, +len: U32) -> U32:
