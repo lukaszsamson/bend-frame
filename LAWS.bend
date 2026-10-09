@@ -1638,3 +1638,89 @@ law unit_typed:
   for +v: D.Scalar
   for +t: D.DType
   ColTy(lit_dtype(v, t), 1, V.Eval.unit(v, t))
+
+# ---- the operations (src/eval.bend): each answers a column of the dtype its typing rule
+#      (src/expr.bend) gives, as long as the operand, and fails only where the analysis allows --
+
+# LAW: Eval.un on an operand the un rule accepts: that dtype, the same length, never a failure
+law eval_un_typed:
+  for op: X.UnOp
+  for c: C.Column
+  for +t: D.DType
+  for hok: {X.Expr.type.un.ok(op, cdtype(c)) == Done{t} : E.Res(D.DType)}
+  ResW(True{}, t, clen(c), V.Eval.un(op, c))
+
+# LAW: Eval.bin on operands the bin rule accepts: that dtype, the left operand's length
+law eval_bin_typed:
+  for +op: X.BinOp
+  for a: C.Column
+  for b: C.Column
+  for +t: D.DType
+  for hok: {X.Expr.type.bin.ok(op, cdtype(a), cdtype(b)) == Done{t} : E.Res(D.DType)}
+  ResW(True{}, t, clen(a), V.Eval.bin(op, a, b))
+
+# LAW: a well-typed cast answers `to` with the operand's length; it may fail only when the
+# pair is fallible (X.Cast.total False), which is exactly the analysis' totality flag
+law eval_cast_typed:
+  for +to: D.DType
+  for c: C.Column
+  for hok: {X.Cast.ok(cdtype(c), to) == True{} : Bool}
+  ResW(X.Cast.total(cdtype(c), to), to, clen(c), V.Eval.cast(to, c))
+
+# LAW: try_cast never fails on a castable pair
+law eval_try_cast_typed:
+  for +to: D.DType
+  for c: C.Column
+  for hok: {X.Cast.ok(cdtype(c), to) == True{} : Bool}
+  ResW(True{}, to, clen(c), V.Eval.try_cast(to, c))
+
+# LAW: fill_null keeps the (shared) dtype and the first operand's length
+law eval_fill_typed:
+  for a: C.Column
+  for b: C.Column
+  for +t: D.DType
+  for hok: {X.Expr.type.fill(Done{cdtype(a)}, Done{cdtype(b)}) == Done{t} : E.Res(D.DType)}
+  ResW(True{}, t, clen(a), V.Eval.fill(a, b))
+
+# LAW: when / then / otherwise answers the branches' dtype with the then-branch's length
+law eval_when_typed:
+  for c: C.Column
+  for a: C.Column
+  for b: C.Column
+  for +t: D.DType
+  for hok: {X.Expr.type.when.ok(cdtype(c), cdtype(a), cdtype(b)) == Done{t} : E.Res(D.DType)}
+  ResW(True{}, t, clen(a), V.Eval.when(c, a, b))
+
+# LAW: is_in answers bool, same length
+law eval_isin_typed:
+  for +vs: List<&2, D.Scalar>
+  for c: C.Column
+  for +t: D.DType
+  for hok: {X.Expr.type.isin.ok(vs, cdtype(c)) == Done{t} : E.Res(D.DType)}
+  ResW(True{}, t, clen(c), V.Eval.isin(vs, c))
+
+# LAW: clip keeps the numeric dtype, same length
+law eval_clip_typed:
+  for +lo: D.Scalar
+  for +hi: D.Scalar
+  for c: C.Column
+  for +t: D.DType
+  for hok: {X.Expr.type.clip.ok(lo, hi, cdtype(c)) == Done{t} : E.Res(D.DType)}
+  ResW(True{}, t, clen(c), V.Eval.clip(lo, hi, c))
+
+# LAW: the string predicates answer bool, same length
+law eval_strpred_typed:
+  for op: X.StrPredOp
+  for +pat: String
+  for c: C.Column
+  for +t: D.DType
+  for hok: {X.Expr.type.strpred.ok(op, cdtype(c)) == Done{t} : E.Res(D.DType)}
+  ResW(True{}, t, clen(c), V.Eval.strpred(op, pat, c))
+
+# LAW: an aggregation answers one row of the agg rule's dtype, never a failure
+law eval_agg_typed:
+  for op: X.AggOp
+  for c: C.Column
+  for +t: D.DType
+  for hok: {X.Expr.type.agg.ok(op, cdtype(c)) == Done{t} : E.Res(D.DType)}
+  ResW(True{}, t, 1, V.Eval.agg(op, c))

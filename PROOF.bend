@@ -23,3 +23,4 @@ import ./PROOF_exec.bend as PE
 import ./PROOF_bits.bend as PB
 import ./PROOF_contents.bend as PC
 import ./PROOF_eval.bend as PV
+import ./PROOF_evalops.bend as PO
