@@ -399,3 +399,482 @@ def Laws.strs_compact_cells(s, mask, len, d, room):
       compact_raw(len, d, a, mask, compact_facts(~String, len, d, a, mask, "", room))
     case ST.SDict{codes, dict}:
       compact_dict(len, d, codes, dict, mask, compact_facts(~U32, len, d, codes, mask, 0, room))
+
+# =====================================================================================
+# The dictionary builders (LAWS.bend section 14, second part)
+# =====================================================================================
+
+# ---- Nat facts ---------------------------------------------------------------------------------------
+
+def nat_cmp_refl(n: Nat) -> {Nat.cmp(n, n) == EQ{} : Cmp}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+p:
+      nat_cmp_refl(p)
+
+def nat_lt_succ(n: Nat) -> {Nat.cmp(n, 1n+n) == LT{} : Cmp}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+p:
+      nat_lt_succ(p)
+
+def nat_le_refl(n: Nat) -> {Nat.is_le(n, n) == True{} : Bool}:
+  %Equal.sym(Cmp, Nat.cmp(n, n), EQ{}, nat_cmp_refl(n)) : {Cmp.is_le(_) == True{} : Bool}
+  {==}
+
+def nat_le_succ(n: Nat) -> {Nat.is_le(n, 1n+n) == True{} : Bool}:
+  %Equal.sym(Cmp, Nat.cmp(n, 1n+n), LT{}, nat_lt_succ(n)) : {Cmp.is_le(_) == True{} : Bool}
+  {==}
+
+def zero_le(q: Nat) -> {Nat.is_le(0n, q) == True{} : Bool}:
+  match q:
+    case 0n:
+      {==}
+    case 1n+r:
+      {==}
+
+# a < b gives 1 + a <= b, and back
+def succ_le_of_lt(a: Nat, b: Nat, h: {Cmp.is_lt(Nat.cmp(a, b)) == True{} : Bool}) -> {Nat.is_le(1n+a, b) == True{} : Bool}:
+  match a b:
+    case 0n 0n:
+      Empty.absurd({Nat.is_le(1n, 0n) == True{} : Bool}, L.false_true(h))
+    case 0n 1n+q:
+      zero_le(q)
+    case 1n+p 0n:
+      Empty.absurd({Nat.is_le(2n+p, 0n) == True{} : Bool}, L.false_true(h))
+    case 1n+p 1n+q:
+      succ_le_of_lt(p, q, h)
+
+def lt_of_succ_le(a: Nat, b: Nat, h: {Nat.is_le(1n+a, b) == True{} : Bool}) -> {Cmp.is_lt(Nat.cmp(a, b)) == True{} : Bool}:
+  match a b:
+    case 0n 0n:
+      Empty.absurd({Cmp.is_lt(Nat.cmp(0n, 0n)) == True{} : Bool}, L.false_true(h))
+    case 0n 1n+q:
+      {==}
+    case 1n+p 0n:
+      Empty.absurd({Cmp.is_lt(Nat.cmp(1n+p, 0n)) == True{} : Bool}, L.false_true(h))
+    case 1n+p 1n+q:
+      lt_of_succ_le(p, q, h)
+
+# a <= b gives a < 1 + b
+def lt_succ_of_le(a: Nat, b: Nat, h: {Nat.is_le(a, b) == True{} : Bool}) -> {Cmp.is_lt(Nat.cmp(a, 1n+b)) == True{} : Bool}:
+  match a b:
+    case 0n _:
+      {==}
+    case 1n+p 0n:
+      Empty.absurd({Cmp.is_lt(Nat.cmp(1n+p, 1n)) == True{} : Bool}, L.false_true(h))
+    case 1n+p 1n+q:
+      lt_succ_of_le(p, q, h)
+
+def nat_le_trans(a: Nat, b: Nat, c: Nat, h1: {Nat.is_le(a, b) == True{} : Bool}, h2: {Nat.is_le(b, c) == True{} : Bool}) -> {Nat.is_le(a, c) == True{} : Bool}:
+  match a b c:
+    case 0n _ _:
+      zero_le(c)
+    case 1n+p 0n _:
+      Empty.absurd({Nat.is_le(1n+p, c) == True{} : Bool}, L.false_true(h1))
+    case 1n+p 1n+q 0n:
+      Empty.absurd({Nat.is_le(1n+p, 0n) == True{} : Bool}, L.false_true(h2))
+    case 1n+p 1n+q 1n+r:
+      nat_le_trans(p, q, r, h1, h2)
+
+def nat_lt_le_trans(a: Nat, b: Nat, c: Nat, h1: {Cmp.is_lt(Nat.cmp(a, b)) == True{} : Bool}, h2: {Nat.is_le(b, c) == True{} : Bool}) -> {Cmp.is_lt(Nat.cmp(a, c)) == True{} : Bool}:
+  match a b c:
+    case _ 0n _:
+      Empty.absurd({Cmp.is_lt(Nat.cmp(a, c)) == True{} : Bool}, L.false_true(h1))
+    case 0n 1n+q 0n:
+      Empty.absurd({Cmp.is_lt(Nat.cmp(0n, 0n)) == True{} : Bool}, L.false_true(h2))
+    case 0n 1n+q 1n+r:
+      {==}
+    case 1n+p 1n+q 0n:
+      Empty.absurd({Cmp.is_lt(Nat.cmp(1n+p, 0n)) == True{} : Bool}, L.false_true(h2))
+    case 1n+p 1n+q 1n+r:
+      nat_lt_le_trans(p, q, r, h1, h2)
+
+def le_double(n: Nat) -> {Nat.is_le(n, Nat.double(n)) == True{} : Bool}:
+  match n:
+    case 0n:
+      {==}
+    case 1n++p:
+      %Equal.sym(Cmp, Nat.cmp(p, 1n+Nat.double(p)), LT{}, B.is_lt_lt(Nat.cmp(p, 1n+Nat.double(p)), lt_succ_of_le(p, Nat.double(p), le_double(p)))) : {Cmp.is_le(_) == True{} : Bool}
+      {==}
+
+# 1 + n <= 2n for n >= 1
+def succ_le_double(n: Nat, h: {Cmp.is_lt(Nat.cmp(0n, n)) == True{} : Bool}) -> {Nat.is_le(1n+n, Nat.double(n)) == True{} : Bool}:
+  match n:
+    case 0n:
+      Empty.absurd({Nat.is_le(1n, 0n) == True{} : Bool}, L.false_true(h))
+    case 1n+p:
+      le_double(p)
+
+# ---- list facts (the entry list model) ------------------------------------------------------------------
+
+def len_app1(es: List<&2, String>, +s: String) -> {List.length(&2, String, List.append(&2, String, es, s <> Nil{})) == 1n+List.length(&2, String, es) : Nat}:
+  match es:
+    case Nil{}:
+      {==}
+    case h <> t:
+      %Equal.sym(Nat, List.length(&2, String, List.append(&2, String, t, s <> Nil{})), 1n+List.length(&2, String, t), len_app1(t, s)) : {1n+_ == 2n+List.length(&2, String, t) : Nat}
+      {==}
+
+def app_nil(es: List<&2, String>) -> {List.append(&2, String, es, Nil{}) == es : List<&2, String>}:
+  match es:
+    case Nil{}:
+      {==}
+    case h <> t:
+      %Equal.sym(List<&2, String>, List.append(&2, String, t, Nil{}), t, app_nil(t)) : {h <> _ == h <> t : List<&2, String>}
+      {==}
+
+def app_assoc(xs: List<&2, String>, +ys: List<&2, String>, +zs: List<&2, String>) -> {List.append(&2, String, List.append(&2, String, xs, ys), zs) == List.append(&2, String, xs, List.append(&2, String, ys, zs)) : List<&2, String>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case h <> t:
+      %Equal.sym(List<&2, String>, List.append(&2, String, List.append(&2, String, t, ys), zs), List.append(&2, String, t, List.append(&2, String, ys, zs)), app_assoc(t, ys, zs)) : {h <> _ == h <> List.append(&2, String, t, List.append(&2, String, ys, zs)) : List<&2, String>}
+      {==}
+
+# an index below the length reads the same entry after an append
+def nth_app_lt(es: List<&2, String>, +more: List<&2, String>, j: Nat, h: {Cmp.is_lt(Nat.cmp(j, List.length(&2, String, es))) == True{} : Bool}) -> {Laws.nthn(List.append(&2, String, es, more), j) == Laws.nthn(es, j) : String}:
+  match es j:
+    case Nil{} 0n:
+      Empty.absurd({Laws.nthn(more, 0n) == "" : String}, L.false_true(h))
+    case Nil{} 1n+p:
+      Empty.absurd({Laws.nthn(more, 1n+p) == "" : String}, L.false_true(h))
+    case h2 <> t 0n:
+      {==}
+    case h2 <> t 1n+p:
+      nth_app_lt(t, more, p, h)
+
+# the appended entry sits at the old length
+def nth_app_end(es: List<&2, String>, +s: String) -> {Laws.nthn(List.append(&2, String, es, s <> Nil{}), List.length(&2, String, es)) == s : String}:
+  match es:
+    case Nil{}:
+      {==}
+    case h <> t:
+      nth_app_end(t, s)
+
+# Ext is reflexive and transitive
+def ext_refl(+es: List<&2, String>) -> Laws.Ext(es, es):
+  (Nil{}, Equal.sym(List<&2, String>, List.append(&2, String, es, Nil{}), es, app_nil(es)))
+
+def ext_trans_k(+es: List<&2, String>, +es2: List<&2, String>, +es3: List<&2, String>, +m1: List<&2, String>, +m2: List<&2, String>, e1: {es2 == List.append(&2, String, es, m1) : List<&2, String>}, e2: {es3 == List.append(&2, String, es2, m2) : List<&2, String>}) -> Laws.Ext(es, es3):
+  (List.append(&2, String, m1, m2), (%app_assoc(es, m1, m2) : {es3 == _ : List<&2, String>}; %e1 : {es3 == List.append(&2, String, _, m2) : List<&2, String>}; e2))
+
+def ext_trans(+es: List<&2, String>, +es2: List<&2, String>, +es3: List<&2, String>, x1: Laws.Ext(es, es2), x2: Laws.Ext(es2, es3)) -> Laws.Ext(es, es3):
+  (m1, e1) = x1
+  (m2, e2) = x2
+  ext_trans_k(es, es2, es3, m1, m2, e1, e2)
+
+# an extension keeps every entry below the old length, and is at least as long
+def ext_nth(+es: List<&2, String>, +es2: List<&2, String>, x: Laws.Ext(es, es2), +j: Nat, h: {Cmp.is_lt(Nat.cmp(j, List.length(&2, String, es))) == True{} : Bool}) -> {Laws.nthn(es2, j) == Laws.nthn(es, j) : String}:
+  (more, e) = x
+  %Equal.sym(List<&2, String>, es2, List.append(&2, String, es, more), e) : {Laws.nthn(_, j) == Laws.nthn(es, j) : String}
+  nth_app_lt(es, more, j, h)
+
+def len_app_ge(es: List<&2, String>, +more: List<&2, String>) -> {Nat.is_le(List.length(&2, String, es), List.length(&2, String, List.append(&2, String, es, more))) == True{} : Bool}:
+  match es:
+    case Nil{}:
+      zero_le(List.length(&2, String, more))
+    case h <> t:
+      len_app_ge(t, more)
+
+def ext_len(+es: List<&2, String>, +es2: List<&2, String>, x: Laws.Ext(es, es2)) -> {Nat.is_le(List.length(&2, String, es), List.length(&2, String, es2)) == True{} : Bool}:
+  (more, e) = x
+  %Equal.sym(List<&2, String>, es2, List.append(&2, String, es, more), e) : {Nat.is_le(List.length(&2, String, es), List.length(&2, String, _)) == True{} : Bool}
+  len_app_ge(es, more)
+
+# ---- word facts: comparisons through to_nat, inc, dec, shl --------------------------------------------
+
+def is_eq_eq(c: Cmp, h: {Cmp.is_eq(c) == True{} : Bool}) -> {c == EQ{} : Cmp}:
+  match c:
+    case EQ{}:
+      {==}
+    case LT{}:
+      Empty.absurd({LT{} == EQ{} : Cmp}, L.false_true(h))
+    case GT{}:
+      Empty.absurd({GT{} == EQ{} : Cmp}, L.false_true(h))
+
+# U32.is_eq is sound and complete
+def u32_eq(x: U32, y: U32, h: {U32.is_eq(x, y) == True{} : Bool}) -> {x == y : U32}:
+  match x y:
+    case U32{+a} U32{+b}:
+      Equal.cong(Word(32n), U32, w => U32{w}, a, b, L.word_cmp_eq(32n, a, b, is_eq_eq(Word.cmp(32n, a, b), h)))
+
+def u32_eq_refl(x: U32) -> {U32.is_eq(x, x) == True{} : Bool}:
+  match x:
+    case U32{+a}:
+      %Equal.sym(Cmp, Word.cmp(32n, a, a), EQ{}, L.word_cmp_refl(32n, a)) : {Cmp.is_eq(_) == True{} : Bool}
+      {==}
+
+# the Nat value of a word below 2^30 after inc: one more (the word is not maximal)
+def inc_small_k(b: Bool, +k: U32, s: B.IncSpecU(b, k), small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}) -> {U32.to_nat(U32.inc(k)) == 1n+U32.to_nat(k) : Nat}:
+  match b:
+    case True{}:
+      s
+    case False{}:
+      Empty.absurd({U32.to_nat(U32.inc(k)) == 1n+U32.to_nat(k) : Nat}, s(U32.shln(1, 30n))(B.gt_of_lt_u(k, U32.shln(1, 30n), small)))
+
+def inc_small_fin(+k: U32, w: &b: Bool -> B.IncSpecU(b, k), small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}) -> {U32.to_nat(U32.inc(k)) == 1n+U32.to_nat(k) : Nat}:
+  (b, s) = w
+  inc_small_k(b, k, s, small)
+
+def inc_small(+k: U32, small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}) -> {U32.to_nat(U32.inc(k)) == 1n+U32.to_nat(k) : Nat}:
+  inc_small_fin(k, B.inc_nat_u(k), small)
+
+# U32 comparisons from Nat comparisons of the values
+def lt_u_of_nat(+a: U32, +b: U32, h: {Cmp.is_lt(Nat.cmp(U32.to_nat(a), U32.to_nat(b))) == True{} : Bool}) -> {U32.is_lt(a, b) == True{} : Bool}:
+  B.lt_of_nat_u(a, b, h)
+
+def le_u_of_nat(+a: U32, +b: U32, h: {Nat.is_le(U32.to_nat(a), U32.to_nat(b)) == True{} : Bool}) -> {U32.is_le(a, b) == True{} : Bool}:
+  %Equal.sym(Cmp, U32.cmp(a, b), Nat.cmp(U32.to_nat(a), U32.to_nat(b)), B.cmp_nat_u(a, b)) : {Cmp.is_le(_) == True{} : Bool}
+  h
+
+def lt_nat_of_u(+a: U32, +b: U32, h: {U32.is_lt(a, b) == True{} : Bool}) -> {Cmp.is_lt(Nat.cmp(U32.to_nat(a), U32.to_nat(b))) == True{} : Bool}:
+  %B.cmp_nat_u(a, b) : {Cmp.is_lt(_) == True{} : Bool}
+  h
+
+def eq_false_of_nat(+a: U32, +b: U32, h: {Nat.cmp(U32.to_nat(a), U32.to_nat(b)) == GT{} : Cmp}) -> {U32.is_eq(a, b) == False{} : Bool}:
+  %Equal.sym(Cmp, U32.cmp(a, b), Nat.cmp(U32.to_nat(a), U32.to_nat(b)), B.cmp_nat_u(a, b)) : {Cmp.is_eq(_) == False{} : Bool}
+  %Equal.sym(Cmp, Nat.cmp(U32.to_nat(a), U32.to_nat(b)), GT{}, h) : {Cmp.is_eq(_) == False{} : Bool}
+  {==}
+
+# k < inc(k) for k below 2^30
+def lt_inc(+k: U32, small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}) -> {U32.is_lt(k, U32.inc(k)) == True{} : Bool}:
+  lt_u_of_nat(k, U32.inc(k), (%Equal.sym(Nat, U32.to_nat(U32.inc(k)), 1n+U32.to_nat(k), inc_small(k, small)) : {Cmp.is_lt(Nat.cmp(U32.to_nat(k), _)) == True{} : Bool}; (%Equal.sym(Cmp, Nat.cmp(U32.to_nat(k), 1n+U32.to_nat(k)), LT{}, nat_lt_succ(U32.to_nat(k))) : {Cmp.is_lt(_) == True{} : Bool}; {==})))
+
+# inc(k) != 0 for k below 2^30
+def inc_ne_zero(+k: U32, small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}) -> {U32.is_eq(U32.inc(k), 0) == False{} : Bool}:
+  eq_false_of_nat(U32.inc(k), 0, (%Equal.sym(Nat, U32.to_nat(U32.inc(k)), 1n+U32.to_nat(k), inc_small(k, small)) : {Nat.cmp(_, U32.to_nat(0)) == GT{} : Cmp}; {==}))
+
+# a <= b and a != b give a < b (the comparison as a parameter)
+def le_ne_lt_k(c: Cmp, +a: U32, +b: U32, e: {U32.cmp(a, b) == c : Cmp}, hle: {Cmp.is_le(c) == True{} : Bool}, hne: {Cmp.is_eq(c) == False{} : Bool}) -> {U32.is_lt(a, b) == True{} : Bool}:
+  match c:
+    case LT{}:
+      %Equal.sym(Cmp, U32.cmp(a, b), LT{}, e) : {Cmp.is_lt(_) == True{} : Bool}
+      {==}
+    case EQ{}:
+      Empty.absurd({U32.is_lt(a, b) == True{} : Bool}, L.true_false(hne))
+    case GT{}:
+      Empty.absurd({U32.is_lt(a, b) == True{} : Bool}, L.false_true(hle))
+
+def le_ne_lt(+a: U32, +b: U32, hle: {U32.is_le(a, b) == True{} : Bool}, hne: {U32.is_eq(a, b) == False{} : Bool}) -> {U32.is_lt(a, b) == True{} : Bool}:
+  le_ne_lt_k(U32.cmp(a, b), a, b, {==}, hle, hne)
+
+def lt_le_u(+a: U32, +b: U32, h: {U32.is_lt(a, b) == True{} : Bool}) -> {U32.is_le(a, b) == True{} : Bool}:
+  %Equal.sym(Cmp, U32.cmp(a, b), LT{}, B.is_lt_lt(U32.cmp(a, b), h)) : {Cmp.is_le(_) == True{} : Bool}
+  {==}
+
+# a < b and b <= c give a < c
+def lt_le_trans_u(+a: U32, +b: U32, +c: U32, h1: {U32.is_lt(a, b) == True{} : Bool}, h2: {U32.is_le(b, c) == True{} : Bool}) -> {U32.is_lt(a, c) == True{} : Bool}:
+  lt_u_of_nat(a, c, nat_lt_le_trans(U32.to_nat(a), U32.to_nat(b), U32.to_nat(c), lt_nat_of_u(a, b, h1), B.le_nat_u(b, c, h2)))
+
+# to_nat(c) == 0 gives c == 0
+def to_nat_zero(c: U32, h: {U32.to_nat(c) == 0n : Nat}) -> {c == 0 : U32}:
+  match c:
+    case U32{w}:
+      %B.from_to(32n, w) : {U32{_} == 0 : U32}
+      %Equal.sym(Nat, Word.to_nat(32n, w), 0n, h) : {U32{B.waddn(32n, Word.zero(32n), _)} == 0 : U32}
+      {==}
+
+# ---- dec of inc: U32.sub(U32.inc(k), 1) == k (Word.adc with the complement flag) ----------------------
+
+# t - 0 == t (the complement of zero is all ones; with the carry in, the sum is t)
+def sub_zero_w(n: Nat, t: Word(n)) -> {Word.adc(n, t, Word.zero(n), True{}, True{}) == t : Word(n)}:
+  match n:
+    case 0n:
+      match t:
+        case WNil{}:
+          {==}
+    case 1n+p:
+      match t:
+        case WCon{False{}, u}:
+          %Equal.sym(Word(p), Word.adc(p, u, Word.zero(p), True{}, True{}), u, sub_zero_w(p, u)) : {WCon{False{}, _} == WCon{False{}, u} : Word(1n+p)}
+          {==}
+        case WCon{True{}, u}:
+          %Equal.sym(Word(p), Word.adc(p, u, Word.zero(p), True{}, True{}), u, sub_zero_w(p, u)) : {WCon{True{}, _} == WCon{True{}, u} : Word(1n+p)}
+          {==}
+
+# inc(t) + ~0 (no carry in) == t
+def dec_w(n: Nat, t: Word(n)) -> {Word.adc(n, Word.inc(n, t), Word.zero(n), True{}, False{}) == t : Word(n)}:
+  match n:
+    case 0n:
+      match t:
+        case WNil{}:
+          {==}
+    case 1n+p:
+      match t:
+        case WCon{False{}, u}:
+          %Equal.sym(Word(p), Word.adc(p, u, Word.zero(p), True{}, True{}), u, sub_zero_w(p, u)) : {WCon{False{}, _} == WCon{False{}, u} : Word(1n+p)}
+          {==}
+        case WCon{True{}, u}:
+          %Equal.sym(Word(p), Word.adc(p, Word.inc(p, u), Word.zero(p), True{}, False{}), u, dec_w(p, u)) : {WCon{True{}, _} == WCon{True{}, u} : Word(1n+p)}
+          {==}
+
+def dec_inc_w(n: Nat, w: Word(n)) -> {Word.sub(n, Word.inc(n, w), B.bitw(n, 0n)) == w : Word(n)}:
+  match n:
+    case 0n:
+      match w:
+        case WNil{}:
+          {==}
+    case 1n+p:
+      match w:
+        case WCon{False{}, t}:
+          %Equal.sym(Word(p), Word.adc(p, t, Word.zero(p), True{}, True{}), t, sub_zero_w(p, t)) : {WCon{False{}, _} == WCon{False{}, t} : Word(1n+p)}
+          {==}
+        case WCon{True{}, t}:
+          %Equal.sym(Word(p), Word.adc(p, Word.inc(p, t), Word.zero(p), True{}, False{}), t, dec_w(p, t)) : {WCon{True{}, _} == WCon{True{}, t} : Word(1n+p)}
+          {==}
+
+def dec_inc(k: U32) -> {U32.sub(U32.inc(k), 1) == k : U32}:
+  match k:
+    case U32{w}:
+      %Equal.sym(Word(32n), Word.sub(32n, Word.inc(32n, w), B.bitw(32n, 0n)), w, dec_inc_w(32n, w)) : {U32{_} == U32{w} : U32}
+      {==}
+
+# ---- shl through to_nat (the top bit clear): double -----------------------------------------------------
+
+# Zabove is monotone in the position
+def zabove_up(d: Nat, n: Nat, w: Word(n), hz: B.Zabove(d, n, w)) -> B.Zabove(1n+d, n, w):
+  match d n:
+    case 0n 0n:
+      match w:
+        case WNil{}:
+          Unit{}
+    case 0n 1n+p:
+      match w:
+        case WCon{b, t}:
+          %Equal.sym(Word(1n+p), WCon{b, t}, Word.zero(1n+p), hz) : B.Zabove(1n, 1n+p, _)
+          {==}
+    case 1n+r 0n:
+      Unit{}
+    case 1n+r 1n+p:
+      match w:
+        case WCon{b, t}:
+          zabove_up(r, p, t, hz)
+
+# shl.put inserts c below and drops a zero top bit: the value doubles plus c
+def put_nat_zero(c: Bool, b: Bool, hz: {WCon{b, WNil{}} == Word.zero(1n) : Word(1n)}) -> {Word.to_nat(1n, Word.shl.put(1n, c, WCon{b, WNil{}})) == B.dbl(c, Word.to_nat(1n, WCon{b, WNil{}})) : Nat}:
+  match c:
+    case False{}:
+      %Equal.sym(Word(1n), WCon{b, WNil{}}, Word.zero(1n), hz) : {Word.to_nat(1n, Word.shl.put(1n, False{}, _)) == B.dbl(False{}, Word.to_nat(1n, _)) : Nat}
+      {==}
+    case True{}:
+      %Equal.sym(Word(1n), WCon{b, WNil{}}, Word.zero(1n), hz) : {Word.to_nat(1n, Word.shl.put(1n, True{}, _)) == B.dbl(True{}, Word.to_nat(1n, _)) : Nat}
+      {==}
+
+def put_nat_step(c: Bool, b: Bool, +r: Nat, -u: Word(1n+r), ih: {Word.to_nat(1n+r, Word.shl.put(1n+r, b, u)) == B.dbl(b, Word.to_nat(1n+r, u)) : Nat}) -> {Word.to_nat(2n+r, Word.shl.put(2n+r, c, WCon{b, u})) == B.dbl(c, Word.to_nat(2n+r, WCon{b, u})) : Nat}:
+  match c b:
+    case False{} False{}:
+      %Equal.sym(Nat, Word.to_nat(1n+r, Word.shl.put(1n+r, False{}, u)), B.dbl(False{}, Word.to_nat(1n+r, u)), ih) : {Nat.double(_) == B.dbl(False{}, Word.to_nat(2n+r, WCon{False{}, u})) : Nat}
+      {==}
+    case False{} True{}:
+      %Equal.sym(Nat, Word.to_nat(1n+r, Word.shl.put(1n+r, True{}, u)), B.dbl(True{}, Word.to_nat(1n+r, u)), ih) : {Nat.double(_) == B.dbl(False{}, Word.to_nat(2n+r, WCon{True{}, u})) : Nat}
+      {==}
+    case True{} False{}:
+      %Equal.sym(Nat, Word.to_nat(1n+r, Word.shl.put(1n+r, False{}, u)), B.dbl(False{}, Word.to_nat(1n+r, u)), ih) : {1n+Nat.double(_) == B.dbl(True{}, Word.to_nat(2n+r, WCon{False{}, u})) : Nat}
+      {==}
+    case True{} True{}:
+      %Equal.sym(Nat, Word.to_nat(1n+r, Word.shl.put(1n+r, True{}, u)), B.dbl(True{}, Word.to_nat(1n+r, u)), ih) : {1n+Nat.double(_) == B.dbl(True{}, Word.to_nat(2n+r, WCon{True{}, u})) : Nat}
+      {==}
+
+def put_nat(q: Nat, +c: Bool, t: Word(1n+q), hz: B.Zabove(q, 1n+q, t)) -> {Word.to_nat(1n+q, Word.shl.put(1n+q, c, t)) == B.dbl(c, Word.to_nat(1n+q, t)) : Nat}:
+  match q:
+    case 0n:
+      match t:
+        case WCon{b, u}:
+          match u:
+            case WNil{}:
+              put_nat_zero(c, b, hz)
+    case 1n++r:
+      match t:
+        case WCon{+b, u}:
+          put_nat_step(c, b, r, u, put_nat(r, b, u, hz))
+
+def shl_nat_k(b: Bool, -t: Word(31n), h: {Word.to_nat(31n, Word.shl.put(31n, b, t)) == B.dbl(b, Word.to_nat(31n, t)) : Nat}) -> {Word.to_nat(32n, Word.shl(32n, WCon{b, t})) == Nat.double(Word.to_nat(32n, WCon{b, t})) : Nat}:
+  match b:
+    case False{}:
+      %Equal.sym(Nat, Word.to_nat(31n, Word.shl.put(31n, False{}, t)), B.dbl(False{}, Word.to_nat(31n, t)), h) : {Nat.double(_) == Nat.double(Word.to_nat(32n, WCon{False{}, t})) : Nat}
+      {==}
+    case True{}:
+      %Equal.sym(Nat, Word.to_nat(31n, Word.shl.put(31n, True{}, t)), B.dbl(True{}, Word.to_nat(31n, t)), h) : {Nat.double(_) == Nat.double(Word.to_nat(32n, WCon{True{}, t})) : Nat}
+      {==}
+
+def shl_nat_w(w: Word(32n), hz: B.Zabove(31n, 32n, w)) -> {Word.to_nat(32n, Word.shl(32n, w)) == Nat.double(Word.to_nat(32n, w)) : Nat}:
+  match w:
+    case WCon{+b, +t}:
+      shl_nat_k(b, t, put_nat(30n, b, t, hz))
+
+def U32.to_word(x: U32) -> Word(32n):
+  match x:
+    case U32{w}:
+      w
+
+# k below 2^30: to_nat(shl k) == 2 to_nat(k)
+def shl_nat(k: U32, small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}) -> {U32.to_nat(U32.shl(k)) == Nat.double(U32.to_nat(k)) : Nat}:
+  match k:
+    case U32{+w}:
+      shl_nat_w(w, zabove_up(30n, 32n, w, B.lt_bitw_zabove(32n, 30n, w, (%B.shln_bitw(30n) : {Word.cmp(32n, w, U32.to_word(_)) == LT{} : Cmp}; B.is_lt_lt(Word.cmp(32n, w, U32.to_word(U32.shln(1, 30n))), small)))))
+
+# ---- Laws.str_same_sound / Laws.str_same_complete --------------------------------------------------------
+
+# both conjuncts of a true Bool.and, from one hypothesis
+def and_split(a: Bool, -b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> {a == True{} : Bool} & {b == True{} : Bool}:
+  match a:
+    case True{}:
+      ({==}, h)
+    case False{}:
+      Empty.absurd({False{} == True{} : Bool} & {b == True{} : Bool}, L.false_true(h))
+
+def str_same_cons(+x: U32, +y: U32, +s: String, +t: String, w: {U32.is_eq(x, y) == True{} : Bool} & {ST.Str.same(s, t) == True{} : Bool}, ih: {ST.Str.same(s, t) == True{} : Bool} -> {s == t : String}) -> {SCon{Chr{x}, s} == SCon{Chr{y}, t} : String}:
+  (hx, hs) = w
+  %ih(hs) : {SCon{Chr{x}, s} == SCon{Chr{y}, _} : String}
+  %u32_eq(x, y, hx) : {SCon{Chr{x}, s} == SCon{Chr{_}, s} : String}
+  {==}
+
+def Laws.str_same_sound(a, b, h):
+  match a b:
+    case SNil{} SNil{}:
+      {==}
+    case SNil{} SCon{y, t}:
+      Empty.absurd({SNil{} == SCon{y, t} : String}, L.false_true(h))
+    case SCon{x, s} SNil{}:
+      Empty.absurd({SCon{x, s} == SNil{} : String}, L.false_true(h))
+    case SCon{Chr{+x}, +s} SCon{Chr{+y}, +t}:
+      str_same_cons(x, y, s, t, and_split(U32.is_eq(x, y), ST.Str.same(s, t), h), h2 => Laws.str_same_sound(s, t, h2))
+
+def Laws.str_same_complete(a):
+  match a:
+    case SNil{}:
+      {==}
+    case SCon{Chr{+x}, +s}:
+      %Equal.sym(Bool, U32.is_eq(x, x), True{}, u32_eq_refl(x)) : {Bool.and(_, ST.Str.same(s, s)) == True{} : Bool}
+      Laws.str_same_complete(s)
+
+# ---- Laws.dict_empty_wf (Dict.empty computes: "" hashes to slot 1 of the 4-slot index) ------------------
+
+# nothing is below 0
+def nat_lt0(p: Nat, h: {Cmp.is_lt(Nat.cmp(p, 0n)) == True{} : Bool}) -> Empty:
+  match p:
+    case 0n:
+      L.false_true(h)
+    case 1n+q:
+      L.false_true(h)
+
+def nat_lt1(n: Nat, h: {Cmp.is_lt(Nat.cmp(n, 1n)) == True{} : Bool}) -> {n == 0n : Nat}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+p:
+      Empty.absurd({1n+p == 0n : Nat}, nat_lt0(p, h))
+
+# to_nat(c) < 1 gives to_nat(c) == 0
+def lt1_zero(+c: U32, hc: {U32.is_lt(c, 1) == True{} : Bool}) -> {U32.to_nat(c) == 0n : Nat}:
+  nat_lt1(U32.to_nat(c), lt_nat_of_u(c, 1, hc))
+
+def empty_entries(+c: U32, hc: {U32.is_lt(c, 1) == True{} : Bool}) -> {Laws.rd_at(String, ALeaf{""}, c) == Laws.nthd("" <> Nil{}, c) : String}:
+  %Equal.sym(U32, c, 0, to_nat_zero(c, lt1_zero(c, hc))) : {Laws.rd_at(String, ALeaf{""}, _) == Laws.nthd("" <> Nil{}, _) : String}
+  {==}
+
+def Laws.dict_empty_wf():
+  ({==}, {==}, {==}, {==}, Unit{}, +c => hc => empty_entries(c, hc), ((Unit{}, ({==}, {==})), (Unit{}, Unit{})))

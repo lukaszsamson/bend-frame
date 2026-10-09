@@ -1993,3 +1993,107 @@ law strs_clone_w:
 law dict_clone_w:
   for d: ST.Dict
   DCloneW(d)
+
+# ---- the dictionary builders: Str.same, Dict.empty, Dict.code, Strs.encode ------------------------
+
+# LAW: Str.same (the index's key comparison) is sound and complete: equal strings exactly
+law str_same_sound:
+  for a: String
+  for b: String
+  for h: {ST.Str.same(a, b) == True{} : Bool}
+  {a == b : String}
+
+law str_same_complete:
+  for +a: String
+  {ST.Str.same(a, a) == True{} : Bool}
+
+# LAW: Dict.empty is the well-formed dictionary with the one entry "" (code 0)
+law dict_empty_wf:
+  WFDictE(ST.Dict.empty(), "" <> Nil{})
+
+# the look bit of the probe at a slot (Ix.look): 1 while the slot holds ANOTHER key
+def look_bit(+s: String, x: ST.SSlot) -> Bool:
+  match x:
+    case ST.SSlot{key, +id}:
+      Bool.and(U32.is_ne(id, 0), Bool.not(ST.Str.same(key, s)))
+
+def dslots(d: ST.Dict) -> Array<ST.SSlot>:
+  match d:
+    case ST.Dict{k, dd, strs, b, slots, tag}:
+      slots
+
+def dbits(d: ST.Dict) -> Nat:
+  match d:
+    case ST.Dict{k, dd, strs, b, slots, tag}:
+      b
+
+# HYPOTHESIS of the builder laws (not proven here, see DESIGN.md section 8): the probe for s in d's
+# index (Ix.seek: FNV-1a + Fibonacci slot, linear probing) stops at a slot that is empty or holds s.
+# Production guarantees it by the load factor <= 1/2 (an empty slot is always within the probe's
+# fuel) and the pairwise distinct entries; that termination argument is the part not proven.
+def Probe(-d: ST.Dict, +s: String) -> Type:
+  &x: ST.SSlot -> {x == rd_at(ST.SSlot, dslots(d), Pair.snd(Array<ST.SSlot>, U32, ST.Ix.seek(dbits(d), dslots(d), ST.Str.hash(s), s))) : ST.SSlot} & {look_bit(s, x) == False{} : Bool}
+
+# Dict.code's answer: the dictionary d2 with entries es2 (es plus at most one new entry) and the
+# code c of s in it: in range, decoding to s; d2 well formed
+def CodeW(-d: ST.Dict, +es: List<&2, String>, +s: String) -> Type:
+  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {ST.Dict.code(d, s) == (d2, c) : ST.Dict & U32} & {U32.is_lt(c, dk(d2)) == True{} : Bool} & {nthd(es2, c) == s : String} & Ext(es, es2) & {Nat.is_le(List.length(&2, String, es2), 1n+List.length(&2, String, es)) == True{} : Bool} & WFDictE(d2, es2)
+
+# LAW: Dict.code (the code of s, inserted when absent: Dict.code.h/k/p, Dict.add, Dict.fit, Dict.room,
+# the index Ix.seek/look/slot, Ix.grow/move) keeps the dictionary well formed, extends the entries by
+# at most s, and answers a code in range that decodes to s. Below 2^30 entries (the row cap keeps
+# every dictionary far below); under the probe hypothesis
+law dict_code_spec:
+  for d: ST.Dict
+  for +es: List<&2, String>
+  for +s: String
+  for wf: WFDictE(d, es)
+  for small: {U32.is_lt(dk(d), U32.shln(1, 30n)) == True{} : Bool}
+  for probe: Probe(d, s)
+  CodeW(d, es, s)
+
+# the probe hypotheses along Strs.encode's loop (Enc.go): row i against the dictionary built so far
+def EncProbe(f: Nat, +i: U32, -a: Array<String>, -d: ST.Dict) -> Type:
+  match f:
+    case 0n:
+      Unit
+    case 1n+p:
+      Probe(d, rd_at(String, a, i)) & EncProbe(p, U32.inc(i), a, Pair.fst(ST.Dict, U32, ST.Dict.code(d, rd_at(String, a, i))))
+
+# Strs.encode's answer on a Raw array: a Dictionary with well-formed codes (every row's code in
+# range) and dictionary, every row decoding to the Raw row
+def EncodeW(+n: U32, +d: Nat, -a: Array<String>) -> Type:
+  &codes: Array<U32> -> &dict: ST.Dict -> {ST.Strs.encode(n, d, ST.SRaw{a}) == ST.SDict{codes, dict} : ST.Strs} & WFArray(U32, d, codes) & WFDict(dict) & (@i: U32 -> {U32.is_lt(i, n) == True{} : Bool} -> {U32.is_lt(rdN(U32, d, codes, i), dk(dict)) == True{} : Bool} & {dentry(dict, rdN(U32, d, codes, i)) == rd_at(String, a, i) : String})
+
+# LAW: Strs.encode of a Raw column (Strs.encode.raw: Enc.go / Enc.step / Enc.put / Enc.fin over
+# Dict.code from Dict.empty) is a well-formed Dictionary whose every row i < n decodes to the Raw
+# row; n <= 2^d (the slots), n < 2^30 (the entry bound), under the probe hypotheses
+law strs_encode_cells:
+  for +n: U32
+  for +d: Nat
+  for a: Array<String>
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for small: {U32.is_lt(n, U32.shln(1, 30n)) == True{} : Bool}
+  for probes: EncProbe(U32.to_nat(n), 0, a, ST.Dict.empty())
+  EncodeW(n, d, a)
+
+# the probe hypotheses of Strs.encode on a storage (none for an already encoded Dictionary)
+def EncProbeS(+n: U32, s: ST.Strs) -> Type:
+  match s:
+    case ST.SRaw{a}:
+      EncProbe(U32.to_nat(n), 0, a, ST.Dict.empty())
+    case ST.SDict{codes, dict}:
+      Unit
+
+# LAW: Strs.encode keeps every cell: scell(encode(s), i) == scell(s, i) for i < n (a Dictionary is
+# kept as it is; a Raw column is encoded)
+law strs_encode_cell:
+  for +n: U32
+  for +d: Nat
+  for s: ST.Strs
+  for +i: U32
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for small: {U32.is_lt(n, U32.shln(1, 30n)) == True{} : Bool}
+  for hi: {U32.is_lt(i, n) == True{} : Bool}
+  for probes: EncProbeS(n, s)
+  {scell(ST.Strs.encode(n, d, s), i) == scell(s, i) : String}
