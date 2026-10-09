@@ -770,6 +770,17 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
   the binary under a running campaign. Do not run `make test` / `make diff` (hundreds of
   compiles) during a campaign: the 1-minute load went from ~5 to 25-33 and the 1M parse
   times rose ~30 %; the ratios between interleaved storages held, the absolute numbers did not.
+- **Merging the P2 typing proofs onto the storage sum type** (M4 after M5 part 2): the
+  witness style (`&y: T -> {f(x) == (x, y)}`) needs the ANSWER as a value, so a pure-model
+  equation (`strs_get_pure`) is not enough: write the witness by the same case split
+  (`strs_get_w`: Raw slot via `get_at_w`; Dictionary code, then entry), not as
+  `(scell(x, i), strs_get_pure(x, i))`, which consumes x twice. A source `match xa xb` with a
+  catch-all `case a b` does not reduce in a proof until both scrutinees are constructors:
+  split `xa` first, then `xb` only under the case that names it (`fill_str_w`), passing the
+  rebuilt constructor (`ST.SDict{ca, da}`) where the source passes `a`. Likewise
+  `match k od: case KFull{} _:` still needs `od` split for the KFull case (`fitd_f`).
+  A generated proof file is changed in its generator (scripts/proofgen/gen_evalrun.py), then
+  regenerated; `git diff` of the output is the review.
 
 ## M3 facade leftovers (DF.column, schema, height, collect_show)
 

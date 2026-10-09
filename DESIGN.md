@@ -2022,6 +2022,155 @@ to ONE instruction `ITable{TOp}` (so a proof's Instr case split grows by one cas
    `collect_show`; success for `schema` and `height`; `height` of the empty frame is the edge case).
    Expectations were reasoned from the table format and the error texts of 15.9 before the run.
 
+### M4 string experiment (Raw / Dictionary storage, streaming CSV reader, the default)
+
+Plan M_01 section 5. Measurements and the per-workload table: bench/README.md "M4 string
+experiment"; raw runs: bench/results/m4/*.jsonl; Bend lessons: IMPLEMENTING.md "M4".
+
+1. **Representation**: `CStr{len, depth, valid, data: ST.Strs}` (src/strs.bend) with
+   `ST.Strs = SRaw{data: Array<String>} | SDict{codes: Array<U32>, dict: ST.Dict}`, not a sixth
+   Column constructor (every 5-way match in src/ and the proof files would have needed a new
+   case). `Dict{k, dd, strs, b, slots, tag}`: k entries in `strs` (2^dd slots), an open-addressing
+   index (FNV-1a + Fibonacci slot, linear probing, load <= 1/2) instead of the plan's
+   `Map<String, U32>` (a Map lookup costs ~3x a probe and the reader codes every cell through
+   it), and a fingerprint `tag`. The dtype stays `str`; codes never show (not a categorical
+   dtype, not a rank, not a global id). Invariants: every valid row's code < k; entries pairwise
+   distinct; the index maps each entry to its code; **entry 0 is always `""`**, so a null row
+   holds code 0 and decodes to `""`, exactly the Raw invariant (an invalid slot holds the dtype
+   default) and `Strs.decode` is a plain gather; null stays validity, never an entry.
+2. **Tag is a fingerprint, not an identity** (deviation): Bend has no global counter, so `tag`
+   is an FNV mix of the entries in code order. Equal tags are verified entry by entry
+   (`Dict.same`) before two columns' codes are compared directly; otherwise the smaller
+   dictionary is re-coded into the larger (`Dict.recode`; a miss is `Dict.miss()` = 2^32 - 1,
+   never a code).
+3. **Operations** (section 5 list): `col == lit` / `!=` codes the literal once (a 1-row Str side
+   next to a Dictionary column broadcasts as a one-entry Dictionary, `Eval.fitd`, then the
+   column x column path re-codes 2 entries); column x column equality as in item 2; ordering
+   (sort keys, `<`/`<=`/`>`/`>=`, min / max) maps codes through `Dict.ranks` (one sort of the
+   entries; Base `Map.to_list` order = code points with a prefix first = `String.is_lt`); two
+   dictionaries are merged (`Dict.merge`) and the merged entries ranked once; group_by keys and
+   unique use the codes (densified); join keys: both sides' dictionaries coded into one key
+   space (`J.Key`), so equal values with different codes on the two sides meet (the measured
+   join files are built that way); string predicates, `len_chars`, `cast` from str and `is_in`
+   run once per ENTRY and gather by code (`Strs.map / map_maybe / map_p`); `when` and
+   `fill_null` over two Dictionaries merge them (`Eval.when.sd`, `Eval.fill.sd`); concat merges
+   explicitly (`Strs.append`: b's dictionary into a's, b's rows re-coded); a Raw x Dictionary
+   pair decodes the Dictionary side. gather / filter / head / slice / clone move codes only.
+   Render, dump, `Column.cell` decode (`Strs.get`).
+4. **Encoding decision** (`ST.StrEnc`): `EncRaw`, `EncDict` (always), `EncAuto` (by measured
+   cardinality): while reading, a column stays a Dictionary while its entries k satisfy
+   `k <= max(16384, rows_so_far / 64)` (`Csv.dict_over`, checked at every cell); past it the
+   column falls back to Raw at once, decoding the rows coded so far (the only rescan: of a
+   prefix, at most ~16k rows for a column distinct from the start; no rescan when the
+   selection is made). Threshold from the 1M-row sweep (bench/README.md): at 1 % distinct
+   (10,000 values) the Dictionary parse costs nothing measurable and every operation wins
+   13-55x; at 10 % (100,000) the parse costs ~30 % while group_by / sort still win; at 50 %
+   and fully distinct, forced Dictionary loses on parse (-32..-50 %), `<` against a literal
+   (ranking 1M entries: 36-50x slower), max over groups (3x slower), join (-15 %) and drop
+   (3.5-4.5x slower), which Auto avoids by falling back. `EncAutoAt{floor, den}` is the same rule
+   with other numbers (tests).
+5. **Streaming reader** (src/csv.bend, src/csvparse.bend): `Csv.read_full(path, opts, ts, enc,
+   chunk, cap)` reads pieces with `File.read` after a 4 KiB `File.read_at` probe for the
+   piece's last LF (so no UTF-8 sequence is split; a piece without a LF doubles), parses each
+   piece to records (the walk's state resumes on the next piece), and hands them to a sink:
+   header / width, blank lines, ragged records, dtype count, row cap, inference over the first
+   `infer_rows` records, then one typed builder per column (words, f32, Raw strings, or
+   Dictionary codes coded as produced). No list of every record, no Scalar lists, no
+   whole-file cons string. **Deviation: the default piece is 64 MiB (`Csv.chunk`), not 1 MiB**:
+   natively, 1 MiB pieces made the 41 MB read ~3x slower (9.0 s Raw / 8.5 s Dictionary at 1 MiB
+   vs 2.6 s / 1.9 s in one piece, at the time of the change; per-piece time rose from 65 to
+   ~200 ms over 40 pieces: the allocator's LIFO free lists hand the next piece scattered
+   memory, IMPLEMENTING.md M4). **Transient full-string materialisation that remains**
+   (reported, as section 5 asks): a file under 64 MiB is read as ONE transient `String` (the
+   41 MB benchmark file included), freed piece by piece as it is parsed; each field's text is a
+   transient cons string (a Dictionary cell's string is dropped once coded; a Raw cell's is the
+   cell). Larger files stream in 64 MiB pieces. Tests read with 1..64-byte pieces
+   (tests/csv_chunks.bend) and every storage gives the 1 MiB Raw dump.
+6. **Default (the gate)**: **`Csv.enc_default() = EncAuto`**: `read_csv`, `read_csv_opts`,
+   `read_csv_schema`, `Csv.parse*` and `scan_csv`'s collect hold a low-cardinality str column
+   as a Dictionary and a high-cardinality one as Raw. Gate (plan section 5): >= 1.5x median on
+   representative low-cardinality workloads, no material memory regression, no > 15 % median
+   slowdown on numeric or high-cardinality controls. Outcome (medians of 5 processes, A/B
+   interleaved, 1 and 12 threads; bench/README.md has every cell, spread and machine load):
+   **passed, Auto stays the default** (decided 2026-10-09 on the final measurement set).
+   Low-cardinality (the sales keys, 8-64 distinct) auto vs raw at 1M: q1 8.3-8.4x, q3
+   8.5-15.6x, q4 5.1-8.8x, q5 13.9-19.6x (100k 4.4-22.5x, 1k 2-4x); isolated operations on
+   8 / 64 / 1,000 distinct at 1M: eq 29-31x, gather 160-200x, sort 7.8-35x, group 22-91x,
+   join 8.9-33x. Memory: peak RSS auto <= raw in every sales cell (1M 1.28-1.35 GB vs
+   1.31-1.42 GB raw, 1.63-1.84 GB master); five repeated group_bys +2 % over one (raw +1-7 %).
+   Numeric controls: q2 pooled medians 0.90x / 1.02x at 1M (1 / 12 threads), 1.00x / 0.86x at
+   100k, inside 15 % but the closest cell (a 7-12 ms query at the noise floor); q6 1.37-1.52x
+   faster; numeric-keyed sort / group 2.3-3.4x faster. High-cardinality controls (fully
+   distinct columns at 100k and 1M, 100k / 500k distinct at 1M): auto 0.88-1.24x of raw,
+   median 1.00x, because Auto falls back to Raw (forced Dictionary would lose up to 50x on
+   `<`, 4x on drop, 1.5x on the parse). Targets: 3x on q1 / q3 / q5 met; **41 MB parse under
+   1.5 s not met**: 1.98 s auto at 12 threads (raw 2.46 s, master 4.28 s; 1 thread 4.38 /
+   4.53 / 8.95 s). The streaming reader's effect (master -> raw) and the dictionary's (raw ->
+   auto) separate: the reader parses the 41 MB file 1.98x / 1.74x faster with 18-24 % less
+   peak RSS and leaves the queries unchanged; the dictionary adds 1.03x / 1.24x on that parse
+   and 5-22x on the queries. Costs that remain: parsing long low-cardinality strings
+   (0.70-0.94x of raw's parse at 100k, prefix_1000 at 1M 0.79x), fully distinct Raw group_by /
+   sort stay slow (7.9-13 s at 1M), and a file under 64 MiB is read as one transient String
+   (item 5). The table with every cell, spread and load: bench/README.md "M4 string
+   experiment".
+7. **Facade** (15.2.7 rows added): `DF.read_csv_enc(path, opts, dtypes, enc)` with `DF.str_auto()`
+   (the default), `DF.str_raw()`, `DF.str_dict()` (type alias `DF.StrEnc()`);
+   `DF.encode_strings(f, dict: Bool)` converts every str column (values unchanged);
+   `DF.dict_columns(f) -> Frame & List<String>` names the Dictionary columns. Frames built from
+   literals (`DF.column`, `from_columns`) and new string results of expressions start Raw;
+   results computed from Dictionary columns stay Dictionaries. `scan_csv` has no storage
+   argument (its collect uses the default; a lazy query over another storage reads with
+   `read_csv_enc` and binds the frame with `DF.source`), so no Plan node changed.
+8. **Proofs**: `LAWS.ccell`'s Str case reads `LAWS.scell` (Raw: the slot; Dictionary: the
+   entry of the row's code), and `PROOF_contents` proves `ST.Strs.get` pure against it
+   (`strs_get_pure`), so `cell_pure` covers both storages. `WFColumn`'s Str case names the
+   storage (`WFStrs`, `WFDictCodes`). Every proof that only moves `data` (head, len, dtype,
+   witnesses) was unchanged. The P2 typing laws (section 8 row 13) cover both storages since
+   the merge of M5 part 2: `PROOF_eval` `strs_get_w` (the cell witness), `sclone_w` /
+   `dclone_w` (clone), `fill_str_w` / `when_str_w` (with the Dictionary merge paths),
+   `bcast_dict_w`, `isdict_w`; `PROOF_evalops` `aggs_*_w` / `aggdense_nu_s` (Str aggregations
+   per storage) and the Str casts / is_in / predicates through `ST.Strs.map_maybe` /
+   `map_p`; `PROOF_evalrun` `step2_d` / `fitd_w` (the binary step reads both operands'
+   storage and broadcasts a literal as a one-entry Dictionary next to a Dictionary). Because Auto (a Dictionary for low-cardinality columns) is the
+   default, plan section 5 puts the Dictionary's decode-preserving lemmas into the P1 chain
+   (plan section 6 P1: "Dictionary encode/decode/remap preserve the decoded Str cells"). Not
+   written in M4 (the proof agent's scope). Each lemma says: for every row i below the length,
+   `scell(op(s, ..), i)` equals the Raw operation's cell (equivalently `Strs.decode(op_dict(..))
+   == op_raw(Strs.decode(..))`), under `WFStrs` (every valid code < k, entries pairwise
+   distinct, the index maps each entry to its code, entry 0 is `""`), and `WFStrs` is preserved.
+   **Required for P1** (the functions the kernels P1 already covers call on a Dictionary, plus
+   encode / decode / remap):
+   - the model: `Dict.decode` / `Strs.decode` (a gather of `strs` by `codes`: row i decodes to
+     `scell(s, i)`, via `gather_contents`);
+   - encode: `Strs.encode` (`Strs.encode.raw`, `Enc.put`, `Enc.step`, `Enc.go`, `Enc.fin`),
+     `Dict.code` (`Dict.code.p` / `.k` / `.h`, `Dict.add`, `Dict.fit`, `Dict.room`) and the index
+     (`Ix.slot`, `Ix.look`, `Ix.seek` / `Ix.seek.go`, `Ix.grow` / `Ix.grow.go`, `Ix.move` /
+     `Ix.move.k`, `Str.same` sound and complete; `Str.hash` / `Str.fnv` need only determinism),
+     `Dict.find`, `Dict.empty` (entry 0 = `""`);
+   - decode back and the column / frame wrappers: `Strs.raw`, `Column.encode`, `Column.decode`,
+     `Column.recode`, `Frame.encode`;
+   - remap: `Dict.recode` (`Dict.rc`, `Dict.rc.op` / `.put` / `.step` / `.go` / `.fin` /
+     `.fin2`; a miss, `Dict.miss()`, is never a code), `Dict.merge`, `Dict.same` (`Dict.same.*`:
+     true implies equal entries), `Strs.append` (`Strs.app.m`) under `Cat.col` (concat);
+   - the P1 kernels' Str-Dictionary case: `Strs.gather` / `Strs.compact` (codes only; under
+     `Column.gather.data`, `Column.compact.data`, `Column.slice`), `Strs.clone` / `Dict.clone`
+     (`Column.clone.s`), `Strs.fix` (null slots to code 0, which decodes to `""`), and
+     `Strs.get` (done: `strs_get_pure`);
+   - fill_null / when over two Dictionaries (P1's validity combinators): `Eval.fill.sd` /
+     `Eval.fill.sd2`, `Eval.when.sd` / `Eval.when.sd2` (merge, then recode), `Eval.fix.s`.
+   **Only if a later claim reaches them** (string expressions and comparisons are P2 / P3
+   scope, not P1): `Strs.map` (`Dict.map.k` / `.t` / `.t2`), `Strs.map_maybe` (`Dict.mm.t` /
+   `.g`), `Strs.map_p` (`Dict.mp.t` / `.t2`), `Strs.const`, `Eval.fitd`, `Eval.zd.eq.*`,
+   `Eval.zd.ord*` with `Dict.ranks` (`Dict.rk.*`; rank order = `String.is_lt` order needs a
+   Base `Map.to_list` order lemma), `Eval.ds.*` (min / max / first by rank), `Eval.agg.sd`,
+   `Eval.isin`, `Eval.strpred.k`, `Eval.cast.s`, `Eval.zip.dd`.
+   **Excluded by plan section 6** (CSV, hash-join, radix-sort and grouping partition stay
+   tested, not proven): the reader's builder (`Ds.put`, `Ds.cell`, `Ds.go`, `CB.d.*`,
+   `Parts.dec*`, `Csv.dict_over`), `Sort.dict_words` (`.b`), `Grp.enc.dict` / `Grp.enc.dk.*` /
+   `Grp.enc.sk`, `Grp.agg.v`, `Key.enc.*` / `Join.fix`. These are covered by
+   tests/strs_decode.bend, tests/csv_chunks.bend, tests/facade_m4.bend and the differential
+   generator's Dictionary mode (`make diff DIFF_ARGS=--dict`).
+
 ### M5 (proof closure: P1 buffer contents; P2 / P3 not reached)
 
 1. **What M5 delivered**: LAWS.bend section 11 and `PROOF_bits.bend` /
@@ -2109,6 +2258,13 @@ to ONE instruction `ITable{TOp}` (so a proof's Instr case split grows by one cas
    `eval_agg_typed` over strings, `eval_fill_typed` / `eval_when_typed` / `eval_bin_typed` on
    string operands) wherever `eval.bend` takes the dictionary path; `run_typed` and the entry
    points are representation-agnostic and need no change.
+   (Done when M4 merged this branch, 2026-10-09: the Str storage is a sum type inside `CStr`,
+   not a sixth constructor, so `cdtype` / `clen` / `len_w` / `dtype_w` / `col_dup2` /
+   `clen_dup` / `get_cloned_typed` needed nothing; `cell_w`, `clone_w`, the constant builders
+   of `bcast_typed` / `unit_typed` (a Raw constant) and the string operation laws got
+   per-storage cases; and
+   `run_typed` DID need one change: the binary step reads both operands' storage (`step2_d`,
+   `fitd_w`). Section 14 "M4 string experiment" item 8.)
 6. **Fixtures**: `tests/proof_negative/head_sink_below_select.bend` (the release pass sinking
    below every Select is refused by the `hmerge_run` term), `un_neg_wrong_dtype.bend` (Neg over
    i32 answering u32 is refused by the `eval_un_typed` case), `fit_no_broadcast.bend` (a stack
