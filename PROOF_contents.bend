@@ -778,3 +778,59 @@ def iota_fin(+d: Nat, +n: U32, +off: U32, +k: U32, hk: {U32.is_lt(k, n) == True{
 
 def Laws.iota_cell(d, n, off, k, fits, hk):
   iota_fin(d, n, off, k, hk, iota_go(U32.to_nat(n), 0, d, off, Array.new(U32, d, 0), Laws.wf_new(U32, d, 0), B.room_from(d, n, fits))(ihyp0(d, off, Array.new(U32, d, 0))))
+
+# ---- Kernel.fold: the running sum (U32.add instance; Laws.FSum is the Type-level spec) -----------
+
+def FAdd(x: U32, y: U32) -> U32:
+  U32.add(x, y)
+
+# the fold with fl steps left at index i and accumulator acc, pending read r of a[i]
+def FGoal(fl: Nat, +i: U32, +acc: U32, -a: Array<U32>, -r: Array<U32> & U32) -> Type:
+  &a2: Array<U32> -> &res: U32 -> {K.Kernel.fold.go(~U32, ~U32, ~(x => y => U32.add(x, y)), fl, i, acc, r) == (a2, res) : Array<U32> & U32} & {a2 == a : Array<U32>} & Laws.FSum(fl, i, acc, a, res)
+
+def fold_zero(+i: U32, +acc: U32, -a: Array<U32>, w: &b: Array<U32> -> &x: U32 -> {b == a : Array<U32>} & {Array.get(U32, a, i) == (a, x) : Array<U32> & U32} & {x == Laws.rd_at(U32, a, i) : U32}) -> FGoal(0n, i, acc, a, Array.get(U32, a, i)):
+  (a2, +x, ea, e1, ex) = w
+  %Equal.sym(Array<U32> & U32, Array.get(U32, a, i), (a, x), e1) : FGoal(0n, i, acc, a, _)
+  %ea : FGoal(0n, i, acc, _, (_, x))
+  (a2, acc, {==}, {==}, {==})
+
+# the induction hypothesis repackaged: the cell x read at i names the step of FSum
+def fold_step(p: Nat, +i: U32, +acc: U32, -a: Array<U32>, +x: U32, ex: {x == Laws.rd_at(U32, a, i) : U32},
+  w: &a3: Array<U32> -> &res: U32 -> {K.Kernel.fold.go(~U32, ~U32, ~(x2 => y => U32.add(x2, y)), p, U32.inc(i), U32.add(acc, x), Array.get(U32, a, U32.inc(i))) == (a3, res) : Array<U32> & U32} & {a3 == a : Array<U32>} & Laws.FSum(p, U32.inc(i), U32.add(acc, x), a, res))
+  -> FGoal(1n+p, i, acc, a, (a, x)):
+  (a3, +res, eq, ea3, spec) = w
+  (a3, res, eq, ea3, (x, ex, spec))
+
+def fold_cons(p: Nat, +i: U32, +acc: U32, -a: Array<U32>, w: &b: Array<U32> -> &x: U32 -> {b == a : Array<U32>} & {Array.get(U32, a, i) == (a, x) : Array<U32> & U32} & {x == Laws.rd_at(U32, a, i) : U32},
+  ih: @a2: Array<U32> -> @x: U32 -> FGoal(p, U32.inc(i), U32.add(acc, x), a2, Array.get(U32, a2, U32.inc(i))))
+  -> FGoal(1n+p, i, acc, a, Array.get(U32, a, i)):
+  (a2, +x, +ea, e1, ex) = w
+  %Equal.sym(Array<U32> & U32, Array.get(U32, a, i), (a, x), e1) : FGoal(1n+p, i, acc, a, _)
+  %ea : FGoal(1n+p, i, acc, _, (_, x))
+  fold_step(p, i, acc, a2, x, Equal.trans(U32, x, Laws.rd_at(U32, a, i), Laws.rd_at(U32, a2, i), ex, Equal.sym(U32, Laws.rd_at(U32, a2, i), Laws.rd_at(U32, a, i), Equal.cong(Array<U32>, U32, q => Laws.rd_at(U32, q, i), a2, a, ea))), ih(a2, x))
+
+def fold_go(fl: Nat, +i: U32, +acc: U32, a: Array<U32>) -> FGoal(fl, i, acc, a, Array.get(U32, a, i)):
+  match fl:
+    case 0n:
+      fold_zero(i, acc, a, get_w(U32, a, i))
+    case 1n++p:
+      fold_cons(p, i, acc, a, get_w(U32, a, i), a2 => x => fold_go(p, U32.inc(i), U32.add(acc, x), a2))
+
+def fold_sum_fin(+n: U32, -a: Array<U32>, +z: U32, w: FGoal(U32.to_nat(n), 0, z, a, Array.get(U32, a, 0))) -> Laws.FSum(U32.to_nat(n), 0, z, a, Pair.snd(Array<U32>, U32, K.Kernel.fold.go(~U32, ~U32, ~(x => y => U32.add(x, y)), U32.to_nat(n), 0, z, Array.get(U32, a, 0)))):
+  (a2, res, eq, ea, spec) = w
+  %Equal.sym(Array<U32> & U32, K.Kernel.fold.go(~U32, ~U32, ~(x => y => U32.add(x, y)), U32.to_nat(n), 0, z, Array.get(U32, a, 0)), (a2, res), eq) : Laws.FSum(U32.to_nat(n), 0, z, a, Pair.snd(Array<U32>, U32, _))
+  spec
+
+def Laws.u32_fold_sum(n, a, z):
+  fold_sum_fin(n, a, z, fold_go(U32.to_nat(n), 0, z, a))
+
+def fold_keeps_fin(+n: U32, -a: Array<U32>, +z: U32, w: FGoal(U32.to_nat(n), 0, z, a, Array.get(U32, a, 0))) -> {Pair.fst(Array<U32>, U32, K.Kernel.fold.go(~U32, ~U32, ~(x => y => U32.add(x, y)), U32.to_nat(n), 0, z, Array.get(U32, a, 0))) == a : Array<U32>}:
+  (a2, res, eq, ea, spec) = w
+  %Equal.sym(Array<U32> & U32, K.Kernel.fold.go(~U32, ~U32, ~(x => y => U32.add(x, y)), U32.to_nat(n), 0, z, Array.get(U32, a, 0)), (a2, res), eq) : {Pair.fst(Array<U32>, U32, _) == a : Array<U32>}
+  ea
+
+def Laws.u32_fold_keeps(n, a, z):
+  fold_keeps_fin(n, a, z, fold_go(U32.to_nat(n), 0, z, a))
+
+def Laws.popcount_sum(n, mask):
+  fold_sum_fin(n, mask, 0, fold_go(U32.to_nat(n), 0, 0, mask))

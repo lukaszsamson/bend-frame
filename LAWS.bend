@@ -1205,3 +1205,35 @@ law iota_cell:
   for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
   for hk: {U32.is_lt(k, n) == True{} : Bool}
   {rd_at(U32, K.Kernel.iota_from(n, d, off), k) == U32.add(off, k) : U32}
+
+# the modulo-2^32 running sum of the first f cells from index i, started at acc: res is it
+# (the Type-level spec of Kernel.fold with U32.add; each cell is named so the mask is read
+# once per step)
+def FSum(f: Nat, +i: U32, +acc: U32, -a: Array<U32>, +res: U32) -> Type:
+  match f:
+    case 0n:
+      {res == acc : U32}
+    case 1n+p:
+      &x: U32 -> {x == rd_at(U32, a, i) : U32} & FSum(p, U32.inc(i), U32.add(acc, x), a, res)
+
+# LAW: the production U32 fold with U32.add is the modulo-2^32 sum of the first n cells
+# (what sum() over a U32 column computes, after its nulls are compacted away)
+law u32_fold_sum:
+  for +n: U32
+  for a: Array<U32>
+  for +z: U32
+  FSum(U32.to_nat(n), 0, z, a, Pair.snd(Array<U32>, U32, K.Kernel.fold(~U32, ~U32, ~(x => y => U32.add(x, y)), n, a, z)))
+
+# LAW: the fold hands the array back unchanged
+law u32_fold_keeps:
+  for +n: U32
+  for a: Array<U32>
+  for +z: U32
+  {Pair.fst(Array<U32>, U32, K.Kernel.fold(~U32, ~U32, ~(x => y => U32.add(x, y)), n, a, z)) == a : Array<U32>}
+
+# LAW: Kernel.popcount (the kept-row count of filter, the valid count of null_count / sum / mean)
+# is the modulo-2^32 sum of the first n mask words
+law popcount_sum:
+  for +n: U32
+  for mask: Array<U32>
+  FSum(U32.to_nat(n), 0, 0, mask, Pair.snd(Array<U32>, U32, K.Kernel.popcount(n, mask)))
