@@ -127,22 +127,100 @@ Machine: M2 Pro, 12 cores; load average 3-25 throughout (other agents running; p
   frame.bend, native build + run of examples/quickstart.bend (output pinned), a separate consumer dir importing the clone by relative and by
   absolute path (`--check-only`, native build, run, output verified; interpreter output equal). All green (about 1 min).
 - Gates: `make check` and `make test` (141/141, 0 XFAIL) green on this tree; `make proofs` / `make verdict` not re-run here (no proof file touched).
-- Stale prose noticed, not changed (other owners): README.md says "71 laws" and its "Not yet proven" paragraph predates M5; both should
-  be refreshed with the final proof counts (see 'M5 part 2': 116 laws) when the proof agent finishes.
+- Stale prose noticed, not changed (other owners): README.md said "71 laws" and its "Not yet proven" paragraph predated M5.
+  (Fixed in the M6 final pass below.)
 - Defects found: none (no regression test or fix needed).
 
+## M5 part 4 (merged 2026-10-09, f448ca8)
+- 147 laws (LAWS section 15, PROOF_append.bend / PROOF_inplace.bend): `append_cells` (Kernel.append), `strs_append_cells`
+  (concat's Str storage, both storages), `mask_data_cell` / `_keeps_mask`, `choose_cell` / `_keeps_mask`, `fix_cell` (Eval.fix,
+  every column kind), `fill_str_cell` (fill_null on Str, both storages), `when_str_data` (when's Str storage; validity not stated).
+  Merged without DESIGN / STATUS updates and without fixtures; both done in the M6 final pass.
+
+## M6 release candidate (final pass, 2026-10-09; HEAD 6f71462 and later doc commits)
+Work: two part-4 mutation fixtures (`tests/proof_negative/append_right_offset.bend`: Kernel.append copying b from na + 1, refused
+by `append_cells`; `choose_inverted_mask.bend`: Kernel.choose with the mask test inverted, refused by `choose_cell`; each with a
+positive control that checks, `make check` skips both); DESIGN section 8 final (147 laws, file list, timings, row 15, assurance
+matrix rows for every part-4 law, the exact numbered "not proven, tested only" list, final G6 text) and section 14 "M5 part 4" /
+"M6"; README rewritten (release claim verbatim, Not claimed, laws paragraph, Limits, differences, performance, Development);
+CHANGELOG.md (0.1.0); frame.bend: a stale `describe` comment ("a stub") corrected (comment only).
+
+Gates on this tree (machine load average 15-55 during the runs, other processes; timings are therefore upper bounds):
+- `make ci` (toolchain-check, check, runner-check, test, proofs, verdict, bench-check): **all gates passed**, 4 min 14 s.
+  `make test` 143/143, 0 XFAIL (incl. 11 proof mutation fixtures); `make check` green (skips the 11 fixtures); toolchain pins match;
+  bench-check: comparator self-test 28/28, q1-q6 at 1k and 100k identical to the Polars goldens (q6 100k: 1 float cell within
+  tolerance).
+- `make proofs` ALL PROOFS CHECK in 1.7-2.3 s wall; `make verdict` ALL PROOFS CHECK in 5.1-5.5 s wall (load 22-38).
+- `make diff SEED=1 N=1000`: 0 failing, 0 crashes, 0 oracle errors, 0 inadmissible, 113 invalid programs (expected errors).
+  `make diff SEED=1 N=1000 DIFF_ARGS=--dict`: the same (0 / 0 / 0 / 0, 113 invalid).
+- `make diff-reduce SEED=1` (2000 cases): no findings (tightest bound use 1.0 of the derived bound).
+- `scripts/consumer_check.sh` on the clean clone of 6f71462: all ok (check-only, native quickstart, relative and absolute
+  imports from a separate directory, interpreter output equal).
+
+### Definition of done (plan section 8), checked against the repo
+- [x] **Every defect from both reviews has a regression test and a disposition.** DESIGN 15.10 lists 54 rows (B01-a .. B05-i).
+  Every B01-B04 row except the README row B04-f has a `tests/regress/<ID>_*.bend` (56 files incl. NEW-1 / NEW-2), all passing,
+  no `#! xfail` left. The tooling / doc rows: B05-a/b/c by `bench/tests/test_check.py` (28 cases, run by bench-check); B05-d by
+  `scripts/bench.sh` check mode (exits 1 on a mismatch or a missing output; the `|| true` left is in the timing loop only, after
+  the check); B05-e no "Kahan" left in README, check.py, groupby.bend; B05-f CI workflow exists and `make check` covers the
+  facade, examples and bench files; B05-g `B05_g_optimizer_traps.bend` + the T2.1 differential; B05-h
+  `tests/proof_negative/mask_not_slots_doubled.bend`; B04-f and B05-i: README rewritten (no "exactly what collect_schema
+  refuses", no "byte-identical", law count 147 with the scope).
+- [x] **Section 2 API and semantics implemented, eager and lazy, documented.** DESIGN 15.2 (frozen contract); the M3 gap check
+  compared all 83 `DF.` names of 15.2 with frame.bend (none missing); tests/facade*.bend, lazy_collect, table_verbs, expr_*;
+  README Features lists the surface. Deferred by the plan itself: full join, top-k.
+- [x] **Eager / raw-lazy / optimised-lazy agree on the full test matrix.** T2.1 in the differential generator compares eager,
+  `collect_raw`, `collect` and `collect_full` (errors and row order included): 22,000 cases in the M6 run (Raw, Dictionary,
+  join stress, interpreter vs native) and the two 1000-case runs above, 0 failing. Inadmissible programs (15.9) are counted apart.
+- [x] **Correctness failures fail the build; the benchmark cannot hide a mismatch.** `make ci` stops at the first failing gate (make prerequisites);
+  `bench-check` exits 1 on any mismatch, a missing output, or when nothing was compared; `make diff` exits 1 on an unexplained
+  failure, a crash or an oracle error. Gap: the GitHub workflow has never run (no remote), so "the build" is `make ci` locally.
+- [~] **Default optimizer theorem passes --verdict, with non-trivial R1-R5 applications tested and witnessed.** `release_run` /
+  `release_run_obs` pass `bend` and `--verdict` for every plan and env. R1 is proven and witnessed (theorem + the
+  `head_rule_outer_wins` / `head_sink_below_select` fixtures). GAP: by the P3 fallback (M5 part 2) the release optimizer is R1
+  only; R2-R5 live in the opt-in `optimize_full`, are TESTED (tests/plan_optimize.bend explains each rewrite firing,
+  B05_g traps, T2.1 compares `collect_full` with raw on every generated case) but not theorems, and the generator does not record
+  how often each rewrite fired.
+- [~] **Production map/zip/gather/compact/head/mask and reduction proofs exist as scoped; the shipped string representation is
+  covered.** Proven: gather, compact, map/zip mask combinators, iota, U32 fold sum, popcount, head / slice (U32) / cell, append,
+  mask_data, choose, Eval.fix (every kind), and both Str storages through decode / gather / compact / clone / encode / merge /
+  recode / find / append / fix / fill_null / when's storage. GAPS (DESIGN 8 "Not proven" list): the plan's grouped scatter
+  per-group invariant (count / U32 sum) was not reached; the F32 / String instances of the kernel laws are not stated
+  separately (template proofs, used at String / F32 inside the column laws); Dictionary per-entry maps, rank order, comparisons
+  and index completeness are tested only; the probe hypothesis is assumed.
+- [x] **No theorem relies on an unproved runtime-to-model bridge, an assumed conclusion, or an alternative implementation.** The
+  models (`rd`, `rd_at`, `ccell`, `scell`) are tied to the production readers by proven laws (`array_get_pure`, `cell_pure`,
+  `decode_cell`); 147 `law`s, 147 `def Laws.*`, no `@unsafe` / axiom / open law. Stated hypotheses (CRoom, CatFits, Probe /
+  MergeProbe, WFDict) are premises listed in the assurance matrix, not conclusions.
+- [x] **String experiment completed; the default is justified by measurements.** M4 gate passed (bench/README.md "M4 string
+  experiment"; Auto default: 5-20x on q1/q3/q4/q5 at 1M, controls within 15 %). The 41 MB parse target (< 1.5 s) was not met
+  (1.98 s at 12 threads), stated in README and bench/README.
+- [x] **Limits, F32 accuracy, parse behaviour, source ownership and benchmark headlines are truthful in README and
+  bench/README.md.** README: release claim verbatim + Not claimed, Limits (row cap, dtypes, memory, no accuracy theorem, the
+  out-of-scope list one line each), CSV parse behaviour, sources (several frames per env, a frame read more than once, frames
+  handed back as pairs), performance consistent with the bench/README M6 table (shared-machine load, ~1.0x thread scaling,
+  1.3 GB vs 168 MB, 30-330x on distinct strings, parse cost). Differences-from-Polars list re-checked against DESIGN 14/15.
+- [x] **Clean consumer import, build and examples work on pinned toolchains.** `make toolchain-check` ok; consumer_check green
+  on a clean clone; `make check` checks every example; tests/examples_m3.bend runs sales_summary and dirty_csv. Deviation (user
+  decision): no throwaway hub publish; the hub upload is first exercised by the real publish.
+
+### The publish (NOT done; the user decides)
+From the repo root, after `~/.bend/bin/bend login`:
+    ~/.bend/bin/bend frame.bend --publish bend-frame@0.1.0.0
+Uploads frame.bend and its transitive `./` imports: the 19 files of src/ (analysis, column, csv, csvparse, dtype, dump, err,
+eval, exec, expr, fmt, groupby, join, kernels, plan, schema, sort, strs, table; 577 KB with frame.bend), plus every file named
+exactly `LICENSE` beside a published file: the root `LICENSE` (SPDX MIT, beside frame.bend; verified). src/ has no LICENSE of
+its own. No hub dependencies (only Base). LAWS / PROOF*, tests, bench, examples are not uploaded. Public and permanent.
+
 ## In progress
-- nothing (M5 part 3 stops at the laws above; the remaining Dictionary items are listed under
-  M5 part 3 "Not done").
+- nothing.
 
 ## Decisions
 - 2026-10-09 (user): no throwaway hub publish in M6. The clean-consumer check uses a local
   import from a clean clone; the only publish is the proper `bend-frame@0.1.0.0`, done when
   ready and with explicit approval.
 
-## Next (per plan §7)
-Merge M5 part 3; then M6 (release candidate; no throwaway publish, see Decisions). Optional before
-M6: the in-place kernel content theorems (`Kernel.mask_data`, `Kernel.choose`) and `Kernel.append`,
-which would close `Strs.fix`, fill / when over Dictionaries and concat.
-Not yet measured: the cost of the narrower default optimizer (no predicate
-or projection pushdown) on the q1–q6 benchmark.
+## Next
+- The user decides on the `bend-frame@0.1.0.0` publish (command above). Optional, not v0.1: push to a remote so the CI workflow
+  runs once; the gaps in the DoD (R2-R5 as theorems, the grouped scatter invariant, Dictionary completeness / per-entry maps /
+  rank order) are v0.2 proof work.
