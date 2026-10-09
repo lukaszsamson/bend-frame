@@ -793,3 +793,47 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
   with the recurring sub-terms as variables (`gen_slice.py`): the patterns are too long to
   type twice without a slip.
 - **Timings**: 90 laws, `bend PROOF.bend` ~0.6 s wall / 1.7 s CPU; `--verdict` ~2.0 s wall.
+
+## M5 proofs (P2 evaluator typing: operations, the stack machine, Eval.full / Eval.expr)
+
+- **Erased forall binders exist**: `@-x: A -> B`. A hypothesis about affine values that the
+  lemma applies itself (`hex: @-f3: C.Frame -> @-stk3: List<&1, V.Slot> -> {Eval.exec(h, i, f3,
+  stk3) == EvSt{f3, Eval.app1(h, i, stk3)}}`) must bind them erased, or applying it consumes the
+  frame and the stack the lemma still needs. The caller fills it with `f3 => stk3 => {==}`; this
+  is how a step lemma generic in the instruction `i` makes `Eval.exec(h, i, ..)` (a match on i)
+  reduce without a case split.
+- **A term over an affine value in a live Data position consumes it**: `wrap_w(.., Laws.clen(c),
+  ..)` or `X.Cast.total(Laws.cdtype(c), to)` passed to a `+n: U32` / `+tot: Bool` parameter is a
+  second use of `c` (and an erased `-f` cannot feed `Laws.fschema(f)` to a live parameter at
+  all). Make the parameter erased when it only appears in types (`resw_len(-tot, .., -n2, ..)`),
+  or hand the number out as a Data witness beside the value: `len_k` (Column.len pinned to n),
+  `height_dup` (Frame.height with the height as a U32), `schema_dup` (Frame.schema with the
+  schema as a Data list, by induction over the columns through `dtype_w` and `col_dup2`).
+- **Sigma witness ordering**: the LAST component cannot be marked `+` when destructured, so a
+  fact needed twice goes earlier (`&f2 -> &n -> {n == fheight f} & {height f == (f2, n)} & {f2 ==
+  f}`: `+n` and `+en`, the frame equation last and used once).
+- **`match x` after a destructuring let is refused** ("matched after a local statement"):
+  destructure inside each case (`agg_stepc_*`: `match op:` first, `(ed, el) = hc` per case).
+- **The induction hypothesis as a forall hypothesis**: `IH(e, s, h)` is a 12-binder dependent
+  function type (code suffix, frame, stack, shape, the two frame facts, the stack invariant, the
+  record fields, the analysis equation); the law passes `acc2 => f2 => .. => ha2 =>
+  Laws.run_typed(e2, s, h, acc2, f2, ..)` and the node lemma applies it once per operand (a
+  forall hypothesis is affine). Closing over `+` Data (e2, s, h) only; the affine values are
+  binders.
+- **Ana injectivity through projections**: `Equal.cong(A.Ana, D.DType, a => A.Ana.dtype(a), ..)`
+  on `L.done_inj(..)` gives `{t2 == t}` with the SUB-record on the left, exactly the direction
+  the goal rewrite `%et : RunW(h, _, ..)` wants (goal has the law's t at the hole, becomes the
+  record's t2). Compute `+ea = L.done_inj(..)` once and project three times.
+- **Symbolic shape tests instead of case splits**: `Eval.do2.a` / `do3.a` compute `n`, `bad` and
+  the fits from `SKind.is_full` of the slot kinds; with the kinds as variables the terms are
+  stuck but can be passed as they are to a lemma whose hypothesis is `{bad == False}` and whose
+  length fact is `{fitlen(..) == klen(comb(..), h)}`, each proven once by a 9- / 27-case lemma
+  (`bad2_false`, `len2`, `bad3_false`, `len3`). The motive for the `is_ne(h, h)` rewrite is the
+  normalized `Bool.or(_, Bool.or(_, False{}))` shape, which is convertible with the goal.
+- **`(%e : P; t)` cannot be a let right-hand side**: wrap it in a lemma (`ana_along_s`) when the
+  transported hypothesis is needed twice.
+- **Probe files**: a probe in `build/probes/` importing `./../../LAWS.bend` and the PROOF files it
+  reuses type-checks a lemma in isolation (`bend p.bend --check-only`; the "N TODOs" it reports
+  are the laws the imported files do not prove). Iterate there, then paste into the generator.
+- Timings: 116 laws, `bend PROOF.bend` ~1.2 s wall / 2.2 s CPU, `--verdict` ~2.9 s wall, on a
+  machine with load average 14.

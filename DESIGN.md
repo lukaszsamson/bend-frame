@@ -758,22 +758,27 @@ therefore sequential inside a column and parallel ACROSS independent work:
 
 ## 8. Laws (`LAWS.bend`) and how they are proven (`PROOF*.bend`) [opus]
 
-Status (M5, P1 closed): `LAWS.bend` states 90 laws over `src/`; `PROOF.bend`
-imports `PROOF_lib`, `PROOF_schema`, `PROOF_expr`, `PROOF_plan`,
-`PROOF_kernels`, `PROOF_exec`, `PROOF_bits` and `PROOF_contents` (one file per
-area; `L.*` is the shared toolkit, `B.*` the word-level toolkit) and proves all
-of them: `bend PROOF.bend` prints ALL PROOFS CHECK in ~0.6 s wall (1.6 s CPU,
-`make proofs`), `bend PROOF.bend --verdict` prints it again under the
-independent BendTT kernel in ~1.9 s (`make verdict`). No `@unsafe`, no foreign
-code, no open law, no axiom. Four negative fixtures in `tests/proof_negative/`
-(plan M_01 T5) show the claims are load-bearing: a slots law falsified to
-2^(d+1); a mutated copy of the production head rule `Opt.hmin` (the outer
-limit wins) that the real R1 proof term is refused for; a copy of
-`Kernel.gather.go` reading the source at the wrong index (plus one) that the
-real `gather_contents` term is refused for; and a copy of
-`Kernel.compact_keep.go` with a flipped mask (the cursor advances on a 0 word)
-that the real `compact_contents` term is refused for, each with the mutated
-kernel in the checker's `expected` and the production one in `observed`.
+Status (M5 part 2, P1 and P2 closed, P3 by the fallback): `LAWS.bend` states 116
+laws over `src/`; `PROOF.bend` imports `PROOF_lib`, `PROOF_schema`, `PROOF_expr`,
+`PROOF_plan`, `PROOF_kernels`, `PROOF_exec`, `PROOF_bits`, `PROOF_contents`,
+`PROOF_eval`, `PROOF_evalops` and `PROOF_evalrun` (one file per area; `L.*` is the
+shared toolkit, `B.*` the word-level toolkit) and proves all of them: `bend PROOF.bend`
+prints ALL PROOFS CHECK in ~1.2 s wall (2.2 s CPU, `make proofs`), `bend PROOF.bend
+--verdict` prints it again under the independent BendTT kernel in ~2.9 s (`make
+verdict`; both measured on a machine with load 14). No `@unsafe`, no foreign code, no
+open law, no axiom. Seven negative fixtures in `tests/proof_negative/` (plan M_01 T5)
+show the claims are load-bearing: a slots law falsified to 2^(d+1); a mutated copy of
+the production head rule `Opt.hmin` (the outer limit wins) that the real R1 proof term is
+refused for; a copy of `Kernel.gather.go` reading the source at the wrong index (plus one)
+that the real `gather_contents` term is refused for; a copy of `Kernel.compact_keep.go`
+with a flipped mask (the cursor advances on a 0 word) that the real `compact_contents`
+term is refused for; a copy of the release head pass `Opt.hmerge` that sinks the limit
+below every Select (certificate or not) that the real `hmerge_run` term is refused for; a
+copy of the unary evaluator in which Neg over i32 answers a u32 column (same words, wrong
+dtype) that the real `eval_un_typed` case is refused for; and a copy of the stack
+machine's `Eval.fit` that does not broadcast a 1-row side, refused by the `fit_w` shape
+lemma behind `run_typed`; each with the mutated function in the checker's `expected` and
+the production one in `observed`.
 
 Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 
@@ -782,21 +787,23 @@ Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 | 1 Schema (`PROOF_schema`) | `project_nil`, `project_length`, `project_names`, `with_existing_keeps_width`, `with_new_appends` |
 | 2 Expr typing (`PROOF_expr`) | `dtype_eq_refl`, `alias_name`, `col_name`, `alias_type`, `alias_is_agg`, `agg_is_agg`, `col_refs`, `lit_type`, `col_type`, `cmp_type_bool`, `arith_type`, `mod_type`, `logic_type`, `cast_type`, `is_null_type`, `is_not_null_type`, `counting_type`, `keeping_agg_type`, `sum_type`, `mean_type` |
 | 3 Plan.schema (`PROOF_plan`) | `source_schema`, `head_keeps_schema`, `filter_keeps_schema`, `filter_schema_is_input`, `sort_keeps_schema`, `sort_schema_is_input`, `select_cols_is_project`, `select_cols_names`, `with_column_keeps_width` |
-| 4 Optimizer, schema level (`PROOF_plan`) | `head_pass_keeps_schema`, `merge_pass_keeps_schema`, `merge_head_keeps_schema`, `merge_pass_merges`, `merge_fixed_point`, `merge_idempotent`, `head_pass_merges` |
+| 4 Optimizer, schema level (`PROOF_plan`) | `head_pass_keeps_schema`, `merge_pass_keeps_schema`, `merge_head_keeps_schema`, `merge_pass_merges`, `merge_fixed_point`, `merge_idempotent`, `head_pass_merges`, `hmerge_keeps_schema`, `hmerge_merges` (the release pass `Opt.hmerge` keeps the schema and leaves no adjacent Heads) |
 | 5/5b Columns, kernel shape (`PROOF_kernels`) | `head_len`, `head_dtype`, `mask_not_slots`, `mask_and_slots`, `iota_slots` (2^d slots through the model `Laws.slots` of `Array.size`) |
 | 6 I32 (`PROOF_lib`) | `i32_add_comm`, `i32_bits_roundtrip` |
 | 7 Names and numbers (`PROOF_lib`) | `u32_min_comm`, `u32_min_assoc` (from Word.cmp antisymmetry and transitivity, by induction over the 32-bit word), `str_eq_refl`, `str_eq_sound` (the runtime `String.eq` is reflexive and equal names are the same string: the P0 name-equality spike closed, no local `Str.eq` was needed), `names_has_head` |
-| 8 The production runner (`PROOF_exec`) | `frame_head_head`, `head_step`, `head_merge_run` (R1 as a rule: `Exec.run_pure(Head{n, Head{m, x}}, env) == Exec.run_pure(Head{Opt.hmin(m, Some n), x}, env)` for every plan x, env, n, m), `head_pass_keeps_sources`, `head_pass_run` (R1 as the pass: `Opt.head` on the merge-only fragment, any pending limit, suffix code and runner state), `release_merge_only` (`Exec.run_pure(Optimize.release(p), env) == Exec.run_pure(p, env)` for every well-typed merge-only plan), `release_merge_only_obs` (the same through `DF.dump`) |
+| 8 The production runner (`PROOF_exec`) | `frame_head_head`, `head_step`, `head_merge_run` (R1 as a rule: `Exec.run_pure(Head{n, Head{m, x}}, env) == Exec.run_pure(Head{Opt.hmin(m, Some n), x}, env)` for every plan x, env, n, m), `head_pass_keeps_sources`, `head_pass_run` (R1 as the pass: `Opt.head` on the merge-only fragment, any pending limit, suffix code and runner state), `hmerge_keeps_sources`, `hmerge_run` (the release head pass `Opt.hmerge` with any pending limit, suffix code and runner state, for EVERY plan), `release_run` (`Exec.run_pure(Optimize.release(p), env) == Exec.run_pure(p, env)` for every plan p and env, no hypothesis), `release_run_obs` (the same through `DF.dump`) |
 | 9 P0 well-formedness (`PROOF_kernels`) | `u32_min_le`, `wf_new`, `wf_new_words`, `wf_frame_empty`, `wf_column_head`, `wf_frame_head` over the Type-valued predicates `WFArray`, `WFWords`, `WFMaskedW/T`, `WFValidW/T`, `WFColumn`, `WFColumnH`, `WFCols`, `WFFrame` (len <= 2^depth, perfect trees, 0/1 mask and bool words, null slots at the default, equal heights, unique names, the zero-column convention) |
 | 10 Buffer contents (`PROOF_kernels`) | `array_get_pure` (`Array.get(a, i) == (a, rd_at(a, i))`: the real getter is pure and reads the model `rd`, which makes the production halving decisions), `array_set_get` (read-after-write at the same index through the real `Array.set`), `gather_step`, `compact_step`, `compact_step_cell` (one iteration of the production `Kernel.gather.go` / `compact.go`, at the U32 instance) |
 | 11 Buffer contents, the full theorems (`PROOF_bits`, `PROOF_contents`; plan P1, M5) | `rd_at_wf` (`rd_at` of a well-formed array reads with the slot count 2^d), `paths_distinct` (THE distinct-paths bit-vector lemma: two indices below 2^d whose halving decisions through `Array.get`/`Array.set`'s descent agree are equal, over `Word.and / shr / sub / cmp`), `array_set_other` (a write at i leaves every other slot j below 2^d alone), `wf_array_set`, `gather_contents` (`Kernel.gather` at the U32 instance: `out[k] == src[perm[k]]` for every k < n when n <= 2^d) and `gather_keeps_perm`, `mask_not_cell` / `mask_and_cell` / `mask_or_cell` (`Kernel.map` / `Kernel.zip` slot contents: the validity combinators' truth tables slot by slot), `iota_cell` (`Kernel.iota_from`: `off + k`), `u32_fold_sum` / `u32_fold_keeps` (the production U32 fold with `U32.add` is the modulo-2^32 running sum of the first n cells, `FSum`), `popcount_sum` (the kept-row / valid-cell count is the sum of the mask words), `compact_contents` (`Kernel.compact_keep` at the U32 instance writes the kept rows in order at the cursor positions, `CSpec`, under the explicit precondition `CRoom`: 0/1 words and a cursor below 2^d) and `compact_keeps_mask` (data and validity stay aligned: one mask filters every buffer) |
 | 12 Column cells (`PROOF_contents`) | `cell_pure` (`Column.cell(c, i) == (c, ccell(c, i))` for all five column kinds: the production cell reader is pure and reads the model `ccell`, validity then data), `head_cell` (`Column.head` keeps every cell; with `head_len` / `head_dtype` the exact prefix), `depth_for_fits` (`Kernel.depth_for(n)` gives at least n slots for n <= 2^31), `slice_cell_u32` (row k of `Column.slice(c, off, n)` is row `off + k` of c for every k below the slice's length, data and validity, on a U32 column: the exact subrange, through `gather_contents` and `iota_cell`) |
+| 13 Evaluator typing (`PROOF_eval`, `PROOF_evalops`, `PROOF_evalrun`; plan P2, M5 part 2) | models `cdtype` / `clen` / `klen` / `skind` / `fschema` / `frame_ok` and the Type-valued `ColTy` / `ResTy` / `StkTy` / `RunTy` / `EvalTy`; purity of the readers (`len_w`, `dtype_w`, `cell_w`, `frame_height_w`, `frame_schema_w`), the P0 bridge `wf_frame_ok` (a `WFFrame` satisfies the shape facts the typing theorems assume), `get_cloned_typed` (`Frame.get_cloned` answers the frame unchanged and a copy of the column `Schema.find` names, of its dtype and h rows), `bcast_typed`, `unit_typed`; the operation laws `eval_un_typed`, `eval_bin_typed`, `eval_cast_typed` (fails exactly when `X.Cast.total` is False), `eval_try_cast_typed`, `eval_fill_typed`, `eval_when_typed`, `eval_isin_typed`, `eval_clip_typed`, `eval_strpred_typed`, `eval_agg_typed` (every operation answers a column of the dtype its typing rule in `expr.bend` gives, as long as its operand, never a failure except the strict cast); and the stack machine: `run_typed` (the postfix code `Eval.compile(e, acc)` of an expression the shared analysis `A.Expr.analyse` accepts with record (t, k, tot), run by `Eval.run` from a frame of h rows with that schema and a stack whose slots have shapes `sh`, leaves the frame unchanged and pushes one slot of dtype t and kind `skind(k)` with `klen` rows, or fails only when tot is False; by induction over the expression with the stack invariant, every Expr node), `eval_full_typed` (`Eval.full(f, e)` over a well-formed frame answers the frame unchanged and a column of the analysis' dtype with the frame's height, or a failure the analysis allowed), `eval_expr_typed` (`Eval.expr`: the same with one row for a reduction, `elen`) |
 
 ### 8.1 Assurance matrix (plan M_01 section 6: theorem -> production function -> assumptions -> checker)
 
 | theorem | production function(s) it constrains | assumptions / scope | checkers |
 |---|---|---|---|
-| `release_merge_only(_obs)` | `Optimize.release`, `Opt.head`, `Exec.run_pure` (= `Exec.compile`, `Exec.mark`, `Exec.loop`, `Exec.step*`, `Exec.fin`), `Frame.head`, `Column.head` | `Plan.schema(p) == Done{s}` and `merge_only(p)`: every Select/WithColumns of p is a Head barrier (`Opt.sinks` False), so the pass only merges adjacent Heads. Any env (bindings are not validated by `run_pure`; `Exec.run` validates first and feeds the same env). Result equality of `E.ResT(C.Frame)`, frames included; errors included. | bend, --verdict |
+| `release_run(_obs)` | `Optimize.release` (= `Opt.hmerge`, adjacent-Head merging, the whole default optimizer), `Exec.run_pure` (= `Exec.compile`, `Exec.mark`, `Exec.loop`, `Exec.step*`, `Exec.fin`), `Frame.head`, `Column.head` | NONE: every plan p (well-typed or not, every node kind, scans included) and every env (bindings are not validated by `run_pure`; `Exec.run` validates first and feeds the same env). Result equality of `E.ResT(C.Frame)`, frames included; errors included. | bend, --verdict |
+| `hmerge_run`, `hmerge_keeps_sources` | `Opt.hmerge(p, n)` vs `p` with the pending limit `n` and a suffix in the hypothesis; `Exec.later` (the last-use marks) | suffixes with the same Sources that run alike; every plan | bend, --verdict |
 | `head_merge_run` | the same, as the local rule, for EVERY plan x (certified or not, scans included: both sides fail alike) | none | bend, --verdict |
 | `head_pass_run` | `Opt.head(p, n)` vs `p` with the pending limit `n` and a suffix in the hypothesis | `merge_only(p)`; suffixes with the same Sources that run alike | bend, --verdict |
 | `head_pass_keeps_sources` | `Opt.head`, `Exec.compile`, `Exec.later` (the last-use marks) | none (all plans) | bend, --verdict |
@@ -813,23 +820,35 @@ Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 | `cell_pure`, `head_cell` | `Column.cell` (= `Column.take_valid`, `Valid.get`, `Column.cell.a/b/c`, `Column.data_cell`, `Column.cell.w/f/s`, `Column.mk_w`), `Column.head` | none (every column, every index; the model `ccell` reads validity then data with `rd_at`) | bend, --verdict |
 | `depth_for_fits` | `Kernel.depth_for` (= `depth_for.go`, fuel 32) | `n <= 2^31` (for larger n the loop runs out of fuel and answers 32, whose slot count wraps to 0; the row cap keeps n <= 2^23) | bend, --verdict |
 | `slice_cell_u32` | `Column.slice` (= `slice.a/b/c`, `Column.gather`, `Column.gather.b/c/d/data`, `Valid.gather`, `Column.out.w`, `Kernel.iota_from`, `Kernel.gather`), on `CU32` columns | `n <= 2^31`, `k < slice_len(off, n, len)`; U32 instance (Bool / I32 columns are the same word buffers and the same proof text; F32 / String need `gather_contents` at those instances) | bend, --verdict |
+| `len_w`, `dtype_w`, `cell_w`, `frame_height_w`, `frame_schema_w`, `wf_frame_ok` | `Column.len`, `Column.dtype`, `Column.cell`, `Frame.height`, `Frame.schema` (= `Cols.schema`), the P0 predicates | none (every column / frame; the readers are pure and answer the models `clen` / `cdtype` / `lit_dtype` / `fheight` / `fschema`) | bend, --verdict |
+| `get_cloned_typed` | `Frame.get_cloned` (= `Cols.cg.go`, `Column.clone`, `Schema.find`) | `frame_ok(h, f)` (every column h rows, unique names) and `Schema.find(fschema f, n) == Some t` | bend, --verdict |
+| `eval_un_typed` .. `eval_agg_typed` (10 laws) | `Eval.un`, `Eval.bin`, `Eval.cast`, `Eval.try_cast`, `Eval.fill`, `Eval.when`, `Eval.isin`, `Eval.clip`, `Eval.strpred`, `Eval.agg` and everything they call (`Column.mk_w`, `Eval.fix`, the kernels, `Kernel.depth_for`) | the operand dtypes are accepted by the operation's rule in `expr.bend` (`Expr.type.un.ok`, `bin.ok`, `Cast.ok`, `fill`, `when.ok`, `isin.ok`, `clip.ok`, `strpred.ok`, `agg.ok`); the claims are dtype, length and totality (`ResW`): not the cells | bend, --verdict |
+| `run_typed` | `Eval.compile`, `Eval.run` (= `Eval.step`, `Eval.exec`, `Eval.app1/2/3`, `Eval.do1/2/3`, `Eval.fit`, `Eval.fit_agg`, `Eval.push`, `Eval.wrap`, `Eval.unit`, `Eval.bcast`, `Frame.get_cloned`), `A.Expr.analyse` | `fschema(f) == s`, `frame_ok(h, f)`, a stack satisfying `StkTy(h, sh, stk)`, `A.Expr.analyse(e, s) == Done{Ana{t, rs, k, tot, loc}}`; every Expr node (Col, Lit, Alias, Cast, TryCast, Un, Bin, FillNull, Agg, When, IsIn, Clip, StrPred). Claims: frame unchanged, one new slot of dtype t and kind `skind(k)` with `klen` rows, failure only when tot is False. NOT claimed: cell values, that only the columns `rs` are read, the locality field `loc` | bend, --verdict |
+| `eval_full_typed`, `eval_expr_typed` | `Eval.full`, `Eval.expr` (= `Eval.slot`, `Eval.slot.s/t/h`, `Eval.fin`, `Eval.mode.a/b`, `Eval.unslot`) | `WFFrame(f)` (P0) and `A.Expr.analyse(e, fschema f) == Done{..}`: the production type check `A.Ana.type` is the same analysis, so a Done answer is exactly what `Eval.select` / `with_columns` / `filter` evaluate; the column has the frame's height (`Eval.full`) or `elen` (`Eval.expr`: 1 for a reduction) | bend, --verdict |
 | sections 1-5b (schema, typing, plan schema, optimizer schema level, slots) | as listed in the table above | as stated per law | bend, --verdict |
 
-What the R1 chain does NOT cover, stated exactly:
+What the release chain does NOT cover, stated exactly:
 
-- Head sinking below a certified Select/WithColumns (`Opt.sinks` True, i.e. R3) is
-  not proven; plans containing such a node under a Head are outside
-  `merge_only`. For them `Optimize.release` may rewrite more than merges, and no
-  result theorem exists yet. It needs the analysis soundness of P2 (`A.Ana`
-  `preserving` implies `Eval.select` / `Eval.with_columns` commute with
-  `Frame.head`).
+- `Optimize.release` is `Opt.hmerge` (adjacent-Head merging) and nothing else since M5
+  part 2 (the P3 fallback): `release_run` covers EVERY plan, so no plan is outside the
+  theorem. The analysis-certified Head sink (R3) moved to `optimize_full` (`Opt.head`),
+  which is opt-in and outside the guarantee; so are R2 (filter merge), R4 (pushdown) and
+  R5 (projection). Their soundness is tested (regressions, the differential generator),
+  not proven. Re-enabling the sink in the release optimizer needs R3 as a theorem: the
+  P2 typing theorems give the dtype and height of every `Eval` result, but a sunk Head
+  changes buffer depths, so `Eval.select(Frame.head(f, n), es)` equals
+  `Frame.head(Eval.select(f, es), n)` only observationally (through `DF.dump` /
+  `Column.cell`), which needs cell-level theorems for every `Eval` operation.
 - `Exec.run_pure` is the runner after validation and scan materialisation; the
-  theorem quantifies over any env, so it covers the validated env `Exec.run`
-  hands over and the scan frames `Exec.mat` binds. The IO reads themselves
-  (`Csv.read_with`) are outside the proof (plan M_01 section 6 "IO boundary").
-- The remaining release-optimizer claim (G6 "the default optimizer's
-  result-equivalence theorem") therefore holds today for the merge-only
-  fragment; the full claim needs R3 (M5).
+  theorem quantifies over any env, so it covers the validated env `Exec.run` hands over
+  and the scan frames `Exec.mat` binds. The IO reads themselves (`Csv.read_with`) are
+  outside the proof (plan M_01 section 6 "IO boundary").
+- The evaluator typing theorems (`run_typed`, `eval_full_typed`, `eval_expr_typed`)
+  state dtype, height, the frame coming back unchanged and "fails only where the
+  analysis says it may". They do not state cell values, that only the `refs` columns are
+  read, or the locality field of the analysis record (the parts of the soundness
+  statement in `src/analysis.bend`'s header that the release optimizer no longer relies
+  on).
 
 Not provable or not true as stated, recorded here instead of as open laws:
 
@@ -850,8 +869,10 @@ Not provable or not true as stated, recorded here instead of as open laws:
   `slice_cell_u32`), `Column.gather` / `Column.compact` as cell theorems and
   `Column.slice` on F32 / String columns. `Kernel.choose` (fill_null / when
   cells), `Kernel.mask_data` (null slots after kernels), the grouped scatter
-  invariant, `Eval` typing soundness and the analysis soundness (P2), R2-R5
-  (P3): not done in M5 (see section 14, M5).
+  invariant, the cell-level (not typing) soundness of `Eval`, the `refs` / locality
+  parts of the analysis record, R2-R5 as theorems (P3; they are not in the release
+  optimizer): not done in M5 (see section 14, M5 and M5 part 2). The typing part of
+  P2 IS proven (section 13: `run_typed`, `eval_full_typed`, `eval_expr_typed`).
 - Floating error bounds, hash-join and radix-sort correctness, CSV: not v0.1
   proof deliverables (tested).
 
@@ -877,20 +898,23 @@ template proof defs, and a law about a template is stated at a concrete
 instance when `--verdict` must accept it.
 
 
-**G6 claim (decided after M2, 2026-10-09; confirmed after M5).** The default
-optimizer's result-equivalence theorem over the production runner (`release_merge_only`,
-checked by `--verdict`) covers the head-merge fragment: plans in which every
-Select/WithColumns acts as a Head barrier (every other node, the M3a nodes Drop / Rename /
-Slice / Tail / Unique / Concat and semi / anti joins included, is a barrier for the release
-optimizer and is covered). Head sinking below analysis-certified nodes (R3) is tested
-(regressions, differential generator) but not proved: it needs cell-level theorems for every
-`Eval` operation under `Frame.head` (an observational, not structural, commutation: the
-sunk Head allocates smaller buffers), i.e. the P2 evaluator soundness, which M5 did not
-reach; R2 / R4 / R5 are not in `Optimize.release` at all. M5 closed P1 instead: the buffer
-content theorems of section 11 (distinct paths, gather, compact, map / zip / iota, the U32
-fold and popcount) over the production kernels. README and release notes must state G6 as
-"the default optimizer is proven result-preserving on plans whose Select/WithColumns are
-Head barriers; its only other rewrite, the certified Head sink, is tested, not proved".
+**G6 claim (decided after M2, 2026-10-09; final wording after M5 part 2).** The default
+optimizer `Optimize.release` is adjacent-Head merging (`Opt.hmerge`) and nothing else, and its
+result-equivalence theorem over the production runner (`release_run`, `release_run_obs`,
+checked by `--verdict`) holds for EVERY plan and every environment, with no admissibility
+hypothesis: `Exec.run_pure(Optimize.release(p), env) == Exec.run_pure(p, env)`, frames and
+errors included. The evaluator is proven type-sound (`eval_full_typed`, `eval_expr_typed`,
+`run_typed`): over a well-formed frame, an expression the shared analysis accepts evaluates to
+the frame unchanged and a column of the predicted dtype and height, failing only where the
+analysis marks it fallible (a strict cast of a fallible pair). What is tested but not proven:
+the opt-in `optimize_full` (the certified Head sink R3, filter merge R2, pushdown R4,
+projection R5), cell values, and the `refs` / locality fields of the analysis record. README
+and release notes must state G6 as "the default optimizer is proven result-preserving for
+every plan (it only merges adjacent Heads); the evaluator is proven to answer the typed
+dtype and height; the opt-in `optimize_full` is tested, not proved". The fallback's cost on
+the benchmark is nil: no q1-q6 plan has a Head above a Select/WithColumns (q4's Head sits on a
+Sort, a barrier for both passes), so the release optimizer and the previous head pass give the
+same plans (tests/plan_release_bench.bend; measurements in bench/README.md).
 
 
 ## 9. Idiom checklist for implementers (copy into every module's header)
@@ -2036,6 +2060,54 @@ to ONE instruction `ITable{TOp}` (so a proof's Instr case split grows by one cas
    Head changes buffer depths, so `Eval.select(Frame.head(f, n), es)` and
    `Frame.head(Eval.select(f, es), n)` are equal only observationally (through `DF.dump` /
    `Column.cell`), never structurally. The G6 wording stays as section 8 states it.
+
+### M5 part 2 (P2 evaluator typing; P3 by the fallback: the release optimizer merges Heads only)
+
+1. **Decision: P3 fallback taken.** `Optimize.release` is `Opt.hmerge` (adjacent-Head merging,
+   schema-checked first) and nothing else; the analysis-certified Head sink (R3) stays in
+   `Plan.optimize_full` (`Opt.head`), opt-in. `release_run` / `release_run_obs` (LAWS section 8)
+   replace `release_merge_only(_obs)`: no `merge_only` hypothesis, every plan and env. The
+   section 8 G6 wording is final. Cost on the benchmark: none. No q1-q6 plan has a Head above a
+   Select/WithColumns (q4 = Head over Sort, a barrier for both passes), so the release optimizer,
+   the previous head pass and the raw plan coincide for q1-q5 (tests/plan_release_bench.bend);
+   q4's timings before / after the fallback are noise (bench/README.md). Re-enabling the sink in
+   the release optimizer needs R3 as a theorem (observational commutation of `Eval.select` /
+   `with_columns` with `Frame.head`, cell level), not done.
+2. **What P2 delivered (LAWS section 13, 116 laws)**: stage 1 (`PROOF_eval.bend`) the models
+   `cdtype` / `clen` / `klen` / `skind` / `fschema` / `frame_ok`, purity of the readers, the P0
+   bridge `wf_frame_ok`, `get_cloned_typed`, `bcast_typed`, `unit_typed`; stage 2
+   (`PROOF_evalops.bend`) the ten operation laws `eval_un_typed` .. `eval_agg_typed` over
+   `src/eval.bend`'s operations, each case list generated from the (op, dtype) table of
+   `expr.bend`'s rules (accepted cases: the production term as a live witness with its shape
+   facts; refused cases refuted); stage 3 (`PROOF_evalrun.bend`, generated by
+   `scripts/proofgen/gen_evalrun.py`) `run_typed` over `Eval.compile` + `Eval.run` by induction
+   over the expression with the stack invariant `StkTy`, every Expr node, and the entry points
+   `eval_full_typed` / `eval_expr_typed` over `Eval.full` / `Eval.expr`.
+3. **Scope of the typing theorems (honest)**: dtype, height, the frame back unchanged, and
+   "fails only where the analysis says it may" (tot). Not stated: cell values, that only the
+   `refs` columns are read, the locality field. The analysis header's soundness statement in
+   `src/analysis.bend` lists those too; they were needed only by the Head sink and the
+   `optimize_full` passes, which are outside the guarantee.
+4. **Deviation: the stack kind is read from the shape, not from the slot.** `StkTy` states the
+   column's length as `klen(k, h)` with k the SHAPE's kind and carries `k2 == k` for the slot's
+   kind separately; `Eval.do2.a` / `do3.a` test the slot kinds, so the step lemmas first rewrite
+   the slot kinds to the shape kinds. The two- and three-operand steps need no case split: the
+   shape test `bad` and the result length are closed terms over the three kinds once those are
+   constructors, proven by the 9- / 27-case lemmas `bad2_false` / `len2` / `bad3_false` /
+   `len3` and used symbolically.
+5. **Dictionary strings (M4) and these lemmas.** Every section 13 lemma is over the five
+   `C.Column` constructors as they are on this branch. A `Dictionary` string representation
+   adds cases to `cdtype` / `clen` / `len_w` / `dtype_w` / `cell_w` / `clone_w` / `col_dup2` /
+   `clen_dup` (one line each, by the kind table of the generators), to `bcast_typed` and
+   `unit_typed` (the constant-column builders), to `get_cloned_typed` through `Column.clone`,
+   and to the string operation laws (`eval_strpred_typed`, `eval_un_typed` LenChars,
+   `eval_agg_typed` over strings, `eval_fill_typed` / `eval_when_typed` / `eval_bin_typed` on
+   string operands) wherever `eval.bend` takes the dictionary path; `run_typed` and the entry
+   points are representation-agnostic and need no change.
+6. **Fixtures**: `tests/proof_negative/head_sink_below_select.bend` (the release pass sinking
+   below every Select is refused by the `hmerge_run` term), `un_neg_wrong_dtype.bend` (Neg over
+   i32 answering u32 is refused by the `eval_un_typed` case), `fit_no_broadcast.bend` (a stack
+   machine `fit` that does not broadcast is refused by the `fit_w` shape lemma).
 
 ## 15. v0.1 contract (frozen)
 
