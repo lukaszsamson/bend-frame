@@ -1,0 +1,840 @@
+{"query": "parse", "n": 1000, "read_ms": 14, "first_walk_ms": 1, "chk": 2299533904, "rss": 3997696, "wall": 0.441, "enc": "master", "q": "parse", "threads": "1", "rep": 0, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 6, "first_walk_ms": 1, "chk": 2299533904, "rss": 3801088, "wall": 0.37, "enc": "raw", "q": "parse", "threads": "1", "rep": 0, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 4, "first_walk_ms": 0, "chk": 830508, "rss": 3801088, "wall": 0.015, "enc": "auto", "q": "parse", "threads": "1", "rep": 0, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 3, "first_walk_ms": 0, "chk": 830508, "rss": 3833856, "wall": 0.01, "enc": "dict", "q": "parse", "threads": "1", "rep": 0, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 3, "first_walk_ms": 0, "chk": 2299533904, "rss": 3768320, "wall": 0.01, "enc": "raw", "q": "parse", "threads": "1", "rep": 1, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 4, "first_walk_ms": 0, "chk": 830508, "rss": 3817472, "wall": 0.011, "enc": "auto", "q": "parse", "threads": "1", "rep": 1, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 3, "first_walk_ms": 0, "chk": 830508, "rss": 3801088, "wall": 0.012, "enc": "dict", "q": "parse", "threads": "1", "rep": 1, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 5, "first_walk_ms": 0, "chk": 2299533904, "rss": 4014080, "wall": 0.013, "enc": "master", "q": "parse", "threads": "1", "rep": 1, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 3, "first_walk_ms": 0, "chk": 830508, "rss": 3817472, "wall": 0.012, "enc": "auto", "q": "parse", "threads": "1", "rep": 2, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 3, "first_walk_ms": 0, "chk": 830508, "rss": 3833856, "wall": 0.01, "enc": "dict", "q": "parse", "threads": "1", "rep": 2, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 5, "first_walk_ms": 0, "chk": 2299533904, "rss": 4014080, "wall": 0.014, "enc": "master", "q": "parse", "threads": "1", "rep": 2, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 3, "first_walk_ms": 0, "chk": 2299533904, "rss": 3801088, "wall": 0.01, "enc": "raw", "q": "parse", "threads": "1", "rep": 2, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 3, "first_walk_ms": 1, "chk": 830508, "rss": 3817472, "wall": 0.01, "enc": "dict", "q": "parse", "threads": "1", "rep": 3, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 5, "first_walk_ms": 0, "chk": 2299533904, "rss": 3997696, "wall": 0.014, "enc": "master", "q": "parse", "threads": "1", "rep": 3, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 3, "first_walk_ms": 1, "chk": 2299533904, "rss": 3784704, "wall": 0.01, "enc": "raw", "q": "parse", "threads": "1", "rep": 3, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 3, "first_walk_ms": 0, "chk": 830508, "rss": 3833856, "wall": 0.012, "enc": "auto", "q": "parse", "threads": "1", "rep": 3, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 5, "first_walk_ms": 0, "chk": 2299533904, "rss": 4014080, "wall": 0.012, "enc": "master", "q": "parse", "threads": "1", "rep": 4, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 3, "first_walk_ms": 1, "chk": 2299533904, "rss": 3784704, "wall": 0.016, "enc": "raw", "q": "parse", "threads": "1", "rep": 4, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 4, "first_walk_ms": 0, "chk": 830508, "rss": 3801088, "wall": 0.01, "enc": "auto", "q": "parse", "threads": "1", "rep": 4, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 4, "first_walk_ms": 0, "chk": 830508, "rss": 3801088, "wall": 0.013, "enc": "dict", "q": "parse", "threads": "1", "rep": 4, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 4, "first_walk_ms": 0, "chk": 2299533904, "rss": 4931584, "wall": 0.015, "enc": "master", "q": "parse", "threads": "default", "rep": 0, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 3, "first_walk_ms": 0, "chk": 2299533904, "rss": 5177344, "wall": 0.014, "enc": "raw", "q": "parse", "threads": "default", "rep": 0, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 3, "first_walk_ms": 0, "chk": 830508, "rss": 5013504, "wall": 0.012, "enc": "auto", "q": "parse", "threads": "default", "rep": 0, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 2, "first_walk_ms": 0, "chk": 830508, "rss": 4931584, "wall": 0.013, "enc": "dict", "q": "parse", "threads": "default", "rep": 0, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 3, "first_walk_ms": 0, "chk": 2299533904, "rss": 4702208, "wall": 0.012, "enc": "raw", "q": "parse", "threads": "default", "rep": 1, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 3, "first_walk_ms": 0, "chk": 830508, "rss": 5193728, "wall": 0.013, "enc": "auto", "q": "parse", "threads": "default", "rep": 1, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 8, "first_walk_ms": 0, "chk": 830508, "rss": 4931584, "wall": 0.019, "enc": "dict", "q": "parse", "threads": "default", "rep": 1, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 10, "first_walk_ms": 1, "chk": 2299533904, "rss": 4702208, "wall": 0.053, "enc": "master", "q": "parse", "threads": "default", "rep": 1, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 4, "first_walk_ms": 0, "chk": 830508, "rss": 4718592, "wall": 0.02, "enc": "auto", "q": "parse", "threads": "default", "rep": 2, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 3, "first_walk_ms": 0, "chk": 830508, "rss": 5111808, "wall": 0.025, "enc": "dict", "q": "parse", "threads": "default", "rep": 2, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 4, "first_walk_ms": 0, "chk": 2299533904, "rss": 4947968, "wall": 0.016, "enc": "master", "q": "parse", "threads": "default", "rep": 2, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 4, "first_walk_ms": 1, "chk": 2299533904, "rss": 4866048, "wall": 0.015, "enc": "raw", "q": "parse", "threads": "default", "rep": 2, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 3, "first_walk_ms": 0, "chk": 830508, "rss": 4915200, "wall": 0.013, "enc": "dict", "q": "parse", "threads": "default", "rep": 3, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 3, "first_walk_ms": 1, "chk": 2299533904, "rss": 4947968, "wall": 0.016, "enc": "master", "q": "parse", "threads": "default", "rep": 3, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 3, "first_walk_ms": 0, "chk": 2299533904, "rss": 4653056, "wall": 0.013, "enc": "raw", "q": "parse", "threads": "default", "rep": 3, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 3, "first_walk_ms": 0, "chk": 830508, "rss": 5095424, "wall": 0.014, "enc": "auto", "q": "parse", "threads": "default", "rep": 3, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 5, "first_walk_ms": 0, "chk": 2299533904, "rss": 5013504, "wall": 0.014, "enc": "master", "q": "parse", "threads": "default", "rep": 4, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 3, "first_walk_ms": 0, "chk": 2299533904, "rss": 4702208, "wall": 0.013, "enc": "raw", "q": "parse", "threads": "default", "rep": 4, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 3, "first_walk_ms": 0, "chk": 830508, "rss": 5226496, "wall": 0.014, "enc": "auto", "q": "parse", "threads": "default", "rep": 4, "load1": 21.8017578125, "batch": 40}
+{"query": "parse", "n": 1000, "read_ms": 3, "first_walk_ms": 0, "chk": 830508, "rss": 4964352, "wall": 0.012, "enc": "dict", "q": "parse", "threads": "default", "rep": 4, "load1": 21.8017578125, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 0.0001, "threads": "1", "rss": 20611072, "wall": 0.327, "enc": "master", "q": "q1", "rep": 0, "load1": 21.8017578125, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 7.5e-05, "threads": "1", "rss": 20480000, "wall": 0.196, "enc": "raw", "q": "q1", "rep": 0, "load1": 21.8017578125, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 5e-05, "threads": "1", "rss": 8994816, "wall": 0.214, "enc": "auto", "q": "q1", "rep": 0, "load1": 24.5400390625, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 5e-05, "threads": "1", "rss": 8978432, "wall": 0.205, "enc": "dict", "q": "q1", "rep": 0, "load1": 24.5400390625, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 7.5e-05, "threads": "1", "rss": 20496384, "wall": 0.193, "enc": "raw", "q": "q1", "rep": 1, "load1": 24.5400390625, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 5e-05, "threads": "1", "rss": 8978432, "wall": 0.204, "enc": "auto", "q": "q1", "rep": 1, "load1": 24.5400390625, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 5e-05, "threads": "1", "rss": 9027584, "wall": 0.286, "enc": "dict", "q": "q1", "rep": 1, "load1": 24.5400390625, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 0.00015, "threads": "1", "rss": 20643840, "wall": 0.561, "enc": "master", "q": "q1", "rep": 1, "load1": 24.5400390625, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 7.5e-05, "threads": "1", "rss": 8978432, "wall": 0.313, "enc": "auto", "q": "q1", "rep": 2, "load1": 24.5400390625, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 0.0001, "threads": "1", "rss": 9060352, "wall": 0.243, "enc": "dict", "q": "q1", "rep": 2, "load1": 24.5400390625, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 7.5e-05, "threads": "1", "rss": 20692992, "wall": 0.368, "enc": "master", "q": "q1", "rep": 2, "load1": 24.5400390625, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 0.000125, "threads": "1", "rss": 20463616, "wall": 0.215, "enc": "raw", "q": "q1", "rep": 2, "load1": 24.5400390625, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 5e-05, "threads": "1", "rss": 8994816, "wall": 0.277, "enc": "dict", "q": "q1", "rep": 3, "load1": 24.5400390625, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 0.00015, "threads": "1", "rss": 20692992, "wall": 0.461, "enc": "master", "q": "q1", "rep": 3, "load1": 24.5400390625, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 0.00015, "threads": "1", "rss": 20496384, "wall": 0.267, "enc": "raw", "q": "q1", "rep": 3, "load1": 24.5400390625, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 5e-05, "threads": "1", "rss": 8978432, "wall": 0.236, "enc": "auto", "q": "q1", "rep": 3, "load1": 24.5400390625, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 7.5e-05, "threads": "1", "rss": 20611072, "wall": 0.333, "enc": "master", "q": "q1", "rep": 4, "load1": 24.5400390625, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 0.0001, "threads": "1", "rss": 20480000, "wall": 0.206, "enc": "raw", "q": "q1", "rep": 4, "load1": 24.5400390625, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 5e-05, "threads": "1", "rss": 8978432, "wall": 0.216, "enc": "auto", "q": "q1", "rep": 4, "load1": 24.5400390625, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 7.5e-05, "threads": "1", "rss": 8962048, "wall": 0.205, "enc": "dict", "q": "q1", "rep": 4, "load1": 24.5400390625, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 0.0001, "threads": "default", "rss": 31719424, "wall": 0.361, "enc": "master", "q": "q1", "rep": 0, "load1": 27.53955078125, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 0.0001, "threads": "default", "rss": 31113216, "wall": 0.224, "enc": "raw", "q": "q1", "rep": 0, "load1": 27.53955078125, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 5e-05, "threads": "default", "rss": 20873216, "wall": 0.205, "enc": "auto", "q": "q1", "rep": 0, "load1": 27.53955078125, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 5e-05, "threads": "default", "rss": 20791296, "wall": 0.285, "enc": "dict", "q": "q1", "rep": 0, "load1": 27.53955078125, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 0.0001, "threads": "default", "rss": 31604736, "wall": 0.244, "enc": "raw", "q": "q1", "rep": 1, "load1": 27.53955078125, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 5e-05, "threads": "default", "rss": 20348928, "wall": 0.207, "enc": "auto", "q": "q1", "rep": 1, "load1": 27.53955078125, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 5e-05, "threads": "default", "rss": 21135360, "wall": 0.208, "enc": "dict", "q": "q1", "rep": 1, "load1": 27.53955078125, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 0.0001, "threads": "default", "rss": 31703040, "wall": 0.323, "enc": "master", "q": "q1", "rep": 1, "load1": 27.53955078125, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 5e-05, "threads": "default", "rss": 20774912, "wall": 0.295, "enc": "auto", "q": "q1", "rep": 2, "load1": 27.53955078125, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 5e-05, "threads": "default", "rss": 21348352, "wall": 0.225, "enc": "dict", "q": "q1", "rep": 2, "load1": 27.53955078125, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 0.0001, "threads": "default", "rss": 31670272, "wall": 0.304, "enc": "master", "q": "q1", "rep": 2, "load1": 27.53955078125, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 0.0001, "threads": "default", "rss": 30949376, "wall": 0.242, "enc": "raw", "q": "q1", "rep": 2, "load1": 27.53955078125, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 5e-05, "threads": "default", "rss": 21266432, "wall": 0.233, "enc": "dict", "q": "q1", "rep": 3, "load1": 27.53955078125, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 0.000125, "threads": "default", "rss": 31195136, "wall": 0.341, "enc": "master", "q": "q1", "rep": 3, "load1": 27.53955078125, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 0.000125, "threads": "default", "rss": 31293440, "wall": 0.262, "enc": "raw", "q": "q1", "rep": 3, "load1": 27.53955078125, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 0.000275, "threads": "default", "rss": 20758528, "wall": 0.271, "enc": "auto", "q": "q1", "rep": 3, "load1": 27.53955078125, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 0.0001, "threads": "default", "rss": 30998528, "wall": 0.421, "enc": "master", "q": "q1", "rep": 4, "load1": 27.53955078125, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 0.0001, "threads": "default", "rss": 31506432, "wall": 0.247, "enc": "raw", "q": "q1", "rep": 4, "load1": 27.53955078125, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 7.5e-05, "threads": "default", "rss": 20709376, "wall": 0.27, "enc": "auto", "q": "q1", "rep": 4, "load1": 29.73828125, "batch": 40}
+{"query": "q1", "n": 1000, "seconds": 0.0001, "threads": "default", "rss": 21348352, "wall": 0.362, "enc": "dict", "q": "q1", "rep": 4, "load1": 29.73828125, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "1", "rss": 20561920, "wall": 0.374, "enc": "master", "q": "q2", "rep": 0, "load1": 29.73828125, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 7.5e-05, "threads": "1", "rss": 20512768, "wall": 0.215, "enc": "raw", "q": "q2", "rep": 0, "load1": 29.73828125, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "1", "rss": 9011200, "wall": 0.279, "enc": "auto", "q": "q2", "rep": 0, "load1": 29.73828125, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "1", "rss": 8978432, "wall": 0.21, "enc": "dict", "q": "q2", "rep": 0, "load1": 29.73828125, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "1", "rss": 20512768, "wall": 0.203, "enc": "raw", "q": "q2", "rep": 1, "load1": 29.73828125, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "1", "rss": 8978432, "wall": 0.208, "enc": "auto", "q": "q2", "rep": 1, "load1": 29.73828125, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "1", "rss": 8978432, "wall": 0.204, "enc": "dict", "q": "q2", "rep": 1, "load1": 29.73828125, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 7.5e-05, "threads": "1", "rss": 20578304, "wall": 0.346, "enc": "master", "q": "q2", "rep": 1, "load1": 29.73828125, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "1", "rss": 8994816, "wall": 0.213, "enc": "auto", "q": "q2", "rep": 2, "load1": 29.73828125, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "1", "rss": 8978432, "wall": 0.212, "enc": "dict", "q": "q2", "rep": 2, "load1": 29.73828125, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 0.00015, "threads": "1", "rss": 20611072, "wall": 0.383, "enc": "master", "q": "q2", "rep": 2, "load1": 29.73828125, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 7.5e-05, "threads": "1", "rss": 20496384, "wall": 0.197, "enc": "raw", "q": "q2", "rep": 2, "load1": 29.73828125, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "1", "rss": 8978432, "wall": 0.198, "enc": "dict", "q": "q2", "rep": 3, "load1": 29.73828125, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "1", "rss": 20594688, "wall": 0.323, "enc": "master", "q": "q2", "rep": 3, "load1": 29.73828125, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "1", "rss": 20512768, "wall": 0.199, "enc": "raw", "q": "q2", "rep": 3, "load1": 29.73828125, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "1", "rss": 8978432, "wall": 0.205, "enc": "auto", "q": "q2", "rep": 3, "load1": 29.73828125, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "1", "rss": 20660224, "wall": 0.355, "enc": "master", "q": "q2", "rep": 4, "load1": 29.73828125, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 7.5e-05, "threads": "1", "rss": 20512768, "wall": 0.209, "enc": "raw", "q": "q2", "rep": 4, "load1": 29.73828125, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "1", "rss": 9060352, "wall": 0.22, "enc": "auto", "q": "q2", "rep": 4, "load1": 30.7197265625, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "1", "rss": 9043968, "wall": 0.238, "enc": "dict", "q": "q2", "rep": 4, "load1": 30.7197265625, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "default", "rss": 31621120, "wall": 0.31, "enc": "master", "q": "q2", "rep": 0, "load1": 30.7197265625, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 7.5e-05, "threads": "default", "rss": 31899648, "wall": 0.225, "enc": "raw", "q": "q2", "rep": 0, "load1": 30.7197265625, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "default", "rss": 21004288, "wall": 0.221, "enc": "auto", "q": "q2", "rep": 0, "load1": 30.7197265625, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "default", "rss": 20643840, "wall": 0.221, "enc": "dict", "q": "q2", "rep": 0, "load1": 30.7197265625, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "default", "rss": 31670272, "wall": 0.234, "enc": "raw", "q": "q2", "rep": 1, "load1": 30.7197265625, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "default", "rss": 21135360, "wall": 0.225, "enc": "auto", "q": "q2", "rep": 1, "load1": 30.7197265625, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "default", "rss": 21020672, "wall": 0.217, "enc": "dict", "q": "q2", "rep": 1, "load1": 30.7197265625, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "default", "rss": 31850496, "wall": 0.363, "enc": "master", "q": "q2", "rep": 1, "load1": 30.7197265625, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "default", "rss": 20627456, "wall": 0.211, "enc": "auto", "q": "q2", "rep": 2, "load1": 30.7197265625, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "default", "rss": 20676608, "wall": 0.211, "enc": "dict", "q": "q2", "rep": 2, "load1": 30.7197265625, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "default", "rss": 31752192, "wall": 0.426, "enc": "master", "q": "q2", "rep": 2, "load1": 30.7197265625, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 7.5e-05, "threads": "default", "rss": 31326208, "wall": 0.223, "enc": "raw", "q": "q2", "rep": 2, "load1": 30.7197265625, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "default", "rss": 20905984, "wall": 0.209, "enc": "dict", "q": "q2", "rep": 3, "load1": 30.7197265625, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "default", "rss": 31801344, "wall": 0.298, "enc": "master", "q": "q2", "rep": 3, "load1": 30.7197265625, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "default", "rss": 31981568, "wall": 0.227, "enc": "raw", "q": "q2", "rep": 3, "load1": 30.7197265625, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "default", "rss": 20774912, "wall": 0.248, "enc": "auto", "q": "q2", "rep": 3, "load1": 30.7197265625, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "default", "rss": 31670272, "wall": 0.309, "enc": "master", "q": "q2", "rep": 4, "load1": 30.7197265625, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "default", "rss": 31162368, "wall": 0.21, "enc": "raw", "q": "q2", "rep": 4, "load1": 28.81982421875, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "default", "rss": 20660224, "wall": 0.197, "enc": "auto", "q": "q2", "rep": 4, "load1": 28.81982421875, "batch": 40}
+{"query": "q2", "n": 1000, "seconds": 5e-05, "threads": "default", "rss": 20758528, "wall": 0.206, "enc": "dict", "q": "q2", "rep": 4, "load1": 28.81982421875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.0008, "threads": "1", "rss": 20905984, "wall": 0.35, "enc": "master", "q": "q3", "rep": 0, "load1": 28.81982421875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.0007, "threads": "1", "rss": 20774912, "wall": 0.215, "enc": "raw", "q": "q3", "rep": 0, "load1": 28.81982421875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.000225, "threads": "1", "rss": 9388032, "wall": 0.217, "enc": "auto", "q": "q3", "rep": 0, "load1": 28.81982421875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.0002, "threads": "1", "rss": 9355264, "wall": 0.206, "enc": "dict", "q": "q3", "rep": 0, "load1": 28.81982421875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.000675, "threads": "1", "rss": 20856832, "wall": 0.239, "enc": "raw", "q": "q3", "rep": 1, "load1": 28.81982421875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.0002, "threads": "1", "rss": 9338880, "wall": 0.199, "enc": "auto", "q": "q3", "rep": 1, "load1": 28.81982421875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.000175, "threads": "1", "rss": 9338880, "wall": 0.21, "enc": "dict", "q": "q3", "rep": 1, "load1": 28.81982421875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.0007, "threads": "1", "rss": 20889600, "wall": 0.357, "enc": "master", "q": "q3", "rep": 1, "load1": 28.81982421875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.000175, "threads": "1", "rss": 9355264, "wall": 0.235, "enc": "auto", "q": "q3", "rep": 2, "load1": 28.81982421875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.0002, "threads": "1", "rss": 9355264, "wall": 0.227, "enc": "dict", "q": "q3", "rep": 2, "load1": 28.81982421875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.00085, "threads": "1", "rss": 20938752, "wall": 0.369, "enc": "master", "q": "q3", "rep": 2, "load1": 28.81982421875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.000675, "threads": "1", "rss": 20758528, "wall": 0.228, "enc": "raw", "q": "q3", "rep": 2, "load1": 28.81982421875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.000175, "threads": "1", "rss": 9371648, "wall": 0.23, "enc": "dict", "q": "q3", "rep": 3, "load1": 28.81982421875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.000675, "threads": "1", "rss": 20922368, "wall": 0.376, "enc": "master", "q": "q3", "rep": 3, "load1": 28.81982421875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.00075, "threads": "1", "rss": 20856832, "wall": 0.261, "enc": "raw", "q": "q3", "rep": 3, "load1": 28.81982421875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.000175, "threads": "1", "rss": 9338880, "wall": 0.194, "enc": "auto", "q": "q3", "rep": 3, "load1": 28.81982421875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.00075, "threads": "1", "rss": 20889600, "wall": 0.357, "enc": "master", "q": "q3", "rep": 4, "load1": 28.81982421875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.0007, "threads": "1", "rss": 20791296, "wall": 0.228, "enc": "raw", "q": "q3", "rep": 4, "load1": 26.9921875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.0002, "threads": "1", "rss": 9371648, "wall": 0.233, "enc": "auto", "q": "q3", "rep": 4, "load1": 26.9921875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.0004, "threads": "1", "rss": 9355264, "wall": 0.236, "enc": "dict", "q": "q3", "rep": 4, "load1": 26.9921875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.000925, "threads": "default", "rss": 32309248, "wall": 0.367, "enc": "master", "q": "q3", "rep": 0, "load1": 26.9921875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.00075, "threads": "default", "rss": 31735808, "wall": 0.244, "enc": "raw", "q": "q3", "rep": 0, "load1": 26.9921875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.0002, "threads": "default", "rss": 21233664, "wall": 0.201, "enc": "auto", "q": "q3", "rep": 0, "load1": 26.9921875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.000225, "threads": "default", "rss": 21217280, "wall": 0.204, "enc": "dict", "q": "q3", "rep": 0, "load1": 26.9921875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.0008, "threads": "default", "rss": 32358400, "wall": 0.24, "enc": "raw", "q": "q3", "rep": 1, "load1": 26.9921875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.0002, "threads": "default", "rss": 21561344, "wall": 0.21, "enc": "auto", "q": "q3", "rep": 1, "load1": 26.9921875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.0002, "threads": "default", "rss": 21299200, "wall": 0.219, "enc": "dict", "q": "q3", "rep": 1, "load1": 26.9921875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.00085, "threads": "default", "rss": 32178176, "wall": 0.333, "enc": "master", "q": "q3", "rep": 1, "load1": 26.9921875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.0002, "threads": "default", "rss": 21004288, "wall": 0.271, "enc": "auto", "q": "q3", "rep": 2, "load1": 26.9921875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.0002, "threads": "default", "rss": 21086208, "wall": 0.215, "enc": "dict", "q": "q3", "rep": 2, "load1": 26.9921875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.000825, "threads": "default", "rss": 31686656, "wall": 0.347, "enc": "master", "q": "q3", "rep": 2, "load1": 26.9921875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.0007, "threads": "default", "rss": 31178752, "wall": 0.254, "enc": "raw", "q": "q3", "rep": 2, "load1": 26.9921875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.0002, "threads": "default", "rss": 21102592, "wall": 0.239, "enc": "dict", "q": "q3", "rep": 3, "load1": 26.9921875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.00125, "threads": "default", "rss": 31637504, "wall": 0.422, "enc": "master", "q": "q3", "rep": 3, "load1": 26.9921875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.000725, "threads": "default", "rss": 31473664, "wall": 0.258, "enc": "raw", "q": "q3", "rep": 3, "load1": 26.9921875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.0002, "threads": "default", "rss": 21397504, "wall": 0.276, "enc": "auto", "q": "q3", "rep": 3, "load1": 26.9921875, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.000925, "threads": "default", "rss": 32899072, "wall": 0.363, "enc": "master", "q": "q3", "rep": 4, "load1": 27.07275390625, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.000775, "threads": "default", "rss": 31768576, "wall": 0.247, "enc": "raw", "q": "q3", "rep": 4, "load1": 27.07275390625, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.000175, "threads": "default", "rss": 20971520, "wall": 0.224, "enc": "auto", "q": "q3", "rep": 4, "load1": 27.07275390625, "batch": 40}
+{"query": "q3", "n": 1000, "seconds": 0.0002, "threads": "default", "rss": 21463040, "wall": 0.213, "enc": "dict", "q": "q3", "rep": 4, "load1": 27.07275390625, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.000925, "threads": "1", "rss": 20807680, "wall": 0.38, "enc": "master", "q": "q4", "rep": 0, "load1": 27.07275390625, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.000825, "threads": "1", "rss": 20627456, "wall": 0.222, "enc": "raw", "q": "q4", "rep": 0, "load1": 27.07275390625, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.00035, "threads": "1", "rss": 9158656, "wall": 0.213, "enc": "auto", "q": "q4", "rep": 0, "load1": 27.07275390625, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.0003, "threads": "1", "rss": 9240576, "wall": 0.239, "enc": "dict", "q": "q4", "rep": 0, "load1": 27.07275390625, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.00085, "threads": "1", "rss": 20643840, "wall": 0.208, "enc": "raw", "q": "q4", "rep": 1, "load1": 27.07275390625, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.000325, "threads": "1", "rss": 9158656, "wall": 0.208, "enc": "auto", "q": "q4", "rep": 1, "load1": 27.07275390625, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.000325, "threads": "1", "rss": 9175040, "wall": 0.202, "enc": "dict", "q": "q4", "rep": 1, "load1": 27.07275390625, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.000825, "threads": "1", "rss": 20807680, "wall": 0.377, "enc": "master", "q": "q4", "rep": 1, "load1": 27.07275390625, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.000325, "threads": "1", "rss": 9158656, "wall": 0.246, "enc": "auto", "q": "q4", "rep": 2, "load1": 27.07275390625, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.000325, "threads": "1", "rss": 9224192, "wall": 0.21, "enc": "dict", "q": "q4", "rep": 2, "load1": 27.07275390625, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.000875, "threads": "1", "rss": 20840448, "wall": 0.366, "enc": "master", "q": "q4", "rep": 2, "load1": 27.07275390625, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.000875, "threads": "1", "rss": 20692992, "wall": 0.252, "enc": "raw", "q": "q4", "rep": 2, "load1": 27.07275390625, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.000325, "threads": "1", "rss": 9158656, "wall": 0.206, "enc": "dict", "q": "q4", "rep": 3, "load1": 27.07275390625, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.0008, "threads": "1", "rss": 20807680, "wall": 0.362, "enc": "master", "q": "q4", "rep": 3, "load1": 27.07275390625, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.000875, "threads": "1", "rss": 20627456, "wall": 0.225, "enc": "raw", "q": "q4", "rep": 3, "load1": 27.07275390625, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.000325, "threads": "1", "rss": 9158656, "wall": 0.197, "enc": "auto", "q": "q4", "rep": 3, "load1": 25.30517578125, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.0009, "threads": "1", "rss": 20824064, "wall": 0.368, "enc": "master", "q": "q4", "rep": 4, "load1": 25.30517578125, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.000825, "threads": "1", "rss": 20660224, "wall": 0.215, "enc": "raw", "q": "q4", "rep": 4, "load1": 25.30517578125, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.0004, "threads": "1", "rss": 9240576, "wall": 0.297, "enc": "auto", "q": "q4", "rep": 4, "load1": 25.30517578125, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.00035, "threads": "1", "rss": 9158656, "wall": 0.235, "enc": "dict", "q": "q4", "rep": 4, "load1": 25.30517578125, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.000875, "threads": "default", "rss": 32079872, "wall": 0.328, "enc": "master", "q": "q4", "rep": 0, "load1": 25.30517578125, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.00095, "threads": "default", "rss": 32129024, "wall": 0.238, "enc": "raw", "q": "q4", "rep": 0, "load1": 25.30517578125, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.00035, "threads": "default", "rss": 21430272, "wall": 0.213, "enc": "auto", "q": "q4", "rep": 0, "load1": 25.30517578125, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.00035, "threads": "default", "rss": 20938752, "wall": 0.205, "enc": "dict", "q": "q4", "rep": 0, "load1": 25.30517578125, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.0009, "threads": "default", "rss": 31539200, "wall": 0.249, "enc": "raw", "q": "q4", "rep": 1, "load1": 25.30517578125, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.000325, "threads": "default", "rss": 20627456, "wall": 0.212, "enc": "auto", "q": "q4", "rep": 1, "load1": 25.30517578125, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.000325, "threads": "default", "rss": 20873216, "wall": 0.216, "enc": "dict", "q": "q4", "rep": 1, "load1": 25.30517578125, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.00095, "threads": "default", "rss": 31522816, "wall": 0.359, "enc": "master", "q": "q4", "rep": 1, "load1": 25.30517578125, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.000325, "threads": "default", "rss": 20905984, "wall": 0.208, "enc": "auto", "q": "q4", "rep": 2, "load1": 25.30517578125, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.000325, "threads": "default", "rss": 21020672, "wall": 0.21, "enc": "dict", "q": "q4", "rep": 2, "load1": 25.30517578125, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.00095, "threads": "default", "rss": 32358400, "wall": 0.341, "enc": "master", "q": "q4", "rep": 2, "load1": 25.30517578125, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.001025, "threads": "default", "rss": 31440896, "wall": 0.279, "enc": "raw", "q": "q4", "rep": 2, "load1": 25.30517578125, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.000375, "threads": "default", "rss": 20987904, "wall": 0.372, "enc": "dict", "q": "q4", "rep": 3, "load1": 25.30517578125, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.00135, "threads": "default", "rss": 31719424, "wall": 0.499, "enc": "master", "q": "q4", "rep": 3, "load1": 25.30517578125, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.0009, "threads": "default", "rss": 31145984, "wall": 0.334, "enc": "raw", "q": "q4", "rep": 3, "load1": 25.1201171875, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.000325, "threads": "default", "rss": 21266432, "wall": 0.22, "enc": "auto", "q": "q4", "rep": 3, "load1": 25.1201171875, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.000975, "threads": "default", "rss": 31866880, "wall": 0.335, "enc": "master", "q": "q4", "rep": 4, "load1": 25.1201171875, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.00095, "threads": "default", "rss": 31670272, "wall": 0.259, "enc": "raw", "q": "q4", "rep": 4, "load1": 25.1201171875, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.000325, "threads": "default", "rss": 20725760, "wall": 0.215, "enc": "auto", "q": "q4", "rep": 4, "load1": 25.1201171875, "batch": 40}
+{"query": "q4", "n": 1000, "seconds": 0.000325, "threads": "default", "rss": 20856832, "wall": 0.214, "enc": "dict", "q": "q4", "rep": 4, "load1": 25.1201171875, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.00095, "threads": "1", "rss": 20905984, "wall": 0.362, "enc": "master", "q": "q5", "rep": 0, "load1": 25.1201171875, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.000925, "threads": "1", "rss": 20774912, "wall": 0.307, "enc": "raw", "q": "q5", "rep": 0, "load1": 25.1201171875, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.00025, "threads": "1", "rss": 9404416, "wall": 0.229, "enc": "auto", "q": "q5", "rep": 0, "load1": 25.1201171875, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.000275, "threads": "1", "rss": 9453568, "wall": 0.232, "enc": "dict", "q": "q5", "rep": 0, "load1": 25.1201171875, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.00085, "threads": "1", "rss": 20742144, "wall": 0.234, "enc": "raw", "q": "q5", "rep": 1, "load1": 25.1201171875, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.000275, "threads": "1", "rss": 9388032, "wall": 0.212, "enc": "auto", "q": "q5", "rep": 1, "load1": 25.1201171875, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.00025, "threads": "1", "rss": 9371648, "wall": 0.214, "enc": "dict", "q": "q5", "rep": 1, "load1": 25.1201171875, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.00085, "threads": "1", "rss": 20955136, "wall": 0.386, "enc": "master", "q": "q5", "rep": 1, "load1": 25.1201171875, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.000225, "threads": "1", "rss": 9420800, "wall": 0.209, "enc": "auto", "q": "q5", "rep": 2, "load1": 25.1201171875, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.000225, "threads": "1", "rss": 9453568, "wall": 0.264, "enc": "dict", "q": "q5", "rep": 2, "load1": 25.1201171875, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.000875, "threads": "1", "rss": 20889600, "wall": 0.376, "enc": "master", "q": "q5", "rep": 2, "load1": 25.1201171875, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.00155, "threads": "1", "rss": 20758528, "wall": 0.307, "enc": "raw", "q": "q5", "rep": 2, "load1": 25.1201171875, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.000275, "threads": "1", "rss": 9469952, "wall": 0.349, "enc": "dict", "q": "q5", "rep": 3, "load1": 24.7099609375, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.0012, "threads": "1", "rss": 20938752, "wall": 0.49, "enc": "master", "q": "q5", "rep": 3, "load1": 24.7099609375, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.000975, "threads": "1", "rss": 20840448, "wall": 0.346, "enc": "raw", "q": "q5", "rep": 3, "load1": 24.7099609375, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.000225, "threads": "1", "rss": 9453568, "wall": 0.341, "enc": "auto", "q": "q5", "rep": 3, "load1": 24.7099609375, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.000825, "threads": "1", "rss": 20856832, "wall": 0.365, "enc": "master", "q": "q5", "rep": 4, "load1": 24.7099609375, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.0009, "threads": "1", "rss": 20774912, "wall": 0.228, "enc": "raw", "q": "q5", "rep": 4, "load1": 24.7099609375, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.0002, "threads": "1", "rss": 9453568, "wall": 0.245, "enc": "auto", "q": "q5", "rep": 4, "load1": 24.7099609375, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.0002, "threads": "1", "rss": 9338880, "wall": 0.201, "enc": "dict", "q": "q5", "rep": 4, "load1": 24.7099609375, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.00095, "threads": "default", "rss": 31784960, "wall": 0.318, "enc": "master", "q": "q5", "rep": 0, "load1": 24.7099609375, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.00085, "threads": "default", "rss": 31375360, "wall": 0.238, "enc": "raw", "q": "q5", "rep": 0, "load1": 24.7099609375, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.000275, "threads": "default", "rss": 21184512, "wall": 0.211, "enc": "auto", "q": "q5", "rep": 0, "load1": 24.7099609375, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.0003, "threads": "default", "rss": 21397504, "wall": 0.218, "enc": "dict", "q": "q5", "rep": 0, "load1": 24.7099609375, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.000925, "threads": "default", "rss": 31391744, "wall": 0.247, "enc": "raw", "q": "q5", "rep": 1, "load1": 24.7099609375, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.00025, "threads": "default", "rss": 21020672, "wall": 0.2, "enc": "auto", "q": "q5", "rep": 1, "load1": 24.7099609375, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.000275, "threads": "default", "rss": 21266432, "wall": 0.203, "enc": "dict", "q": "q5", "rep": 1, "load1": 24.7099609375, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.001, "threads": "default", "rss": 32014336, "wall": 0.334, "enc": "master", "q": "q5", "rep": 1, "load1": 24.7099609375, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.0003, "threads": "default", "rss": 21282816, "wall": 0.214, "enc": "auto", "q": "q5", "rep": 2, "load1": 24.7099609375, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.00025, "threads": "default", "rss": 21348352, "wall": 0.203, "enc": "dict", "q": "q5", "rep": 2, "load1": 24.7099609375, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.000925, "threads": "default", "rss": 31899648, "wall": 0.331, "enc": "master", "q": "q5", "rep": 2, "load1": 23.85205078125, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.0009, "threads": "default", "rss": 31555584, "wall": 0.282, "enc": "raw", "q": "q5", "rep": 2, "load1": 23.85205078125, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.0003, "threads": "default", "rss": 21479424, "wall": 0.287, "enc": "dict", "q": "q5", "rep": 3, "load1": 23.85205078125, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.001025, "threads": "default", "rss": 31883264, "wall": 0.399, "enc": "master", "q": "q5", "rep": 3, "load1": 23.85205078125, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.001025, "threads": "default", "rss": 32178176, "wall": 0.25, "enc": "raw", "q": "q5", "rep": 3, "load1": 23.85205078125, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.000325, "threads": "default", "rss": 21577728, "wall": 0.214, "enc": "auto", "q": "q5", "rep": 3, "load1": 23.85205078125, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.001275, "threads": "default", "rss": 32014336, "wall": 0.36, "enc": "master", "q": "q5", "rep": 4, "load1": 23.85205078125, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.000975, "threads": "default", "rss": 31440896, "wall": 0.261, "enc": "raw", "q": "q5", "rep": 4, "load1": 23.85205078125, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.0003, "threads": "default", "rss": 21233664, "wall": 0.303, "enc": "auto", "q": "q5", "rep": 4, "load1": 23.85205078125, "batch": 40}
+{"query": "q5", "n": 1000, "seconds": 0.00045, "threads": "default", "rss": 21413888, "wall": 0.257, "enc": "dict", "q": "q5", "rep": 4, "load1": 23.85205078125, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.000725, "threads": "1", "rss": 20496384, "wall": 0.369, "enc": "master", "q": "q6", "rep": 0, "load1": 23.85205078125, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.0006, "threads": "1", "rss": 20299776, "wall": 0.21, "enc": "raw", "q": "q6", "rep": 0, "load1": 23.85205078125, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.000575, "threads": "1", "rss": 8929280, "wall": 0.214, "enc": "auto", "q": "q6", "rep": 0, "load1": 23.85205078125, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.000575, "threads": "1", "rss": 8912896, "wall": 0.214, "enc": "dict", "q": "q6", "rep": 0, "load1": 23.85205078125, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.000625, "threads": "1", "rss": 20299776, "wall": 0.213, "enc": "raw", "q": "q6", "rep": 1, "load1": 23.85205078125, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.0006, "threads": "1", "rss": 8912896, "wall": 0.219, "enc": "auto", "q": "q6", "rep": 1, "load1": 23.85205078125, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.0006, "threads": "1", "rss": 8912896, "wall": 0.261, "enc": "dict", "q": "q6", "rep": 1, "load1": 23.85205078125, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.0009, "threads": "1", "rss": 20463616, "wall": 0.383, "enc": "master", "q": "q6", "rep": 1, "load1": 23.85205078125, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.000625, "threads": "1", "rss": 8929280, "wall": 0.225, "enc": "auto", "q": "q6", "rep": 2, "load1": 22.66259765625, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.000575, "threads": "1", "rss": 8896512, "wall": 0.215, "enc": "dict", "q": "q6", "rep": 2, "load1": 22.66259765625, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.0006, "threads": "1", "rss": 20480000, "wall": 0.348, "enc": "master", "q": "q6", "rep": 2, "load1": 22.66259765625, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.0006, "threads": "1", "rss": 20234240, "wall": 0.207, "enc": "raw", "q": "q6", "rep": 2, "load1": 22.66259765625, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.000575, "threads": "1", "rss": 8912896, "wall": 0.213, "enc": "dict", "q": "q6", "rep": 3, "load1": 22.66259765625, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.0006, "threads": "1", "rss": 20463616, "wall": 0.353, "enc": "master", "q": "q6", "rep": 3, "load1": 22.66259765625, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.000575, "threads": "1", "rss": 20332544, "wall": 0.247, "enc": "raw", "q": "q6", "rep": 3, "load1": 22.66259765625, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.000575, "threads": "1", "rss": 8847360, "wall": 0.207, "enc": "auto", "q": "q6", "rep": 3, "load1": 22.66259765625, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.0006, "threads": "1", "rss": 20414464, "wall": 0.35, "enc": "master", "q": "q6", "rep": 4, "load1": 22.66259765625, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.000575, "threads": "1", "rss": 20283392, "wall": 0.217, "enc": "raw", "q": "q6", "rep": 4, "load1": 22.66259765625, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.0006, "threads": "1", "rss": 8929280, "wall": 0.217, "enc": "auto", "q": "q6", "rep": 4, "load1": 22.66259765625, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.00055, "threads": "1", "rss": 8896512, "wall": 0.209, "enc": "dict", "q": "q6", "rep": 4, "load1": 22.66259765625, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.000625, "threads": "default", "rss": 31293440, "wall": 0.328, "enc": "master", "q": "q6", "rep": 0, "load1": 22.66259765625, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.0006, "threads": "default", "rss": 31277056, "wall": 0.24, "enc": "raw", "q": "q6", "rep": 0, "load1": 22.66259765625, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.0006, "threads": "default", "rss": 20873216, "wall": 0.268, "enc": "auto", "q": "q6", "rep": 0, "load1": 22.66259765625, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.0006, "threads": "default", "rss": 20856832, "wall": 0.23, "enc": "dict", "q": "q6", "rep": 0, "load1": 22.66259765625, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.000625, "threads": "default", "rss": 32096256, "wall": 0.246, "enc": "raw", "q": "q6", "rep": 1, "load1": 22.66259765625, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.000575, "threads": "default", "rss": 20660224, "wall": 0.215, "enc": "auto", "q": "q6", "rep": 1, "load1": 22.66259765625, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.000575, "threads": "default", "rss": 20807680, "wall": 0.223, "enc": "dict", "q": "q6", "rep": 1, "load1": 22.66259765625, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.000625, "threads": "default", "rss": 31817728, "wall": 0.318, "enc": "master", "q": "q6", "rep": 1, "load1": 22.66259765625, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.0006, "threads": "default", "rss": 20692992, "wall": 0.309, "enc": "auto", "q": "q6", "rep": 2, "load1": 21.568359375, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.0006, "threads": "default", "rss": 20856832, "wall": 0.239, "enc": "dict", "q": "q6", "rep": 2, "load1": 21.568359375, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.000675, "threads": "default", "rss": 31408128, "wall": 0.53, "enc": "master", "q": "q6", "rep": 2, "load1": 21.568359375, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.000625, "threads": "default", "rss": 31080448, "wall": 0.281, "enc": "raw", "q": "q6", "rep": 2, "load1": 21.568359375, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.000575, "threads": "default", "rss": 20807680, "wall": 0.223, "enc": "dict", "q": "q6", "rep": 3, "load1": 21.568359375, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.000625, "threads": "default", "rss": 31784960, "wall": 0.323, "enc": "master", "q": "q6", "rep": 3, "load1": 21.568359375, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.000625, "threads": "default", "rss": 30867456, "wall": 0.252, "enc": "raw", "q": "q6", "rep": 3, "load1": 21.568359375, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.000575, "threads": "default", "rss": 21102592, "wall": 0.225, "enc": "auto", "q": "q6", "rep": 3, "load1": 21.568359375, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.0006, "threads": "default", "rss": 32063488, "wall": 0.335, "enc": "master", "q": "q6", "rep": 4, "load1": 21.568359375, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.0006, "threads": "default", "rss": 31801344, "wall": 0.231, "enc": "raw", "q": "q6", "rep": 4, "load1": 21.568359375, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.000575, "threads": "default", "rss": 20889600, "wall": 0.231, "enc": "auto", "q": "q6", "rep": 4, "load1": 21.568359375, "batch": 40}
+{"query": "q6", "n": 1000, "seconds": 0.000575, "threads": "default", "rss": 20873216, "wall": 0.221, "enc": "dict", "q": "q6", "rep": 4, "load1": 21.568359375, "batch": 40}
+{"query": "parse", "n": 100000, "read_ms": 679, "first_walk_ms": 47, "chk": 883539844, "rss": 167198720, "wall": 0.738, "enc": "master", "q": "parse", "threads": "1", "rep": 0, "load1": 21.568359375, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 374, "first_walk_ms": 40, "chk": 883539844, "rss": 135020544, "wall": 0.424, "enc": "raw", "q": "parse", "threads": "1", "rep": 0, "load1": 21.568359375, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 421, "first_walk_ms": 1, "chk": 738812448, "rss": 132923392, "wall": 0.431, "enc": "auto", "q": "parse", "threads": "1", "rep": 0, "load1": 21.568359375, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 407, "first_walk_ms": 1, "chk": 738812448, "rss": 132956160, "wall": 0.416, "enc": "dict", "q": "parse", "threads": "1", "rep": 0, "load1": 20.4814453125, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 381, "first_walk_ms": 42, "chk": 883539844, "rss": 135004160, "wall": 0.434, "enc": "raw", "q": "parse", "threads": "1", "rep": 1, "load1": 20.4814453125, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 419, "first_walk_ms": 0, "chk": 738812448, "rss": 132956160, "wall": 0.43, "enc": "auto", "q": "parse", "threads": "1", "rep": 1, "load1": 20.4814453125, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 426, "first_walk_ms": 0, "chk": 738812448, "rss": 132956160, "wall": 0.441, "enc": "dict", "q": "parse", "threads": "1", "rep": 1, "load1": 20.4814453125, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 810, "first_walk_ms": 45, "chk": 883539844, "rss": 167198720, "wall": 0.868, "enc": "master", "q": "parse", "threads": "1", "rep": 1, "load1": 20.4814453125, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 406, "first_walk_ms": 0, "chk": 738812448, "rss": 132923392, "wall": 0.416, "enc": "auto", "q": "parse", "threads": "1", "rep": 2, "load1": 20.4814453125, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 409, "first_walk_ms": 1, "chk": 738812448, "rss": 132939776, "wall": 0.42, "enc": "dict", "q": "parse", "threads": "1", "rep": 2, "load1": 20.4814453125, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 705, "first_walk_ms": 47, "chk": 883539844, "rss": 167215104, "wall": 0.765, "enc": "master", "q": "parse", "threads": "1", "rep": 2, "load1": 20.4814453125, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 404, "first_walk_ms": 42, "chk": 883539844, "rss": 135020544, "wall": 0.456, "enc": "raw", "q": "parse", "threads": "1", "rep": 2, "load1": 20.4814453125, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 433, "first_walk_ms": 0, "chk": 738812448, "rss": 132923392, "wall": 0.444, "enc": "dict", "q": "parse", "threads": "1", "rep": 3, "load1": 20.4814453125, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 679, "first_walk_ms": 48, "chk": 883539844, "rss": 167198720, "wall": 0.738, "enc": "master", "q": "parse", "threads": "1", "rep": 3, "load1": 19.56201171875, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 433, "first_walk_ms": 43, "chk": 883539844, "rss": 135036928, "wall": 0.487, "enc": "raw", "q": "parse", "threads": "1", "rep": 3, "load1": 19.56201171875, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 410, "first_walk_ms": 1, "chk": 738812448, "rss": 132907008, "wall": 0.422, "enc": "auto", "q": "parse", "threads": "1", "rep": 3, "load1": 19.56201171875, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 686, "first_walk_ms": 45, "chk": 883539844, "rss": 167198720, "wall": 0.744, "enc": "master", "q": "parse", "threads": "1", "rep": 4, "load1": 19.56201171875, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 383, "first_walk_ms": 43, "chk": 883539844, "rss": 135020544, "wall": 0.436, "enc": "raw", "q": "parse", "threads": "1", "rep": 4, "load1": 19.56201171875, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 442, "first_walk_ms": 1, "chk": 738812448, "rss": 132939776, "wall": 0.455, "enc": "auto", "q": "parse", "threads": "1", "rep": 4, "load1": 19.56201171875, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 425, "first_walk_ms": 1, "chk": 738812448, "rss": 132923392, "wall": 0.437, "enc": "dict", "q": "parse", "threads": "1", "rep": 4, "load1": 19.56201171875, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 332, "first_walk_ms": 49, "chk": 883539844, "rss": 177504256, "wall": 0.396, "enc": "master", "q": "parse", "threads": "default", "rep": 0, "load1": 19.56201171875, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 194, "first_walk_ms": 41, "chk": 883539844, "rss": 135888896, "wall": 0.245, "enc": "raw", "q": "parse", "threads": "default", "rep": 0, "load1": 19.56201171875, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 191, "first_walk_ms": 0, "chk": 738812448, "rss": 134086656, "wall": 0.205, "enc": "auto", "q": "parse", "threads": "default", "rep": 0, "load1": 19.56201171875, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 191, "first_walk_ms": 0, "chk": 738812448, "rss": 133955584, "wall": 0.203, "enc": "dict", "q": "parse", "threads": "default", "rep": 0, "load1": 19.56201171875, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 206, "first_walk_ms": 52, "chk": 883539844, "rss": 136003584, "wall": 0.284, "enc": "raw", "q": "parse", "threads": "default", "rep": 1, "load1": 18.3154296875, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 199, "first_walk_ms": 1, "chk": 738812448, "rss": 134004736, "wall": 0.226, "enc": "auto", "q": "parse", "threads": "default", "rep": 1, "load1": 18.3154296875, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 187, "first_walk_ms": 1, "chk": 738812448, "rss": 134103040, "wall": 0.198, "enc": "dict", "q": "parse", "threads": "default", "rep": 1, "load1": 18.3154296875, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 339, "first_walk_ms": 46, "chk": 883539844, "rss": 177422336, "wall": 0.398, "enc": "master", "q": "parse", "threads": "default", "rep": 1, "load1": 18.3154296875, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 191, "first_walk_ms": 1, "chk": 738812448, "rss": 134037504, "wall": 0.203, "enc": "auto", "q": "parse", "threads": "default", "rep": 2, "load1": 18.3154296875, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 188, "first_walk_ms": 1, "chk": 738812448, "rss": 134086656, "wall": 0.2, "enc": "dict", "q": "parse", "threads": "default", "rep": 2, "load1": 18.3154296875, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 326, "first_walk_ms": 47, "chk": 883539844, "rss": 177504256, "wall": 0.385, "enc": "master", "q": "parse", "threads": "default", "rep": 2, "load1": 18.3154296875, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 194, "first_walk_ms": 41, "chk": 883539844, "rss": 135856128, "wall": 0.245, "enc": "raw", "q": "parse", "threads": "default", "rep": 2, "load1": 18.3154296875, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 212, "first_walk_ms": 1, "chk": 738812448, "rss": 133988352, "wall": 0.225, "enc": "dict", "q": "parse", "threads": "default", "rep": 3, "load1": 18.3154296875, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 341, "first_walk_ms": 47, "chk": 883539844, "rss": 177455104, "wall": 0.401, "enc": "master", "q": "parse", "threads": "default", "rep": 3, "load1": 18.3154296875, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 205, "first_walk_ms": 43, "chk": 883539844, "rss": 135708672, "wall": 0.26, "enc": "raw", "q": "parse", "threads": "default", "rep": 3, "load1": 18.3154296875, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 194, "first_walk_ms": 0, "chk": 738812448, "rss": 134021120, "wall": 0.206, "enc": "auto", "q": "parse", "threads": "default", "rep": 3, "load1": 18.3154296875, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 332, "first_walk_ms": 47, "chk": 883539844, "rss": 177569792, "wall": 0.393, "enc": "master", "q": "parse", "threads": "default", "rep": 4, "load1": 18.3154296875, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 197, "first_walk_ms": 42, "chk": 883539844, "rss": 135757824, "wall": 0.25, "enc": "raw", "q": "parse", "threads": "default", "rep": 4, "load1": 18.3154296875, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 193, "first_walk_ms": 1, "chk": 738812448, "rss": 134037504, "wall": 0.206, "enc": "auto", "q": "parse", "threads": "default", "rep": 4, "load1": 18.3154296875, "batch": 1}
+{"query": "parse", "n": 100000, "read_ms": 310, "first_walk_ms": 1, "chk": 738812448, "rss": 134070272, "wall": 0.336, "enc": "dict", "q": "parse", "threads": "default", "rep": 4, "load1": 18.3154296875, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.011, "threads": "1", "rss": 176259072, "wall": 0.753, "enc": "master", "q": "q1", "rep": 0, "load1": 18.3154296875, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.009, "threads": "1", "rss": 138887168, "wall": 0.47, "enc": "raw", "q": "q1", "rep": 0, "load1": 17.2490234375, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.002, "threads": "1", "rss": 136527872, "wall": 0.46, "enc": "auto", "q": "q1", "rep": 0, "load1": 17.2490234375, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.001, "threads": "1", "rss": 136511488, "wall": 0.454, "enc": "dict", "q": "q1", "rep": 0, "load1": 17.2490234375, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.01, "threads": "1", "rss": 138870784, "wall": 0.471, "enc": "raw", "q": "q1", "rep": 1, "load1": 17.2490234375, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.002, "threads": "1", "rss": 136544256, "wall": 0.428, "enc": "auto", "q": "q1", "rep": 1, "load1": 17.2490234375, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.001, "threads": "1", "rss": 136544256, "wall": 0.417, "enc": "dict", "q": "q1", "rep": 1, "load1": 17.2490234375, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.011, "threads": "1", "rss": 176275456, "wall": 0.784, "enc": "master", "q": "q1", "rep": 1, "load1": 17.2490234375, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.001, "threads": "1", "rss": 136527872, "wall": 0.433, "enc": "auto", "q": "q1", "rep": 2, "load1": 17.2490234375, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.001, "threads": "1", "rss": 136511488, "wall": 0.433, "enc": "dict", "q": "q1", "rep": 2, "load1": 17.2490234375, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.009, "threads": "1", "rss": 176308224, "wall": 0.759, "enc": "master", "q": "q1", "rep": 2, "load1": 17.2490234375, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.01, "threads": "1", "rss": 138854400, "wall": 0.58, "enc": "raw", "q": "q1", "rep": 2, "load1": 16.50830078125, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.001, "threads": "1", "rss": 136544256, "wall": 0.439, "enc": "dict", "q": "q1", "rep": 3, "load1": 16.50830078125, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.01, "threads": "1", "rss": 176275456, "wall": 0.774, "enc": "master", "q": "q1", "rep": 3, "load1": 16.50830078125, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.009, "threads": "1", "rss": 138870784, "wall": 0.514, "enc": "raw", "q": "q1", "rep": 3, "load1": 16.50830078125, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.002, "threads": "1", "rss": 136544256, "wall": 0.513, "enc": "auto", "q": "q1", "rep": 3, "load1": 16.50830078125, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.011, "threads": "1", "rss": 176275456, "wall": 0.786, "enc": "master", "q": "q1", "rep": 4, "load1": 16.50830078125, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.011, "threads": "1", "rss": 138870784, "wall": 0.527, "enc": "raw", "q": "q1", "rep": 4, "load1": 16.50830078125, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.001, "threads": "1", "rss": 136527872, "wall": 0.525, "enc": "auto", "q": "q1", "rep": 4, "load1": 16.50830078125, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.002, "threads": "1", "rss": 136527872, "wall": 0.538, "enc": "dict", "q": "q1", "rep": 4, "load1": 16.38720703125, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.01, "threads": "default", "rss": 186728448, "wall": 0.464, "enc": "master", "q": "q1", "rep": 0, "load1": 16.38720703125, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.011, "threads": "default", "rss": 141393920, "wall": 0.31, "enc": "raw", "q": "q1", "rep": 0, "load1": 16.38720703125, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.001, "threads": "default", "rss": 138395648, "wall": 0.225, "enc": "auto", "q": "q1", "rep": 0, "load1": 16.38720703125, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.001, "threads": "default", "rss": 138379264, "wall": 0.231, "enc": "dict", "q": "q1", "rep": 0, "load1": 16.38720703125, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.016, "threads": "default", "rss": 141328384, "wall": 0.417, "enc": "raw", "q": "q1", "rep": 1, "load1": 16.38720703125, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.002, "threads": "default", "rss": 138412032, "wall": 0.25, "enc": "auto", "q": "q1", "rep": 1, "load1": 16.38720703125, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.002, "threads": "default", "rss": 137625600, "wall": 0.246, "enc": "dict", "q": "q1", "rep": 1, "load1": 16.38720703125, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.013, "threads": "default", "rss": 186810368, "wall": 0.522, "enc": "master", "q": "q1", "rep": 1, "load1": 16.38720703125, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.002, "threads": "default", "rss": 138231808, "wall": 0.23, "enc": "auto", "q": "q1", "rep": 2, "load1": 16.38720703125, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.002, "threads": "default", "rss": 138231808, "wall": 0.226, "enc": "dict", "q": "q1", "rep": 2, "load1": 16.38720703125, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.012, "threads": "default", "rss": 186810368, "wall": 0.571, "enc": "master", "q": "q1", "rep": 2, "load1": 16.38720703125, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.015, "threads": "default", "rss": 139722752, "wall": 0.34, "enc": "raw", "q": "q1", "rep": 2, "load1": 16.38720703125, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.001, "threads": "default", "rss": 138444800, "wall": 0.271, "enc": "dict", "q": "q1", "rep": 3, "load1": 16.38720703125, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.011, "threads": "default", "rss": 186843136, "wall": 0.54, "enc": "master", "q": "q1", "rep": 3, "load1": 16.38720703125, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.009, "threads": "default", "rss": 141328384, "wall": 0.349, "enc": "raw", "q": "q1", "rep": 3, "load1": 16.11572265625, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.002, "threads": "default", "rss": 138117120, "wall": 0.451, "enc": "auto", "q": "q1", "rep": 3, "load1": 16.11572265625, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.013, "threads": "default", "rss": 186662912, "wall": 0.581, "enc": "master", "q": "q1", "rep": 4, "load1": 16.11572265625, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.015, "threads": "default", "rss": 141377536, "wall": 0.425, "enc": "raw", "q": "q1", "rep": 4, "load1": 16.11572265625, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.002, "threads": "default", "rss": 137789440, "wall": 0.263, "enc": "auto", "q": "q1", "rep": 4, "load1": 16.11572265625, "batch": 1}
+{"query": "q1", "n": 100000, "seconds": 0.002, "threads": "default", "rss": 137625600, "wall": 0.219, "enc": "dict", "q": "q1", "rep": 4, "load1": 16.11572265625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "1", "rss": 174948352, "wall": 0.776, "enc": "master", "q": "q2", "rep": 0, "load1": 16.11572265625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "1", "rss": 137576448, "wall": 0.464, "enc": "raw", "q": "q2", "rep": 0, "load1": 16.11572265625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "1", "rss": 135561216, "wall": 0.45, "enc": "auto", "q": "q2", "rep": 0, "load1": 16.11572265625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "1", "rss": 135528448, "wall": 0.425, "enc": "dict", "q": "q2", "rep": 0, "load1": 16.11572265625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "1", "rss": 137592832, "wall": 0.488, "enc": "raw", "q": "q2", "rep": 1, "load1": 16.11572265625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "1", "rss": 135544832, "wall": 0.446, "enc": "auto", "q": "q2", "rep": 1, "load1": 15.3056640625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "1", "rss": 135561216, "wall": 0.484, "enc": "dict", "q": "q2", "rep": 1, "load1": 15.3056640625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "1", "rss": 174931968, "wall": 0.855, "enc": "master", "q": "q2", "rep": 1, "load1": 15.3056640625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "1", "rss": 135561216, "wall": 0.448, "enc": "auto", "q": "q2", "rep": 2, "load1": 15.3056640625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.003, "threads": "1", "rss": 132038656, "wall": 0.762, "enc": "dict", "q": "q2", "rep": 2, "load1": 15.3056640625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "1", "rss": 170049536, "wall": 0.917, "enc": "master", "q": "q2", "rep": 2, "load1": 15.3056640625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.004, "threads": "1", "rss": 133120000, "wall": 0.581, "enc": "raw", "q": "q2", "rep": 2, "load1": 15.3056640625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "1", "rss": 135544832, "wall": 0.52, "enc": "dict", "q": "q2", "rep": 3, "load1": 15.3056640625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "1", "rss": 174948352, "wall": 0.804, "enc": "master", "q": "q2", "rep": 3, "load1": 15.84130859375, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "1", "rss": 137592832, "wall": 0.448, "enc": "raw", "q": "q2", "rep": 3, "load1": 15.84130859375, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "1", "rss": 135544832, "wall": 0.432, "enc": "auto", "q": "q2", "rep": 3, "load1": 15.84130859375, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "1", "rss": 174964736, "wall": 0.814, "enc": "master", "q": "q2", "rep": 4, "load1": 15.84130859375, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "1", "rss": 137576448, "wall": 0.529, "enc": "raw", "q": "q2", "rep": 4, "load1": 15.84130859375, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "1", "rss": 135528448, "wall": 0.49, "enc": "auto", "q": "q2", "rep": 4, "load1": 15.84130859375, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "1", "rss": 135528448, "wall": 0.427, "enc": "dict", "q": "q2", "rep": 4, "load1": 15.84130859375, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.002, "threads": "default", "rss": 185483264, "wall": 0.399, "enc": "master", "q": "q2", "rep": 0, "load1": 15.84130859375, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "default", "rss": 139935744, "wall": 0.278, "enc": "raw", "q": "q2", "rep": 0, "load1": 15.84130859375, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "default", "rss": 137281536, "wall": 0.207, "enc": "auto", "q": "q2", "rep": 0, "load1": 14.89306640625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.002, "threads": "default", "rss": 137281536, "wall": 0.208, "enc": "dict", "q": "q2", "rep": 0, "load1": 14.89306640625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "default", "rss": 140148736, "wall": 0.293, "enc": "raw", "q": "q2", "rep": 1, "load1": 14.89306640625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "default", "rss": 137347072, "wall": 0.207, "enc": "auto", "q": "q2", "rep": 1, "load1": 14.89306640625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "default", "rss": 137347072, "wall": 0.228, "enc": "dict", "q": "q2", "rep": 1, "load1": 14.89306640625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "default", "rss": 185401344, "wall": 0.445, "enc": "master", "q": "q2", "rep": 1, "load1": 14.89306640625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "default", "rss": 137314304, "wall": 0.228, "enc": "auto", "q": "q2", "rep": 2, "load1": 14.89306640625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "default", "rss": 137281536, "wall": 0.253, "enc": "dict", "q": "q2", "rep": 2, "load1": 14.89306640625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.0, "threads": "default", "rss": 185417728, "wall": 0.466, "enc": "master", "q": "q2", "rep": 2, "load1": 14.89306640625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "default", "rss": 140099584, "wall": 0.32, "enc": "raw", "q": "q2", "rep": 2, "load1": 14.89306640625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "default", "rss": 137297920, "wall": 0.221, "enc": "dict", "q": "q2", "rep": 3, "load1": 14.89306640625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.002, "threads": "default", "rss": 181895168, "wall": 0.69, "enc": "master", "q": "q2", "rep": 3, "load1": 14.89306640625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "default", "rss": 138035200, "wall": 0.471, "enc": "raw", "q": "q2", "rep": 3, "load1": 14.89306640625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "default", "rss": 132284416, "wall": 0.375, "enc": "auto", "q": "q2", "rep": 3, "load1": 14.89306640625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "default", "rss": 185450496, "wall": 0.458, "enc": "master", "q": "q2", "rep": 4, "load1": 14.89306640625, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.002, "threads": "default", "rss": 140099584, "wall": 0.306, "enc": "raw", "q": "q2", "rep": 4, "load1": 14.7412109375, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "default", "rss": 137396224, "wall": 0.26, "enc": "auto", "q": "q2", "rep": 4, "load1": 14.7412109375, "batch": 1}
+{"query": "q2", "n": 100000, "seconds": 0.001, "threads": "default", "rss": 137166848, "wall": 0.214, "enc": "dict", "q": "q2", "rep": 4, "load1": 14.7412109375, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.048, "threads": "1", "rss": 175210496, "wall": 0.923, "enc": "master", "q": "q3", "rep": 0, "load1": 14.7412109375, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.039, "threads": "1", "rss": 140165120, "wall": 0.549, "enc": "raw", "q": "q3", "rep": 0, "load1": 14.7412109375, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.003, "threads": "1", "rss": 136429568, "wall": 0.456, "enc": "auto", "q": "q3", "rep": 0, "load1": 14.7412109375, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.003, "threads": "1", "rss": 136413184, "wall": 0.422, "enc": "dict", "q": "q3", "rep": 0, "load1": 14.7412109375, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.037, "threads": "1", "rss": 140165120, "wall": 0.518, "enc": "raw", "q": "q3", "rep": 1, "load1": 14.7412109375, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.003, "threads": "1", "rss": 136429568, "wall": 0.459, "enc": "auto", "q": "q3", "rep": 1, "load1": 14.7412109375, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.003, "threads": "1", "rss": 136429568, "wall": 0.489, "enc": "dict", "q": "q3", "rep": 1, "load1": 14.7412109375, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.047, "threads": "1", "rss": 173965312, "wall": 1.075, "enc": "master", "q": "q3", "rep": 1, "load1": 14.7412109375, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.003, "threads": "1", "rss": 136445952, "wall": 0.581, "enc": "auto", "q": "q3", "rep": 2, "load1": 14.041015625, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.003, "threads": "1", "rss": 136429568, "wall": 0.462, "enc": "dict", "q": "q3", "rep": 2, "load1": 14.041015625, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.037, "threads": "1", "rss": 177586176, "wall": 0.785, "enc": "master", "q": "q3", "rep": 2, "load1": 14.041015625, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.034, "threads": "1", "rss": 140181504, "wall": 0.497, "enc": "raw", "q": "q3", "rep": 2, "load1": 14.041015625, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.005, "threads": "1", "rss": 136445952, "wall": 0.451, "enc": "dict", "q": "q3", "rep": 3, "load1": 14.041015625, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.039, "threads": "1", "rss": 175882240, "wall": 0.874, "enc": "master", "q": "q3", "rep": 3, "load1": 14.041015625, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.041, "threads": "1", "rss": 140165120, "wall": 0.55, "enc": "raw", "q": "q3", "rep": 3, "load1": 14.041015625, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.003, "threads": "1", "rss": 136445952, "wall": 0.446, "enc": "auto", "q": "q3", "rep": 3, "load1": 14.041015625, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.041, "threads": "1", "rss": 172802048, "wall": 1.582, "enc": "master", "q": "q3", "rep": 4, "load1": 14.27783203125, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.037, "threads": "1", "rss": 140181504, "wall": 0.541, "enc": "raw", "q": "q3", "rep": 4, "load1": 14.27783203125, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.004, "threads": "1", "rss": 133529600, "wall": 0.649, "enc": "auto", "q": "q3", "rep": 4, "load1": 14.27783203125, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.003, "threads": "1", "rss": 134709248, "wall": 0.644, "enc": "dict", "q": "q3", "rep": 4, "load1": 14.27783203125, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.02, "threads": "default", "rss": 187760640, "wall": 0.666, "enc": "master", "q": "q3", "rep": 0, "load1": 14.27783203125, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.018, "threads": "default", "rss": 145997824, "wall": 0.323, "enc": "raw", "q": "q3", "rep": 0, "load1": 14.27783203125, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.004, "threads": "default", "rss": 137478144, "wall": 0.23, "enc": "auto", "q": "q3", "rep": 0, "load1": 14.27783203125, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.003, "threads": "default", "rss": 138248192, "wall": 0.22, "enc": "dict", "q": "q3", "rep": 0, "load1": 13.45458984375, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.018, "threads": "default", "rss": 144654336, "wall": 0.305, "enc": "raw", "q": "q3", "rep": 1, "load1": 13.45458984375, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.003, "threads": "default", "rss": 138248192, "wall": 0.261, "enc": "auto", "q": "q3", "rep": 1, "load1": 13.45458984375, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.004, "threads": "default", "rss": 137412608, "wall": 0.27, "enc": "dict", "q": "q3", "rep": 1, "load1": 13.45458984375, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.021, "threads": "default", "rss": 190431232, "wall": 0.495, "enc": "master", "q": "q3", "rep": 1, "load1": 13.45458984375, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.004, "threads": "default", "rss": 138215424, "wall": 0.215, "enc": "auto", "q": "q3", "rep": 2, "load1": 13.45458984375, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.003, "threads": "default", "rss": 138264576, "wall": 0.223, "enc": "dict", "q": "q3", "rep": 2, "load1": 13.45458984375, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.023, "threads": "default", "rss": 191954944, "wall": 0.435, "enc": "master", "q": "q3", "rep": 2, "load1": 13.45458984375, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.022, "threads": "default", "rss": 146554880, "wall": 0.286, "enc": "raw", "q": "q3", "rep": 2, "load1": 13.45458984375, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.006, "threads": "default", "rss": 138035200, "wall": 0.235, "enc": "dict", "q": "q3", "rep": 3, "load1": 13.45458984375, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.021, "threads": "default", "rss": 188989440, "wall": 0.576, "enc": "master", "q": "q3", "rep": 3, "load1": 13.45458984375, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.022, "threads": "default", "rss": 144457728, "wall": 0.309, "enc": "raw", "q": "q3", "rep": 3, "load1": 13.45458984375, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.002, "threads": "default", "rss": 138297344, "wall": 0.254, "enc": "auto", "q": "q3", "rep": 3, "load1": 13.45458984375, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.021, "threads": "default", "rss": 192282624, "wall": 0.473, "enc": "master", "q": "q3", "rep": 4, "load1": 13.45458984375, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.02, "threads": "default", "rss": 145080320, "wall": 0.286, "enc": "raw", "q": "q3", "rep": 4, "load1": 13.45458984375, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.002, "threads": "default", "rss": 138297344, "wall": 0.221, "enc": "auto", "q": "q3", "rep": 4, "load1": 13.45458984375, "batch": 1}
+{"query": "q3", "n": 100000, "seconds": 0.005, "threads": "default", "rss": 137412608, "wall": 0.374, "enc": "dict", "q": "q3", "rep": 4, "load1": 13.8984375, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.04, "threads": "1", "rss": 177487872, "wall": 1.203, "enc": "master", "q": "q4", "rep": 0, "load1": 13.8984375, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.039, "threads": "1", "rss": 140066816, "wall": 0.548, "enc": "raw", "q": "q4", "rep": 0, "load1": 13.8984375, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.004, "threads": "1", "rss": 135741440, "wall": 0.454, "enc": "auto", "q": "q4", "rep": 0, "load1": 13.8984375, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.024, "threads": "1", "rss": 135708672, "wall": 0.456, "enc": "dict", "q": "q4", "rep": 0, "load1": 13.8984375, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.041, "threads": "1", "rss": 140034048, "wall": 0.564, "enc": "raw", "q": "q4", "rep": 1, "load1": 13.8984375, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.004, "threads": "1", "rss": 135725056, "wall": 0.43, "enc": "auto", "q": "q4", "rep": 1, "load1": 13.8984375, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.004, "threads": "1", "rss": 135692288, "wall": 0.453, "enc": "dict", "q": "q4", "rep": 1, "load1": 13.8984375, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.04, "threads": "1", "rss": 177520640, "wall": 0.858, "enc": "master", "q": "q4", "rep": 1, "load1": 13.8984375, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.004, "threads": "1", "rss": 135708672, "wall": 0.439, "enc": "auto", "q": "q4", "rep": 2, "load1": 13.265625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.005, "threads": "1", "rss": 135708672, "wall": 0.494, "enc": "dict", "q": "q4", "rep": 2, "load1": 13.265625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.042, "threads": "1", "rss": 177504256, "wall": 0.878, "enc": "master", "q": "q4", "rep": 2, "load1": 13.265625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.039, "threads": "1", "rss": 140066816, "wall": 0.695, "enc": "raw", "q": "q4", "rep": 2, "load1": 13.265625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.005, "threads": "1", "rss": 135725056, "wall": 0.458, "enc": "dict", "q": "q4", "rep": 3, "load1": 13.265625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.039, "threads": "1", "rss": 177504256, "wall": 0.918, "enc": "master", "q": "q4", "rep": 3, "load1": 13.265625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.039, "threads": "1", "rss": 140050432, "wall": 0.539, "enc": "raw", "q": "q4", "rep": 3, "load1": 13.265625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.004, "threads": "1", "rss": 135708672, "wall": 0.422, "enc": "auto", "q": "q4", "rep": 3, "load1": 13.265625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.08, "threads": "1", "rss": 177504256, "wall": 0.996, "enc": "master", "q": "q4", "rep": 4, "load1": 12.603515625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.042, "threads": "1", "rss": 140050432, "wall": 0.538, "enc": "raw", "q": "q4", "rep": 4, "load1": 12.603515625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.004, "threads": "1", "rss": 135708672, "wall": 0.446, "enc": "auto", "q": "q4", "rep": 4, "load1": 12.603515625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.004, "threads": "1", "rss": 135708672, "wall": 0.425, "enc": "dict", "q": "q4", "rep": 4, "load1": 12.603515625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.023, "threads": "default", "rss": 191954944, "wall": 0.5, "enc": "master", "q": "q4", "rep": 0, "load1": 12.603515625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.021, "threads": "default", "rss": 145326080, "wall": 0.367, "enc": "raw", "q": "q4", "rep": 0, "load1": 12.603515625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.006, "threads": "default", "rss": 137396224, "wall": 0.259, "enc": "auto", "q": "q4", "rep": 0, "load1": 12.603515625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.003, "threads": "default", "rss": 136921088, "wall": 0.229, "enc": "dict", "q": "q4", "rep": 0, "load1": 12.603515625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.022, "threads": "default", "rss": 145096704, "wall": 0.339, "enc": "raw", "q": "q4", "rep": 1, "load1": 12.603515625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.005, "threads": "default", "rss": 137379840, "wall": 0.225, "enc": "auto", "q": "q4", "rep": 1, "load1": 12.603515625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.004, "threads": "default", "rss": 137379840, "wall": 0.263, "enc": "dict", "q": "q4", "rep": 1, "load1": 12.603515625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.024, "threads": "default", "rss": 190267392, "wall": 0.587, "enc": "master", "q": "q4", "rep": 1, "load1": 12.603515625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.004, "threads": "default", "rss": 137478144, "wall": 0.218, "enc": "auto", "q": "q4", "rep": 2, "load1": 11.99462890625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.004, "threads": "default", "rss": 137609216, "wall": 0.224, "enc": "dict", "q": "q4", "rep": 2, "load1": 11.99462890625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.023, "threads": "default", "rss": 192151552, "wall": 0.586, "enc": "master", "q": "q4", "rep": 2, "load1": 11.99462890625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.025, "threads": "default", "rss": 145014784, "wall": 0.364, "enc": "raw", "q": "q4", "rep": 2, "load1": 11.99462890625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.005, "threads": "default", "rss": 136691712, "wall": 0.301, "enc": "dict", "q": "q4", "rep": 3, "load1": 11.99462890625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.047, "threads": "default", "rss": 192118784, "wall": 0.702, "enc": "master", "q": "q4", "rep": 3, "load1": 11.99462890625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.029, "threads": "default", "rss": 142147584, "wall": 0.474, "enc": "raw", "q": "q4", "rep": 3, "load1": 11.99462890625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.005, "threads": "default", "rss": 137363456, "wall": 0.283, "enc": "auto", "q": "q4", "rep": 3, "load1": 11.99462890625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.021, "threads": "default", "rss": 190775296, "wall": 0.647, "enc": "master", "q": "q4", "rep": 4, "load1": 11.99462890625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.02, "threads": "default", "rss": 145883136, "wall": 0.322, "enc": "raw", "q": "q4", "rep": 4, "load1": 11.99462890625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.004, "threads": "default", "rss": 137576448, "wall": 0.204, "enc": "auto", "q": "q4", "rep": 4, "load1": 11.99462890625, "batch": 1}
+{"query": "q4", "n": 100000, "seconds": 0.004, "threads": "default", "rss": 137527296, "wall": 0.205, "enc": "dict", "q": "q4", "rep": 4, "load1": 11.99462890625, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.043, "threads": "1", "rss": 178733056, "wall": 0.772, "enc": "master", "q": "q5", "rep": 0, "load1": 11.59423828125, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.047, "threads": "1", "rss": 141328384, "wall": 0.538, "enc": "raw", "q": "q5", "rep": 0, "load1": 11.59423828125, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.002, "threads": "1", "rss": 136953856, "wall": 0.447, "enc": "auto", "q": "q5", "rep": 0, "load1": 11.59423828125, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.003, "threads": "1", "rss": 136953856, "wall": 0.476, "enc": "dict", "q": "q5", "rep": 0, "load1": 11.59423828125, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.057, "threads": "1", "rss": 141312000, "wall": 0.54, "enc": "raw", "q": "q5", "rep": 1, "load1": 11.59423828125, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.002, "threads": "1", "rss": 136953856, "wall": 0.571, "enc": "auto", "q": "q5", "rep": 1, "load1": 11.59423828125, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.002, "threads": "1", "rss": 136937472, "wall": 0.509, "enc": "dict", "q": "q5", "rep": 1, "load1": 11.59423828125, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.044, "threads": "1", "rss": 178749440, "wall": 0.845, "enc": "master", "q": "q5", "rep": 1, "load1": 11.59423828125, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.002, "threads": "1", "rss": 136970240, "wall": 0.429, "enc": "auto", "q": "q5", "rep": 2, "load1": 11.59423828125, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.002, "threads": "1", "rss": 136970240, "wall": 0.435, "enc": "dict", "q": "q5", "rep": 2, "load1": 11.94677734375, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.044, "threads": "1", "rss": 178733056, "wall": 0.784, "enc": "master", "q": "q5", "rep": 2, "load1": 11.94677734375, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.043, "threads": "1", "rss": 141328384, "wall": 0.474, "enc": "raw", "q": "q5", "rep": 2, "load1": 11.94677734375, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.002, "threads": "1", "rss": 136970240, "wall": 0.433, "enc": "dict", "q": "q5", "rep": 3, "load1": 11.94677734375, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.044, "threads": "1", "rss": 178716672, "wall": 0.771, "enc": "master", "q": "q5", "rep": 3, "load1": 11.94677734375, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.045, "threads": "1", "rss": 141344768, "wall": 0.481, "enc": "raw", "q": "q5", "rep": 3, "load1": 11.94677734375, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.002, "threads": "1", "rss": 136970240, "wall": 0.438, "enc": "auto", "q": "q5", "rep": 3, "load1": 11.94677734375, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.042, "threads": "1", "rss": 178700288, "wall": 0.772, "enc": "master", "q": "q5", "rep": 4, "load1": 11.94677734375, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.043, "threads": "1", "rss": 141328384, "wall": 0.477, "enc": "raw", "q": "q5", "rep": 4, "load1": 11.94677734375, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.002, "threads": "1", "rss": 136970240, "wall": 0.471, "enc": "auto", "q": "q5", "rep": 4, "load1": 11.14990234375, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.002, "threads": "1", "rss": 136970240, "wall": 0.437, "enc": "dict", "q": "q5", "rep": 4, "load1": 11.14990234375, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.029, "threads": "default", "rss": 192856064, "wall": 0.47, "enc": "master", "q": "q5", "rep": 0, "load1": 11.14990234375, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.03, "threads": "default", "rss": 148160512, "wall": 0.282, "enc": "raw", "q": "q5", "rep": 0, "load1": 11.14990234375, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.003, "threads": "default", "rss": 138952704, "wall": 0.213, "enc": "auto", "q": "q5", "rep": 0, "load1": 11.14990234375, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.003, "threads": "default", "rss": 138739712, "wall": 0.21, "enc": "dict", "q": "q5", "rep": 0, "load1": 11.14990234375, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.031, "threads": "default", "rss": 148389888, "wall": 0.287, "enc": "raw", "q": "q5", "rep": 1, "load1": 11.14990234375, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.002, "threads": "default", "rss": 138788864, "wall": 0.203, "enc": "auto", "q": "q5", "rep": 1, "load1": 11.14990234375, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.002, "threads": "default", "rss": 138739712, "wall": 0.202, "enc": "dict", "q": "q5", "rep": 1, "load1": 11.14990234375, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.029, "threads": "default", "rss": 194772992, "wall": 0.437, "enc": "master", "q": "q5", "rep": 1, "load1": 11.14990234375, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.003, "threads": "default", "rss": 138723328, "wall": 0.216, "enc": "auto", "q": "q5", "rep": 2, "load1": 11.14990234375, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.003, "threads": "default", "rss": 138674176, "wall": 0.214, "enc": "dict", "q": "q5", "rep": 2, "load1": 11.14990234375, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.028, "threads": "default", "rss": 192462848, "wall": 0.456, "enc": "master", "q": "q5", "rep": 2, "load1": 11.14990234375, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.03, "threads": "default", "rss": 148520960, "wall": 0.382, "enc": "raw", "q": "q5", "rep": 2, "load1": 11.14990234375, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.003, "threads": "default", "rss": 138149888, "wall": 0.216, "enc": "dict", "q": "q5", "rep": 3, "load1": 11.14990234375, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.028, "threads": "default", "rss": 192282624, "wall": 0.459, "enc": "master", "q": "q5", "rep": 3, "load1": 11.14990234375, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.028, "threads": "default", "rss": 148684800, "wall": 0.282, "enc": "raw", "q": "q5", "rep": 3, "load1": 10.4169921875, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.002, "threads": "default", "rss": 138870784, "wall": 0.201, "enc": "auto", "q": "q5", "rep": 3, "load1": 10.4169921875, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.032, "threads": "default", "rss": 193773568, "wall": 0.52, "enc": "master", "q": "q5", "rep": 4, "load1": 10.4169921875, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.032, "threads": "default", "rss": 146554880, "wall": 0.308, "enc": "raw", "q": "q5", "rep": 4, "load1": 10.4169921875, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.003, "threads": "default", "rss": 138706944, "wall": 0.213, "enc": "auto", "q": "q5", "rep": 4, "load1": 10.4169921875, "batch": 1}
+{"query": "q5", "n": 100000, "seconds": 0.002, "threads": "default", "rss": 138739712, "wall": 0.208, "enc": "dict", "q": "q5", "rep": 4, "load1": 10.4169921875, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.015, "threads": "1", "rss": 175013888, "wall": 0.784, "enc": "master", "q": "q6", "rep": 0, "load1": 10.4169921875, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.015, "threads": "1", "rss": 137543680, "wall": 0.454, "enc": "raw", "q": "q6", "rep": 0, "load1": 10.4169921875, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.011, "threads": "1", "rss": 134430720, "wall": 0.436, "enc": "auto", "q": "q6", "rep": 0, "load1": 10.4169921875, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.011, "threads": "1", "rss": 134414336, "wall": 0.438, "enc": "dict", "q": "q6", "rep": 0, "load1": 10.4169921875, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.02, "threads": "1", "rss": 137543680, "wall": 0.695, "enc": "raw", "q": "q6", "rep": 1, "load1": 10.4169921875, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.013, "threads": "1", "rss": 134447104, "wall": 0.553, "enc": "auto", "q": "q6", "rep": 1, "load1": 10.4169921875, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.015, "threads": "1", "rss": 134447104, "wall": 0.673, "enc": "dict", "q": "q6", "rep": 1, "load1": 10.54345703125, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.016, "threads": "1", "rss": 174981120, "wall": 0.862, "enc": "master", "q": "q6", "rep": 1, "load1": 10.54345703125, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.011, "threads": "1", "rss": 134414336, "wall": 0.454, "enc": "auto", "q": "q6", "rep": 2, "load1": 10.54345703125, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.011, "threads": "1", "rss": 134430720, "wall": 0.456, "enc": "dict", "q": "q6", "rep": 2, "load1": 10.54345703125, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.017, "threads": "1", "rss": 170328064, "wall": 1.183, "enc": "master", "q": "q6", "rep": 2, "load1": 10.54345703125, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.025, "threads": "1", "rss": 137543680, "wall": 0.534, "enc": "raw", "q": "q6", "rep": 2, "load1": 10.54345703125, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.011, "threads": "1", "rss": 134430720, "wall": 0.472, "enc": "dict", "q": "q6", "rep": 3, "load1": 10.54345703125, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.018, "threads": "1", "rss": 174997504, "wall": 0.871, "enc": "master", "q": "q6", "rep": 3, "load1": 10.17919921875, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.016, "threads": "1", "rss": 137527296, "wall": 0.504, "enc": "raw", "q": "q6", "rep": 3, "load1": 10.17919921875, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.011, "threads": "1", "rss": 134447104, "wall": 0.485, "enc": "auto", "q": "q6", "rep": 3, "load1": 10.17919921875, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.015, "threads": "1", "rss": 174981120, "wall": 0.86, "enc": "master", "q": "q6", "rep": 4, "load1": 10.17919921875, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.015, "threads": "1", "rss": 137510912, "wall": 0.474, "enc": "raw", "q": "q6", "rep": 4, "load1": 10.17919921875, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.011, "threads": "1", "rss": 134447104, "wall": 0.438, "enc": "auto", "q": "q6", "rep": 4, "load1": 10.17919921875, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.011, "threads": "1", "rss": 134447104, "wall": 0.438, "enc": "dict", "q": "q6", "rep": 4, "load1": 10.17919921875, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.015, "threads": "default", "rss": 185565184, "wall": 0.442, "enc": "master", "q": "q6", "rep": 0, "load1": 10.17919921875, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.016, "threads": "default", "rss": 140066816, "wall": 0.27, "enc": "raw", "q": "q6", "rep": 0, "load1": 10.17919921875, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.011, "threads": "default", "rss": 136232960, "wall": 0.218, "enc": "auto", "q": "q6", "rep": 0, "load1": 10.17919921875, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.011, "threads": "default", "rss": 135479296, "wall": 0.247, "enc": "dict", "q": "q6", "rep": 0, "load1": 10.96533203125, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.018, "threads": "default", "rss": 140083200, "wall": 0.327, "enc": "raw", "q": "q6", "rep": 1, "load1": 10.96533203125, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.013, "threads": "default", "rss": 135593984, "wall": 0.255, "enc": "auto", "q": "q6", "rep": 1, "load1": 10.96533203125, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.011, "threads": "default", "rss": 135593984, "wall": 0.243, "enc": "dict", "q": "q6", "rep": 1, "load1": 10.96533203125, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.016, "threads": "default", "rss": 185499648, "wall": 0.483, "enc": "master", "q": "q6", "rep": 1, "load1": 10.96533203125, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.012, "threads": "default", "rss": 136265728, "wall": 0.225, "enc": "auto", "q": "q6", "rep": 2, "load1": 10.96533203125, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.01, "threads": "default", "rss": 136331264, "wall": 0.228, "enc": "dict", "q": "q6", "rep": 2, "load1": 10.96533203125, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.016, "threads": "default", "rss": 185614336, "wall": 0.454, "enc": "master", "q": "q6", "rep": 2, "load1": 10.96533203125, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.014, "threads": "default", "rss": 138395648, "wall": 0.272, "enc": "raw", "q": "q6", "rep": 2, "load1": 10.96533203125, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.011, "threads": "default", "rss": 136134656, "wall": 0.218, "enc": "dict", "q": "q6", "rep": 3, "load1": 10.96533203125, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.015, "threads": "default", "rss": 185597952, "wall": 0.447, "enc": "master", "q": "q6", "rep": 3, "load1": 10.96533203125, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.016, "threads": "default", "rss": 140197888, "wall": 0.314, "enc": "raw", "q": "q6", "rep": 3, "load1": 10.96533203125, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.011, "threads": "default", "rss": 136151040, "wall": 0.234, "enc": "auto", "q": "q6", "rep": 3, "load1": 10.96533203125, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.017, "threads": "default", "rss": 185597952, "wall": 0.508, "enc": "master", "q": "q6", "rep": 4, "load1": 10.96533203125, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.017, "threads": "default", "rss": 140115968, "wall": 0.304, "enc": "raw", "q": "q6", "rep": 4, "load1": 10.96533203125, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.011, "threads": "default", "rss": 136331264, "wall": 0.243, "enc": "auto", "q": "q6", "rep": 4, "load1": 10.96533203125, "batch": 1}
+{"query": "q6", "n": 100000, "seconds": 0.016, "threads": "default", "rss": 136265728, "wall": 0.263, "enc": "dict", "q": "q6", "rep": 4, "load1": 11.8486328125, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 8343, "first_walk_ms": 506, "chk": 3306798451, "rss": 1664565248, "wall": 8.892, "enc": "master", "q": "parse", "threads": "1", "rep": 0, "load1": 31.59814453125, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 4147, "first_walk_ms": 450, "chk": 3306798451, "rss": 1330741248, "wall": 4.646, "enc": "raw", "q": "parse", "threads": "1", "rep": 0, "load1": 27.34814453125, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 4377, "first_walk_ms": 5, "chk": 2121680433, "rss": 1313980416, "wall": 4.432, "enc": "auto", "q": "parse", "threads": "1", "rep": 0, "load1": 26.03857421875, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 4379, "first_walk_ms": 5, "chk": 2121680433, "rss": 1305460736, "wall": 4.415, "enc": "dict", "q": "parse", "threads": "1", "rep": 0, "load1": 24.59375, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 4054, "first_walk_ms": 435, "chk": 3306798451, "rss": 1330774016, "wall": 4.542, "enc": "raw", "q": "parse", "threads": "1", "rep": 1, "load1": 23.9052734375, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 4689, "first_walk_ms": 5, "chk": 2121680433, "rss": 1283244032, "wall": 4.727, "enc": "auto", "q": "parse", "threads": "1", "rep": 1, "load1": 22.07080078125, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 4350, "first_walk_ms": 5, "chk": 2121680433, "rss": 1313488896, "wall": 4.393, "enc": "dict", "q": "parse", "threads": "1", "rep": 1, "load1": 22.62548828125, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 9419, "first_walk_ms": 506, "chk": 3306798451, "rss": 1586708480, "wall": 9.978, "enc": "master", "q": "parse", "threads": "1", "rep": 1, "load1": 22.62548828125, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 4258, "first_walk_ms": 5, "chk": 2121680433, "rss": 1313996800, "wall": 4.315, "enc": "auto", "q": "parse", "threads": "1", "rep": 2, "load1": 28.3232421875, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 4256, "first_walk_ms": 5, "chk": 2121680433, "rss": 1313980416, "wall": 4.309, "enc": "dict", "q": "parse", "threads": "1", "rep": 2, "load1": 26.375, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 8849, "first_walk_ms": 483, "chk": 3306798451, "rss": 1634189312, "wall": 9.383, "enc": "master", "q": "parse", "threads": "1", "rep": 2, "load1": 25.1435546875, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 4270, "first_walk_ms": 430, "chk": 3306798451, "rss": 1330774016, "wall": 4.752, "enc": "raw", "q": "parse", "threads": "1", "rep": 2, "load1": 21.5849609375, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 4374, "first_walk_ms": 5, "chk": 2121680433, "rss": 1288667136, "wall": 4.409, "enc": "dict", "q": "parse", "threads": "1", "rep": 3, "load1": 19.9365234375, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 8204, "first_walk_ms": 463, "chk": 3306798451, "rss": 1627209728, "wall": 8.705, "enc": "master", "q": "parse", "threads": "1", "rep": 3, "load1": 18.580078125, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 4087, "first_walk_ms": 439, "chk": 3306798451, "rss": 1330774016, "wall": 4.579, "enc": "raw", "q": "parse", "threads": "1", "rep": 3, "load1": 16.47216796875, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 5619, "first_walk_ms": 4, "chk": 2121680433, "rss": 1272086528, "wall": 5.663, "enc": "auto", "q": "parse", "threads": "1", "rep": 3, "load1": 15.63330078125, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 8472, "first_walk_ms": 479, "chk": 3306798451, "rss": 1595719680, "wall": 8.996, "enc": "master", "q": "parse", "threads": "1", "rep": 4, "load1": 14.70166015625, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 4060, "first_walk_ms": 442, "chk": 3306798451, "rss": 1330774016, "wall": 4.551, "enc": "raw", "q": "parse", "threads": "1", "rep": 4, "load1": 13.84423828125, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 4319, "first_walk_ms": 4, "chk": 2121680433, "rss": 1283309568, "wall": 4.354, "enc": "auto", "q": "parse", "threads": "1", "rep": 4, "load1": 12.8955078125, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 4380, "first_walk_ms": 5, "chk": 2121680433, "rss": 1279590400, "wall": 4.416, "enc": "dict", "q": "parse", "threads": "1", "rep": 4, "load1": 13.14404296875, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 3624, "first_walk_ms": 470, "chk": 3306798451, "rss": 1723023360, "wall": 4.147, "enc": "master", "q": "parse", "threads": "default", "rep": 0, "load1": 12.73193359375, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 1960, "first_walk_ms": 496, "chk": 3306798451, "rss": 1331658752, "wall": 2.497, "enc": "raw", "q": "parse", "threads": "default", "rep": 0, "load1": 13.5537109375, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 3172, "first_walk_ms": 5, "chk": 2121680433, "rss": 1297760256, "wall": 3.211, "enc": "auto", "q": "parse", "threads": "default", "rep": 0, "load1": 13.5537109375, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 2378, "first_walk_ms": 6, "chk": 2121680433, "rss": 1306148864, "wall": 2.418, "enc": "dict", "q": "parse", "threads": "default", "rep": 0, "load1": 12.86865234375, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 2120, "first_walk_ms": 508, "chk": 3306798451, "rss": 1331642368, "wall": 2.662, "enc": "raw", "q": "parse", "threads": "default", "rep": 1, "load1": 13.279296875, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 1972, "first_walk_ms": 5, "chk": 2121680433, "rss": 1315110912, "wall": 2.022, "enc": "auto", "q": "parse", "threads": "default", "rep": 1, "load1": 13.279296875, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 2080, "first_walk_ms": 5, "chk": 2121680433, "rss": 1305722880, "wall": 2.117, "enc": "dict", "q": "parse", "threads": "default", "rep": 1, "load1": 12.5361328125, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 3817, "first_walk_ms": 460, "chk": 3306798451, "rss": 1723006976, "wall": 4.328, "enc": "master", "q": "parse", "threads": "default", "rep": 1, "load1": 12.5361328125, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 1946, "first_walk_ms": 5, "chk": 2121680433, "rss": 1314979840, "wall": 1.987, "enc": "auto", "q": "parse", "threads": "default", "rep": 2, "load1": 13.7744140625, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 2002, "first_walk_ms": 5, "chk": 2121680433, "rss": 1315012608, "wall": 2.059, "enc": "dict", "q": "parse", "threads": "default", "rep": 2, "load1": 13.7744140625, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 3874, "first_walk_ms": 480, "chk": 3306798451, "rss": 1745616896, "wall": 4.404, "enc": "master", "q": "parse", "threads": "default", "rep": 2, "load1": 13.2314453125, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 1957, "first_walk_ms": 428, "chk": 3306798451, "rss": 1331625984, "wall": 2.413, "enc": "raw", "q": "parse", "threads": "default", "rep": 2, "load1": 12.412109375, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 1923, "first_walk_ms": 4, "chk": 2121680433, "rss": 1315061760, "wall": 1.971, "enc": "dict", "q": "parse", "threads": "default", "rep": 3, "load1": 12.412109375, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 3977, "first_walk_ms": 524, "chk": 3306798451, "rss": 1731969024, "wall": 4.55, "enc": "master", "q": "parse", "threads": "default", "rep": 3, "load1": 12.412109375, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 2056, "first_walk_ms": 479, "chk": 3306798451, "rss": 1331707904, "wall": 2.587, "enc": "raw", "q": "parse", "threads": "default", "rep": 3, "load1": 11.8984375, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 1977, "first_walk_ms": 5, "chk": 2121680433, "rss": 1315094528, "wall": 2.033, "enc": "auto", "q": "parse", "threads": "default", "rep": 3, "load1": 11.74609375, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 3724, "first_walk_ms": 459, "chk": 3306798451, "rss": 1733591040, "wall": 4.226, "enc": "master", "q": "parse", "threads": "default", "rep": 4, "load1": 11.74609375, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 1976, "first_walk_ms": 442, "chk": 3306798451, "rss": 1331511296, "wall": 2.444, "enc": "raw", "q": "parse", "threads": "default", "rep": 4, "load1": 11.84619140625, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 1943, "first_walk_ms": 5, "chk": 2121680433, "rss": 1315192832, "wall": 1.988, "enc": "auto", "q": "parse", "threads": "default", "rep": 4, "load1": 11.4580078125, "batch": 1}
+{"query": "parse", "n": 1000000, "read_ms": 2465, "first_walk_ms": 5, "chk": 2121680433, "rss": 1292222464, "wall": 2.503, "enc": "dict", "q": "parse", "threads": "default", "rep": 4, "load1": 11.4580078125, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.102, "threads": "1", "rss": 1608564736, "wall": 10.361, "enc": "master", "q": "q1", "rep": 0, "load1": 11.4580078125, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.104, "threads": "1", "rss": 1316814848, "wall": 5.382, "enc": "raw", "q": "q1", "rep": 0, "load1": 11.43701171875, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.012, "threads": "1", "rss": 1297940480, "wall": 6.019, "enc": "auto", "q": "q1", "rep": 0, "load1": 11.24169921875, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.013, "threads": "1", "rss": 1297973248, "wall": 4.566, "enc": "dict", "q": "q1", "rep": 0, "load1": 10.74169921875, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.1, "threads": "1", "rss": 1316798464, "wall": 4.849, "enc": "raw", "q": "q1", "rep": 1, "load1": 11.72314453125, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.013, "threads": "1", "rss": 1260240896, "wall": 5.626, "enc": "auto", "q": "q1", "rep": 1, "load1": 10.9443359375, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.012, "threads": "1", "rss": 1297940480, "wall": 7.013, "enc": "dict", "q": "q1", "rep": 1, "load1": 12.55029296875, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.097, "threads": "1", "rss": 1665384448, "wall": 9.373, "enc": "master", "q": "q1", "rep": 1, "load1": 12.505859375, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.012, "threads": "1", "rss": 1297940480, "wall": 4.525, "enc": "auto", "q": "q1", "rep": 2, "load1": 11.2587890625, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.012, "threads": "1", "rss": 1339604992, "wall": 4.501, "enc": "dict", "q": "q1", "rep": 2, "load1": 11.15771484375, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.101, "threads": "1", "rss": 1703821312, "wall": 9.116, "enc": "master", "q": "q1", "rep": 2, "load1": 10.50439453125, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.1, "threads": "1", "rss": 1350418432, "wall": 4.804, "enc": "raw", "q": "q1", "rep": 2, "load1": 10.51953125, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.022, "threads": "1", "rss": 1297973248, "wall": 4.554, "enc": "dict", "q": "q1", "rep": 3, "load1": 10.2373046875, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.098, "threads": "1", "rss": 1636122624, "wall": 9.189, "enc": "master", "q": "q1", "rep": 3, "load1": 9.97802734375, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.099, "threads": "1", "rss": 1316814848, "wall": 5.317, "enc": "raw", "q": "q1", "rep": 3, "load1": 9.8193359375, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.013, "threads": "1", "rss": 1297088512, "wall": 4.745, "enc": "auto", "q": "q1", "rep": 3, "load1": 9.11279296875, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.102, "threads": "1", "rss": 1653932032, "wall": 9.772, "enc": "master", "q": "q1", "rep": 4, "load1": 9.82421875, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.097, "threads": "1", "rss": 1330528256, "wall": 4.769, "enc": "raw", "q": "q1", "rep": 4, "load1": 9.943359375, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.01, "threads": "1", "rss": 1339604992, "wall": 4.305, "enc": "auto", "q": "q1", "rep": 4, "load1": 9.22705078125, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.011, "threads": "1", "rss": 1339621376, "wall": 4.303, "enc": "dict", "q": "q1", "rep": 4, "load1": 9.52880859375, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.105, "threads": "default", "rss": 1779744768, "wall": 4.529, "enc": "master", "q": "q1", "rep": 0, "load1": 8.845703125, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.109, "threads": "default", "rss": 1372028928, "wall": 2.687, "enc": "raw", "q": "q1", "rep": 0, "load1": 8.29736328125, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.012, "threads": "default", "rss": 1344143360, "wall": 2.034, "enc": "auto", "q": "q1", "rep": 0, "load1": 7.953125, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.012, "threads": "default", "rss": 1345060864, "wall": 2.034, "enc": "dict", "q": "q1", "rep": 0, "load1": 7.953125, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.098, "threads": "default", "rss": 1315307520, "wall": 2.888, "enc": "raw", "q": "q1", "rep": 1, "load1": 7.953125, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.011, "threads": "default", "rss": 1345110016, "wall": 1.99, "enc": "auto", "q": "q1", "rep": 1, "load1": 8.27685546875, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.013, "threads": "default", "rss": 1345044480, "wall": 2.074, "enc": "dict", "q": "q1", "rep": 1, "load1": 8.27685546875, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.104, "threads": "default", "rss": 1818181632, "wall": 4.636, "enc": "master", "q": "q1", "rep": 1, "load1": 9.05517578125, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.014, "threads": "default", "rss": 1345110016, "wall": 1.982, "enc": "auto", "q": "q1", "rep": 2, "load1": 8.40966796875, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.013, "threads": "default", "rss": 1345142784, "wall": 2.013, "enc": "dict", "q": "q1", "rep": 2, "load1": 8.40966796875, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.099, "threads": "default", "rss": 1805828096, "wall": 4.649, "enc": "master", "q": "q1", "rep": 2, "load1": 8.40966796875, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.101, "threads": "default", "rss": 1371979776, "wall": 3.132, "enc": "raw", "q": "q1", "rep": 2, "load1": 7.89599609375, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.012, "threads": "default", "rss": 1345110016, "wall": 2.061, "enc": "dict", "q": "q1", "rep": 3, "load1": 8.064453125, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.1, "threads": "default", "rss": 1658290176, "wall": 5.485, "enc": "master", "q": "q1", "rep": 3, "load1": 8.064453125, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.1, "threads": "default", "rss": 1330544640, "wall": 3.727, "enc": "raw", "q": "q1", "rep": 3, "load1": 7.67919921875, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.013, "threads": "default", "rss": 1306263552, "wall": 2.221, "enc": "auto", "q": "q1", "rep": 3, "load1": 7.67919921875, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.104, "threads": "default", "rss": 1771749376, "wall": 4.548, "enc": "master", "q": "q1", "rep": 4, "load1": 7.78466796875, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.101, "threads": "default", "rss": 1371963392, "wall": 2.6, "enc": "raw", "q": "q1", "rep": 4, "load1": 7.7216796875, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.011, "threads": "default", "rss": 1345159168, "wall": 2.0, "enc": "auto", "q": "q1", "rep": 4, "load1": 7.7216796875, "batch": 1}
+{"query": "q1", "n": 1000000, "seconds": 0.012, "threads": "default", "rss": 1345110016, "wall": 2.056, "enc": "dict", "q": "q1", "rep": 4, "load1": 7.90380859375, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.009, "threads": "1", "rss": 1646542848, "wall": 9.549, "enc": "master", "q": "q2", "rep": 0, "load1": 7.90380859375, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.011, "threads": "1", "rss": 1306378240, "wall": 5.11, "enc": "raw", "q": "q2", "rep": 0, "load1": 7.482421875, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.009, "threads": "1", "rss": 1305444352, "wall": 4.352, "enc": "auto", "q": "q2", "rep": 0, "load1": 7.203125, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.009, "threads": "1", "rss": 1305460736, "wall": 4.303, "enc": "dict", "q": "q2", "rep": 0, "load1": 7.1064453125, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.007, "threads": "1", "rss": 1306361856, "wall": 4.69, "enc": "raw", "q": "q2", "rep": 1, "load1": 7.017578125, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.008, "threads": "1", "rss": 1331298304, "wall": 4.38, "enc": "auto", "q": "q2", "rep": 1, "load1": 6.61572265625, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.013, "threads": "1", "rss": 1300365312, "wall": 4.729, "enc": "dict", "q": "q2", "rep": 1, "load1": 6.61572265625, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.019, "threads": "1", "rss": 1624883200, "wall": 9.913, "enc": "master", "q": "q2", "rep": 1, "load1": 6.56640625, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.012, "threads": "1", "rss": 1289584640, "wall": 5.208, "enc": "auto", "q": "q2", "rep": 2, "load1": 7.833984375, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.009, "threads": "1", "rss": 1289633792, "wall": 4.401, "enc": "dict", "q": "q2", "rep": 2, "load1": 15.37451171875, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.012, "threads": "1", "rss": 1682587648, "wall": 8.779, "enc": "master", "q": "q2", "rep": 2, "load1": 14.70361328125, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.007, "threads": "1", "rss": 1313783808, "wall": 4.952, "enc": "raw", "q": "q2", "rep": 2, "load1": 12.97119140625, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.009, "threads": "1", "rss": 1301331968, "wall": 4.433, "enc": "dict", "q": "q2", "rep": 3, "load1": 12.57275390625, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.015, "threads": "1", "rss": 1623244800, "wall": 8.986, "enc": "master", "q": "q2", "rep": 3, "load1": 12.52685546875, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.007, "threads": "1", "rss": 1347993600, "wall": 4.604, "enc": "raw", "q": "q2", "rep": 3, "load1": 11.5419921875, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.008, "threads": "1", "rss": 1300627456, "wall": 4.371, "enc": "auto", "q": "q2", "rep": 3, "load1": 10.69775390625, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.009, "threads": "1", "rss": 1682653184, "wall": 8.869, "enc": "master", "q": "q2", "rep": 4, "load1": 10.69775390625, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.008, "threads": "1", "rss": 1347829760, "wall": 4.69, "enc": "raw", "q": "q2", "rep": 4, "load1": 9.89501953125, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.008, "threads": "1", "rss": 1331265536, "wall": 4.317, "enc": "auto", "q": "q2", "rep": 4, "load1": 9.5830078125, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.009, "threads": "1", "rss": 1309835264, "wall": 4.97, "enc": "dict", "q": "q2", "rep": 4, "load1": 8.9755859375, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.01, "threads": "default", "rss": 1764130816, "wall": 4.31, "enc": "master", "q": "q2", "rep": 0, "load1": 17.6259765625, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.008, "threads": "default", "rss": 1361625088, "wall": 2.484, "enc": "raw", "q": "q2", "rep": 0, "load1": 17.09521484375, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.008, "threads": "default", "rss": 1336786944, "wall": 1.994, "enc": "auto", "q": "q2", "rep": 0, "load1": 17.09521484375, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.01, "threads": "default", "rss": 1332461568, "wall": 1.979, "enc": "dict", "q": "q2", "rep": 0, "load1": 16.36669921875, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.007, "threads": "default", "rss": 1361641472, "wall": 2.607, "enc": "raw", "q": "q2", "rep": 1, "load1": 16.36669921875, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.012, "threads": "default", "rss": 1336819712, "wall": 2.057, "enc": "auto", "q": "q2", "rep": 1, "load1": 16.0166015625, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.009, "threads": "default", "rss": 1336836096, "wall": 2.034, "enc": "dict", "q": "q2", "rep": 1, "load1": 16.0166015625, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.017, "threads": "default", "rss": 1661779968, "wall": 5.616, "enc": "master", "q": "q2", "rep": 1, "load1": 15.05419921875, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.009, "threads": "default", "rss": 1306132480, "wall": 2.058, "enc": "auto", "q": "q2", "rep": 2, "load1": 14.5693359375, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.01, "threads": "default", "rss": 1336590336, "wall": 2.106, "enc": "dict", "q": "q2", "rep": 2, "load1": 14.5693359375, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.013, "threads": "default", "rss": 1782087680, "wall": 4.247, "enc": "master", "q": "q2", "rep": 2, "load1": 14.5693359375, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.008, "threads": "default", "rss": 1361494016, "wall": 2.495, "enc": "raw", "q": "q2", "rep": 2, "load1": 13.802734375, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.008, "threads": "default", "rss": 1336770560, "wall": 1.955, "enc": "dict", "q": "q2", "rep": 3, "load1": 13.09765625, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.009, "threads": "default", "rss": 1792294912, "wall": 4.408, "enc": "master", "q": "q2", "rep": 3, "load1": 13.09765625, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.009, "threads": "default", "rss": 1331822592, "wall": 2.932, "enc": "raw", "q": "q2", "rep": 3, "load1": 12.36865234375, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.009, "threads": "default", "rss": 1336524800, "wall": 2.065, "enc": "auto", "q": "q2", "rep": 3, "load1": 12.4990234375, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.012, "threads": "default", "rss": 1799045120, "wall": 4.336, "enc": "master", "q": "q2", "rep": 4, "load1": 12.4990234375, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.007, "threads": "default", "rss": 1361772544, "wall": 2.472, "enc": "raw", "q": "q2", "rep": 4, "load1": 11.73828125, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.007, "threads": "default", "rss": 1336688640, "wall": 1.989, "enc": "auto", "q": "q2", "rep": 4, "load1": 11.73828125, "batch": 1}
+{"query": "q2", "n": 1000000, "seconds": 0.009, "threads": "default", "rss": 1336803328, "wall": 2.03, "enc": "dict", "q": "q2", "rep": 4, "load1": 10.9580078125, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.358, "threads": "1", "rss": 1680162816, "wall": 9.329, "enc": "master", "q": "q3", "rep": 0, "load1": 10.9580078125, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.342, "threads": "1", "rss": 1367851008, "wall": 4.965, "enc": "raw", "q": "q3", "rep": 0, "load1": 10.39697265625, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.022, "threads": "1", "rss": 1330429952, "wall": 4.274, "enc": "auto", "q": "q3", "rep": 0, "load1": 9.88427734375, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.023, "threads": "1", "rss": 1305395200, "wall": 4.385, "enc": "dict", "q": "q3", "rep": 0, "load1": 9.81298828125, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.386, "threads": "1", "rss": 1367539712, "wall": 5.088, "enc": "raw", "q": "q3", "rep": 1, "load1": 9.26708984375, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.022, "threads": "1", "rss": 1294172160, "wall": 5.815, "enc": "auto", "q": "q3", "rep": 1, "load1": 8.84521484375, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.025, "threads": "1", "rss": 1294188544, "wall": 4.514, "enc": "dict", "q": "q3", "rep": 1, "load1": 9.09765625, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.377, "threads": "1", "rss": 1642545152, "wall": 9.802, "enc": "master", "q": "q3", "rep": 1, "load1": 10.61083984375, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.026, "threads": "1", "rss": 1305477120, "wall": 4.424, "enc": "auto", "q": "q3", "rep": 2, "load1": 10.06787109375, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.025, "threads": "1", "rss": 1294188544, "wall": 4.687, "enc": "dict", "q": "q3", "rep": 2, "load1": 9.82177734375, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.356, "threads": "1", "rss": 1702182912, "wall": 9.341, "enc": "master", "q": "q3", "rep": 2, "load1": 9.515625, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.36, "threads": "1", "rss": 1326186496, "wall": 5.607, "enc": "raw", "q": "q3", "rep": 2, "load1": 9.0673828125, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.029, "threads": "1", "rss": 1294172160, "wall": 4.788, "enc": "dict", "q": "q3", "rep": 3, "load1": 8.7412109375, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.372, "threads": "1", "rss": 1643118592, "wall": 9.577, "enc": "master", "q": "q3", "rep": 3, "load1": 9.001953125, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.343, "threads": "1", "rss": 1326186496, "wall": 6.625, "enc": "raw", "q": "q3", "rep": 3, "load1": 8.70654296875, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.03, "threads": "1", "rss": 1305460736, "wall": 4.63, "enc": "auto", "q": "q3", "rep": 3, "load1": 8.97021484375, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.396, "threads": "1", "rss": 1702576128, "wall": 9.06, "enc": "master", "q": "q3", "rep": 4, "load1": 8.65185546875, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.339, "threads": "1", "rss": 1367851008, "wall": 4.778, "enc": "raw", "q": "q3", "rep": 4, "load1": 8.42333984375, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.021, "threads": "1", "rss": 1294188544, "wall": 4.786, "enc": "auto", "q": "q3", "rep": 4, "load1": 8.14892578125, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.027, "threads": "1", "rss": 1295695872, "wall": 4.525, "enc": "dict", "q": "q3", "rep": 4, "load1": 8.376953125, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.172, "threads": "default", "rss": 1831747584, "wall": 4.579, "enc": "master", "q": "q3", "rep": 0, "load1": 8.376953125, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.195, "threads": "default", "rss": 1408909312, "wall": 2.63, "enc": "raw", "q": "q3", "rep": 0, "load1": 9.2275390625, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.024, "threads": "default", "rss": 1341259776, "wall": 1.963, "enc": "auto", "q": "q3", "rep": 0, "load1": 8.728515625, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.023, "threads": "default", "rss": 1306083328, "wall": 2.111, "enc": "dict", "q": "q3", "rep": 0, "load1": 8.728515625, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.192, "threads": "default", "rss": 1369243648, "wall": 2.976, "enc": "raw", "q": "q3", "rep": 1, "load1": 8.509765625, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.03, "threads": "default", "rss": 1339424768, "wall": 2.24, "enc": "auto", "q": "q3", "rep": 1, "load1": 8.509765625, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.024, "threads": "default", "rss": 1306198016, "wall": 2.353, "enc": "dict", "q": "q3", "rep": 1, "load1": 8.30859375, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.17, "threads": "default", "rss": 1813839872, "wall": 4.724, "enc": "master", "q": "q3", "rep": 1, "load1": 8.30859375, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.021, "threads": "default", "rss": 1341521920, "wall": 1.948, "enc": "auto", "q": "q3", "rep": 2, "load1": 8.68408203125, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.023, "threads": "default", "rss": 1341308928, "wall": 2.019, "enc": "dict", "q": "q3", "rep": 2, "load1": 8.1484375, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.179, "threads": "default", "rss": 1849606144, "wall": 5.101, "enc": "master", "q": "q3", "rep": 2, "load1": 8.1484375, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.178, "threads": "default", "rss": 1402748928, "wall": 2.815, "enc": "raw", "q": "q3", "rep": 2, "load1": 9.65771484375, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.024, "threads": "default", "rss": 1306132480, "wall": 2.13, "enc": "dict", "q": "q3", "rep": 3, "load1": 10.00537109375, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.161, "threads": "default", "rss": 1802518528, "wall": 4.565, "enc": "master", "q": "q3", "rep": 3, "load1": 10.00537109375, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.206, "threads": "default", "rss": 1391263744, "wall": 2.752, "enc": "raw", "q": "q3", "rep": 3, "load1": 10.0849609375, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.023, "threads": "default", "rss": 1341308928, "wall": 2.008, "enc": "auto", "q": "q3", "rep": 3, "load1": 10.0849609375, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.196, "threads": "default", "rss": 1799471104, "wall": 4.958, "enc": "master", "q": "q3", "rep": 4, "load1": 9.91796875, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.195, "threads": "default", "rss": 1398095872, "wall": 2.934, "enc": "raw", "q": "q3", "rep": 4, "load1": 10.16455078125, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.023, "threads": "default", "rss": 1299808256, "wall": 2.411, "enc": "auto", "q": "q3", "rep": 4, "load1": 10.16455078125, "batch": 1}
+{"query": "q3", "n": 1000000, "seconds": 0.024, "threads": "default", "rss": 1341308928, "wall": 2.069, "enc": "dict", "q": "q3", "rep": 4, "load1": 12.2333984375, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.448, "threads": "1", "rss": 1640398848, "wall": 11.04, "enc": "master", "q": "q4", "rep": 0, "load1": 12.2333984375, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.41, "threads": "1", "rss": 1326104576, "wall": 5.763, "enc": "raw", "q": "q4", "rep": 0, "load1": 12.5068359375, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.048, "threads": "1", "rss": 1289814016, "wall": 4.546, "enc": "auto", "q": "q4", "rep": 0, "load1": 12.7861328125, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.044, "threads": "1", "rss": 1289781248, "wall": 4.445, "enc": "dict", "q": "q4", "rep": 0, "load1": 12.16259765625, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.434, "threads": "1", "rss": 1325973504, "wall": 6.115, "enc": "raw", "q": "q4", "rep": 1, "load1": 12.16259765625, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.064, "threads": "1", "rss": 1285177344, "wall": 6.608, "enc": "auto", "q": "q4", "rep": 1, "load1": 14.0048828125, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.048, "threads": "1", "rss": 1289797632, "wall": 4.901, "enc": "dict", "q": "q4", "rep": 1, "load1": 16.40673828125, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.431, "threads": "1", "rss": 1592852480, "wall": 10.334, "enc": "master", "q": "q4", "rep": 1, "load1": 16.1337890625, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.048, "threads": "1", "rss": 1331412992, "wall": 4.354, "enc": "auto", "q": "q4", "rep": 2, "load1": 14.7548828125, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.052, "threads": "1", "rss": 1289797632, "wall": 4.959, "enc": "dict", "q": "q4", "rep": 2, "load1": 14.5341796875, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.508, "threads": "1", "rss": 1677541376, "wall": 10.476, "enc": "master", "q": "q4", "rep": 2, "load1": 14.0908203125, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.445, "threads": "1", "rss": 1365753856, "wall": 5.559, "enc": "raw", "q": "q4", "rep": 2, "load1": 12.9072265625, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.045, "threads": "1", "rss": 1289797632, "wall": 4.405, "enc": "dict", "q": "q4", "rep": 3, "load1": 12.59423828125, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.466, "threads": "1", "rss": 1702313984, "wall": 10.106, "enc": "master", "q": "q4", "rep": 3, "load1": 11.90576171875, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.422, "threads": "1", "rss": 1330577408, "wall": 5.61, "enc": "raw", "q": "q4", "rep": 3, "load1": 10.6162109375, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.045, "threads": "1", "rss": 1289830400, "wall": 4.797, "enc": "auto", "q": "q4", "rep": 3, "load1": 10.166015625, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.435, "threads": "1", "rss": 1702477824, "wall": 9.857, "enc": "master", "q": "q4", "rep": 4, "load1": 10.392578125, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.413, "threads": "1", "rss": 1363378176, "wall": 5.481, "enc": "raw", "q": "q4", "rep": 4, "load1": 10.037109375, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.045, "threads": "1", "rss": 1289797632, "wall": 4.466, "enc": "auto", "q": "q4", "rep": 4, "load1": 9.55322265625, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.045, "threads": "1", "rss": 1331429376, "wall": 4.286, "enc": "dict", "q": "q4", "rep": 4, "load1": 9.1083984375, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.266, "threads": "default", "rss": 1834500096, "wall": 5.251, "enc": "master", "q": "q4", "rep": 0, "load1": 8.779296875, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.243, "threads": "default", "rss": 1389821952, "wall": 3.165, "enc": "raw", "q": "q4", "rep": 0, "load1": 8.716796875, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.046, "threads": "default", "rss": 1336918016, "wall": 2.005, "enc": "auto", "q": "q4", "rep": 0, "load1": 8.3388671875, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.051, "threads": "default", "rss": 1337016320, "wall": 2.199, "enc": "dict", "q": "q4", "rep": 0, "load1": 8.3388671875, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.248, "threads": "default", "rss": 1328922624, "wall": 3.387, "enc": "raw", "q": "q4", "rep": 1, "load1": 8.3388671875, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.053, "threads": "default", "rss": 1336868864, "wall": 2.132, "enc": "auto", "q": "q4", "rep": 1, "load1": 7.7509765625, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.047, "threads": "default", "rss": 1306263552, "wall": 2.151, "enc": "dict", "q": "q4", "rep": 1, "load1": 7.6904296875, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.248, "threads": "default", "rss": 1832042496, "wall": 5.843, "enc": "master", "q": "q4", "rep": 1, "load1": 7.6904296875, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.045, "threads": "default", "rss": 1301348352, "wall": 2.859, "enc": "auto", "q": "q4", "rep": 2, "load1": 8.1953125, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.046, "threads": "default", "rss": 1336918016, "wall": 2.114, "enc": "dict", "q": "q4", "rep": 2, "load1": 7.85888671875, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.265, "threads": "default", "rss": 1805942784, "wall": 5.74, "enc": "master", "q": "q4", "rep": 2, "load1": 7.85888671875, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.286, "threads": "default", "rss": 1391165440, "wall": 3.441, "enc": "raw", "q": "q4", "rep": 2, "load1": 7.7099609375, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.048, "threads": "default", "rss": 1336852480, "wall": 2.066, "enc": "dict", "q": "q4", "rep": 3, "load1": 7.49267578125, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.274, "threads": "default", "rss": 1843019776, "wall": 5.404, "enc": "master", "q": "q4", "rep": 3, "load1": 7.49267578125, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.228, "threads": "default", "rss": 1402568704, "wall": 3.218, "enc": "raw", "q": "q4", "rep": 3, "load1": 7.453125, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.063, "threads": "default", "rss": 1275920384, "wall": 4.477, "enc": "auto", "q": "q4", "rep": 3, "load1": 7.09619140625, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.235, "threads": "default", "rss": 1792573440, "wall": 5.571, "enc": "master", "q": "q4", "rep": 4, "load1": 9.09033203125, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.289, "threads": "default", "rss": 1339572224, "wall": 3.601, "enc": "raw", "q": "q4", "rep": 4, "load1": 8.5224609375, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.049, "threads": "default", "rss": 1332576256, "wall": 2.169, "enc": "auto", "q": "q4", "rep": 4, "load1": 10.5625, "batch": 1}
+{"query": "q4", "n": 1000000, "seconds": 0.06, "threads": "default", "rss": 1315209216, "wall": 2.128, "enc": "dict", "q": "q4", "rep": 4, "load1": 10.5625, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.448, "threads": "1", "rss": 1709178880, "wall": 9.292, "enc": "master", "q": "q5", "rep": 0, "load1": 10.35693359375, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.451, "threads": "1", "rss": 1357578240, "wall": 5.558, "enc": "raw", "q": "q5", "rep": 0, "load1": 10.07421875, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.023, "threads": "1", "rss": 1298382848, "wall": 4.589, "enc": "auto", "q": "q5", "rep": 0, "load1": 11.26904296875, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.022, "threads": "1", "rss": 1298382848, "wall": 4.537, "enc": "dict", "q": "q5", "rep": 0, "load1": 10.5263671875, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.434, "threads": "1", "rss": 1335132160, "wall": 5.852, "enc": "raw", "q": "q5", "rep": 1, "load1": 11.20458984375, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.02, "threads": "1", "rss": 1298415616, "wall": 4.434, "enc": "auto", "q": "q5", "rep": 1, "load1": 10.54736328125, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.02, "threads": "1", "rss": 1298382848, "wall": 4.431, "enc": "dict", "q": "q5", "rep": 1, "load1": 10.34326171875, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.463, "threads": "1", "rss": 1675509760, "wall": 9.712, "enc": "master", "q": "q5", "rep": 1, "load1": 10.34326171875, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.021, "threads": "1", "rss": 1340047360, "wall": 4.309, "enc": "auto", "q": "q5", "rep": 2, "load1": 9.6943359375, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.019, "threads": "1", "rss": 1309310976, "wall": 4.431, "enc": "dict", "q": "q5", "rep": 2, "load1": 9.478515625, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.429, "threads": "1", "rss": 1711439872, "wall": 9.327, "enc": "master", "q": "q5", "rep": 2, "load1": 9.27978515625, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.435, "threads": "1", "rss": 1335148544, "wall": 5.17, "enc": "raw", "q": "q5", "rep": 2, "load1": 8.78173828125, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.02, "threads": "1", "rss": 1298399232, "wall": 4.481, "enc": "dict", "q": "q5", "rep": 3, "load1": 8.318359375, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.472, "threads": "1", "rss": 1615085568, "wall": 11.787, "enc": "master", "q": "q5", "rep": 3, "load1": 8.05224609375, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.594, "threads": "1", "rss": 1334935552, "wall": 7.601, "enc": "raw", "q": "q5", "rep": 3, "load1": 7.71044921875, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.024, "threads": "1", "rss": 1298366464, "wall": 4.696, "enc": "auto", "q": "q5", "rep": 3, "load1": 7.93408203125, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.425, "threads": "1", "rss": 1675493376, "wall": 10.585, "enc": "master", "q": "q5", "rep": 4, "load1": 7.93896484375, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.459, "threads": "1", "rss": 1337425920, "wall": 5.193, "enc": "raw", "q": "q5", "rep": 4, "load1": 7.3203125, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.024, "threads": "1", "rss": 1258635264, "wall": 5.096, "enc": "auto", "q": "q5", "rep": 4, "load1": 7.37451171875, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.019, "threads": "1", "rss": 1298366464, "wall": 6.059, "enc": "dict", "q": "q5", "rep": 4, "load1": 9.18603515625, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.254, "threads": "default", "rss": 1844248576, "wall": 4.939, "enc": "master", "q": "q5", "rep": 0, "load1": 9.6513671875, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.277, "threads": "default", "rss": 1435254784, "wall": 2.825, "enc": "raw", "q": "q5", "rep": 0, "load1": 9.35888671875, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.101, "threads": "default", "rss": 1338097664, "wall": 2.106, "enc": "auto", "q": "q5", "rep": 0, "load1": 9.009765625, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.024, "threads": "default", "rss": 1306116096, "wall": 2.398, "enc": "dict", "q": "q5", "rep": 0, "load1": 9.009765625, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.278, "threads": "default", "rss": 1424097280, "wall": 2.983, "enc": "raw", "q": "q5", "rep": 1, "load1": 8.7685546875, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.02, "threads": "default", "rss": 1345585152, "wall": 2.185, "enc": "auto", "q": "q5", "rep": 1, "load1": 8.7685546875, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.022, "threads": "default", "rss": 1320927232, "wall": 2.395, "enc": "dict", "q": "q5", "rep": 1, "load1": 8.78662109375, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.26, "threads": "default", "rss": 1831043072, "wall": 4.52, "enc": "master", "q": "q5", "rep": 1, "load1": 8.78662109375, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.018, "threads": "default", "rss": 1345601536, "wall": 1.957, "enc": "auto", "q": "q5", "rep": 2, "load1": 8.64306640625, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.022, "threads": "default", "rss": 1299333120, "wall": 2.91, "enc": "dict", "q": "q5", "rep": 2, "load1": 8.64306640625, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.271, "threads": "default", "rss": 1843609600, "wall": 5.732, "enc": "master", "q": "q5", "rep": 2, "load1": 8.27099609375, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.3, "threads": "default", "rss": 1322352640, "wall": 3.482, "enc": "raw", "q": "q5", "rep": 2, "load1": 13.8544921875, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.02, "threads": "default", "rss": 1345486848, "wall": 2.305, "enc": "dict", "q": "q5", "rep": 3, "load1": 13.22509765625, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.27, "threads": "default", "rss": 1882423296, "wall": 5.506, "enc": "master", "q": "q5", "rep": 3, "load1": 13.22509765625, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.247, "threads": "default", "rss": 1414004736, "wall": 3.072, "enc": "raw", "q": "q5", "rep": 3, "load1": 17.8515625, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.019, "threads": "default", "rss": 1306279936, "wall": 2.206, "enc": "auto", "q": "q5", "rep": 3, "load1": 24.75, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.243, "threads": "default", "rss": 1828438016, "wall": 4.967, "enc": "master", "q": "q5", "rep": 4, "load1": 24.75, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.278, "threads": "default", "rss": 1426276352, "wall": 2.92, "enc": "raw", "q": "q5", "rep": 4, "load1": 23.32861328125, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.02, "threads": "default", "rss": 1345208320, "wall": 2.026, "enc": "auto", "q": "q5", "rep": 4, "load1": 21.78076171875, "batch": 1}
+{"query": "q5", "n": 1000000, "seconds": 0.02, "threads": "default", "rss": 1316175872, "wall": 2.075, "enc": "dict", "q": "q5", "rep": 4, "load1": 21.78076171875, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.15, "threads": "1", "rss": 1649131520, "wall": 9.572, "enc": "master", "q": "q6", "rep": 0, "load1": 20.5966796875, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.15, "threads": "1", "rss": 1306296320, "wall": 5.738, "enc": "raw", "q": "q6", "rep": 0, "load1": 18.40673828125, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.107, "threads": "1", "rss": 1281179648, "wall": 5.261, "enc": "auto", "q": "q6", "rep": 0, "load1": 17.4130859375, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.106, "threads": "1", "rss": 1294843904, "wall": 4.547, "enc": "dict", "q": "q6", "rep": 0, "load1": 16.5791015625, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.143, "threads": "1", "rss": 1347944448, "wall": 4.773, "enc": "raw", "q": "q6", "rep": 1, "load1": 15.57177734375, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.11, "threads": "1", "rss": 1297039360, "wall": 4.551, "enc": "auto", "q": "q6", "rep": 1, "load1": 14.64501953125, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.144, "threads": "1", "rss": 1282883584, "wall": 4.903, "enc": "dict", "q": "q6", "rep": 1, "load1": 13.79248046875, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.166, "threads": "1", "rss": 1626193920, "wall": 10.098, "enc": "master", "q": "q6", "rep": 1, "load1": 13.16845703125, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.11, "threads": "1", "rss": 1271889920, "wall": 5.658, "enc": "auto", "q": "q6", "rep": 2, "load1": 11.97314453125, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.106, "threads": "1", "rss": 1281179648, "wall": 4.758, "enc": "dict", "q": "q6", "rep": 2, "load1": 17.18017578125, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.169, "threads": "1", "rss": 1650622464, "wall": 9.429, "enc": "master", "q": "q6", "rep": 2, "load1": 17.16552734375, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.149, "threads": "1", "rss": 1329774592, "wall": 4.807, "enc": "raw", "q": "q6", "rep": 2, "load1": 15.6884765625, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.107, "threads": "1", "rss": 1297039360, "wall": 4.564, "enc": "dict", "q": "q6", "rep": 3, "load1": 14.67236328125, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.186, "threads": "1", "rss": 1623687168, "wall": 9.759, "enc": "master", "q": "q6", "rep": 3, "load1": 13.8173828125, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.176, "threads": "1", "rss": 1338621952, "wall": 5.005, "enc": "raw", "q": "q6", "rep": 3, "load1": 12.98974609375, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.109, "threads": "1", "rss": 1281212416, "wall": 4.701, "enc": "auto", "q": "q6", "rep": 3, "load1": 12.109375, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.147, "threads": "1", "rss": 1682702336, "wall": 9.041, "enc": "master", "q": "q6", "rep": 4, "load1": 12.109375, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.148, "threads": "1", "rss": 1347977216, "wall": 4.728, "enc": "raw", "q": "q6", "rep": 4, "load1": 10.9423828125, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.106, "threads": "1", "rss": 1293352960, "wall": 4.635, "enc": "auto", "q": "q6", "rep": 4, "load1": 10.14599609375, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.121, "threads": "1", "rss": 1281163264, "wall": 4.611, "enc": "dict", "q": "q6", "rep": 4, "load1": 9.89404296875, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.156, "threads": "default", "rss": 1765425152, "wall": 4.896, "enc": "master", "q": "q6", "rep": 0, "load1": 10.142578125, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.159, "threads": "default", "rss": 1361543168, "wall": 2.667, "enc": "raw", "q": "q6", "rep": 0, "load1": 10.2109375, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.103, "threads": "default", "rss": 1328037888, "wall": 2.158, "enc": "auto", "q": "q6", "rep": 0, "load1": 9.95361328125, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.108, "threads": "default", "rss": 1328283648, "wall": 2.146, "enc": "dict", "q": "q6", "rep": 0, "load1": 9.95361328125, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.155, "threads": "default", "rss": 1331036160, "wall": 2.872, "enc": "raw", "q": "q6", "rep": 1, "load1": 9.95361328125, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.104, "threads": "default", "rss": 1286701056, "wall": 3.128, "enc": "auto", "q": "q6", "rep": 1, "load1": 9.4765625, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.103, "threads": "default", "rss": 1306214400, "wall": 2.401, "enc": "dict", "q": "q6", "rep": 1, "load1": 9.03759765625, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.16, "threads": "default", "rss": 1755824128, "wall": 5.037, "enc": "master", "q": "q6", "rep": 1, "load1": 9.03759765625, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.199, "threads": "default", "rss": 1324040192, "wall": 2.248, "enc": "auto", "q": "q6", "rep": 2, "load1": 8.7138671875, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.106, "threads": "default", "rss": 1328005120, "wall": 2.264, "enc": "dict", "q": "q6", "rep": 2, "load1": 8.81640625, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.148, "threads": "default", "rss": 1815740416, "wall": 4.769, "enc": "master", "q": "q6", "rep": 2, "load1": 8.81640625, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.148, "threads": "default", "rss": 1361510400, "wall": 2.623, "enc": "raw", "q": "q6", "rep": 2, "load1": 8.6708984375, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.107, "threads": "default", "rss": 1328218112, "wall": 2.209, "enc": "dict", "q": "q6", "rep": 3, "load1": 8.6708984375, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.202, "threads": "default", "rss": 1776353280, "wall": 4.625, "enc": "master", "q": "q6", "rep": 3, "load1": 8.53662109375, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.16, "threads": "default", "rss": 1361575936, "wall": 2.675, "enc": "raw", "q": "q6", "rep": 3, "load1": 8.2529296875, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.103, "threads": "default", "rss": 1328250880, "wall": 2.119, "enc": "auto", "q": "q6", "rep": 3, "load1": 8.2529296875, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.156, "threads": "default", "rss": 1764655104, "wall": 4.44, "enc": "master", "q": "q6", "rep": 4, "load1": 8.392578125, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.158, "threads": "default", "rss": 1361625088, "wall": 2.878, "enc": "raw", "q": "q6", "rep": 4, "load1": 8.04052734375, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.105, "threads": "default", "rss": 1328283648, "wall": 2.318, "enc": "auto", "q": "q6", "rep": 4, "load1": 8.04052734375, "batch": 1}
+{"query": "q6", "n": 1000000, "seconds": 0.105, "threads": "default", "rss": 1306296320, "wall": 2.19, "enc": "dict", "q": "q6", "rep": 4, "load1": 8.357421875, "batch": 1}

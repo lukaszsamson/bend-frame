@@ -756,6 +756,20 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
   component is still structural on `cs`.
 - `Bool.pick` evaluates both arms: an op dispatcher over a linear frame must `match` an enum
   (bench/strbench.bend `Op`), never chain `Bool.pick`s that each consume the frame.
+- **A proof over a storage sum type** (M4 after merging M5's `cell_pure`): give the storage
+  its own model (`LAWS.scell`: Raw slot / Dictionary entry of the row's code) and prove the
+  storage accessor pure against it once (`strs_get_pure(s, i) : {Strs.get(s, i) == (s,
+  scell(s, i))}`), then pass that EQUATION (not the `&x: T -> ...` witness of `get_at_w`) to the
+  column-level lemma, whose `-data` stays erased: `%Equal.sym(.., e) : {Column.cell.s(.., _) ==
+  ..}` rewrites `Strs.get(data, i)` in one step. The Dictionary case is two witnesses in a
+  chain (code, then entry), each in its own helper so the matched `Dict{..}` fields are
+  parameters. It checked first time; keep the helper order (callees above callers).
+- **Measuring on a shared machine**: run the storages of one cell back to back in one
+  repetition (rotating their order) and freeze the binaries in a copy (`strbench.py --bin
+  build/m4bin`): `make bench-check` / `scripts/bench.sh` rebuild `build/bench` and would swap
+  the binary under a running campaign. Do not run `make test` / `make diff` (hundreds of
+  compiles) during a campaign: the 1-minute load went from ~5 to 25-33 and the 1M parse
+  times rose ~30 %; the ratios between interleaved storages held, the absolute numbers did not.
 
 ## M3 facade leftovers (DF.column, schema, height, collect_show)
 
