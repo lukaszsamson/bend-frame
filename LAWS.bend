@@ -2306,3 +2306,238 @@ law dict_recode_spec:
   for wfd: WFDictE(dst, esd)
   for probes: FindProbe(U32.to_nat(dk(src)), 0, dstrs(src), dst)
   RecodeW(src, dst, esd)
+
+# =====================================================================================
+# 15. Concatenation and the in-place kernels (plan M_01 section 6 P1, M5 part 4):
+#     Kernel.append (concat_vertical's buffers), Kernel.mask_data (Eval.fix, the null
+#     slots back to the default) and Kernel.choose (fill_null / when), each with its
+#     content theorem, and the Str storage of both kinds through them
+# =====================================================================================
+#
+# Kernel.append writes a's rows at 0 .. na and b's at na + k through two Kernel.copy_into
+# loops whose write index is U32.add(off, i); the in-place kernels overwrite their input
+# array slot by slot. Every claim is slot by slot over the model rdN / scell / ccell.
+
+# the slot condition of a concatenation: na + nb <= 2^d as natural numbers (Cat.join
+# allocates depth_for of the saturating sum, so the sum never wraps in production)
+def CatFits(+na: U32, +nb: U32, +d: Nat) -> Type:
+  {Nat.is_le(Nat.add(U32.to_nat(na), U32.to_nat(nb)), U32.to_nat(U32.shln(1, d))) == True{} : Bool}
+
+# Kernel.append's answer (U32 instance): the output, well formed, holds a's rows below na and
+# b's row k at na + k
+def AppendW(-a: Array<U32>, -b: Array<U32>, +na: U32, +nb: U32, +d: Nat, +z: U32) -> Type:
+  &o: Array<U32> -> {K.Kernel.append(~U32, na, nb, d, a, b, z) == o : Array<U32>} & WFArray(U32, d, o) & (@k: U32 -> {U32.is_lt(k, na) == True{} : Bool} -> {rdN(U32, d, o, k) == rd_at(U32, a, k) : U32}) & (@k: U32 -> {U32.is_lt(k, nb) == True{} : Bool} -> {rdN(U32, d, o, U32.add(na, k)) == rd_at(U32, b, k) : U32})
+
+# LAW: the production Kernel.append (two Kernel.copy_into loops, U32 instance: the word buffers of
+# Bool/U32/I32 columns, every validity mask of Cat.valid, and the codes of a Dictionary) places
+# a's rows first and b's rows after them, whenever na + nb rows fit the 2^d slots
+law append_cells:
+  for +na: U32
+  for +nb: U32
+  for +d: Nat
+  for a: Array<U32>
+  for b: Array<U32>
+  for +z: U32
+  for fits: CatFits(na, nb, d)
+  AppendW(a, b, na, nb, d, z)
+
+# every row below n of a code array names an entry below k (in range)
+def CodesBelow(+n: U32, -codes: Array<U32>, +k: U32) -> Type:
+  @i: U32 -> {U32.is_lt(i, n) == True{} : Bool} -> {U32.is_lt(rd_at(U32, codes, i), k) == True{} : Bool}
+
+# Strs.append's hypotheses beyond the slot counts: for two Dictionaries, a's dictionary well
+# formed, b's entries fitting its slots, both code arrays in range, and the probe hypotheses of
+# the merge of b's entries into a's; nothing for the other storage pairs (they decode to Raw)
+def AppendHyp(xa: ST.Strs, xb: ST.Strs, +na: U32, +nb: U32) -> Type:
+  match xa xb:
+    case ST.SDict{ca, dca} ST.SDict{cb, dcb}:
+      WFDict(dca) & {U32.is_le(dk(dcb), U32.shln(1, ddd(dcb))) == True{} : Bool} & CodesBelow(na, ca, dk(dca)) & CodesBelow(nb, cb, dk(dcb)) & MergeProbe(U32.to_nat(dk(dcb)), 0, dstrs(dcb), dca)
+    case _ _:
+      Unit
+
+# Strs.append's answer: a's cells below na, b's cell k at na + k
+def AppendStrsW(-xa: ST.Strs, -xb: ST.Strs, +na: U32, +nb: U32, +da: Nat, +db: Nat, +d: Nat) -> Type:
+  &o: ST.Strs -> {ST.Strs.append(na, nb, da, db, d, xa, xb) == o : ST.Strs} & (@k: U32 -> {U32.is_lt(k, na) == True{} : Bool} -> {scell(o, k) == scell(xa, k) : String}) & (@k: U32 -> {U32.is_lt(k, nb) == True{} : Bool} -> {scell(o, U32.add(na, k)) == scell(xb, k) : String})
+
+# LAW: Strs.append (the Str storage of Cat.col, concat_vertical) keeps every cell in both storages:
+# two Dictionaries merge b's entries into a's (Dict.merge, a's codes kept) and append a's codes to
+# b's re-coded ones; any other pair decodes both sides and appends the strings
+law strs_append_cells:
+  for xa: ST.Strs
+  for xb: ST.Strs
+  for +na: U32
+  for +nb: U32
+  for +da: Nat
+  for +db: Nat
+  for +d: Nat
+  for fa: {U32.is_le(na, U32.shln(1, da)) == True{} : Bool}
+  for fb: {U32.is_le(nb, U32.shln(1, db)) == True{} : Bool}
+  for fits: CatFits(na, nb, d)
+  for hyp: AppendHyp(xa, xb, na, nb)
+  AppendStrsW(xa, xb, na, nb, da, db, d)
+
+# ---- the in-place kernels: Kernel.mask_data (Eval.fix) and Kernel.choose (fill_null / when) -----------
+
+# LAW: Kernel.mask_data(n, a, m, z) (in place: the slots of a whose mask word is 0 reset to z; the
+# U32 instance) leaves at every pos < n the old cell where the mask word is set and z where it is 0,
+# when the n rows fit a's 2^d slots and a is well formed
+law mask_data_cell:
+  for +n: U32
+  for +d: Nat
+  for a: Array<U32>
+  for m: Array<U32>
+  for +z: U32
+  for +pos: U32
+  for wf: WFArray(U32, d, a)
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for hpos: {U32.is_lt(pos, n) == True{} : Bool}
+  {rd_at(U32, Pair.fst(Array<U32>, Array<U32>, K.Kernel.mask_data(~U32, n, a, m, z)), pos) == Bool.pick(U32, U32.is_ne(rd_at(U32, m, pos), 0), rd_at(U32, a, pos), z) : U32}
+
+# LAW: Kernel.mask_data hands the mask back unchanged
+law mask_data_keeps_mask:
+  for +n: U32
+  for a: Array<U32>
+  for m: Array<U32>
+  for +z: U32
+  {Pair.snd(Array<U32>, Array<U32>, K.Kernel.mask_data(~U32, n, a, m, z)) == m : Array<U32>}
+
+# LAW: Kernel.choose(n, m, a, b) (in place into a: a[i] := m[i] ? a[i] : b[i]; the U32 instance) leaves
+# at every pos < n a's old cell where the mask word is set and b's cell where it is 0, when the n rows
+# fit a's 2^d slots and a is well formed
+law choose_cell:
+  for +n: U32
+  for +d: Nat
+  for m: Array<U32>
+  for a: Array<U32>
+  for b: Array<U32>
+  for +pos: U32
+  for wf: WFArray(U32, d, a)
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for hpos: {U32.is_lt(pos, n) == True{} : Bool}
+  {rd_at(U32, Pair.snd(Array<U32>, Array<U32>, K.Kernel.choose(~U32, n, m, a, b)), pos) == Bool.pick(U32, U32.is_ne(rd_at(U32, m, pos), 0), rd_at(U32, a, pos), rd_at(U32, b, pos)) : U32}
+
+# LAW: Kernel.choose hands the mask back unchanged
+law choose_keeps_mask:
+  for +n: U32
+  for m: Array<U32>
+  for a: Array<U32>
+  for b: Array<U32>
+  {Pair.fst(Array<U32>, Array<U32>, K.Kernel.choose(~U32, n, m, a, b)) == m : Array<U32>}
+
+# ---- the column verbs over the in-place kernels: Eval.fix (every column), Eval.fill on Str columns ----
+
+# the data buffer of a Str storage is a well-formed array of depth d
+def WFStrData(+d: Nat, s: ST.Strs) -> Type:
+  match s:
+    case ST.SRaw{a}:
+      WFArray(String, d, a)
+    case ST.SDict{codes, dict}:
+      WFArray(U32, d, codes)
+
+# the hypotheses of Eval.fix at row i: the rows fit the slots, i is a row, the data buffer is well
+# formed (the P0 shape facts; the mask is only read)
+def FixHyp(c: C.Column, +i: U32) -> Type:
+  match c:
+    case C.CBool{+len, +depth, valid, data}:
+      {U32.is_le(len, U32.shln(1, depth)) == True{} : Bool} & {U32.is_lt(i, len) == True{} : Bool} & WFArray(U32, depth, data)
+    case C.CU32{+len, +depth, valid, data}:
+      {U32.is_le(len, U32.shln(1, depth)) == True{} : Bool} & {U32.is_lt(i, len) == True{} : Bool} & WFArray(U32, depth, data)
+    case C.CI32{+len, +depth, valid, data}:
+      {U32.is_le(len, U32.shln(1, depth)) == True{} : Bool} & {U32.is_lt(i, len) == True{} : Bool} & WFArray(U32, depth, data)
+    case C.CF32{+len, +depth, valid, data}:
+      {U32.is_le(len, U32.shln(1, depth)) == True{} : Bool} & {U32.is_lt(i, len) == True{} : Bool} & WFArray(F32, depth, data)
+    case C.CStr{+len, +depth, valid, data}:
+      {U32.is_le(len, U32.shln(1, depth)) == True{} : Bool} & {U32.is_lt(i, len) == True{} : Bool} & WFStrData(depth, data)
+
+# LAW: Eval.fix (the null slots back to the dtype default through Kernel.mask_data / Strs.fix, in
+# place; the result of every arithmetic / cast / clip / string-conversion operation goes through it)
+# keeps every cell of every column kind, both Str storages included (a null row stays null, a valid
+# row keeps its value: the reset never touches a valid slot)
+law fix_cell:
+  for c: C.Column
+  for +i: U32
+  for hyp: FixHyp(c, i)
+  {ccell(V.Eval.fix(c), i) == ccell(c, i) : D.Scalar}
+
+# a mask word at row i is 0 or 1 (the P0 invariant WFMaskedW at one row; AllValid needs nothing)
+def Mask01(v: C.Valid, +i: U32) -> Type:
+  match v:
+    case C.AllValid{}:
+      Unit
+    case C.Mask{m}:
+      {U32.is_le(rd_at(U32, m, i), 1) == True{} : Bool}
+
+# the dictionary hypotheses of fill_null on two Str storages at row i: for two Dictionaries, a's
+# dictionary well formed, b's entries fitting its slots, both rows' codes in range, the probe
+# hypotheses of the merge of b's entries into a's; nothing for the other pairs (they decode to Raw)
+def FillDictHyp(xa: ST.Strs, xb: ST.Strs, +i: U32) -> Type:
+  match xa xb:
+    case ST.SDict{ca, dca} ST.SDict{cb, dcb}:
+      WFDict(dca) & {U32.is_le(dk(dcb), U32.shln(1, ddd(dcb))) == True{} : Bool} & {U32.is_lt(rd_at(U32, ca, i), dk(dca)) == True{} : Bool} & {U32.is_lt(rd_at(U32, cb, i), dk(dcb)) == True{} : Bool} & MergeProbe(U32.to_nat(dk(dcb)), 0, dstrs(dcb), dca)
+    case _ _:
+      Unit
+
+# the hypotheses of fill_null at row i: a's rows fit its slots, i is a row, a's data buffer is well
+# formed (the kernel writes into it), both mask words at i are 0/1, the dictionary hypotheses
+def FillHyp(+n: U32, +d: Nat, va: C.Valid, xa: ST.Strs, vb: C.Valid, xb: ST.Strs, +i: U32) -> Type:
+  {U32.is_le(n, U32.shln(1, d)) == True{} : Bool} & {U32.is_lt(i, n) == True{} : Bool} & WFStrData(d, xa) & Mask01(va, i) & Mask01(vb, i) & FillDictHyp(xa, xb, i)
+
+# Eval.fill's answer on two Str columns: a column whose row i is a's cell where a is valid and b's
+# cell where a is null (Polars fill_null)
+def FillW(+n: U32, +d: Nat, -va: C.Valid, -xa: ST.Strs, +n2: U32, +d2: Nat, -vb: C.Valid, -xb: ST.Strs, +i: U32) -> Type:
+  &c: C.Column -> {V.Eval.fill(C.CStr{n, d, va, xa}, C.CStr{n2, d2, vb, xb}) == Done{c} : E.ResT(C.Column)} & {ccell(c, i) == Bool.pick(D.Scalar, vbit(va, i), ccell(C.CStr{n, d, va, xa}, i), ccell(C.CStr{n2, d2, vb, xb}, i)) : D.Scalar}
+
+# LAW: Eval.fill (fill_null) on two Str columns, in both storages: two Dictionaries merge b's entries
+# into a's and choose the codes (Kernel.choose through Eval.zd.map), the validity is the OR of the
+# masks; any other pair decodes both sides and chooses the strings. Row i of the result is a's cell
+# where a is valid, b's cell otherwise
+law fill_str_cell:
+  for +n: U32
+  for +d: Nat
+  for va: C.Valid
+  for xa: ST.Strs
+  for +n2: U32
+  for +d2: Nat
+  for vb: C.Valid
+  for xb: ST.Strs
+  for +i: U32
+  for hyp: FillHyp(n, d, va, xa, vb, xb, i)
+  FillW(n, d, va, xa, n2, d2, vb, xb, i)
+
+# ---- when over Str columns: the storage half ---------------------------------------------------------
+
+# the string stored at row i of a Str column (the data half of ccell, validity ignored; "" for the
+# other dtypes): what Eval.when.str chooses, before Eval.when.valid decides the row's validity
+def sdata(c: C.Column, +i: U32) -> String:
+  match c:
+    case C.CStr{len, depth, valid, data}:
+      scell(data, i)
+    case other:
+      ""
+
+# the hypotheses of when's storage at row i: a's rows fit its slots, i is a row, a's data buffer is
+# well formed, the dictionary hypotheses of two Dictionaries (FillDictHyp)
+def WhenHyp(+n: U32, +d: Nat, xa: ST.Strs, xb: ST.Strs, +i: U32) -> Type:
+  {U32.is_le(n, U32.shln(1, d)) == True{} : Bool} & {U32.is_lt(i, n) == True{} : Bool} & WFStrData(d, xa) & FillDictHyp(xa, xb, i)
+
+# Eval.when.str's answer: a Str column whose stored string at row i is a's where the condition mask
+# word is set and b's where it is 0
+def WhenDataW(+n: U32, +d: Nat, -m: Array<U32>, -va: C.Valid, -vb: C.Valid, -xa: ST.Strs, -xb: ST.Strs, +i: U32) -> Type:
+  &c: C.Column -> {V.Eval.when.str(n, d, m, va, vb, xa, xb) == Done{c} : E.ResT(C.Column)} & {sdata(c, i) == Bool.pick(String, U32.is_ne(rd_at(U32, m, i), 0), scell(xa, i), scell(xb, i)) : String}
+
+# LAW: Eval.when.str (the Str case of when(c).then(a).otherwise(b), m the condition's "true and valid"
+# mask) stores at row i a's string where m is set and b's where it is 0, in both storages (two
+# Dictionaries: b's entries merged into a's, the codes chosen through Eval.zd.map and Kernel.choose;
+# otherwise the decoded strings chosen). The row's validity (Eval.when.valid: the chosen mask, or
+# AllValid when its popcount is n) is not stated here: see DESIGN.md section 8
+law when_str_data:
+  for +n: U32
+  for +d: Nat
+  for m: Array<U32>
+  for va: C.Valid
+  for vb: C.Valid
+  for xa: ST.Strs
+  for xb: ST.Strs
+  for +i: U32
+  for hyp: WhenHyp(n, d, xa, xb, i)
+  WhenDataW(n, d, m, va, vb, xa, xb, i)
