@@ -17,6 +17,7 @@
 #   PROOF_evalrun.bend  section 13  the stack machine (run_typed) and Eval.full / Eval.expr
 #   PROOF_strs.bend     section 14  Dictionary strings: decode, Dict.code / encode, merge, same, find, recode
 #   PROOF_append.bend   section 15  Kernel.append / copy_into and Strs.append (concat)
+#   PROOF_inplace.bend  section 15  Kernel.mask_data / Kernel.choose (in place), Eval.fix / fill / when on Str
 import Base
 import ./LAWS.bend as Laws
 import ./PROOF_lib.bend as L
@@ -32,3 +33,4 @@ import ./PROOF_evalops.bend as PO
 import ./PROOF_evalrun.bend as PR
 import ./PROOF_strs.bend as PST
 import ./PROOF_append.bend as PA
+import ./PROOF_inplace.bend as PI

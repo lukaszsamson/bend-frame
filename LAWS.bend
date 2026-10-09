@@ -2375,3 +2375,51 @@ law strs_append_cells:
   for fits: CatFits(na, nb, d)
   for hyp: AppendHyp(xa, xb, na, nb)
   AppendStrsW(xa, xb, na, nb, da, db, d)
+
+# ---- the in-place kernels: Kernel.mask_data (Eval.fix) and Kernel.choose (fill_null / when) -----------
+
+# LAW: Kernel.mask_data(n, a, m, z) (in place: the slots of a whose mask word is 0 reset to z; the
+# U32 instance) leaves at every pos < n the old cell where the mask word is set and z where it is 0,
+# when the n rows fit a's 2^d slots and a is well formed
+law mask_data_cell:
+  for +n: U32
+  for +d: Nat
+  for a: Array<U32>
+  for m: Array<U32>
+  for +z: U32
+  for +pos: U32
+  for wf: WFArray(U32, d, a)
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for hpos: {U32.is_lt(pos, n) == True{} : Bool}
+  {rd_at(U32, Pair.fst(Array<U32>, Array<U32>, K.Kernel.mask_data(~U32, n, a, m, z)), pos) == Bool.pick(U32, U32.is_ne(rd_at(U32, m, pos), 0), rd_at(U32, a, pos), z) : U32}
+
+# LAW: Kernel.mask_data hands the mask back unchanged
+law mask_data_keeps_mask:
+  for +n: U32
+  for a: Array<U32>
+  for m: Array<U32>
+  for +z: U32
+  {Pair.snd(Array<U32>, Array<U32>, K.Kernel.mask_data(~U32, n, a, m, z)) == m : Array<U32>}
+
+# LAW: Kernel.choose(n, m, a, b) (in place into a: a[i] := m[i] ? a[i] : b[i]; the U32 instance) leaves
+# at every pos < n a's old cell where the mask word is set and b's cell where it is 0, when the n rows
+# fit a's 2^d slots and a is well formed
+law choose_cell:
+  for +n: U32
+  for +d: Nat
+  for m: Array<U32>
+  for a: Array<U32>
+  for b: Array<U32>
+  for +pos: U32
+  for wf: WFArray(U32, d, a)
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for hpos: {U32.is_lt(pos, n) == True{} : Bool}
+  {rd_at(U32, Pair.snd(Array<U32>, Array<U32>, K.Kernel.choose(~U32, n, m, a, b)), pos) == Bool.pick(U32, U32.is_ne(rd_at(U32, m, pos), 0), rd_at(U32, a, pos), rd_at(U32, b, pos)) : U32}
+
+# LAW: Kernel.choose hands the mask back unchanged
+law choose_keeps_mask:
+  for +n: U32
+  for m: Array<U32>
+  for a: Array<U32>
+  for b: Array<U32>
+  {Pair.fst(Array<U32>, Array<U32>, K.Kernel.choose(~U32, n, m, a, b)) == m : Array<U32>}
