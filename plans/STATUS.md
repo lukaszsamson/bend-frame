@@ -74,6 +74,10 @@ Plan: plans/M_01.txt. Contract: DESIGN.md §15. Agent brief: plans/AGENT_BRIEF.m
   (1.98 s at 12 threads).
 - Merged with master up to M5 part 2: the P2 typing proofs (116 laws) cover both storages
   (`make proofs` / `make verdict` green; DESIGN §14 M4 item 8 and M5 part 2 item 5).
+- Gates on the merged tree (5fd2d1c): `make test` 139/139 (0 XFAIL / XPASS), `make check`,
+  `make proofs`, `make verdict`, `make runner-check`, `make bench-check` green; `make diff SEED=1
+  N=1000` 0 failing / 0 inadmissible in Raw and in Dictionary mode (`DIFF_ARGS=--dict`);
+  `make diff-reduce SEED=1 REDUCE_N=500` no findings.
 - Open for the proof agent: the Dictionary decode-preserving lemmas for P1 (DESIGN §14 M4 item 8
   lists exactly which functions: required / only-if-claimed / excluded).
 
