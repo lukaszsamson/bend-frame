@@ -1854,3 +1854,142 @@ law eval_expr_typed:
   for +loc: Bool
   for ha: {A.Expr.analyse(e, fschema(f)) == Done{A.Ana{t, rs, k, tot, loc}} : E.Res(A.Ana)}
   EvalTy(t, tot, elen(k, fheight(f)), f, V.Eval.expr(f, e))
+
+# =====================================================================================
+# 14. Dictionary strings (M4, src/strs.bend; plan M_01 section 5 last paragraph and
+#     section 6 P1): the Dictionary storage decodes to the same cells as the Raw storage
+# =====================================================================================
+#
+# The cell model is `scell` (section 12): a Raw row is its slot, a Dictionary row is the
+# entry of its code. Every law here says that a Dictionary operation answers the same
+# `scell`s as the Raw operation (both equal the one model expression), and that the
+# dictionary invariants below are kept. A dictionary's entries in code order are modelled
+# by a Data LIST `es` (duplicable, so the proofs can speak about every entry at once):
+# `WFDictE(d, es)` ties the production `ST.Dict` to it.
+
+# the string at Nat index j of the entry list, "" past the end
+def nthn(es: List<&2, String>, j: Nat) -> String:
+  match es j:
+    case Nil{} _:
+      ""
+    case h <> t 0n:
+      h
+    case h <> t 1n+p:
+      nthn(t, p)
+
+# the entry of code c in the list model
+def nthd(+es: List<&2, String>, +c: U32) -> String:
+  nthn(es, U32.to_nat(c))
+
+# the entry count of a dictionary
+def dk(d: ST.Dict) -> U32:
+  match d:
+    case ST.Dict{k, dd, strs, b, slots, tag}:
+      k
+
+# an index slot is empty (id 0) or names entry id - 1: a code in range whose entry is the
+# slot's key (soundness of the index; the hash probe only ever answers such a slot)
+def SlotOk.k(e: Bool, +k: U32, +es: List<&2, String>, +key: String, +id: U32) -> Type:
+  match e:
+    case True{}:
+      Unit
+    case False{}:
+      {U32.is_lt(U32.sub(id, 1), k) == True{} : Bool} & {nthd(es, U32.sub(id, 1)) == key : String}
+
+def SlotOk(+k: U32, +es: List<&2, String>, x: ST.SSlot) -> Type:
+  match x:
+    case ST.SSlot{+key, +id}:
+      SlotOk.k(U32.is_eq(id, 0), k, es, key, id)
+
+# the index: a perfect tree of depth b whose every slot is sound
+def WFIx(+k: U32, +es: List<&2, String>, +b: Nat, t: Array<ST.SSlot>) -> Type:
+  match b t:
+    case 0n ALeaf{x}:
+      SlotOk(k, es, x)
+    case 1n+p ANode{xs, ys}:
+      WFIx(k, es, p, xs) & WFIx(k, es, p, ys)
+    case _ _:
+      Empty
+
+# a well-formed dictionary with the entry list es: k = |es| entries fitting the 2^dd slots
+# of strs, entry 0 the empty string (so a null row's code 0 decodes to the Raw default),
+# every entry slot below k holding its list entry, and a sound index
+def WFDictE(d: ST.Dict, +es: List<&2, String>) -> Type:
+  match d:
+    case ST.Dict{+k, +dd, strs, +b, slots, tag}:
+      {U32.to_nat(k) == List.length(&2, String, es) : Nat} & {U32.is_le(k, U32.shln(1, dd)) == True{} : Bool} & {U32.is_lt(0, k) == True{} : Bool} & {nthn(es, 0n) == "" : String} & WFArray(String, dd, strs) & (@c: U32 -> {U32.is_lt(c, k) == True{} : Bool} -> {rd_at(String, strs, c) == nthd(es, c) : String}) & WFIx(k, es, b, slots)
+
+def WFDict(d: ST.Dict) -> Type:
+  &es: List<&2, String> -> WFDictE(d, es)
+
+# es2 extends es: the old entries keep their codes (a Data relation: duplicable)
+def Ext(+es: List<&2, String>, +es2: List<&2, String>) -> Type:
+  &more: List<&2, String> -> {es2 == List.append(&2, String, es, more) : List<&2, String>}
+
+# ---- the decode model and the code-moving kernels ---------------------------------------------
+
+# LAW: Strs.decode reads row i as scell(s, i) for every i < n <= 2^d (a Raw column is its array;
+# a Dictionary is the gather of the entries by the codes: decode(Dictionary) is the Raw column)
+law decode_cell:
+  for +n: U32
+  for +d: Nat
+  for s: ST.Strs
+  for +i: U32
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for hi: {U32.is_lt(i, n) == True{} : Bool}
+  {rd_at(String, ST.Strs.decode(n, d, s), i) == scell(s, i) : String}
+
+# Strs.gather's result: perm back, row k of the output is row perm[k] of the input for k < n
+def GatherW(-s: ST.Strs, -perm: Array<U32>, +n: U32, +d: Nat) -> Type:
+  &o: ST.Strs -> &pm: Array<U32> -> {ST.Strs.gather(s, perm, n, d) == (o, pm) : ST.Strs & Array<U32>} & {pm == perm : Array<U32>} & (@k: U32 -> {U32.is_lt(k, n) == True{} : Bool} -> {scell(o, k) == scell(s, rd_at(U32, perm, k)) : String})
+
+# LAW: Strs.gather (rows perm[0..n) into 2^d slots) in both storages: a Dictionary gathers
+# codes only (the dictionary moves along), a Raw column gathers the strings; both read row k as
+# scell(s, perm[k]) (Column.gather.data, hence Column.gather / Column.slice on Str columns)
+law strs_gather_cells:
+  for s: ST.Strs
+  for perm: Array<U32>
+  for +n: U32
+  for +d: Nat
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  GatherW(s, perm, n, d)
+
+# the compaction's contract on Str cells: every row with a set mask word sits at its cursor
+# position with the same scell (the Str form of CSpec, section 11)
+def SCSpec(f: Nat, +i: U32, +k: U32, -s: ST.Strs, -mask: Array<U32>, -o: ST.Strs) -> Type:
+  match f:
+    case 0n:
+      Unit
+    case 1n+p:
+      &b: U32 -> {b == rd_at(U32, mask, i) : U32} & ({U32.is_ne(b, 0) == True{} : Bool} -> {scell(o, k) == scell(s, i) : String}) & SCSpec(p, U32.inc(i), U32.add(k, b), s, mask, o)
+
+# Strs.compact's result: the mask back, the kept rows' cells in order
+def CompactW(-s: ST.Strs, -mask: Array<U32>, +len: U32, +d: Nat) -> Type:
+  &o: ST.Strs -> &m2: Array<U32> -> {ST.Strs.compact(s, mask, len, d) == (o, m2) : ST.Strs & Array<U32>} & {m2 == mask : Array<U32>} & SCSpec(U32.to_nat(len), 0, 0, s, mask, o)
+
+# LAW: Strs.compact (the first len rows where mask = 1, into 2^d slots) in both storages: the
+# kept rows keep their cells in order (Column.compact.data, hence filter / drop_nulls on Str
+# columns), under the compaction precondition CRoom of section 11; the mask comes back
+law strs_compact_cells:
+  for s: ST.Strs
+  for mask: Array<U32>
+  for +len: U32
+  for +d: Nat
+  for room: CRoom(U32.to_nat(len), 0, 0, d, mask)
+  CompactW(s, mask, len, d)
+
+# LAW: Strs.clone / Dict.clone answer two copies equal to the input (Column.clone.s): every cell
+# and the dictionary itself are kept
+def SCloneW(-s: ST.Strs) -> Type:
+  &s1: ST.Strs -> &s2: ST.Strs -> {ST.Strs.clone(s) == (s1, s2) : ST.Strs & ST.Strs} & {s1 == s : ST.Strs} & {s2 == s : ST.Strs}
+
+def DCloneW(-d: ST.Dict) -> Type:
+  &d1: ST.Dict -> &d2: ST.Dict -> {ST.Dict.clone(d) == (d1, d2) : ST.Dict & ST.Dict} & {d1 == d : ST.Dict} & {d2 == d : ST.Dict}
+
+law strs_clone_w:
+  for s: ST.Strs
+  SCloneW(s)
+
+law dict_clone_w:
+  for d: ST.Dict
+  DCloneW(d)
