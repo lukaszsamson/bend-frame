@@ -1325,7 +1325,23 @@ def room_rd(+dd: Nat, -strs: Array<String>, -b0: Array<String>, -b1: Array<Strin
 # what Dict.code answers besides the result pair: the code in range, decoding to s, the entries extended
 # by at most one, the dictionary well formed (es2 is the new entry list)
 def CodeRest(d2: ST.Dict, +c: U32, +es: List<&2, String>, +es2: List<&2, String>, +s: String) -> Type:
-  {U32.is_lt(c, Laws.dk(d2)) == True{} : Bool} & {Laws.nthd(es2, c) == s : String} & Laws.Ext(es, es2) & {Nat.is_le(List.length(&2, String, es2), 1n+List.length(&2, String, es)) == True{} : Bool} & Laws.WFDictE(d2, es2)
+  {U32.is_lt(c, Laws.dk(d2)) == True{} : Bool} & {Cmp.is_lt(Nat.cmp(U32.to_nat(c), List.length(&2, String, es2))) == True{} : Bool} & {Laws.nthd(es2, c) == s : String} & Laws.Ext(es, es2) & {Nat.is_le(List.length(&2, String, es2), 1n+List.length(&2, String, es)) == True{} : Bool} & Laws.WFDictE(d2, es2)
+
+# n < 1 + n
+def nat_lt_succ_b(n: Nat) -> {Cmp.is_lt(Nat.cmp(n, 1n+n)) == True{} : Bool}:
+  %Equal.sym(Cmp, Nat.cmp(n, 1n+n), LT{}, nat_lt_succ(n)) : {Cmp.is_lt(_) == True{} : Bool}
+  {==}
+
+# the new code k is below the extended entry count (the list model of lt_inc)
+def code_new_lt(+k: U32, +es: List<&2, String>, +s: String, ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}) -> {Cmp.is_lt(Nat.cmp(U32.to_nat(k), List.length(&2, String, List.append(&2, String, es, s <> Nil{})))) == True{} : Bool}:
+  %Equal.sym(Nat, List.length(&2, String, List.append(&2, String, es, s <> Nil{})), 1n+List.length(&2, String, es), len_app1(es, s)) : {Cmp.is_lt(Nat.cmp(U32.to_nat(k), _)) == True{} : Bool}
+  %ek : {Cmp.is_lt(Nat.cmp(U32.to_nat(k), 1n+_)) == True{} : Bool}
+  nat_lt_succ_b(U32.to_nat(k))
+
+# a found code id - 1 < k is below the entry count
+def code_found_lt(+k: U32, +es: List<&2, String>, +id: U32, ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, h1: {U32.is_lt(U32.sub(id, 1), k) == True{} : Bool}) -> {Cmp.is_lt(Nat.cmp(U32.to_nat(U32.sub(id, 1)), List.length(&2, String, es))) == True{} : Bool}:
+  %ek : {Cmp.is_lt(Nat.cmp(U32.to_nat(U32.sub(id, 1)), _)) == True{} : Bool}
+  lt_nat_of_u(U32.sub(id, 1), k, h1)
 
 # the goal shapes along the production code (the pending term as a parameter)
 def CodeBody(+k: U32, +dd: Nat, -strs: Array<String>, +b: Nat, +tag: U32, +es: List<&2, String>, +s: String, -r: Array<ST.SSlot> & U32) -> Type:
@@ -1372,21 +1388,21 @@ def PreNew(+k: U32, +dd2: Nat, -c1: Array<String>, +es: List<&2, String>, +s: St
 
 def code_grow(+k: U32, +dd2: Nat, b1: Array<String>, +b: Nat, -c2: Array<ST.SSlot>, +tag2: U32, +es: List<&2, String>, +s: String,
   ea: {U32.to_nat(U32.inc(k)) == List.length(&2, String, List.append(&2, String, es, s <> Nil{})) : Nat}, eb: {U32.is_le(U32.inc(k), U32.shln(1, dd2)) == True{} : Bool}, ec: {U32.is_lt(0, U32.inc(k)) == True{} : Bool}, ed: {Laws.nthn(List.append(&2, String, es, s <> Nil{}), 0n) == "" : String},
-  wb1: Laws.WFArray(String, dd2, b1), entn: @c: U32 -> {U32.is_lt(c, U32.inc(k)) == True{} : Bool} -> {Laws.rd_at(String, b1, c) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}, small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat},
+  wb1: Laws.WFArray(String, dd2, b1), entn: @c: U32 -> {U32.is_lt(c, U32.inc(k)) == True{} : Bool} -> {Laws.rd_at(String, b1, c) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}, small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat},
   w: &g: Array<ST.SSlot> -> {ST.Ix.grow(b, c2) == g : Array<ST.SSlot>} & Laws.WFIx(U32.inc(k), List.append(&2, String, es, s <> Nil{}), 1n+b, g))
   -> CodeBigT(k, dd2, b1, Nat.add(b, 1n), ST.Ix.grow(b, c2), tag2, es, s):
   (g, eg, wg) = w
   %Equal.sym(Nat, Nat.add(b, 1n), 1n+b, add_one(b)) : CodeBigT(k, dd2, b1, _, ST.Ix.grow(b, c2), tag2, es, s)
   %Equal.sym(Array<ST.SSlot>, ST.Ix.grow(b, c2), g, eg) : CodeBigT(k, dd2, b1, 1n+b, _, tag2, es, s)
-  (ST.Dict{U32.inc(k), dd2, b1, 1n+b, g, tag2}, k, List.append(&2, String, es, s <> Nil{}), {==}, lt_inc(k, small), code_new(k, es, s, ek), (s <> Nil{}, {==}), len_new(es, s), (ea, eb, ec, ed, wb1, entn, wg))
+  (ST.Dict{U32.inc(k), dd2, b1, 1n+b, g, tag2}, k, List.append(&2, String, es, s <> Nil{}), {==}, lt_inc(k, small), code_new_lt(k, es, s, ek), code_new(k, es, s, ek), (s <> Nil{}, {==}), len_new(es, s), (ea, eb, ec, ed, wb1, entn, wg))
 
 def code_big(big: Bool, +k: U32, +dd2: Nat, b1: Array<String>, +b: Nat, c2: Array<ST.SSlot>, +tag2: U32, +es: List<&2, String>, +s: String,
   ea: {U32.to_nat(U32.inc(k)) == List.length(&2, String, List.append(&2, String, es, s <> Nil{})) : Nat}, eb: {U32.is_le(U32.inc(k), U32.shln(1, dd2)) == True{} : Bool}, ec: {U32.is_lt(0, U32.inc(k)) == True{} : Bool}, ed: {Laws.nthn(List.append(&2, String, es, s <> Nil{}), 0n) == "" : String},
-  wb1: Laws.WFArray(String, dd2, b1), entn: @c: U32 -> {U32.is_lt(c, U32.inc(k)) == True{} : Bool} -> {Laws.rd_at(String, b1, c) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}, wc2: Laws.WFIx(U32.inc(k), List.append(&2, String, es, s <> Nil{}), b, c2), small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat})
+  wb1: Laws.WFArray(String, dd2, b1), entn: @c: U32 -> {U32.is_lt(c, U32.inc(k)) == True{} : Bool} -> {Laws.rd_at(String, b1, c) == Laws.nthd(List.append(&2, String, es, s <> Nil{}), c) : String}, wc2: Laws.WFIx(U32.inc(k), List.append(&2, String, es, s <> Nil{}), b, c2), small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat})
   -> CodeBig(k, dd2, b1, b, c2, tag2, es, s, big):
   match big:
     case False{}:
-      (ST.Dict{U32.inc(k), dd2, b1, b, c2, tag2}, k, List.append(&2, String, es, s <> Nil{}), {==}, lt_inc(k, small), code_new(k, es, s, ek), (s <> Nil{}, {==}), len_new(es, s), (ea, eb, ec, ed, wb1, entn, wc2))
+      (ST.Dict{U32.inc(k), dd2, b1, b, c2, tag2}, k, List.append(&2, String, es, s <> Nil{}), {==}, lt_inc(k, small), code_new_lt(k, es, s, ek), code_new(k, es, s, ek), (s <> Nil{}, {==}), len_new(es, s), (ea, eb, ec, ed, wb1, entn, wc2))
     case True{}:
       code_grow(k, dd2, b1, b, c2, tag2, es, s, ea, eb, ec, ed, wb1, entn, small, ek, grow_wf(U32.inc(k), List.append(&2, String, es, s <> Nil{}), b, c2, wc2))
 
@@ -1531,10 +1547,10 @@ def code_full(full: Bool, +k: U32, +dd: Nat, strs: Array<String>, +b: Nat, t4: A
 
 # ---- the slot found: Dict.code.p ------------------------------------------------------------------------------
 
-def code_found(+k: U32, +dd: Nat, strs: Array<String>, +b: Nat, t4: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, +key: String, +id: U32, ok: Laws.SlotOk.k(False{}, k, es, key, id), wfix4: Laws.WFIx(k, es, b, t4), ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, hle: {U32.is_le(k, U32.shln(1, dd)) == True{} : Bool}, hpos: {U32.is_lt(0, k) == True{} : Bool}, h0: {Laws.nthn(es, 0n) == "" : String}, wfs: Laws.WFArray(String, dd, strs), ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String}, eks: {key == s : String})
+def code_found(+k: U32, +dd: Nat, strs: Array<String>, +b: Nat, t4: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, +key: String, +id: U32, ok: Laws.SlotOk.k(False{}, k, es, key, id), wfix4: Laws.WFIx(k, es, b, t4), +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, hle: {U32.is_le(k, U32.shln(1, dd)) == True{} : Bool}, hpos: {U32.is_lt(0, k) == True{} : Bool}, h0: {Laws.nthn(es, 0n) == "" : String}, wfs: Laws.WFArray(String, dd, strs), ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String}, eks: {key == s : String})
   -> CodePB(k, dd, strs, b, t4, tag, es, s, i, id, False{}):
-  (h1, h2) = ok
-  (ST.Dict{k, dd, strs, b, t4, tag}, U32.sub(id, 1), es, {==}, h1, Equal.trans(String, Laws.nthd(es, U32.sub(id, 1)), key, s, h2, eks), ext_refl(es), nat_le_succ(List.length(&2, String, es)), (ek, hle, hpos, h0, wfs, ent, wfix4))
+  (+h1, h2) = ok
+  (ST.Dict{k, dd, strs, b, t4, tag}, U32.sub(id, 1), es, {==}, h1, code_found_lt(k, es, id, ek, h1), Equal.trans(String, Laws.nthd(es, U32.sub(id, 1)), key, s, h2, eks), ext_refl(es), nat_le_succ(List.length(&2, String, es)), (ek, hle, hpos, h0, wfs, ent, wfix4))
 
 def code_p(+k: U32, +dd: Nat, strs: Array<String>, +b: Nat, t4: Array<ST.SSlot>, +tag: U32, +es: List<&2, String>, +s: String, +i: U32, +key: String, +id: U32, isnew: Bool, hit: {Bool.and(Bool.not(isnew), Bool.not(ST.Str.same(key, s))) == False{} : Bool}, ok: Laws.SlotOk.k(isnew, k, es, key, id), wfix4: Laws.WFIx(k, es, b, t4), +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, hle: {U32.is_le(k, U32.shln(1, dd)) == True{} : Bool}, +hpos: {U32.is_lt(0, k) == True{} : Bool}, h0: {Laws.nthn(es, 0n) == "" : String}, wfs: Laws.WFArray(String, dd, strs), ent: @c2: U32 -> {U32.is_lt(c2, k) == True{} : Bool} -> {Laws.rd_at(String, strs, c2) == Laws.nthd(es, c2) : String}, +small: {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool})
   -> CodePB(k, dd, strs, b, t4, tag, es, s, i, id, isnew):
@@ -1596,3 +1612,285 @@ def Laws.dict_code_spec(d, es, s, wf, small, probe):
   match d:
     case ST.Dict{+k, +dd, strs, +b, slots, +tag}:
       code_wf(k, dd, strs, b, slots, tag, es, s, wf, small, probe)
+
+# ---- Laws.strs_encode_cells: the coding loop Enc.go over Dict.code from Dict.empty ---------------------------
+#
+# The invariant along the loop (counter i, fuel f): the codes written so far satisfy Laws.EncRows (every
+# row below i coded below the entry count, to the entry that is the Raw row; the code is abstracted as a
+# Data word with its equation, so the facts are Data and the array only appears in types), the dictionary
+# is WFDictE over the entry list es, |es| <= to_nat(inc i) (the entries are "" plus at most one per row,
+# which keeps every Dict.code call below the 2^30 bound through the chain Room(30n, inc i, f)), and the
+# probe hypotheses EncProbe for the rows to come.
+
+# a <= b and b < c give a < c
+def nat_le_lt_trans(a: Nat, b: Nat, c: Nat, h1: {Nat.is_le(a, b) == True{} : Bool}, h2: {Cmp.is_lt(Nat.cmp(b, c)) == True{} : Bool}) -> {Cmp.is_lt(Nat.cmp(a, c)) == True{} : Bool}:
+  match a b c:
+    case 0n 0n 0n:
+      Empty.absurd({Cmp.is_lt(Nat.cmp(0n, 0n)) == True{} : Bool}, L.false_true(h2))
+    case 0n 1n+q 0n:
+      Empty.absurd({Cmp.is_lt(Nat.cmp(0n, 0n)) == True{} : Bool}, L.false_true(h2))
+    case 0n _ 1n+r:
+      {==}
+    case 1n+p 0n _:
+      Empty.absurd({Cmp.is_lt(Nat.cmp(1n+p, c)) == True{} : Bool}, L.false_true(h1))
+    case 1n+p 1n+q 0n:
+      Empty.absurd({Cmp.is_lt(Nat.cmp(1n+p, 0n)) == True{} : Bool}, L.false_true(h2))
+    case 1n+p 1n+q 1n+r:
+      nat_le_lt_trans(p, q, r, h1, h2)
+
+# the entry count of a well-formed dictionary as a Data word (the dictionary back, equal)
+def wf_ek(d: ST.Dict, +es: List<&2, String>, wf: Laws.WFDictE(d, es)) -> &d2: ST.Dict -> &k: U32 -> {d2 == d : ST.Dict} & {k == Laws.dk(d2) : U32} & {U32.to_nat(k) == List.length(&2, String, es) : Nat} & Laws.WFDictE(d2, es):
+  match d:
+    case ST.Dict{+k, +dd, strs, +b, slots, +tag}:
+      (+ek, hle, hpos, h0, wfs, ent, wfix) = wf
+      (ST.Dict{k, dd, strs, b, slots, tag}, k, {==}, {==}, ek, (ek, hle, hpos, h0, wfs, ent, wfix))
+
+# what the loop answers besides the result pair: the codes well formed, the dictionary well formed over
+# es2, every row below the bound right
+def ERes(+d: Nat, -a: Array<String>, codes: Array<U32>, dict2: ST.Dict, +es2: List<&2, String>, +bound: U32) -> Type:
+  Laws.WFArray(U32, d, codes) & Laws.WFDictE(dict2, es2) & Laws.EncRows(bound, d, a, codes, es2)
+
+def EGoal(f: Nat, +i: U32, +d: Nat, -a: Array<String>, dict: ST.Dict, -out: Array<U32>, +es: List<&2, String>, -r: Array<String> & String) -> Type:
+  Laws.EncRows(i, d, a, out, es) -> Laws.WFDictE(dict, es) -> Laws.EncProbe(f, i, a, dict) -> &dict2: ST.Dict -> &codes: Array<U32> -> &es2: List<&2, String> -> {ST.Enc.go(f, i, (dict, out), r) == (dict2, codes) : ST.Dict & Array<U32>} & ERes(d, a, codes, dict2, es2, Laws.addn(i, f))
+
+# the goal shapes along one step (the pending term as a parameter)
+def EMid(p: Nat, +i: U32, +d: Nat, -a2: Array<String>, dict: ST.Dict, -out: Array<U32>, +es: List<&2, String>, +x: String) -> Type:
+  Laws.EncRows(i, d, a2, out, es) -> Laws.WFDictE(dict, es) -> Laws.EncProbe(1n+p, i, a2, dict) -> &dict3: ST.Dict -> &codes: Array<U32> -> &es3: List<&2, String> -> {ST.Enc.go(p, U32.inc(i), ST.Enc.step(i, x, (dict, out)), Array.get(String, a2, U32.inc(i))) == (dict3, codes) : ST.Dict & Array<U32>} & ERes(d, a2, codes, dict3, es3, Laws.addn(i, 1n+p))
+
+def EMid2(p: Nat, +i: U32, +d: Nat, -a2: Array<String>, -dict: ST.Dict, -out: Array<U32>, +es: List<&2, String>, +x: String) -> Type:
+  Laws.EncProbe(1n+p, i, a2, dict) -> &dict3: ST.Dict -> &codes: Array<U32> -> &es3: List<&2, String> -> {ST.Enc.go(p, U32.inc(i), ST.Enc.step(i, x, (dict, out)), Array.get(String, a2, U32.inc(i))) == (dict3, codes) : ST.Dict & Array<U32>} & ERes(d, a2, codes, dict3, es3, Laws.addn(i, 1n+p))
+
+def ESig(p: Nat, +i: U32, +d: Nat, -a2: Array<String>, -dict: ST.Dict, -out: Array<U32>, +es: List<&2, String>, +x: String) -> Type:
+  &dict3: ST.Dict -> &codes: Array<U32> -> &es3: List<&2, String> -> {ST.Enc.go(p, U32.inc(i), ST.Enc.step(i, x, (dict, out)), Array.get(String, a2, U32.inc(i))) == (dict3, codes) : ST.Dict & Array<U32>} & ERes(d, a2, codes, dict3, es3, Laws.addn(i, 1n+p))
+
+# the two probe hypotheses of the step, over the string s (rd_at(a2, i), then x)
+def EStep(p: Nat, +i: U32, +d: Nat, -a2: Array<String>, -dict: ST.Dict, -out: Array<U32>, +es: List<&2, String>, +x: String, +s: String) -> Type:
+  Laws.Probe(dict, s) -> Laws.EncProbe(p, U32.inc(i), a2, Pair.fst(ST.Dict, U32, ST.Dict.code(dict, s))) -> ESig(p, i, d, a2, dict, out, es, x)
+
+# Dict.code's result pair as a parameter
+def EStep2(p: Nat, +i: U32, +d: Nat, -a2: Array<String>, -out: Array<U32>, +es: List<&2, String>, -q: ST.Dict & U32) -> Type:
+  Laws.EncProbe(p, U32.inc(i), a2, Pair.fst(ST.Dict, U32, q)) -> &dict3: ST.Dict -> &codes: Array<U32> -> &es3: List<&2, String> -> {ST.Enc.go(p, U32.inc(i), ST.Enc.put(i, out, q), Array.get(String, a2, U32.inc(i))) == (dict3, codes) : ST.Dict & Array<U32>} & ERes(d, a2, codes, dict3, es3, Laws.addn(i, 1n+p))
+
+# the write computed: the new dictionary d3 and the code c at i
+def EStep3(p: Nat, +i: U32, +d: Nat, -a2: Array<String>, -d3: ST.Dict, -out: Array<U32>, +c: U32) -> Type:
+  Laws.EncProbe(p, U32.inc(i), a2, d3) -> &dict4: ST.Dict -> &codes: Array<U32> -> &es4: List<&2, String> -> {ST.Enc.go(p, U32.inc(i), (d3, Array.set(U32, out, i, c)), Array.get(String, a2, U32.inc(i))) == (dict4, codes) : ST.Dict & Array<U32>} & ERes(d, a2, codes, dict4, es4, Laws.addn(i, 1n+p))
+
+# the written array c1, the bound as a parameter
+def EStep5(p: Nat, +i: U32, +d: Nat, -a2: Array<String>, -d3: ST.Dict, -c1: Array<U32>, +bound: U32) -> Type:
+  Laws.EncProbe(p, U32.inc(i), a2, d3) -> &dict4: ST.Dict -> &codes: Array<U32> -> &es4: List<&2, String> -> {ST.Enc.go(p, U32.inc(i), (d3, c1), Array.get(String, a2, U32.inc(i))) == (dict4, codes) : ST.Dict & Array<U32>} & ERes(d, a2, codes, dict4, es4, bound)
+
+# ---- the row invariant after the write: old rows under the extension, the new row ---------------------------
+
+# an old row's facts carried from es to its extension es2
+def ehyp_old(+es: List<&2, String>, +es2: List<&2, String>, +more: List<&2, String>, +e2: {es2 == List.append(&2, String, es, more) : List<&2, String>}, -a2: Array<String>, +j: U32, +code: U32,
+  w: {Cmp.is_lt(Nat.cmp(U32.to_nat(code), List.length(&2, String, es))) == True{} : Bool} & {Laws.nthd(es, code) == Laws.rd_at(String, a2, j) : String})
+  -> {Cmp.is_lt(Nat.cmp(U32.to_nat(code), List.length(&2, String, es2))) == True{} : Bool} & {Laws.nthd(es2, code) == Laws.rd_at(String, a2, j) : String}:
+  (+bj, dj) = w
+  (nat_lt_le_trans(U32.to_nat(code), List.length(&2, String, es), List.length(&2, String, es2), bj, ext_len(es, es2, (more, e2))), Equal.trans(String, Laws.nthd(es2, code), Laws.nthd(es, code), Laws.rd_at(String, a2, j), ext_nth(es, es2, (more, e2), U32.to_nat(code), bj), dj))
+
+# j < i: the write at i left slot j alone
+def ehyp_lt(+i: U32, +d: Nat, -a2: Array<String>, -out: Array<U32>, -c1: Array<U32>, +es: List<&2, String>, +es2: List<&2, String>, +more: List<&2, String>, +e2: {es2 == List.append(&2, String, es, more) : List<&2, String>}, +c: U32, +hi: {U32.is_lt(i, U32.shln(1, d)) == True{} : Bool}, +j: U32, +code: U32, +ecode: {code == Laws.rdN(U32, d, c1, j) : U32}, +hb: {U32.is_lt(j, i) == True{} : Bool},
+  g: Laws.EncRows(i, d, a2, out, es), fj: @j2: U32 -> {Laws.rdN(U32, d, c1, j2) == Bool.pick(U32, Laws.same_at(d, i, j2), c, Laws.rdN(U32, d, out, j2)) : U32})
+  -> {Cmp.is_lt(Nat.cmp(U32.to_nat(code), List.length(&2, String, es2))) == True{} : Bool} & {Laws.nthd(es2, code) == Laws.rd_at(String, a2, j) : String}:
+  ehyp_old(es, es2, more, e2, a2, j, code, g(j, hb, code, Equal.trans(U32, code, Laws.rdN(U32, d, c1, j), Laws.rdN(U32, d, out, j), ecode, (%PC.same_false_lt(d, i, j, hi, hb) : {Laws.rdN(U32, d, c1, j) == Bool.pick(U32, _, c, Laws.rdN(U32, d, out, j)) : U32}; fj(j)))))
+
+# same_at at equal indices
+def same_at_of_eq(+d: Nat, +i: U32, +j: U32, hb: {j == i : U32}) -> {Laws.same_at(d, i, j) == True{} : Bool}:
+  %hb : {Laws.same_at(d, _, j) == True{} : Bool}
+  PC.same_at_refl(d, j)
+
+# j == i: slot j holds the new code c
+def ehyp_eq(+i: U32, +d: Nat, -a2: Array<String>, -out: Array<U32>, -c1: Array<U32>, +es2: List<&2, String>, +c: U32, +hcn: {Cmp.is_lt(Nat.cmp(U32.to_nat(c), List.length(&2, String, es2))) == True{} : Bool}, +hdec: {Laws.nthd(es2, c) == Laws.rd_at(String, a2, i) : String}, +j: U32, +code: U32, +ecode: {code == Laws.rdN(U32, d, c1, j) : U32}, +hb: {j == i : U32},
+  fj: @j2: U32 -> {Laws.rdN(U32, d, c1, j2) == Bool.pick(U32, Laws.same_at(d, i, j2), c, Laws.rdN(U32, d, out, j2)) : U32})
+  -> {Cmp.is_lt(Nat.cmp(U32.to_nat(code), List.length(&2, String, es2))) == True{} : Bool} & {Laws.nthd(es2, code) == Laws.rd_at(String, a2, j) : String}:
+  %Equal.sym(U32, code, c, Equal.trans(U32, code, Laws.rdN(U32, d, c1, j), c, ecode, (%same_at_of_eq(d, i, j, hb) : {Laws.rdN(U32, d, c1, j) == Bool.pick(U32, _, c, Laws.rdN(U32, d, out, j)) : U32}; fj(j)))) : {Cmp.is_lt(Nat.cmp(U32.to_nat(_), List.length(&2, String, es2))) == True{} : Bool} & {Laws.nthd(es2, _) == Laws.rd_at(String, a2, j) : String}
+  (hcn, (%Equal.sym(U32, j, i, hb) : {Laws.nthd(es2, c) == Laws.rd_at(String, a2, _) : String}; hdec))
+
+def ehyp_b(bb: Bool, +i: U32, +d: Nat, -a2: Array<String>, -out: Array<U32>, -c1: Array<U32>, +es: List<&2, String>, +es2: List<&2, String>, +more: List<&2, String>, +e2: {es2 == List.append(&2, String, es, more) : List<&2, String>}, +c: U32, +hcn: {Cmp.is_lt(Nat.cmp(U32.to_nat(c), List.length(&2, String, es2))) == True{} : Bool}, +hdec: {Laws.nthd(es2, c) == Laws.rd_at(String, a2, i) : String}, +hi: {U32.is_lt(i, U32.shln(1, d)) == True{} : Bool}, +j: U32, +code: U32, +ecode: {code == Laws.rdN(U32, d, c1, j) : U32}, hb: PC.IncLtU(bb, j, i),
+  g: Laws.EncRows(i, d, a2, out, es), fj: @j2: U32 -> {Laws.rdN(U32, d, c1, j2) == Bool.pick(U32, Laws.same_at(d, i, j2), c, Laws.rdN(U32, d, out, j2)) : U32})
+  -> {Cmp.is_lt(Nat.cmp(U32.to_nat(code), List.length(&2, String, es2))) == True{} : Bool} & {Laws.nthd(es2, code) == Laws.rd_at(String, a2, j) : String}:
+  match bb:
+    case True{}:
+      ehyp_lt(i, d, a2, out, c1, es, es2, more, e2, c, hi, j, code, ecode, hb, g, fj)
+    case False{}:
+      ehyp_eq(i, d, a2, out, c1, es2, c, hcn, hdec, j, code, ecode, hb, fj)
+
+def ehyp_k(+i: U32, +d: Nat, -a2: Array<String>, -out: Array<U32>, -c1: Array<U32>, +es: List<&2, String>, +es2: List<&2, String>, +more: List<&2, String>, +e2: {es2 == List.append(&2, String, es, more) : List<&2, String>}, +c: U32, +hcn: {Cmp.is_lt(Nat.cmp(U32.to_nat(c), List.length(&2, String, es2))) == True{} : Bool}, +hdec: {Laws.nthd(es2, c) == Laws.rd_at(String, a2, i) : String}, +hi: {U32.is_lt(i, U32.shln(1, d)) == True{} : Bool}, +j: U32, +code: U32, +ecode: {code == Laws.rdN(U32, d, c1, j) : U32}, w: &bb: Bool -> PC.IncLtU(bb, j, i),
+  g: Laws.EncRows(i, d, a2, out, es), fj: @j2: U32 -> {Laws.rdN(U32, d, c1, j2) == Bool.pick(U32, Laws.same_at(d, i, j2), c, Laws.rdN(U32, d, out, j2)) : U32})
+  -> {Cmp.is_lt(Nat.cmp(U32.to_nat(code), List.length(&2, String, es2))) == True{} : Bool} & {Laws.nthd(es2, code) == Laws.rd_at(String, a2, j) : String}:
+  (bb, hb) = w
+  ehyp_b(bb, i, d, a2, out, c1, es, es2, more, e2, c, hcn, hdec, hi, j, code, ecode, hb, g, fj)
+
+def ehyp_ext(+i: U32, +d: Nat, -a2: Array<String>, -out: Array<U32>, -c1: Array<U32>, +es: List<&2, String>, +es2: List<&2, String>, +more: List<&2, String>, e2: {es2 == List.append(&2, String, es, more) : List<&2, String>}, +c: U32, +hcn: {Cmp.is_lt(Nat.cmp(U32.to_nat(c), List.length(&2, String, es2))) == True{} : Bool}, +hdec: {Laws.nthd(es2, c) == Laws.rd_at(String, a2, i) : String}, +hi: {U32.is_lt(i, U32.shln(1, d)) == True{} : Bool},
+  g: Laws.EncRows(i, d, a2, out, es), fj: @j2: U32 -> {Laws.rdN(U32, d, c1, j2) == Bool.pick(U32, Laws.same_at(d, i, j2), c, Laws.rdN(U32, d, out, j2)) : U32})
+  -> Laws.EncRows(U32.inc(i), d, a2, c1, es2):
+  +j => hj => +code => ecode => ehyp_k(i, d, a2, out, c1, es, es2, more, e2, c, hcn, hdec, hi, j, code, ecode, PC.inc_lt_u(j, i, hj), g, fj)
+
+# the rows below inc(i) after the write of c at i (the extension es2 of es taken apart)
+def ehyp_next(+i: U32, +d: Nat, -a2: Array<String>, -out: Array<U32>, -c1: Array<U32>, +es: List<&2, String>, +es2: List<&2, String>, ext: Laws.Ext(es, es2), +c: U32, +hcn: {Cmp.is_lt(Nat.cmp(U32.to_nat(c), List.length(&2, String, es2))) == True{} : Bool}, +hdec: {Laws.nthd(es2, c) == Laws.rd_at(String, a2, i) : String}, +hi: {U32.is_lt(i, U32.shln(1, d)) == True{} : Bool},
+  g: Laws.EncRows(i, d, a2, out, es), fj: @j2: U32 -> {Laws.rdN(U32, d, c1, j2) == Bool.pick(U32, Laws.same_at(d, i, j2), c, Laws.rdN(U32, d, out, j2)) : U32})
+  -> Laws.EncRows(U32.inc(i), d, a2, c1, es2):
+  (+more, e2) = ext
+  ehyp_ext(i, d, a2, out, c1, es, es2, more, e2, c, hcn, hdec, hi, g, fj)
+
+# ---- one step of the loop ------------------------------------------------------------------------------------------
+
+# the entry count after the step: |es2| <= 1 + |es| <= 1 + to_nat(inc i) = to_nat(inc (inc i))
+def hk_next(+i: U32, +es: List<&2, String>, +es2: List<&2, String>, hlen: {Nat.is_le(List.length(&2, String, es2), 1n+List.length(&2, String, es)) == True{} : Bool}, +hk: {Nat.is_le(List.length(&2, String, es), U32.to_nat(U32.inc(i))) == True{} : Bool}, +hinc: {U32.is_lt(U32.inc(i), U32.shln(1, 30n)) == True{} : Bool})
+  -> {Nat.is_le(List.length(&2, String, es2), U32.to_nat(U32.inc(U32.inc(i)))) == True{} : Bool}:
+  %Equal.sym(Nat, U32.to_nat(U32.inc(U32.inc(i))), 1n+U32.to_nat(U32.inc(i)), inc_small(U32.inc(i), hinc)) : {Nat.is_le(List.length(&2, String, es2), _) == True{} : Bool}
+  nat_le_trans(List.length(&2, String, es2), 1n+List.length(&2, String, es), 1n+U32.to_nat(U32.inc(i)), hlen, hk)
+
+# the dictionary's entry count k = |es| <= to_nat(inc i) < 2^30
+def small_of(+k: U32, +es: List<&2, String>, +i: U32, ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, hk: {Nat.is_le(List.length(&2, String, es), U32.to_nat(U32.inc(i))) == True{} : Bool}, hinc: {U32.is_lt(U32.inc(i), U32.shln(1, 30n)) == True{} : Bool}) -> {U32.is_lt(k, U32.shln(1, 30n)) == True{} : Bool}:
+  lt_u_of_nat(k, U32.shln(1, 30n), (%Equal.sym(Nat, U32.to_nat(k), List.length(&2, String, es), ek) : {Cmp.is_lt(Nat.cmp(_, U32.to_nat(U32.shln(1, 30n)))) == True{} : Bool}; nat_le_lt_trans(List.length(&2, String, es), U32.to_nat(U32.inc(i)), U32.to_nat(U32.shln(1, 30n)), hk, lt_nat_of_u(U32.inc(i), U32.shln(1, 30n), hinc))))
+
+# after Array.set(out, i, c) == c1: continue with the written array
+def enc_step7(p: Nat, +i: U32, +d: Nat, a2: Array<String>, d3: ST.Dict, -out: Array<U32>, +es: List<&2, String>, +es2: List<&2, String>, +x: String, +ex2: {x == Laws.rd_at(String, a2, i) : String}, +c: U32, +hcn: {Cmp.is_lt(Nat.cmp(U32.to_nat(c), List.length(&2, String, es2))) == True{} : Bool}, +hdec: {Laws.nthd(es2, c) == x : String}, ext: Laws.Ext(es, es2), hlen: {Nat.is_le(List.length(&2, String, es2), 1n+List.length(&2, String, es)) == True{} : Bool}, wf3: Laws.WFDictE(d3, es2),
+  +hi: {U32.is_lt(i, U32.shln(1, d)) == True{} : Bool}, room2: Laws.Room(d, U32.inc(i), p), +hinc: {U32.is_lt(U32.inc(i), U32.shln(1, 30n)) == True{} : Bool}, lim2: Laws.Room(30n, U32.inc(U32.inc(i)), p), +hk: {Nat.is_le(List.length(&2, String, es), U32.to_nat(U32.inc(i))) == True{} : Bool},
+  ih: @a3: Array<String> -> @dict3: ST.Dict -> @out3: Array<U32> -> @es3: List<&2, String> -> Laws.WFArray(U32, d, out3) -> Laws.Room(d, U32.inc(i), p) -> Laws.Room(30n, U32.inc(U32.inc(i)), p) -> {Nat.is_le(List.length(&2, String, es3), U32.to_nat(U32.inc(U32.inc(i)))) == True{} : Bool} -> EGoal(p, U32.inc(i), d, a3, dict3, out3, es3, Array.get(String, a3, U32.inc(i))),
+  g: Laws.EncRows(i, d, a2, out, es),
+  w: &c1: Array<U32> -> {Array.set(U32, out, i, c) == c1 : Array<U32>} & Laws.WFArray(U32, d, c1) & (@j: U32 -> {Laws.rdN(U32, d, c1, j) == Bool.pick(U32, Laws.same_at(d, i, j), c, Laws.rdN(U32, d, out, j)) : U32}) & (@j: U32 -> {Laws.rd_at(U32, out, j) == Laws.rdN(U32, d, out, j) : U32}))
+  -> EStep3(p, i, d, a2, d3, out, c):
+  (c1, ec1, wc1, fj, cv) = w
+  %Equal.sym(Array<U32>, Array.set(U32, out, i, c), c1, ec1) : EStep5(p, i, d, a2, d3, _, Laws.addn(i, 1n+p))
+  %PC.addn_inc(i, p) : EStep5(p, i, d, a2, d3, c1, _)
+  pr => ih(a2, d3, c1, es2, wc1, room2, lim2, hk_next(i, es, es2, hlen, hk, hinc))(ehyp_next(i, d, a2, out, c1, es, es2, ext, c, hcn, Equal.trans(String, Laws.nthd(es2, c), x, Laws.rd_at(String, a2, i), hdec, ex2), hi, g, fj))(wf3)(pr)
+
+# Dict.code's answer taken apart; its result pair replaces the call
+def enc_step6(p: Nat, +i: U32, +d: Nat, a2: Array<String>, -dict2: ST.Dict, out: Array<U32>, +es: List<&2, String>, +x: String, +ex2: {x == Laws.rd_at(String, a2, i) : String}, wfo: Laws.WFArray(U32, d, out),
+  +hi: {U32.is_lt(i, U32.shln(1, d)) == True{} : Bool}, room2: Laws.Room(d, U32.inc(i), p), +hinc: {U32.is_lt(U32.inc(i), U32.shln(1, 30n)) == True{} : Bool}, lim2: Laws.Room(30n, U32.inc(U32.inc(i)), p), +hk: {Nat.is_le(List.length(&2, String, es), U32.to_nat(U32.inc(i))) == True{} : Bool},
+  ih: @a3: Array<String> -> @dict3: ST.Dict -> @out3: Array<U32> -> @es3: List<&2, String> -> Laws.WFArray(U32, d, out3) -> Laws.Room(d, U32.inc(i), p) -> Laws.Room(30n, U32.inc(U32.inc(i)), p) -> {Nat.is_le(List.length(&2, String, es3), U32.to_nat(U32.inc(U32.inc(i)))) == True{} : Bool} -> EGoal(p, U32.inc(i), d, a3, dict3, out3, es3, Array.get(String, a3, U32.inc(i))),
+  g: Laws.EncRows(i, d, a2, out, es), w: Laws.CodeW(dict2, es, x))
+  -> EStep2(p, i, d, a2, out, es, ST.Dict.code(dict2, x)):
+  (d3, +c, +es2, eq, hc, +hcn, +hdec, ext, hlen, wf3) = w
+  %Equal.sym(ST.Dict & U32, ST.Dict.code(dict2, x), (d3, c), eq) : EStep2(p, i, d, a2, out, es, _)
+  enc_step7(p, i, d, a2, d3, out, es, es2, x, ex2, c, hcn, hdec, ext, hlen, wf3, hi, room2, hinc, lim2, hk, ih, g, PC.set_other_w(U32, d, out, i, c, wfo))
+
+# the probes over rd_at(a2, i) are probes over x; then Dict.code
+def enc_step5(p: Nat, +i: U32, +d: Nat, a2: Array<String>, dict2: ST.Dict, out: Array<U32>, +es: List<&2, String>, +x: String, +ex2: {x == Laws.rd_at(String, a2, i) : String}, wfo: Laws.WFArray(U32, d, out),
+  +hi: {U32.is_lt(i, U32.shln(1, d)) == True{} : Bool}, room2: Laws.Room(d, U32.inc(i), p), +hinc: {U32.is_lt(U32.inc(i), U32.shln(1, 30n)) == True{} : Bool}, lim2: Laws.Room(30n, U32.inc(U32.inc(i)), p), +hk: {Nat.is_le(List.length(&2, String, es), U32.to_nat(U32.inc(i))) == True{} : Bool},
+  ih: @a3: Array<String> -> @dict3: ST.Dict -> @out3: Array<U32> -> @es3: List<&2, String> -> Laws.WFArray(U32, d, out3) -> Laws.Room(d, U32.inc(i), p) -> Laws.Room(30n, U32.inc(U32.inc(i)), p) -> {Nat.is_le(List.length(&2, String, es3), U32.to_nat(U32.inc(U32.inc(i)))) == True{} : Bool} -> EGoal(p, U32.inc(i), d, a3, dict3, out3, es3, Array.get(String, a3, U32.inc(i))),
+  g: Laws.EncRows(i, d, a2, out, es), +k: U32, +ekk: {k == Laws.dk(dict2) : U32}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, wf2: Laws.WFDictE(dict2, es))
+  -> EStep(p, i, d, a2, dict2, out, es, x, Laws.rd_at(String, a2, i)):
+  %ex2 : EStep(p, i, d, a2, dict2, out, es, x, _)
+  pb => prest => enc_step6(p, i, d, a2, dict2, out, es, x, ex2, wfo, hi, room2, hinc, lim2, hk, ih, g, Laws.dict_code_spec(dict2, es, x, wf2, (%ekk : {U32.is_lt(_, U32.shln(1, 30n)) == True{} : Bool}; small_of(k, es, i, ek, hk, hinc)), pb))(prest)
+
+# the probe hypotheses of the step taken apart
+def enc_step4(p: Nat, +i: U32, +d: Nat, a2: Array<String>, dict2: ST.Dict, out: Array<U32>, +es: List<&2, String>, +x: String, +ex2: {x == Laws.rd_at(String, a2, i) : String}, wfo: Laws.WFArray(U32, d, out),
+  +hi: {U32.is_lt(i, U32.shln(1, d)) == True{} : Bool}, room2: Laws.Room(d, U32.inc(i), p), +hinc: {U32.is_lt(U32.inc(i), U32.shln(1, 30n)) == True{} : Bool}, lim2: Laws.Room(30n, U32.inc(U32.inc(i)), p), +hk: {Nat.is_le(List.length(&2, String, es), U32.to_nat(U32.inc(i))) == True{} : Bool},
+  ih: @a3: Array<String> -> @dict3: ST.Dict -> @out3: Array<U32> -> @es3: List<&2, String> -> Laws.WFArray(U32, d, out3) -> Laws.Room(d, U32.inc(i), p) -> Laws.Room(30n, U32.inc(U32.inc(i)), p) -> {Nat.is_le(List.length(&2, String, es3), U32.to_nat(U32.inc(U32.inc(i)))) == True{} : Bool} -> EGoal(p, U32.inc(i), d, a3, dict3, out3, es3, Array.get(String, a3, U32.inc(i))),
+  g: Laws.EncRows(i, d, a2, out, es), +k: U32, +ekk: {k == Laws.dk(dict2) : U32}, +ek: {U32.to_nat(k) == List.length(&2, String, es) : Nat}, wf2: Laws.WFDictE(dict2, es), pr: Laws.EncProbe(1n+p, i, a2, dict2))
+  -> ESig(p, i, d, a2, dict2, out, es, x):
+  (pb, prest) = pr
+  enc_step5(p, i, d, a2, dict2, out, es, x, ex2, wfo, hi, room2, hinc, lim2, hk, ih, g, k, ekk, ek, wf2)(pb)(prest)
+
+# the dictionary's entry count as a word (wf_ek): the dictionary copy replaces the original
+def enc_step3(p: Nat, +i: U32, +d: Nat, a2: Array<String>, -dict: ST.Dict, out: Array<U32>, +es: List<&2, String>, +x: String, +ex2: {x == Laws.rd_at(String, a2, i) : String}, wfo: Laws.WFArray(U32, d, out),
+  +hi: {U32.is_lt(i, U32.shln(1, d)) == True{} : Bool}, room2: Laws.Room(d, U32.inc(i), p), +hinc: {U32.is_lt(U32.inc(i), U32.shln(1, 30n)) == True{} : Bool}, lim2: Laws.Room(30n, U32.inc(U32.inc(i)), p), +hk: {Nat.is_le(List.length(&2, String, es), U32.to_nat(U32.inc(i))) == True{} : Bool},
+  ih: @a3: Array<String> -> @dict3: ST.Dict -> @out3: Array<U32> -> @es3: List<&2, String> -> Laws.WFArray(U32, d, out3) -> Laws.Room(d, U32.inc(i), p) -> Laws.Room(30n, U32.inc(U32.inc(i)), p) -> {Nat.is_le(List.length(&2, String, es3), U32.to_nat(U32.inc(U32.inc(i)))) == True{} : Bool} -> EGoal(p, U32.inc(i), d, a3, dict3, out3, es3, Array.get(String, a3, U32.inc(i))),
+  g: Laws.EncRows(i, d, a2, out, es),
+  w: &dict2: ST.Dict -> &k: U32 -> {dict2 == dict : ST.Dict} & {k == Laws.dk(dict2) : U32} & {U32.to_nat(k) == List.length(&2, String, es) : Nat} & Laws.WFDictE(dict2, es))
+  -> EMid2(p, i, d, a2, dict, out, es, x):
+  (dict2, +k, ed, +ekk, +ek, wf2) = w
+  %ed : EMid2(p, i, d, a2, _, out, es, x)
+  pr => enc_step4(p, i, d, a2, dict2, out, es, x, ex2, wfo, hi, room2, hinc, lim2, hk, ih, g, k, ekk, ek, wf2, pr)
+
+def enc_step2(p: Nat, +i: U32, +d: Nat, a2: Array<String>, dict: ST.Dict, out: Array<U32>, +es: List<&2, String>, +x: String, +ex2: {x == Laws.rd_at(String, a2, i) : String}, wfo: Laws.WFArray(U32, d, out),
+  +hi: {U32.is_lt(i, U32.shln(1, d)) == True{} : Bool}, room2: Laws.Room(d, U32.inc(i), p), +hinc: {U32.is_lt(U32.inc(i), U32.shln(1, 30n)) == True{} : Bool}, lim2: Laws.Room(30n, U32.inc(U32.inc(i)), p), +hk: {Nat.is_le(List.length(&2, String, es), U32.to_nat(U32.inc(i))) == True{} : Bool},
+  ih: @a3: Array<String> -> @dict3: ST.Dict -> @out3: Array<U32> -> @es3: List<&2, String> -> Laws.WFArray(U32, d, out3) -> Laws.Room(d, U32.inc(i), p) -> Laws.Room(30n, U32.inc(U32.inc(i)), p) -> {Nat.is_le(List.length(&2, String, es3), U32.to_nat(U32.inc(U32.inc(i)))) == True{} : Bool} -> EGoal(p, U32.inc(i), d, a3, dict3, out3, es3, Array.get(String, a3, U32.inc(i))))
+  -> EMid(p, i, d, a2, dict, out, es, x):
+  g => wf => enc_step3(p, i, d, a2, dict, out, es, x, ex2, wfo, hi, room2, hinc, lim2, hk, ih, g, wf_ek(dict, es, wf))
+
+# the row read: Array.get(a, i) == (a, x), then the copy a2 of a everywhere
+def enc_step1(p: Nat, +i: U32, +d: Nat, -a: Array<String>, dict: ST.Dict, out: Array<U32>, +es: List<&2, String>, wfo: Laws.WFArray(U32, d, out), room: Laws.Room(d, i, 1n+p), lim: Laws.Room(30n, U32.inc(i), 1n+p), +hk: {Nat.is_le(List.length(&2, String, es), U32.to_nat(U32.inc(i))) == True{} : Bool},
+  ih: @a3: Array<String> -> @dict3: ST.Dict -> @out3: Array<U32> -> @es3: List<&2, String> -> Laws.WFArray(U32, d, out3) -> Laws.Room(d, U32.inc(i), p) -> Laws.Room(30n, U32.inc(U32.inc(i)), p) -> {Nat.is_le(List.length(&2, String, es3), U32.to_nat(U32.inc(U32.inc(i)))) == True{} : Bool} -> EGoal(p, U32.inc(i), d, a3, dict3, out3, es3, Array.get(String, a3, U32.inc(i))),
+  w: &b: Array<String> -> &x: String -> {b == a : Array<String>} & {Array.get(String, a, i) == (a, x) : Array<String> & String} & {x == Laws.rd_at(String, a, i) : String})
+  -> EGoal(1n+p, i, d, a, dict, out, es, Array.get(String, a, i)):
+  (+hi, room2) = room
+  (+hinc, lim2) = lim
+  (a2, +x, +ea, e1, ex) = w
+  %Equal.sym(Array<String> & String, Array.get(String, a, i), (a, x), e1) : EGoal(1n+p, i, d, a, dict, out, es, _)
+  %ea : EGoal(1n+p, i, d, _, dict, out, es, (_, x))
+  enc_step2(p, i, d, a2, dict, out, es, x, Equal.trans(String, x, Laws.rd_at(String, a, i), Laws.rd_at(String, a2, i), ex, Equal.cong(Array<String>, String, q => Laws.rd_at(String, q, i), a, a2, Equal.sym(Array<String>, a2, a, ea))), wfo, hi, room2, hinc, lim2, hk, ih)
+
+def enc_zero(+i: U32, +d: Nat, -a: Array<String>, dict: ST.Dict, out: Array<U32>, +es: List<&2, String>, wfo: Laws.WFArray(U32, d, out),
+  w: &b: Array<String> -> &x: String -> {b == a : Array<String>} & {Array.get(String, a, i) == (a, x) : Array<String> & String} & {x == Laws.rd_at(String, a, i) : String})
+  -> EGoal(0n, i, d, a, dict, out, es, Array.get(String, a, i)):
+  (a2, +x, ea, e1, ex) = w
+  %Equal.sym(Array<String> & String, Array.get(String, a, i), (a, x), e1) : EGoal(0n, i, d, a, dict, out, es, _)
+  g => wf => pr => (dict, out, es, {==}, wfo, wf, g)
+
+# Enc.go with f steps left at counter i
+def enc_go(f: Nat, +i: U32, +d: Nat, a: Array<String>, dict: ST.Dict, out: Array<U32>, +es: List<&2, String>, wfo: Laws.WFArray(U32, d, out), room: Laws.Room(d, i, f), lim: Laws.Room(30n, U32.inc(i), f), +hk: {Nat.is_le(List.length(&2, String, es), U32.to_nat(U32.inc(i))) == True{} : Bool}) -> EGoal(f, i, d, a, dict, out, es, Array.get(String, a, i)):
+  match f:
+    case 0n:
+      enc_zero(i, d, a, dict, out, es, wfo, PC.get_w(String, a, i))
+    case 1n++p:
+      enc_step1(p, i, d, a, dict, out, es, wfo, room, lim, hk, a3 => dict3 => out3 => es3 => wfo3 => room3 => lim3 => hk3 => enc_go(p, U32.inc(i), d, a3, dict3, out3, es3, wfo3, room3, lim3, hk3), PC.get_w(String, a, i))
+
+# ---- the law: from Dict.empty, counter 0, fuel to_nat(n) ---------------------------------------------------------
+
+def ehyp0(+d: Nat, -a: Array<String>, -out: Array<U32>, +es: List<&2, String>) -> Laws.EncRows(0, d, a, out, es):
+  +j => hj => +code => ecode => Empty.absurd({Cmp.is_lt(Nat.cmp(U32.to_nat(code), List.length(&2, String, es))) == True{} : Bool} & {Laws.nthd(es, code) == Laws.rd_at(String, a, j) : String}, PC.lt0(j, hj))
+
+# n < 2^30: the counters 1 .. n are below 2^30 (Room(30n, 0, 1 + to_nat n) with its head dropped)
+def lim0_k(+n: U32, w: Laws.Room(30n, 0, 1n+U32.to_nat(n))) -> Laws.Room(30n, U32.inc(0), U32.to_nat(n)):
+  (h0, rest) = w
+  rest
+
+def lim0(+n: U32, +small: {U32.is_lt(n, U32.shln(1, 30n)) == True{} : Bool}) -> Laws.Room(30n, U32.inc(0), U32.to_nat(n)):
+  lim0_k(n, (%inc_small(n, small) : Laws.Room(30n, 0, _); B.room_from(30n, U32.inc(n), fit_nf(n, 30n, small, small))))
+
+def enc_law(+n: U32, +d: Nat, -a: Array<String>,
+  w: &dict2: ST.Dict -> &codes: Array<U32> -> &es2: List<&2, String> -> {ST.Enc.go(U32.to_nat(n), 0, (ST.Dict.empty(), Array.new(U32, d, 0)), Array.get(String, a, 0)) == (dict2, codes) : ST.Dict & Array<U32>} & ERes(d, a, codes, dict2, es2, Laws.addn(0, U32.to_nat(n))))
+  -> Laws.EncodeW(n, d, a):
+  (dict2, codes, +es2, eq, wc, wf, g) = w
+  %Equal.sym(ST.Dict & Array<U32>, ST.Enc.go(U32.to_nat(n), 0, (ST.Dict.empty(), Array.new(U32, d, 0)), Array.get(String, a, 0)), (dict2, codes), eq) : &codes2: Array<U32> -> &dict3: ST.Dict -> &es3: List<&2, String> -> {ST.Enc.fin(_) == ST.SDict{codes2, dict3} : ST.Strs} & Laws.WFArray(U32, d, codes2) & Laws.WFDictE(dict3, es3) & Laws.EncRows(n, d, a, codes2, es3)
+  %B.addn_to_nat(n) : &codes2: Array<U32> -> &dict3: ST.Dict -> &es3: List<&2, String> -> {ST.Enc.fin((dict2, codes)) == ST.SDict{codes2, dict3} : ST.Strs} & Laws.WFArray(U32, d, codes2) & Laws.WFDictE(dict3, es3) & Laws.EncRows(_, d, a, codes2, es3)
+  (codes, dict2, es2, {==}, wc, wf, g)
+
+def Laws.strs_encode_cells(n, d, a, fits, small, probes):
+  enc_law(n, d, a, enc_go(U32.to_nat(n), 0, d, a, ST.Dict.empty(), Array.new(U32, d, 0), "" <> Nil{}, Laws.wf_new(U32, d, 0), B.room_from(d, n, fits), lim0(n, small), {==})(ehyp0(d, a, Array.new(U32, d, 0), "" <> Nil{}))(Laws.dict_empty_wf())(probes))
+
+# ---- Laws.strs_encode_cell: the per-row dentry form of EncodeW ---------------------------------------------------
+
+# the row's code x (a Data word) names the Raw row in the dictionary: dentry through the entry facts of WFDictE
+def cell_of_row(+d: Nat, -a: Array<String>, dict: ST.Dict, +es: List<&2, String>, +i: U32, +x: U32, wf: Laws.WFDictE(dict, es),
+  w: {Cmp.is_lt(Nat.cmp(U32.to_nat(x), List.length(&2, String, es))) == True{} : Bool} & {Laws.nthd(es, x) == Laws.rd_at(String, a, i) : String})
+  -> {Laws.dentry(dict, x) == Laws.rd_at(String, a, i) : String}:
+  match dict:
+    case ST.Dict{+k, +dd, strs, +b, slots, +tag}:
+      (+ek, hle, hpos, h0, wfs, ent, wfix) = wf
+      (+bx, dx) = w
+      Equal.trans(String, Laws.rd_at(String, strs, x), Laws.nthd(es, x), Laws.rd_at(String, a, i), ent(x, lt_u_of_nat(x, k, (%Equal.sym(Nat, U32.to_nat(k), List.length(&2, String, es), ek) : {Cmp.is_lt(Nat.cmp(U32.to_nat(x), _)) == True{} : Bool}; bx))), dx)
+
+def enc_cell_fin(+n: U32, +d: Nat, -a: Array<String>, -codes: Array<U32>, dict: ST.Dict, +es: List<&2, String>, +i: U32, +hi: {U32.is_lt(i, n) == True{} : Bool}, +x: U32, +exc: {x == Laws.rd_at(U32, codes, i) : U32}, ecv: {Laws.rd_at(U32, codes, i) == Laws.rdN(U32, d, codes, i) : U32}, wf: Laws.WFDictE(dict, es), g: Laws.EncRows(n, d, a, codes, es))
+  -> {Laws.dentry(dict, Laws.rd_at(U32, codes, i)) == Laws.rd_at(String, a, i) : String}:
+  %exc : {Laws.dentry(dict, _) == Laws.rd_at(String, a, i) : String}
+  cell_of_row(d, a, dict, es, i, x, wf, g(i, hi, x, Equal.trans(U32, x, Laws.rd_at(U32, codes, i), Laws.rdN(U32, d, codes, i), exc, ecv)))
+
+# the code of row i read from the copy b of the code array
+def enc_cell_x(+n: U32, +d: Nat, -a: Array<String>, -codes: Array<U32>, -b: Array<U32>, +eb: {b == codes : Array<U32>}, dict: ST.Dict, +es: List<&2, String>, +i: U32, +hi: {U32.is_lt(i, n) == True{} : Bool}, cv: @k: U32 -> {Laws.rd_at(U32, codes, k) == Laws.rdN(U32, d, codes, k) : U32}, wf: Laws.WFDictE(dict, es), g: Laws.EncRows(n, d, a, codes, es),
+  w: &b2: Array<U32> -> &x: U32 -> {b2 == b : Array<U32>} & {Array.get(U32, b, i) == (b, x) : Array<U32> & U32} & {x == Laws.rd_at(U32, b, i) : U32})
+  -> {Laws.dentry(dict, Laws.rd_at(U32, codes, i)) == Laws.rd_at(String, a, i) : String}:
+  (b2, +x, eb2, e1, ex) = w
+  enc_cell_fin(n, d, a, codes, dict, es, i, hi, x, Equal.trans(U32, x, Laws.rd_at(U32, b, i), Laws.rd_at(U32, codes, i), ex, Equal.cong(Array<U32>, U32, q => Laws.rd_at(U32, q, i), b, codes, eb)), cv(i), wf, g)
+
+def enc_cell_b(+n: U32, +d: Nat, -a: Array<String>, -codes: Array<U32>, dict: ST.Dict, +es: List<&2, String>, +i: U32, +hi: {U32.is_lt(i, n) == True{} : Bool}, wf: Laws.WFDictE(dict, es), g: Laws.EncRows(n, d, a, codes, es),
+  w: &b: Array<U32> -> {b == codes : Array<U32>} & Laws.WFArray(U32, d, b) & (@k: U32 -> {Laws.rd_at(U32, codes, k) == Laws.rdN(U32, d, codes, k) : U32}))
+  -> {Laws.dentry(dict, Laws.rd_at(U32, codes, i)) == Laws.rd_at(String, a, i) : String}:
+  (b, +eb, wb, cv) = w
+  enc_cell_x(n, d, a, codes, b, eb, dict, es, i, hi, cv, wf, g, PC.get_w(U32, b, i))
+
+def enc_cell(+n: U32, +d: Nat, -a: Array<String>, +i: U32, +hi: {U32.is_lt(i, n) == True{} : Bool}, w: Laws.EncodeW(n, d, a)) -> {Laws.scell(ST.Strs.encode(n, d, ST.SRaw{a}), i) == Laws.rd_at(String, a, i) : String}:
+  (codes, dict, +es, eq, wc, wf, g) = w
+  %Equal.sym(ST.Strs, ST.Strs.encode(n, d, ST.SRaw{a}), ST.SDict{codes, dict}, eq) : {Laws.scell(_, i) == Laws.rd_at(String, a, i) : String}
+  enc_cell_b(n, d, a, codes, dict, es, i, hi, wf, g, rd_all(U32, d, codes, wc))
+
+def Laws.strs_encode_cell(n, d, s, i, fits, small, hi, probes):
+  match s:
+    case ST.SRaw{a}:
+      enc_cell(n, d, a, i, hi, Laws.strs_encode_cells(n, d, a, fits, small, probes))
+    case ST.SDict{codes, dict}:
+      {==}

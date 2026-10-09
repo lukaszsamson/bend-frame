@@ -2035,9 +2035,10 @@ def Probe(-d: ST.Dict, +s: String) -> Type:
   &x: ST.SSlot -> {x == rd_at(ST.SSlot, dslots(d), Pair.snd(Array<ST.SSlot>, U32, ST.Ix.seek(dbits(d), dslots(d), ST.Str.hash(s), s))) : ST.SSlot} & {look_bit(s, x) == False{} : Bool}
 
 # Dict.code's answer: the dictionary d2 with entries es2 (es plus at most one new entry) and the
-# code c of s in it: in range, decoding to s; d2 well formed
+# code c of s in it: in range (below the entry count, as a word and in the list model), decoding
+# to s; d2 well formed
 def CodeW(-d: ST.Dict, +es: List<&2, String>, +s: String) -> Type:
-  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {ST.Dict.code(d, s) == (d2, c) : ST.Dict & U32} & {U32.is_lt(c, dk(d2)) == True{} : Bool} & {nthd(es2, c) == s : String} & Ext(es, es2) & {Nat.is_le(List.length(&2, String, es2), 1n+List.length(&2, String, es)) == True{} : Bool} & WFDictE(d2, es2)
+  &d2: ST.Dict -> &c: U32 -> &es2: List<&2, String> -> {ST.Dict.code(d, s) == (d2, c) : ST.Dict & U32} & {U32.is_lt(c, dk(d2)) == True{} : Bool} & {Cmp.is_lt(Nat.cmp(U32.to_nat(c), List.length(&2, String, es2))) == True{} : Bool} & {nthd(es2, c) == s : String} & Ext(es, es2) & {Nat.is_le(List.length(&2, String, es2), 1n+List.length(&2, String, es)) == True{} : Bool} & WFDictE(d2, es2)
 
 # LAW: Dict.code (the code of s, inserted when absent: Dict.code.h/k/p, Dict.add, Dict.fit, Dict.room,
 # the index Ix.seek/look/slot, Ix.grow/move) keeps the dictionary well formed, extends the entries by
@@ -2060,10 +2061,16 @@ def EncProbe(f: Nat, +i: U32, -a: Array<String>, -d: ST.Dict) -> Type:
     case 1n+p:
       Probe(d, rd_at(String, a, i)) & EncProbe(p, U32.inc(i), a, Pair.fst(ST.Dict, U32, ST.Dict.code(d, rd_at(String, a, i))))
 
-# Strs.encode's answer on a Raw array: a Dictionary with well-formed codes (every row's code in
-# range) and dictionary, every row decoding to the Raw row
+# the rows below i of a code array against the entry list es: row j's code (any word equal to the
+# slot, so the fact is Data) is below the entry count and names row j of the Raw array in the list
+def EncRows(+i: U32, +d: Nat, -a: Array<String>, -codes: Array<U32>, +es: List<&2, String>) -> Type:
+  @j: U32 -> {U32.is_lt(j, i) == True{} : Bool} -> @code: U32 -> {code == rdN(U32, d, codes, j) : U32} -> {Cmp.is_lt(Nat.cmp(U32.to_nat(code), List.length(&2, String, es))) == True{} : Bool} & {nthd(es, code) == rd_at(String, a, j) : String}
+
+# Strs.encode's answer on a Raw array: a Dictionary with a well-formed code array and a well-formed
+# dictionary over the entry list es, every row i < n coded below the entry count to the entry that
+# is the Raw row (the per-row dentry form is strs_encode_cell)
 def EncodeW(+n: U32, +d: Nat, -a: Array<String>) -> Type:
-  &codes: Array<U32> -> &dict: ST.Dict -> {ST.Strs.encode(n, d, ST.SRaw{a}) == ST.SDict{codes, dict} : ST.Strs} & WFArray(U32, d, codes) & WFDict(dict) & (@i: U32 -> {U32.is_lt(i, n) == True{} : Bool} -> {U32.is_lt(rdN(U32, d, codes, i), dk(dict)) == True{} : Bool} & {dentry(dict, rdN(U32, d, codes, i)) == rd_at(String, a, i) : String})
+  &codes: Array<U32> -> &dict: ST.Dict -> &es: List<&2, String> -> {ST.Strs.encode(n, d, ST.SRaw{a}) == ST.SDict{codes, dict} : ST.Strs} & WFArray(U32, d, codes) & WFDictE(dict, es) & EncRows(n, d, a, codes, es)
 
 # LAW: Strs.encode of a Raw column (Strs.encode.raw: Enc.go / Enc.step / Enc.put / Enc.fin over
 # Dict.code from Dict.empty) is a well-formed Dictionary whose every row i < n decodes to the Raw
