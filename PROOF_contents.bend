@@ -15,6 +15,7 @@ import ./src/dtype.bend as D
 import ./src/err.bend as E
 import ./src/kernels.bend as K
 import ./src/column.bend as C
+import ./src/strs.bend as ST
 import ./LAWS.bend as Laws
 import ./PROOF_lib.bend as L
 import ./PROOF_kernels.bend as PK
@@ -1330,31 +1331,61 @@ def cp_cf32(+len: U32, +depth: Nat, valid: C.Valid, data: Array<F32>, +i: U32) -
     case C.Mask{m}:
       cp_mask_cf32_k(len, depth, m, data, i, PK.get_at_w(U32, m, i))
 
-# the data part: Column.data_cell on a CStr column answers the modelled scalar
-def dcell_cstr(+len: U32, +depth: Nat, -valid: C.Valid, -data: Array<String>, +i: U32, w: &x: String -> {Array.get(String, data, i) == (data, x) : Array<String> & String} & {x == Laws.rd_at(String, data, i) : String}) -> {C.Column.data_cell(C.CStr{len, depth, valid, data}, i) == (C.CStr{len, depth, valid, data}, D.SStr{Laws.rd_at(String, data, i)}) : C.Column & D.Scalar}:
+# ST.Strs.get is pure and reads the model scell (M4: Raw, one Array.get; Dictionary, the code
+# then the entry)
+def sg_raw(-a: Array<String>, +i: U32, w: &x: String -> {Array.get(String, a, i) == (a, x) : Array<String> & String} & {x == Laws.rd_at(String, a, i) : String}) -> {ST.Strs.get(ST.SRaw{a}, i) == (ST.SRaw{a}, Laws.scell(ST.SRaw{a}, i)) : ST.Strs & String}:
   (+x, e1, e2) = w
-  %Equal.sym(Array<String> & String, Array.get(String, data, i), (data, x), e1) : {C.Column.cell.s(len, depth, valid, _) == (C.CStr{len, depth, valid, data}, D.SStr{Laws.rd_at(String, data, i)}) : C.Column & D.Scalar}
-  %e2 : {C.Column.cell.s(len, depth, valid, (data, x)) == (C.CStr{len, depth, valid, data}, D.SStr{_}) : C.Column & D.Scalar}
+  %Equal.sym(Array<String> & String, Array.get(String, a, i), (a, x), e1) : {ST.Strs.get.r(_) == (ST.SRaw{a}, Laws.rd_at(String, a, i)) : ST.Strs & String}
+  %e2 : {ST.Strs.get.r((a, x)) == (ST.SRaw{a}, _) : ST.Strs & String}
+  {==}
+
+def sg_entry(-codes: Array<U32>, +k: U32, +dd: Nat, -strs: Array<String>, +b: Nat, -slots: Array<ST.SSlot>, +tag: U32, +c: U32, w: &s: String -> {Array.get(String, strs, c) == (strs, s) : Array<String> & String} & {s == Laws.rd_at(String, strs, c) : String}) -> {ST.Strs.get.c(ST.Dict{k, dd, strs, b, slots, tag}, (codes, c)) == (ST.SDict{codes, ST.Dict{k, dd, strs, b, slots, tag}}, Laws.rd_at(String, strs, c)) : ST.Strs & String}:
+  (+s, e1, e2) = w
+  %Equal.sym(Array<String> & String, Array.get(String, strs, c), (strs, s), e1) : {ST.Strs.get.d(codes, ST.Dict.get.k(k, dd, b, slots, tag, _)) == (ST.SDict{codes, ST.Dict{k, dd, strs, b, slots, tag}}, Laws.rd_at(String, strs, c)) : ST.Strs & String}
+  %e2 : {ST.Strs.get.d(codes, ST.Dict.get.k(k, dd, b, slots, tag, (strs, s))) == (ST.SDict{codes, ST.Dict{k, dd, strs, b, slots, tag}}, _) : ST.Strs & String}
+  {==}
+
+def sg_dict_k(-codes: Array<U32>, +k: U32, +dd: Nat, strs: Array<String>, +b: Nat, -slots: Array<ST.SSlot>, +tag: U32, +i: U32, w: &c: U32 -> {Array.get(U32, codes, i) == (codes, c) : Array<U32> & U32} & {c == Laws.rd_at(U32, codes, i) : U32}) -> {ST.Strs.get(ST.SDict{codes, ST.Dict{k, dd, strs, b, slots, tag}}, i) == (ST.SDict{codes, ST.Dict{k, dd, strs, b, slots, tag}}, Laws.scell(ST.SDict{codes, ST.Dict{k, dd, strs, b, slots, tag}}, i)) : ST.Strs & String}:
+  (+c, e1, e2) = w
+  %Equal.sym(Array<U32> & U32, Array.get(U32, codes, i), (codes, c), e1) : {ST.Strs.get.c(ST.Dict{k, dd, strs, b, slots, tag}, _) == (ST.SDict{codes, ST.Dict{k, dd, strs, b, slots, tag}}, Laws.rd_at(String, strs, Laws.rd_at(U32, codes, i))) : ST.Strs & String}
+  %e2 : {ST.Strs.get.c(ST.Dict{k, dd, strs, b, slots, tag}, (codes, c)) == (ST.SDict{codes, ST.Dict{k, dd, strs, b, slots, tag}}, Laws.rd_at(String, strs, _)) : ST.Strs & String}
+  sg_entry(codes, k, dd, strs, b, slots, tag, c, PK.get_at_w(String, strs, c))
+
+def sg_dict(codes: Array<U32>, d: ST.Dict, +i: U32) -> {ST.Strs.get(ST.SDict{codes, d}, i) == (ST.SDict{codes, d}, Laws.scell(ST.SDict{codes, d}, i)) : ST.Strs & String}:
+  match d:
+    case ST.Dict{+k, +dd, strs, +b, slots, +tag}:
+      sg_dict_k(codes, k, dd, strs, b, slots, tag, i, PK.get_at_w(U32, codes, i))
+
+def strs_get_pure(s: ST.Strs, +i: U32) -> {ST.Strs.get(s, i) == (s, Laws.scell(s, i)) : ST.Strs & String}:
+  match s:
+    case ST.SRaw{a}:
+      sg_raw(a, i, PK.get_at_w(String, a, i))
+    case ST.SDict{codes, d}:
+      sg_dict(codes, d, i)
+
+# the data part: Column.data_cell on a CStr column answers the modelled scalar
+def dcell_cstr(+len: U32, +depth: Nat, -valid: C.Valid, -data: ST.Strs, +i: U32, e: {ST.Strs.get(data, i) == (data, Laws.scell(data, i)) : ST.Strs & String}) -> {C.Column.data_cell(C.CStr{len, depth, valid, data}, i) == (C.CStr{len, depth, valid, data}, D.SStr{Laws.scell(data, i)}) : C.Column & D.Scalar}:
+  %Equal.sym(ST.Strs & String, ST.Strs.get(data, i), (data, Laws.scell(data, i)), e) : {C.Column.cell.s(len, depth, valid, _) == (C.CStr{len, depth, valid, data}, D.SStr{Laws.scell(data, i)}) : C.Column & D.Scalar}
   {==}
 
 # the validity decision ok = (mask word != 0) as a parameter
-def cp_mask_cstr_ok(ok: Bool, +len: U32, +depth: Nat, -m: Array<U32>, data: Array<String>, +i: U32) -> {C.Column.cell.c(ok, i, C.CStr{len, depth, C.Mask{m}, data}) == (C.CStr{len, depth, C.Mask{m}, data}, Bool.pick(D.Scalar, ok, D.SStr{Laws.rd_at(String, data, i)}, D.SNull{})) : C.Column & D.Scalar}:
+def cp_mask_cstr_ok(ok: Bool, +len: U32, +depth: Nat, -m: Array<U32>, data: ST.Strs, +i: U32) -> {C.Column.cell.c(ok, i, C.CStr{len, depth, C.Mask{m}, data}) == (C.CStr{len, depth, C.Mask{m}, data}, Bool.pick(D.Scalar, ok, D.SStr{Laws.scell(data, i)}, D.SNull{})) : C.Column & D.Scalar}:
   match ok:
     case True{}:
-      dcell_cstr(len, depth, C.Mask{m}, data, i, PK.get_at_w(String, data, i))
+      dcell_cstr(len, depth, C.Mask{m}, data, i, strs_get_pure(data, i))
     case False{}:
       {==}
 
-def cp_mask_cstr_k(+len: U32, +depth: Nat, -m: Array<U32>, data: Array<String>, +i: U32, w: &x: U32 -> {Array.get(U32, m, i) == (m, x) : Array<U32> & U32} & {x == Laws.rd_at(U32, m, i) : U32}) -> {C.Column.cell(C.CStr{len, depth, C.Mask{m}, data}, i) == (C.CStr{len, depth, C.Mask{m}, data}, Laws.ccell(C.CStr{len, depth, C.Mask{m}, data}, i)) : C.Column & D.Scalar}:
+def cp_mask_cstr_k(+len: U32, +depth: Nat, -m: Array<U32>, data: ST.Strs, +i: U32, w: &x: U32 -> {Array.get(U32, m, i) == (m, x) : Array<U32> & U32} & {x == Laws.rd_at(U32, m, i) : U32}) -> {C.Column.cell(C.CStr{len, depth, C.Mask{m}, data}, i) == (C.CStr{len, depth, C.Mask{m}, data}, Laws.ccell(C.CStr{len, depth, C.Mask{m}, data}, i)) : C.Column & D.Scalar}:
   (+x, e1, e2) = w
   %Equal.sym(Array<U32> & U32, Array.get(U32, m, i), (m, x), e1) : {C.Column.cell.b(i, C.CStr{len, depth, C.AllValid{}, data}, C.Valid.get.k(_)) == (C.CStr{len, depth, C.Mask{m}, data}, Laws.ccell(C.CStr{len, depth, C.Mask{m}, data}, i)) : C.Column & D.Scalar}
-  %e2 : {C.Column.cell.b(i, C.CStr{len, depth, C.AllValid{}, data}, C.Valid.get.k((m, x))) == (C.CStr{len, depth, C.Mask{m}, data}, Bool.pick(D.Scalar, U32.is_ne(_, 0), D.SStr{Laws.rd_at(String, data, i)}, D.SNull{})) : C.Column & D.Scalar}
+  %e2 : {C.Column.cell.b(i, C.CStr{len, depth, C.AllValid{}, data}, C.Valid.get.k((m, x))) == (C.CStr{len, depth, C.Mask{m}, data}, Bool.pick(D.Scalar, U32.is_ne(_, 0), D.SStr{Laws.scell(data, i)}, D.SNull{})) : C.Column & D.Scalar}
   cp_mask_cstr_ok(U32.is_ne(x, 0), len, depth, m, data, i)
 
-def cp_cstr(+len: U32, +depth: Nat, valid: C.Valid, data: Array<String>, +i: U32) -> {C.Column.cell(C.CStr{len, depth, valid, data}, i) == (C.CStr{len, depth, valid, data}, Laws.ccell(C.CStr{len, depth, valid, data}, i)) : C.Column & D.Scalar}:
+def cp_cstr(+len: U32, +depth: Nat, valid: C.Valid, data: ST.Strs, +i: U32) -> {C.Column.cell(C.CStr{len, depth, valid, data}, i) == (C.CStr{len, depth, valid, data}, Laws.ccell(C.CStr{len, depth, valid, data}, i)) : C.Column & D.Scalar}:
   match valid:
     case C.AllValid{}:
-      dcell_cstr(len, depth, C.AllValid{}, data, i, PK.get_at_w(String, data, i))
+      dcell_cstr(len, depth, C.AllValid{}, data, i, strs_get_pure(data, i))
     case C.Mask{m}:
       cp_mask_cstr_k(len, depth, m, data, i, PK.get_at_w(U32, m, i))
 

@@ -30,6 +30,7 @@ import ./../src/dtype.bend as D
 import ./../src/err.bend as E
 import ./../src/kernels.bend as K
 import ./../src/column.bend as C
+import ./../src/strs.bend as ST
 import ./../src/csv.bend as V
 import ./../src/join.bend as J
 import ./../src/plan.bend as P
@@ -49,9 +50,25 @@ def ff.k(+n: U32, d: Nat, v: C.Valid, r: Array<F32> & F32) -> C.Column & U32:
   (x, h) = r
   (C.CF32{n, d, v, x}, F32.to_u32(h))
 
-def fs.k(+n: U32, d: Nat, v: C.Valid, r: Array<String> & U32) -> C.Column & U32:
+def fs.k(+n: U32, d: Nat, v: C.Valid, r: ST.Strs & U32) -> C.Column & U32:
   (x, h) = r
   (C.CStr{n, d, v, x}, h)
+
+def fs.r(r: Array<String> & U32) -> ST.Strs & U32:
+  (a, h) = r
+  (ST.SRaw{a}, h)
+
+def fs.d(dict: ST.Dict, r: Array<U32> & U32) -> ST.Strs & U32:
+  (c, h) = r
+  (ST.SDict{c, dict}, h)
+
+# a Raw column: every string hashed; a Dictionary: every code summed
+def fs.walk(+n: U32, x: ST.Strs) -> ST.Strs & U32:
+  match x:
+    case ST.SRaw{a}:
+      fs.r(K.Kernel.fold(~String, ~U32, ~(a => y => U32.add(a, J.Str.hash(y, 0))), n, a, 0))
+    case ST.SDict{c, dict}:
+      fs.d(dict, K.Kernel.fold(~U32, ~U32, ~(a => y => U32.add(a, y)), n, c, 0))
 
 def force.col(c: C.Column) -> C.Column & U32:
   match c:
@@ -64,7 +81,7 @@ def force.col(c: C.Column) -> C.Column & U32:
     case C.CF32{+n, d, v, x}:
       ff.k(n, d, v, K.Kernel.fold(~F32, ~F32, ~(a => y => F32.add(a, y)), n, x, 0.0))
     case C.CStr{+n, d, v, x}:
-      fs.k(n, d, v, K.Kernel.fold(~String, ~U32, ~(a => y => U32.add(a, J.Str.hash(y, 0))), n, x, 0))
+      fs.k(n, d, v, fs.walk(n, x))
 
 def force.add(n: String, acc: List<&1, C.Named>, +h: U32, r: C.Column & U32) -> List<&1, C.Named> & U32:
   (c, x) = r
@@ -156,11 +173,47 @@ def load.s(+keep: Bool, rs: E.ResT(C.Frame), rp: E.ResT(C.Frame)) -> E.ResT(In):
     case Done{s}:
       load.h(keep, C.Frame.height(s), rp)
 
+# M4: the Str storage the reader gives the parsed frames (Csv.read_enc), from the environment:
+# BF_STR=raw (EncRaw), dict (EncDict), auto (EncAuto), anything else or unset: the reader's
+# default (Csv.enc_default); BF_STR=dict-post reads with the default and encodes every Str
+# column afterwards (C.Frame.encode, untimed, before `force`)
+def env.enc.k(+v: String) -> ST.StrEnc:
+  Bool.pick(ST.StrEnc, String.eq(v, "raw"), ST.EncRaw{}, Bool.pick(ST.StrEnc, String.eq(v, "dict"), ST.EncDict{}, Bool.pick(ST.StrEnc, String.eq(v, "auto"), ST.EncAuto{}, V.Csv.enc_default())))
+
+def env.enc(r: Result<&1, &1, U32 & String, String>) -> ST.StrEnc:
+  match r:
+    case Done{v}:
+      env.enc.k(v)
+    case Fail{e}:
+      V.Csv.enc_default()
+
+def env.str(r: Result<&1, &1, U32 & String, String>) -> String:
+  match r:
+    case Done{v}:
+      v
+    case Fail{e}:
+      ""
+
+def load.enc(+dict: Bool, r: E.ResT(C.Frame)) -> E.ResT(C.Frame):
+  match dict r:
+    case True{} Done{f}:
+      Done{C.Frame.encode(f, True{})}
+    case _ other:
+      other
+
+def load.go(+keep: Bool, +path: String, +ppath: String, +enc: ST.StrEnc, +dict: Bool) -> IO(E.ResT(In)):
+  do IO<E.ResT(In)>:
+    rs : E.ResT(C.Frame) <- V.Csv.read_enc(path, V.Csv.default(), Nil{}, enc)
+    rp : E.ResT(C.Frame) <- V.Csv.read_enc(ppath, V.Csv.default(), Nil{}, enc)
+    return load.s(keep, load.enc(dict, rs), load.enc(dict, rp))
+
+def load.v(+keep: Bool, +path: String, +ppath: String, +v: String) -> IO(E.ResT(In)):
+  load.go(keep, path, ppath, env.enc.k(v), String.eq(v, "dict-post"))
+
 def load(+keep: Bool, +path: String, +ppath: String) -> IO(E.ResT(In)):
   do IO<E.ResT(In)>:
-    rs : E.ResT(C.Frame) <- V.Csv.read(path, V.Csv.default())
-    rp : E.ResT(C.Frame) <- V.Csv.read(ppath, V.Csv.default())
-    return load.s(keep, rs, rp)
+    ev : Result<&1, &1, U32 & String, String> <- IO.get_env("BF_STR")
+    load.v(keep, path, ppath, env.str(ev))
 
 def load.push.a(i: In, acc: E.ResT(List<&1, In>)) -> E.ResT(List<&1, In>):
   match acc:
@@ -451,12 +504,17 @@ def parse.k(+t0: Nat, +t1: Nat, r: E.ResT(C.Frame)) -> IO(Unit):
     case Done{f}:
       parse.f(t0, t1, force(f))
 
-def parse.run(+path: String) -> IO(Unit):
+def parse.go(+path: String, +enc: ST.StrEnc) -> IO(Unit):
   do IO<Unit>:
     t0 : Nat <- IO.now()
-    r : E.ResT(C.Frame) <- V.Csv.read(path, V.Csv.default())
+    r : E.ResT(C.Frame) <- V.Csv.read_enc(path, V.Csv.default(), Nil{}, enc)
     t1 : Nat <- IO.now()
     parse.k(t0, t1, r)
+
+def parse.run(+path: String) -> IO(Unit):
+  do IO<Unit>:
+    ev : Result<&1, &1, U32 & String, String> <- IO.get_env("BF_STR")
+    parse.go(path, env.enc(ev))
 
 def start.k(+is_parse: Bool, +path: String, +q: String, +reps: Nat, +m: Nat, +label: String, +out: String, +keep: Bool) -> IO(Unit):
   match is_parse:

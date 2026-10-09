@@ -9,6 +9,7 @@ import ./src/dtype.bend as D
 import ./src/err.bend as E
 import ./src/kernels.bend as K
 import ./src/column.bend as C
+import ./src/strs.bend as ST
 import ./src/schema.bend as S
 import ./src/expr.bend as X
 import ./src/analysis.bend as A
@@ -410,7 +411,7 @@ def bin_cf32(op: X.BinOp, +n: U32, +d: Nat, va: C.Valid, vb: C.Valid, xa: Array<
     case X.Or{}:
       Empty.absurd(Laws.ResW(True{}, t, n, V.Eval.bin(X.Or{}, C.CF32{n, d, va, xa}, C.CF32{n2, d2, vb, xb})), PV.fail_done_r(D.DType, X.Expr.type.bin.ok(X.Or{}, D.TF32{}, D.TF32{}), t, {==}, hok))
 
-def bin_cstr(op: X.BinOp, +n: U32, +d: Nat, va: C.Valid, vb: C.Valid, xa: Array<String>, xb: Array<String>, +n2: U32, +d2: Nat, +t: D.DType, hok: {X.Expr.type.bin.ok(op, D.TStr{}, D.TStr{}) == Done{t} : E.Res(D.DType)}) -> Laws.ResW(True{}, t, n, V.Eval.bin(op, C.CStr{n, d, va, xa}, C.CStr{n2, d2, vb, xb})):
+def bin_cstr(op: X.BinOp, +n: U32, +d: Nat, va: C.Valid, vb: C.Valid, xa: ST.Strs, xb: ST.Strs, +n2: U32, +d2: Nat, +t: D.DType, hok: {X.Expr.type.bin.ok(op, D.TStr{}, D.TStr{}) == Done{t} : E.Res(D.DType)}) -> Laws.ResW(True{}, t, n, V.Eval.bin(op, C.CStr{n, d, va, xa}, C.CStr{n2, d2, vb, xb})):
   match op:
     case X.Add{}:
       Empty.absurd(Laws.ResW(True{}, t, n, V.Eval.bin(X.Add{}, C.CStr{n, d, va, xa}, C.CStr{n2, d2, vb, xb})), PV.fail_done_r(D.DType, X.Expr.type.bin.ok(X.Add{}, D.TStr{}, D.TStr{}), t, {==}, hok))
@@ -425,17 +426,17 @@ def bin_cstr(op: X.BinOp, +n: U32, +d: Nat, va: C.Valid, vb: C.Valid, xa: Array<
     case X.Mod{}:
       Empty.absurd(Laws.ResW(True{}, t, n, V.Eval.bin(X.Mod{}, C.CStr{n, d, va, xa}, C.CStr{n2, d2, vb, xb})), PV.fail_done_r(D.DType, X.Expr.type.bin.ok(X.Mod{}, D.TStr{}, D.TStr{}), t, {==}, hok))
     case X.Eq{}:
-      PV.resw_dtype(True{}, t, D.TBool{}, n, Done{V.Eval.fix.w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.s(X.Eq{}, n, d, xa, xb))}, L.done_inj(D.DType, D.TBool{}, t, hok), PV.done_w(D.TBool{}, n, V.Eval.fix.w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.s(X.Eq{}, n, d, xa, xb)), PV.fixw_w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.s(X.Eq{}, n, d, xa, xb))))
+      PV.resw_dtype(True{}, t, D.TBool{}, n, Done{V.Eval.fix.w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.str(X.Eq{}, n, d, xa, xb))}, L.done_inj(D.DType, D.TBool{}, t, hok), PV.done_w(D.TBool{}, n, V.Eval.fix.w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.str(X.Eq{}, n, d, xa, xb)), PV.fixw_w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.str(X.Eq{}, n, d, xa, xb))))
     case X.Ne{}:
-      PV.resw_dtype(True{}, t, D.TBool{}, n, Done{V.Eval.fix.w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.s(X.Ne{}, n, d, xa, xb))}, L.done_inj(D.DType, D.TBool{}, t, hok), PV.done_w(D.TBool{}, n, V.Eval.fix.w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.s(X.Ne{}, n, d, xa, xb)), PV.fixw_w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.s(X.Ne{}, n, d, xa, xb))))
+      PV.resw_dtype(True{}, t, D.TBool{}, n, Done{V.Eval.fix.w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.str(X.Ne{}, n, d, xa, xb))}, L.done_inj(D.DType, D.TBool{}, t, hok), PV.done_w(D.TBool{}, n, V.Eval.fix.w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.str(X.Ne{}, n, d, xa, xb)), PV.fixw_w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.str(X.Ne{}, n, d, xa, xb))))
     case X.Lt{}:
-      PV.resw_dtype(True{}, t, D.TBool{}, n, Done{V.Eval.fix.w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.s(X.Lt{}, n, d, xa, xb))}, L.done_inj(D.DType, D.TBool{}, t, hok), PV.done_w(D.TBool{}, n, V.Eval.fix.w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.s(X.Lt{}, n, d, xa, xb)), PV.fixw_w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.s(X.Lt{}, n, d, xa, xb))))
+      PV.resw_dtype(True{}, t, D.TBool{}, n, Done{V.Eval.fix.w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.str(X.Lt{}, n, d, xa, xb))}, L.done_inj(D.DType, D.TBool{}, t, hok), PV.done_w(D.TBool{}, n, V.Eval.fix.w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.str(X.Lt{}, n, d, xa, xb)), PV.fixw_w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.str(X.Lt{}, n, d, xa, xb))))
     case X.Le{}:
-      PV.resw_dtype(True{}, t, D.TBool{}, n, Done{V.Eval.fix.w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.s(X.Le{}, n, d, xa, xb))}, L.done_inj(D.DType, D.TBool{}, t, hok), PV.done_w(D.TBool{}, n, V.Eval.fix.w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.s(X.Le{}, n, d, xa, xb)), PV.fixw_w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.s(X.Le{}, n, d, xa, xb))))
+      PV.resw_dtype(True{}, t, D.TBool{}, n, Done{V.Eval.fix.w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.str(X.Le{}, n, d, xa, xb))}, L.done_inj(D.DType, D.TBool{}, t, hok), PV.done_w(D.TBool{}, n, V.Eval.fix.w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.str(X.Le{}, n, d, xa, xb)), PV.fixw_w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.str(X.Le{}, n, d, xa, xb))))
     case X.Gt{}:
-      PV.resw_dtype(True{}, t, D.TBool{}, n, Done{V.Eval.fix.w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.s(X.Gt{}, n, d, xa, xb))}, L.done_inj(D.DType, D.TBool{}, t, hok), PV.done_w(D.TBool{}, n, V.Eval.fix.w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.s(X.Gt{}, n, d, xa, xb)), PV.fixw_w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.s(X.Gt{}, n, d, xa, xb))))
+      PV.resw_dtype(True{}, t, D.TBool{}, n, Done{V.Eval.fix.w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.str(X.Gt{}, n, d, xa, xb))}, L.done_inj(D.DType, D.TBool{}, t, hok), PV.done_w(D.TBool{}, n, V.Eval.fix.w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.str(X.Gt{}, n, d, xa, xb)), PV.fixw_w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.str(X.Gt{}, n, d, xa, xb))))
     case X.Ge{}:
-      PV.resw_dtype(True{}, t, D.TBool{}, n, Done{V.Eval.fix.w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.s(X.Ge{}, n, d, xa, xb))}, L.done_inj(D.DType, D.TBool{}, t, hok), PV.done_w(D.TBool{}, n, V.Eval.fix.w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.s(X.Ge{}, n, d, xa, xb)), PV.fixw_w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.s(X.Ge{}, n, d, xa, xb))))
+      PV.resw_dtype(True{}, t, D.TBool{}, n, Done{V.Eval.fix.w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.str(X.Ge{}, n, d, xa, xb))}, L.done_inj(D.DType, D.TBool{}, t, hok), PV.done_w(D.TBool{}, n, V.Eval.fix.w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.str(X.Ge{}, n, d, xa, xb)), PV.fixw_w(D.TBool{}, n, d, V.Eval.vand(n, d, va, vb), V.Eval.zip.str(X.Ge{}, n, d, xa, xb))))
     case X.And{}:
       Empty.absurd(Laws.ResW(True{}, t, n, V.Eval.bin(X.And{}, C.CStr{n, d, va, xa}, C.CStr{n2, d2, vb, xb})), PV.fail_done_r(D.DType, X.Expr.type.bin.ok(X.And{}, D.TStr{}, D.TStr{}), t, {==}, hok))
     case X.Or{}:
@@ -507,7 +508,7 @@ def Laws.eval_try_cast_typed(to, c, hok):
     case D.TBool{} C.CF32{+n, +d, v, x}:
       Empty.absurd(Laws.ResW(True{}, D.TBool{}, n, V.Eval.try_cast(D.TBool{}, C.CF32{n, d, v, x})), L.false_true(hok))
     case D.TBool{} C.CStr{+n, +d, v, x}:
-      PV.cast_pw_w(D.TBool{}, n, d, v, K.Kernel.map_maybe(~String, ~U32, ~(s => V.Eval.read_bool(s)), n, d, x, 0))
+      PV.cast_pw_w(D.TBool{}, n, d, v, ST.Strs.map_maybe(~U32, ~(s => V.Eval.read_bool(s)), n, d, x, 0))
     case D.TU32{} C.CBool{+n, +d, v, x}:
       (V.Eval.try_cast(D.TU32{}, C.CBool{n, d, v, x}), {==}, ({==}, {==}))
     case D.TU32{} C.CU32{+n, +d, v, x}:
@@ -517,7 +518,7 @@ def Laws.eval_try_cast_typed(to, c, hok):
     case D.TU32{} C.CF32{+n, +d, v, x}:
       PV.cast_pw_w(D.TU32{}, n, d, v, K.Kernel.map_maybe(~F32, ~U32, ~(w => V.Eval.f2u(w)), n, d, x, 0))
     case D.TU32{} C.CStr{+n, +d, v, x}:
-      PV.cast_pw_w(D.TU32{}, n, d, v, K.Kernel.map_maybe(~String, ~U32, ~(s => U32.read(s)), n, d, x, 0))
+      PV.cast_pw_w(D.TU32{}, n, d, v, ST.Strs.map_maybe(~U32, ~(s => U32.read(s)), n, d, x, 0))
     case D.TI32{} C.CBool{+n, +d, v, x}:
       (V.Eval.try_cast(D.TI32{}, C.CBool{n, d, v, x}), {==}, ({==}, {==}))
     case D.TI32{} C.CU32{+n, +d, v, x}:
@@ -527,7 +528,7 @@ def Laws.eval_try_cast_typed(to, c, hok):
     case D.TI32{} C.CF32{+n, +d, v, x}:
       PV.cast_pw_w(D.TI32{}, n, d, v, K.Kernel.map_maybe(~F32, ~U32, ~(w => V.Eval.f2i_m(w)), n, d, x, 0))
     case D.TI32{} C.CStr{+n, +d, v, x}:
-      PV.cast_pw_w(D.TI32{}, n, d, v, K.Kernel.map_maybe(~String, ~U32, ~(s => V.Eval.i32_bits(D.I32.read(s))), n, d, x, 0))
+      PV.cast_pw_w(D.TI32{}, n, d, v, ST.Strs.map_maybe(~U32, ~(s => V.Eval.i32_bits(D.I32.read(s))), n, d, x, 0))
     case D.TF32{} C.CBool{+n, +d, v, x}:
       (V.Eval.try_cast(D.TF32{}, C.CBool{n, d, v, x}), {==}, ({==}, {==}))
     case D.TF32{} C.CU32{+n, +d, v, x}:
@@ -537,15 +538,15 @@ def Laws.eval_try_cast_typed(to, c, hok):
     case D.TF32{} C.CF32{+n, +d, v, x}:
       (V.Eval.try_cast(D.TF32{}, C.CF32{n, d, v, x}), {==}, ({==}, {==}))
     case D.TF32{} C.CStr{+n, +d, v, x}:
-      PV.cast_pf_w(n, d, v, K.Kernel.map_maybe(~String, ~F32, ~(s => V.Eval.read_f32(s)), n, d, x, 0.0))
+      PV.cast_pf_w(n, d, v, ST.Strs.map_maybe(~F32, ~(s => V.Eval.read_f32(s)), n, d, x, 0.0))
     case D.TStr{} C.CBool{+n, +d, v, x}:
-      PV.done_w(D.TStr{}, n, V.Eval.fix.s(n, d, v, K.Kernel.map(~U32, ~String, ~(w => V.Eval.show_bool(w)), n, d, x, "")), PV.fixs_w(n, d, v, K.Kernel.map(~U32, ~String, ~(w => V.Eval.show_bool(w)), n, d, x, "")))
+      PV.done_w(D.TStr{}, n, V.Eval.fix.s(n, d, v, ST.SRaw{K.Kernel.map(~U32, ~String, ~(w => V.Eval.show_bool(w)), n, d, x, "")}), PV.fixs_w(n, d, v, ST.SRaw{K.Kernel.map(~U32, ~String, ~(w => V.Eval.show_bool(w)), n, d, x, "")}))
     case D.TStr{} C.CU32{+n, +d, v, x}:
-      PV.done_w(D.TStr{}, n, V.Eval.fix.s(n, d, v, K.Kernel.map(~U32, ~String, ~(w => U32.show(w)), n, d, x, "")), PV.fixs_w(n, d, v, K.Kernel.map(~U32, ~String, ~(w => U32.show(w)), n, d, x, "")))
+      PV.done_w(D.TStr{}, n, V.Eval.fix.s(n, d, v, ST.SRaw{K.Kernel.map(~U32, ~String, ~(w => U32.show(w)), n, d, x, "")}), PV.fixs_w(n, d, v, ST.SRaw{K.Kernel.map(~U32, ~String, ~(w => U32.show(w)), n, d, x, "")}))
     case D.TStr{} C.CI32{+n, +d, v, x}:
-      PV.done_w(D.TStr{}, n, V.Eval.fix.s(n, d, v, K.Kernel.map(~U32, ~String, ~(w => D.I32.show(D.I32{w})), n, d, x, "")), PV.fixs_w(n, d, v, K.Kernel.map(~U32, ~String, ~(w => D.I32.show(D.I32{w})), n, d, x, "")))
+      PV.done_w(D.TStr{}, n, V.Eval.fix.s(n, d, v, ST.SRaw{K.Kernel.map(~U32, ~String, ~(w => D.I32.show(D.I32{w})), n, d, x, "")}), PV.fixs_w(n, d, v, ST.SRaw{K.Kernel.map(~U32, ~String, ~(w => D.I32.show(D.I32{w})), n, d, x, "")}))
     case D.TStr{} C.CF32{+n, +d, v, x}:
-      PV.done_w(D.TStr{}, n, V.Eval.fix.s(n, d, v, K.Kernel.map(~F32, ~String, ~(w => F32.show(w)), n, d, x, "")), PV.fixs_w(n, d, v, K.Kernel.map(~F32, ~String, ~(w => F32.show(w)), n, d, x, "")))
+      PV.done_w(D.TStr{}, n, V.Eval.fix.s(n, d, v, ST.SRaw{K.Kernel.map(~F32, ~String, ~(w => F32.show(w)), n, d, x, "")}), PV.fixs_w(n, d, v, ST.SRaw{K.Kernel.map(~F32, ~String, ~(w => F32.show(w)), n, d, x, "")}))
     case D.TStr{} C.CStr{+n, +d, v, x}:
       (V.Eval.try_cast(D.TStr{}, C.CStr{n, d, v, x}), {==}, ({==}, {==}))
 
@@ -701,7 +702,7 @@ def Laws.eval_fill_typed(a, b, t, hok):
     case C.CStr{+n, +d, va, xa} C.CF32{+n2, +d2, vb, xb}:
       Empty.absurd(Laws.ResW(True{}, t, n, V.Eval.fill(C.CStr{n, d, va, xa}, C.CF32{n2, d2, vb, xb})), PV.fail_done_r(D.DType, X.Expr.type.fill(Done{D.TStr{}}, Done{D.TF32{}}), t, {==}, hok))
     case C.CStr{+n, +d, va, xa} C.CStr{+n2, +d2, vb, xb}:
-      PV.resw_dtype(True{}, t, D.TStr{}, n, V.Eval.fill.s(n, d, V.Eval.fill.t(~String, n, d, va, vb, xa, xb)), L.done_inj(D.DType, D.TStr{}, t, hok), PV.fill_s_w(n, d, V.Eval.fill.t(~String, n, d, va, vb, xa, xb)))
+      PV.resw_dtype(True{}, t, D.TStr{}, n, V.Eval.fill.str(n, d, va, vb, xa, xb), L.done_inj(D.DType, D.TStr{}, t, hok), PV.fill_str_w(n, d, va, vb, xa, xb))
 
 # the condition's 0/1 mask (Eval.when.c on a bool column), as a live witness
 def whenc_w(+nc: U32, +dc: Nat, vc: C.Valid, xc: Array<U32>) -> &m: Array<U32> -> &n2: U32 -> {V.Eval.when.cv(nc, dc, vc, xc) == (m, n2) : Array<U32> & U32}:
@@ -763,7 +764,7 @@ def whenv_w(m: Array<U32>, a: C.Column, b: C.Column, +t: D.DType, hok: {X.Expr.t
     case C.CStr{+n, +d, va, xa} C.CF32{+n2, +d2, vb, xb}:
       Empty.absurd(Laws.ResW(True{}, t, n, V.Eval.when.v(m, C.CStr{n, d, va, xa}, C.CF32{n2, d2, vb, xb})), PV.fail_done_r(D.DType, X.Expr.type.when.ok(D.TBool{}, D.TStr{}, D.TF32{}), t, {==}, hok))
     case C.CStr{+n, +d, va, xa} C.CStr{+n2, +d2, vb, xb}:
-      PV.resw_dtype(True{}, t, D.TStr{}, n, V.Eval.when.s(n, d, va, vb, K.Kernel.choose(~String, n, m, xa, xb)), L.done_inj(D.DType, D.TStr{}, t, hok), PV.when_s_w(n, d, va, vb, K.Kernel.choose(~String, n, m, xa, xb)))
+      PV.resw_dtype(True{}, t, D.TStr{}, n, V.Eval.when.str(n, d, m, va, vb, xa, xb), L.done_inj(D.DType, D.TStr{}, t, hok), PV.when_str_w(n, d, m, va, vb, xa, xb))
 
 def when_bool(+nc: U32, +dc: Nat, -vc: C.Valid, -xc: Array<U32>, a: C.Column, b: C.Column, +t: D.DType, hok: {X.Expr.type.when.ok(D.TBool{}, Laws.cdtype(a), Laws.cdtype(b)) == Done{t} : E.Res(D.DType)}, w: &m: Array<U32> -> &n2: U32 -> {V.Eval.when.cv(nc, dc, vc, xc) == (m, n2) : Array<U32> & U32}) -> Laws.ResW(True{}, t, Laws.clen(a), V.Eval.when.m(a, b, V.Eval.when.cv(nc, dc, vc, xc))):
   (m, n2, e) = w
@@ -796,7 +797,7 @@ def Laws.eval_isin_typed(vs, c, t, hok):
     case C.CF32{+n, +d, v, x}:
       PV.resw_dtype(True{}, t, D.TBool{}, n, Done{V.Eval.fix.w(D.TBool{}, n, d, v, K.Kernel.map_p(~F32, ~List<&2, U32>, ~U32, ~(p => w => Bool.to_u32(V.Eval.wmem(K.Kernel.fword(w), p))), n, d, x, V.Eval.isin.words(vs), 0))}, isin_ok_bool(vs, D.TF32{}, t, hok), PV.done_w(D.TBool{}, n, V.Eval.fix.w(D.TBool{}, n, d, v, K.Kernel.map_p(~F32, ~List<&2, U32>, ~U32, ~(p => w => Bool.to_u32(V.Eval.wmem(K.Kernel.fword(w), p))), n, d, x, V.Eval.isin.words(vs), 0)), PV.fixw_w(D.TBool{}, n, d, v, K.Kernel.map_p(~F32, ~List<&2, U32>, ~U32, ~(p => w => Bool.to_u32(V.Eval.wmem(K.Kernel.fword(w), p))), n, d, x, V.Eval.isin.words(vs), 0))))
     case C.CStr{+n, +d, v, x}:
-      PV.resw_dtype(True{}, t, D.TBool{}, n, Done{V.Eval.fix.w(D.TBool{}, n, d, v, K.Kernel.map_p(~String, ~List<&2, String>, ~U32, ~(p => w => Bool.to_u32(V.Eval.smem(w, p))), n, d, x, V.Eval.isin.strs(vs), 0))}, isin_ok_bool(vs, D.TStr{}, t, hok), PV.done_w(D.TBool{}, n, V.Eval.fix.w(D.TBool{}, n, d, v, K.Kernel.map_p(~String, ~List<&2, String>, ~U32, ~(p => w => Bool.to_u32(V.Eval.smem(w, p))), n, d, x, V.Eval.isin.strs(vs), 0)), PV.fixw_w(D.TBool{}, n, d, v, K.Kernel.map_p(~String, ~List<&2, String>, ~U32, ~(p => w => Bool.to_u32(V.Eval.smem(w, p))), n, d, x, V.Eval.isin.strs(vs), 0))))
+      PV.resw_dtype(True{}, t, D.TBool{}, n, Done{V.Eval.fix.w(D.TBool{}, n, d, v, ST.Strs.map_p(~List<&2, String>, ~U32, ~(p => w => Bool.to_u32(V.Eval.smem(w, p))), n, d, x, V.Eval.isin.strs(vs), 0))}, isin_ok_bool(vs, D.TStr{}, t, hok), PV.done_w(D.TBool{}, n, V.Eval.fix.w(D.TBool{}, n, d, v, ST.Strs.map_p(~List<&2, String>, ~U32, ~(p => w => Bool.to_u32(V.Eval.smem(w, p))), n, d, x, V.Eval.isin.strs(vs), 0)), PV.fixw_w(D.TBool{}, n, d, v, ST.Strs.map_p(~List<&2, String>, ~U32, ~(p => w => Bool.to_u32(V.Eval.smem(w, p))), n, d, x, V.Eval.isin.strs(vs), 0))))
 
 def Laws.eval_clip_typed(lo, hi, c, t, hok):
   match c:
@@ -876,6 +877,57 @@ def unit_pick_lit(b: Bool, s: D.Scalar, +t2: D.DType, hs: {Laws.lit_dtype(s, t2)
     case False{}:
       PV.unit_fin(t2, V.Eval.const_col.d(s, t2, 1, K.Kernel.depth_for(1)), PV.constcol_w(s, t2, t2, 1, K.Kernel.depth_for(1), hs))
 
+# M4: the Str aggregations over either storage (Raw: Eval.agg.sr, the strings; Dictionary:
+# Eval.agg.sd, through the entries)
+def aggs_min_w(+k: U32, x: ST.Strs) -> Laws.ResW(True{}, D.TStr{}, 1, V.Eval.agg.s(X.Min{}, k, x)):
+  match x:
+    case ST.SRaw{xs}:
+      (V.Eval.agg.s(X.Min{}, k, ST.SRaw{xs}), {==}, unit_nz_str(U32.is_zero(k), V.Eval.fold1(~String, ~(a => b => V.Eval.str_min(a, b)), k, xs)))
+    case ST.SDict{codes, dict}:
+      (V.Eval.agg.s(X.Min{}, k, ST.SDict{codes, dict}), {==}, unit_nz_str(U32.is_zero(k), V.Eval.ds.ext(False{}, k, codes, dict)))
+
+def aggs_max_w(+k: U32, x: ST.Strs) -> Laws.ResW(True{}, D.TStr{}, 1, V.Eval.agg.s(X.Max{}, k, x)):
+  match x:
+    case ST.SRaw{xs}:
+      (V.Eval.agg.s(X.Max{}, k, ST.SRaw{xs}), {==}, unit_nz_str(U32.is_zero(k), V.Eval.fold1(~String, ~(a => b => V.Eval.str_max(a, b)), k, xs)))
+    case ST.SDict{codes, dict}:
+      (V.Eval.agg.s(X.Max{}, k, ST.SDict{codes, dict}), {==}, unit_nz_str(U32.is_zero(k), V.Eval.ds.ext(True{}, k, codes, dict)))
+
+def aggs_first_w(+k: U32, x: ST.Strs) -> Laws.ResW(True{}, D.TStr{}, 1, V.Eval.agg.s(X.First{}, k, x)):
+  match x:
+    case ST.SRaw{xs}:
+      (V.Eval.agg.s(X.First{}, k, ST.SRaw{xs}), {==}, unit_nz_str(U32.is_zero(k), V.Eval.at(~String, xs, 0)))
+    case ST.SDict{codes, dict}:
+      (V.Eval.agg.s(X.First{}, k, ST.SDict{codes, dict}), {==}, unit_nz_str(U32.is_zero(k), V.Eval.ds.at(codes, 0, dict)))
+
+def aggs_last_w(+k: U32, x: ST.Strs) -> Laws.ResW(True{}, D.TStr{}, 1, V.Eval.agg.s(X.Last{}, k, x)):
+  match x:
+    case ST.SRaw{xs}:
+      (V.Eval.agg.s(X.Last{}, k, ST.SRaw{xs}), {==}, unit_nz_str(U32.is_zero(k), V.Eval.at(~String, xs, U32.sub(k, 1))))
+    case ST.SDict{codes, dict}:
+      (V.Eval.agg.s(X.Last{}, k, ST.SDict{codes, dict}), {==}, unit_nz_str(U32.is_zero(k), V.Eval.ds.at(codes, U32.sub(k, 1), dict)))
+
+def aggs_count_w(+k: U32, x: ST.Strs, +t: D.DType, hok: {Done{D.TU32{}} == Done{t} : E.Res(D.DType)}) -> Laws.ResW(True{}, t, 1, V.Eval.agg.s(X.Count{}, k, x)):
+  match x:
+    case ST.SRaw{xs}:
+      (V.Eval.agg.s(X.Count{}, k, ST.SRaw{xs}), {==}, (L.done_inj(D.DType, D.TU32{}, t, hok), {==}))
+    case ST.SDict{codes, dict}:
+      (V.Eval.agg.s(X.Count{}, k, ST.SDict{codes, dict}), {==}, (L.done_inj(D.DType, D.TU32{}, t, hok), {==}))
+
+def aggs_len_w(+k: U32, x: ST.Strs, +t: D.DType, hok: {Done{D.TU32{}} == Done{t} : E.Res(D.DType)}) -> Laws.ResW(True{}, t, 1, V.Eval.agg.s(X.Len{}, k, x)):
+  match x:
+    case ST.SRaw{xs}:
+      (V.Eval.agg.s(X.Len{}, k, ST.SRaw{xs}), {==}, (L.done_inj(D.DType, D.TU32{}, t, hok), {==}))
+    case ST.SDict{codes, dict}:
+      (V.Eval.agg.s(X.Len{}, k, ST.SDict{codes, dict}), {==}, (L.done_inj(D.DType, D.TU32{}, t, hok), {==}))
+
+def aggs_nunique_w(+k: U32, x: ST.Strs, +t: D.DType, hok: {Done{D.TU32{}} == Done{t} : E.Res(D.DType)}) -> Laws.ResW(True{}, t, 1, V.Eval.agg.s(X.NUnique{}, k, x)):
+  match x:
+    case ST.SRaw{xs}:
+      (V.Eval.agg.s(X.NUnique{}, k, ST.SRaw{xs}), {==}, (L.done_inj(D.DType, D.TU32{}, t, hok), {==}))
+    case ST.SDict{codes, dict}:
+      (V.Eval.agg.s(X.NUnique{}, k, ST.SDict{codes, dict}), {==}, (L.done_inj(D.DType, D.TU32{}, t, hok), {==}))
+
 # agg.dense on the dense (null-free) column: per op and dtype
 def aggdense_w(op: X.AggOp, c: C.Column, +t: D.DType, hok: {X.Expr.type.agg.ok(op, Laws.cdtype(c)) == Done{t} : E.Res(D.DType)}) -> Laws.ResW(True{}, t, 1, V.Eval.agg.dense(op, c)):
   match op c:
@@ -908,7 +960,7 @@ def aggdense_w(op: X.AggOp, c: C.Column, +t: D.DType, hok: {X.Expr.type.agg.ok(o
     case X.Min{} C.CF32{+k, +d, v, x}:
       PV.resw_dtype(True{}, t, D.TF32{}, 1, V.Eval.agg.dense(X.Min{}, C.CF32{k, d, v, x}), L.done_inj(D.DType, D.TF32{}, t, hok), (V.Eval.agg.dense(X.Min{}, C.CF32{k, d, v, x}), {==}, unit_nz_f32(U32.is_zero(k), V.Eval.fold1(~F32, ~(a => b => K.Kernel.fmin(a, b)), k, x))))
     case X.Min{} C.CStr{+k, +d, v, x}:
-      PV.resw_dtype(True{}, t, D.TStr{}, 1, V.Eval.agg.dense(X.Min{}, C.CStr{k, d, v, x}), L.done_inj(D.DType, D.TStr{}, t, hok), (V.Eval.agg.dense(X.Min{}, C.CStr{k, d, v, x}), {==}, unit_nz_str(U32.is_zero(k), V.Eval.fold1(~String, ~(a => b => V.Eval.str_min(a, b)), k, x))))
+      PV.resw_dtype(True{}, t, D.TStr{}, 1, V.Eval.agg.dense(X.Min{}, C.CStr{k, d, v, x}), L.done_inj(D.DType, D.TStr{}, t, hok), aggs_min_w(k, x))
     case X.Max{} C.CBool{+k, +d, v, x}:
       PV.resw_dtype(True{}, t, D.TBool{}, 1, V.Eval.agg.dense(X.Max{}, C.CBool{k, d, v, x}), L.done_inj(D.DType, D.TBool{}, t, hok), (V.Eval.agg.dense(X.Max{}, C.CBool{k, d, v, x}), {==}, unit_nz_word(U32.is_zero(k), D.TBool{}, {==}, V.Eval.agg.wmax(D.TBool{}, k, x))))
     case X.Max{} C.CU32{+k, +d, v, x}:
@@ -918,7 +970,7 @@ def aggdense_w(op: X.AggOp, c: C.Column, +t: D.DType, hok: {X.Expr.type.agg.ok(o
     case X.Max{} C.CF32{+k, +d, v, x}:
       PV.resw_dtype(True{}, t, D.TF32{}, 1, V.Eval.agg.dense(X.Max{}, C.CF32{k, d, v, x}), L.done_inj(D.DType, D.TF32{}, t, hok), (V.Eval.agg.dense(X.Max{}, C.CF32{k, d, v, x}), {==}, unit_nz_f32(U32.is_zero(k), V.Eval.fold1(~F32, ~(a => b => K.Kernel.fmax(a, b)), k, x))))
     case X.Max{} C.CStr{+k, +d, v, x}:
-      PV.resw_dtype(True{}, t, D.TStr{}, 1, V.Eval.agg.dense(X.Max{}, C.CStr{k, d, v, x}), L.done_inj(D.DType, D.TStr{}, t, hok), (V.Eval.agg.dense(X.Max{}, C.CStr{k, d, v, x}), {==}, unit_nz_str(U32.is_zero(k), V.Eval.fold1(~String, ~(a => b => V.Eval.str_max(a, b)), k, x))))
+      PV.resw_dtype(True{}, t, D.TStr{}, 1, V.Eval.agg.dense(X.Max{}, C.CStr{k, d, v, x}), L.done_inj(D.DType, D.TStr{}, t, hok), aggs_max_w(k, x))
     case X.Count{} C.CBool{+k, +d, v, x}:
       (V.Eval.agg.dense(X.Count{}, C.CBool{k, d, v, x}), {==}, (L.done_inj(D.DType, D.TU32{}, t, hok), {==}))
     case X.Count{} C.CU32{+k, +d, v, x}:
@@ -928,7 +980,7 @@ def aggdense_w(op: X.AggOp, c: C.Column, +t: D.DType, hok: {X.Expr.type.agg.ok(o
     case X.Count{} C.CF32{+k, +d, v, x}:
       (V.Eval.agg.dense(X.Count{}, C.CF32{k, d, v, x}), {==}, (L.done_inj(D.DType, D.TU32{}, t, hok), {==}))
     case X.Count{} C.CStr{+k, +d, v, x}:
-      (V.Eval.agg.dense(X.Count{}, C.CStr{k, d, v, x}), {==}, (L.done_inj(D.DType, D.TU32{}, t, hok), {==}))
+      aggs_count_w(k, x, t, hok)
     case X.Len{} C.CBool{+k, +d, v, x}:
       (V.Eval.agg.dense(X.Len{}, C.CBool{k, d, v, x}), {==}, (L.done_inj(D.DType, D.TU32{}, t, hok), {==}))
     case X.Len{} C.CU32{+k, +d, v, x}:
@@ -938,7 +990,7 @@ def aggdense_w(op: X.AggOp, c: C.Column, +t: D.DType, hok: {X.Expr.type.agg.ok(o
     case X.Len{} C.CF32{+k, +d, v, x}:
       (V.Eval.agg.dense(X.Len{}, C.CF32{k, d, v, x}), {==}, (L.done_inj(D.DType, D.TU32{}, t, hok), {==}))
     case X.Len{} C.CStr{+k, +d, v, x}:
-      (V.Eval.agg.dense(X.Len{}, C.CStr{k, d, v, x}), {==}, (L.done_inj(D.DType, D.TU32{}, t, hok), {==}))
+      aggs_len_w(k, x, t, hok)
     case X.NUnique{} C.CBool{+k, +d, v, x}:
       (V.Eval.agg.dense(X.NUnique{}, C.CBool{k, d, v, x}), {==}, (L.done_inj(D.DType, D.TU32{}, t, hok), {==}))
     case X.NUnique{} C.CU32{+k, +d, v, x}:
@@ -948,7 +1000,7 @@ def aggdense_w(op: X.AggOp, c: C.Column, +t: D.DType, hok: {X.Expr.type.agg.ok(o
     case X.NUnique{} C.CF32{+k, +d, v, x}:
       (V.Eval.agg.dense(X.NUnique{}, C.CF32{k, d, v, x}), {==}, (L.done_inj(D.DType, D.TU32{}, t, hok), {==}))
     case X.NUnique{} C.CStr{+k, +d, v, x}:
-      (V.Eval.agg.dense(X.NUnique{}, C.CStr{k, d, v, x}), {==}, (L.done_inj(D.DType, D.TU32{}, t, hok), {==}))
+      aggs_nunique_w(k, x, t, hok)
     case X.First{} C.CBool{+k, +d, v, x}:
       PV.resw_dtype(True{}, t, D.TBool{}, 1, V.Eval.agg.dense(X.First{}, C.CBool{k, d, v, x}), L.done_inj(D.DType, D.TBool{}, t, hok), (V.Eval.agg.dense(X.First{}, C.CBool{k, d, v, x}), {==}, unit_nz_word(U32.is_zero(k), D.TBool{}, {==}, V.Eval.at(~U32, x, 0))))
     case X.First{} C.CU32{+k, +d, v, x}:
@@ -958,7 +1010,7 @@ def aggdense_w(op: X.AggOp, c: C.Column, +t: D.DType, hok: {X.Expr.type.agg.ok(o
     case X.First{} C.CF32{+k, +d, v, x}:
       PV.resw_dtype(True{}, t, D.TF32{}, 1, V.Eval.agg.dense(X.First{}, C.CF32{k, d, v, x}), L.done_inj(D.DType, D.TF32{}, t, hok), (V.Eval.agg.dense(X.First{}, C.CF32{k, d, v, x}), {==}, unit_nz_f32(U32.is_zero(k), V.Eval.at(~F32, x, 0))))
     case X.First{} C.CStr{+k, +d, v, x}:
-      PV.resw_dtype(True{}, t, D.TStr{}, 1, V.Eval.agg.dense(X.First{}, C.CStr{k, d, v, x}), L.done_inj(D.DType, D.TStr{}, t, hok), (V.Eval.agg.dense(X.First{}, C.CStr{k, d, v, x}), {==}, unit_nz_str(U32.is_zero(k), V.Eval.at(~String, x, 0))))
+      PV.resw_dtype(True{}, t, D.TStr{}, 1, V.Eval.agg.dense(X.First{}, C.CStr{k, d, v, x}), L.done_inj(D.DType, D.TStr{}, t, hok), aggs_first_w(k, x))
     case X.Last{} C.CBool{+k, +d, v, x}:
       PV.resw_dtype(True{}, t, D.TBool{}, 1, V.Eval.agg.dense(X.Last{}, C.CBool{k, d, v, x}), L.done_inj(D.DType, D.TBool{}, t, hok), (V.Eval.agg.dense(X.Last{}, C.CBool{k, d, v, x}), {==}, unit_nz_word(U32.is_zero(k), D.TBool{}, {==}, V.Eval.at(~U32, x, U32.sub(k, 1)))))
     case X.Last{} C.CU32{+k, +d, v, x}:
@@ -968,7 +1020,7 @@ def aggdense_w(op: X.AggOp, c: C.Column, +t: D.DType, hok: {X.Expr.type.agg.ok(o
     case X.Last{} C.CF32{+k, +d, v, x}:
       PV.resw_dtype(True{}, t, D.TF32{}, 1, V.Eval.agg.dense(X.Last{}, C.CF32{k, d, v, x}), L.done_inj(D.DType, D.TF32{}, t, hok), (V.Eval.agg.dense(X.Last{}, C.CF32{k, d, v, x}), {==}, unit_nz_f32(U32.is_zero(k), V.Eval.at(~F32, x, U32.sub(k, 1)))))
     case X.Last{} C.CStr{+k, +d, v, x}:
-      PV.resw_dtype(True{}, t, D.TStr{}, 1, V.Eval.agg.dense(X.Last{}, C.CStr{k, d, v, x}), L.done_inj(D.DType, D.TStr{}, t, hok), (V.Eval.agg.dense(X.Last{}, C.CStr{k, d, v, x}), {==}, unit_nz_str(U32.is_zero(k), V.Eval.at(~String, x, U32.sub(k, 1)))))
+      PV.resw_dtype(True{}, t, D.TStr{}, 1, V.Eval.agg.dense(X.Last{}, C.CStr{k, d, v, x}), L.done_inj(D.DType, D.TStr{}, t, hok), aggs_last_w(k, x))
     case X.Std{} C.CBool{+k, +d, v, x}:
       Empty.absurd(Laws.ResW(True{}, t, 1, V.Eval.agg.dense(X.Std{}, C.CBool{k, d, v, x})), PV.fail_done_r(D.DType, X.Expr.type.agg.ok(X.Std{}, D.TBool{}), t, {==}, hok))
     case X.Std{} C.CU32{+k, +d, v, x}:
@@ -1012,6 +1064,14 @@ def agg_count_w(+n: U32, -c: C.Column, +t: D.DType, e: {D.TU32{} == t : D.DType}
   %Equal.sym(C.Column & U32, C.Column.null_count(c), (c2, k), eq) : Laws.ResW(True{}, t, 1, Done{V.Eval.agg.count.b(n, _)})
   (Done{V.Eval.agg.count.b(n, (c2, k))}, {==}, (e, {==}))
 
+# M4: n_unique over either Str storage (Raw: the strings; Dictionary: Eval.ds.nu over the codes)
+def aggdense_nu_s(+k: U32, x: ST.Strs) -> &w: U32 -> {V.Eval.agg.s(X.NUnique{}, k, x) == Done{V.Eval.unit(D.SU32{w}, D.TU32{})} : E.ResT(C.Column)}:
+  match x:
+    case ST.SRaw{xs}:
+      (V.Eval.nuniq(~String, ~(a => b => String.is_le(a, b)), ~(a => b => String.eq(a, b)), k, xs), {==})
+    case ST.SDict{codes, dict}:
+      (V.Eval.ds.nu(k, codes, dict), {==})
+
 # n_unique: the distinct valid values plus one for a null
 def aggdense_nu(c3: C.Column) -> &w: U32 -> {V.Eval.agg.dense(X.NUnique{}, c3) == Done{V.Eval.unit(D.SU32{w}, D.TU32{})} : E.ResT(C.Column)}:
   match c3:
@@ -1024,7 +1084,7 @@ def aggdense_nu(c3: C.Column) -> &w: U32 -> {V.Eval.agg.dense(X.NUnique{}, c3) =
     case C.CF32{+k, d, v, x}:
       (V.Eval.nuniq(~U32, ~(a => b => U32.is_le(a, b)), ~(a => b => U32.is_eq(a, b)), k, K.Kernel.map(~F32, ~U32, ~(w => K.Kernel.fword(w)), k, K.Kernel.depth_for(k), x, 0)), {==})
     case C.CStr{k, d, v, x}:
-      (V.Eval.nuniq(~String, ~(a => b => String.is_le(a, b)), ~(a => b => String.eq(a, b)), k, x), {==})
+      aggdense_nu_s(k, x)
 
 def nu_fin(+nulls: U32, -c3: C.Column, +t: D.DType, e: {D.TU32{} == t : D.DType}, w: &w: U32 -> {V.Eval.agg.dense(X.NUnique{}, c3) == Done{V.Eval.unit(D.SU32{w}, D.TU32{})} : E.ResT(C.Column)}) -> Laws.ResW(True{}, t, 1, V.Eval.nu.r(nulls, V.Eval.agg.dense(X.NUnique{}, c3))):
   (+w, eq) = w

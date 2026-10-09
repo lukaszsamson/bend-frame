@@ -22,6 +22,7 @@ import Base
 import ./src/dtype.bend as D
 import ./src/err.bend as E
 import ./src/column.bend as C
+import ./src/strs.bend as ST
 import ./src/schema.bend as S
 import ./src/expr.bend as X
 import ./src/eval.bend as V
@@ -75,6 +76,10 @@ def CsvOpts() -> Data:
 
 def CsvWriteOpts() -> Data:
   R.CsvWriteOpts
+
+# a reader's Str storage: DF.str_auto() (the default), DF.str_raw(), DF.str_dict()
+def StrEnc() -> Data:
+  ST.StrEnc
 
 # a (from, to) pair of DF.rename / DF.lazy_rename, written ("a", "b")
 def RenamePair() -> Data:
@@ -413,6 +418,59 @@ def read_csv_opts(path: String, opts: R.CsvOpts) -> IO(E.ResT(C.Frame)):
 # parse is a ParseError, a wrong count an InvalidOperation; [] infers
 def read_csv_schema(path: String, opts: R.CsvOpts, dtypes: List<&2, D.DType>) -> IO(E.ResT(C.Frame)):
   R.Csv.read_with(path, opts, dtypes)
+
+# ---- Str storage (M4, DESIGN.md 14 M4): how a reader holds a str column ----------------
+# Raw: one string per row; Dictionary: one code per row and each distinct string once; Auto (the
+# readers' default, R.Csv.enc_default): a Dictionary while the column has at most
+# max(16384, rows / 64) distinct values, else Raw. Values, dtypes and every result are the same
+# in all three; only time and memory differ.
+def str_raw() -> ST.StrEnc:
+  ST.EncRaw{}
+
+def str_dict() -> ST.StrEnc:
+  ST.EncDict{}
+
+def str_auto() -> ST.StrEnc:
+  ST.EncAuto{}
+
+# read_csv_schema with the Str storage chosen ([] dtypes infers)
+def read_csv_enc(path: String, opts: R.CsvOpts, dtypes: List<&2, D.DType>, enc: ST.StrEnc) -> IO(E.ResT(C.Frame)):
+  R.Csv.read_enc(path, opts, dtypes, enc)
+
+# every str column Dictionary-encoded (dict) or decoded to Raw (not dict); the values are unchanged
+def encode_strings(f: C.Frame, dict: Bool) -> C.Frame:
+  C.Frame.encode(f, dict)
+
+def dict_columns.j(+n: String, c: C.Column, b: Bool, rest: List<&1, C.Named> & List<&2, String>) -> List<&1, C.Named> & List<&2, String>:
+  match b:
+    case True{}:
+      (cs, ns) = rest
+      (C.Named{n, c} <> cs, n <> ns)
+    case False{}:
+      (cs, ns) = rest
+      (C.Named{n, c} <> cs, ns)
+
+def dict_columns.k(+n: String, r: C.Column & Bool, rest: List<&1, C.Named> & List<&2, String>) -> List<&1, C.Named> & List<&2, String>:
+  (c, b) = r
+  dict_columns.j(n, c, b, rest)
+
+def dict_columns.go(cs: List<&1, C.Named>) -> List<&1, C.Named> & List<&2, String>:
+  match cs:
+    case Nil{}:
+      (Nil{}, Nil{})
+    case C.Named{+n, c} <> t:
+      dict_columns.k(n, C.Column.is_dict(c), dict_columns.go(t))
+
+def dict_columns.f(+h: U32, r: List<&1, C.Named> & List<&2, String>) -> C.Frame & List<&2, String>:
+  (cs, ns) = r
+  (C.Frame{h, cs}, ns)
+
+# the names of the str columns held as a Dictionary, in column order (which columns Auto coded);
+# the frame comes back unchanged, as a pair
+def dict_columns(f: C.Frame) -> C.Frame & List<&2, String>:
+  match f:
+    case C.Frame{+h, cs}:
+      dict_columns.f(h, dict_columns.go(cs))
 
 # helper: the table of a (frame & text) pair
 def show.s(x: C.Frame & String) -> String:

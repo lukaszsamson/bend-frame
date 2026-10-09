@@ -62,6 +62,15 @@ def cf32(name: String, xs: List<&2, D.Scalar>) -> C.Named:
 def cstr(name: String, xs: List<&2, D.Scalar>) -> C.Named:
   mk(name, xs, D.TStr{})
 
+# a str column in the Dictionary storage (M4; `run.py --dict` emits it for every str column)
+def mkd.k(nc: C.Named) -> C.Named:
+  match nc:
+    case C.Named{n, c}:
+      C.Named{n, C.Column.encode(c)}
+
+def cstrd(name: String, xs: List<&2, D.Scalar>) -> C.Named:
+  mkd.k(mk(name, xs, D.TStr{}))
+
 def frame(cols: List<&1, C.Named>) -> E.ResT(C.Frame):
   DF.from_columns(cols)
 

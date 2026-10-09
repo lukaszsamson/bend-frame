@@ -9,6 +9,7 @@ import ./../src/dtype.bend as D
 import ./../src/err.bend as E
 import ./../src/kernels.bend as K
 import ./../src/column.bend as C
+import ./../src/strs.bend as ST
 import ./../src/csv.bend as V
 import ./../src/join.bend as J
 
@@ -68,9 +69,25 @@ def ff.k(+n: U32, d: Nat, v: C.Valid, r: Array<F32> & F32) -> C.Column & U32:
   (x, h) = r
   (C.CF32{n, d, v, x}, F32.to_u32(h))
 
-def fs.k(+n: U32, d: Nat, v: C.Valid, r: Array<String> & U32) -> C.Column & U32:
+def fs.k(+n: U32, d: Nat, v: C.Valid, r: ST.Strs & U32) -> C.Column & U32:
   (x, h) = r
   (C.CStr{n, d, v, x}, h)
+
+def fs.r(r: Array<String> & U32) -> ST.Strs & U32:
+  (a, h) = r
+  (ST.SRaw{a}, h)
+
+def fs.d(dict: ST.Dict, r: Array<U32> & U32) -> ST.Strs & U32:
+  (c, h) = r
+  (ST.SDict{c, dict}, h)
+
+# a Raw column: every string hashed; a Dictionary: every code summed
+def fs.walk(+n: U32, x: ST.Strs) -> ST.Strs & U32:
+  match x:
+    case ST.SRaw{a}:
+      fs.r(K.Kernel.fold(~String, ~U32, ~(a => y => U32.add(a, J.Str.hash(y, 0))), n, a, 0))
+    case ST.SDict{c, dict}:
+      fs.d(dict, K.Kernel.fold(~U32, ~U32, ~(a => y => U32.add(a, y)), n, c, 0))
 
 def force.col(c: C.Column) -> C.Column & U32:
   match c:
@@ -83,7 +100,7 @@ def force.col(c: C.Column) -> C.Column & U32:
     case C.CF32{+n, d, v, x}:
       ff.k(n, d, v, K.Kernel.fold(~F32, ~F32, ~(a => y => F32.add(a, y)), n, x, 0.0))
     case C.CStr{+n, d, v, x}:
-      fs.k(n, d, v, K.Kernel.fold(~String, ~U32, ~(a => y => U32.add(a, J.Str.hash(y, 0))), n, x, 0))
+      fs.k(n, d, v, fs.walk(n, x))
 
 def force.add(n: String, acc: List<&1, C.Named>, +h: U32, r: C.Column & U32) -> List<&1, C.Named> & U32:
   (c, x) = r

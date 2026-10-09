@@ -38,6 +38,7 @@ import ./dtype.bend as D
 import ./err.bend as E
 import ./kernels.bend as K
 import ./column.bend as C
+import ./strs.bend as ST
 import ./schema.bend as S
 import ./groupby.bend as G
 
@@ -370,7 +371,7 @@ def Cat.col(a: C.Column, b: C.Column, +n: U32, +d: Nat) -> C.Column:
     case C.CF32{+na, +da, va, xa} C.CF32{+nb, +db, vb, xb}:
       C.CF32{n, d, Cat.valid(va, vb, na, nb, da, db, d), K.Kernel.append(~F32, na, nb, d, xa, xb, 0.0)}
     case C.CStr{+na, +da, va, xa} C.CStr{+nb, +db, vb, xb}:
-      C.CStr{n, d, Cat.valid(va, vb, na, nb, da, db, d), K.Kernel.append(~String, na, nb, d, xa, xb, "")}
+      C.CStr{n, d, Cat.valid(va, vb, na, nb, da, db, d), ST.Strs.append(na, nb, da, db, d, xa, xb)}
     case x y:
       x
 

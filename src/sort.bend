@@ -25,6 +25,7 @@ import ./dtype.bend as D
 import ./err.bend as E
 import ./kernels.bend as K
 import ./column.bend as C
+import ./strs.bend as ST
 
 type SortKey is Data:
   SortKey{name: String, descending: Bool, nulls_last: Bool}
@@ -189,6 +190,20 @@ def Sort.str_words.b(+n: U32, +d: Nat, +flip: U32, r: Array<String> & Array<U32>
 def Sort.str_words(+n: U32, +d: Nat, +flip: U32, a: Array<String>) -> Array<U32>:
   Sort.str_words.b(n, d, flip, Sort.str_codes_par(n, d, 0, a))
 
+# order-preserving words of a Dictionary column (M4): the dictionary is ranked ONCE (its k
+# entries through the same Map as Sort.str_words, so the order is the same), then each row's
+# word is its code's rank (one gather)
+def Sort.dict_words.b(+n: U32, +d: Nat, +flip: U32, codes: Array<U32>, r: ST.Dict & Array<U32>) -> Array<U32>:
+  (dict, rk) = r
+  Sort.xmap(~U32, ~(x => x), n, d, flip, Sort.snd0(K.Kernel.gather(~U32, n, d, rk, codes, 0)))
+
+def Sort.str_words.st(+n: U32, +d: Nat, +flip: U32, x: ST.Strs) -> Array<U32>:
+  match x:
+    case ST.SRaw{a}:
+      Sort.str_words(n, d, flip, a)
+    case ST.SDict{codes, dict}:
+      Sort.dict_words.b(n, d, flip, codes, ST.Dict.ranks(dict))
+
 # ---- column -> sort words ----------------------------------------------------------------
 
 def Sort.words.zm(r: Array<U32> & Array<U32>) -> Array<U32> & C.Valid:
@@ -216,7 +231,7 @@ def Sort.words.go(c: C.Column, +flip: U32) -> Array<U32> & C.Valid:
     case C.CF32{+n, d, v, x}:
       Sort.words.z(n, Sort.xmap(~F32, ~(w => Sort.fword(w)), n, d, flip, x), v)
     case C.CStr{+n, d, v, x}:
-      Sort.words.z(n, Sort.str_words(n, d, flip, x), v)
+      Sort.words.z(n, Sort.str_words.st(n, d, flip, x), v)
 
 def Sort.words(c: C.Column, desc: Bool) -> Array<U32> & C.Valid:
   Sort.words.go(c, Bool.pick(U32, desc, 4294967295, 0))

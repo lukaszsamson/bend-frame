@@ -310,7 +310,7 @@ type Column is Type:
   CU32{len: U32, depth: Nat, valid: Valid, data: Array<U32>}
   CI32{len: U32, depth: Nat, valid: Valid, data: Array<U32>}
   CF32{len: U32, depth: Nat, valid: Valid, data: Array<F32>}
-  CStr{len: U32, depth: Nat, valid: Valid, data: Array<String>}
+  CStr{len: U32, depth: Nat, valid: Valid, data: ST.Strs}   # M4: Raw or Dictionary storage
 
 type Named is Type:
   Named{name: String, col: Column}
@@ -318,6 +318,11 @@ type Named is Type:
 type Frame is Type:
   Frame{height: U32, cols: List<&1, Named>}
 ```
+
+M4 (section 14, "M4 string experiment"): a Str column's data is `ST.Strs` (src/strs.bend),
+`SRaw{data: Array<String>}` (one string per row) or `SDict{codes: Array<U32>, dict: Dict}`
+(one code per row; `dict` holds each distinct string once, entry 0 is always `""`, a null
+row holds code 0). Both decode to the same rows and every operation answers the same values.
 
 Invariants (not type-enforced; `LAWS.bend` may state them): `len <= 2^depth`;
 `data` has exactly `2^depth` slots; `Mask{m}` has `2^depth` slots of `0`/`1`
@@ -795,7 +800,7 @@ Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 | 9 P0 well-formedness (`PROOF_kernels`) | `u32_min_le`, `wf_new`, `wf_new_words`, `wf_frame_empty`, `wf_column_head`, `wf_frame_head` over the Type-valued predicates `WFArray`, `WFWords`, `WFMaskedW/T`, `WFValidW/T`, `WFColumn`, `WFColumnH`, `WFCols`, `WFFrame` (len <= 2^depth, perfect trees, 0/1 mask and bool words, null slots at the default, equal heights, unique names, the zero-column convention) |
 | 10 Buffer contents (`PROOF_kernels`) | `array_get_pure` (`Array.get(a, i) == (a, rd_at(a, i))`: the real getter is pure and reads the model `rd`, which makes the production halving decisions), `array_set_get` (read-after-write at the same index through the real `Array.set`), `gather_step`, `compact_step`, `compact_step_cell` (one iteration of the production `Kernel.gather.go` / `compact.go`, at the U32 instance) |
 | 11 Buffer contents, the full theorems (`PROOF_bits`, `PROOF_contents`; plan P1, M5) | `rd_at_wf` (`rd_at` of a well-formed array reads with the slot count 2^d), `paths_distinct` (THE distinct-paths bit-vector lemma: two indices below 2^d whose halving decisions through `Array.get`/`Array.set`'s descent agree are equal, over `Word.and / shr / sub / cmp`), `array_set_other` (a write at i leaves every other slot j below 2^d alone), `wf_array_set`, `gather_contents` (`Kernel.gather` at the U32 instance: `out[k] == src[perm[k]]` for every k < n when n <= 2^d) and `gather_keeps_perm`, `mask_not_cell` / `mask_and_cell` / `mask_or_cell` (`Kernel.map` / `Kernel.zip` slot contents: the validity combinators' truth tables slot by slot), `iota_cell` (`Kernel.iota_from`: `off + k`), `u32_fold_sum` / `u32_fold_keeps` (the production U32 fold with `U32.add` is the modulo-2^32 running sum of the first n cells, `FSum`), `popcount_sum` (the kept-row / valid-cell count is the sum of the mask words), `compact_contents` (`Kernel.compact_keep` at the U32 instance writes the kept rows in order at the cursor positions, `CSpec`, under the explicit precondition `CRoom`: 0/1 words and a cursor below 2^d) and `compact_keeps_mask` (data and validity stay aligned: one mask filters every buffer) |
-| 12 Column cells (`PROOF_contents`) | `cell_pure` (`Column.cell(c, i) == (c, ccell(c, i))` for all five column kinds: the production cell reader is pure and reads the model `ccell`, validity then data), `head_cell` (`Column.head` keeps every cell; with `head_len` / `head_dtype` the exact prefix), `depth_for_fits` (`Kernel.depth_for(n)` gives at least n slots for n <= 2^31), `slice_cell_u32` (row k of `Column.slice(c, off, n)` is row `off + k` of c for every k below the slice's length, data and validity, on a U32 column: the exact subrange, through `gather_contents` and `iota_cell`) |
+| 12 Column cells (`PROOF_contents`) | `cell_pure` (`Column.cell(c, i) == (c, ccell(c, i))` for all five column kinds, and for a Str column both storages, Raw and Dictionary (M4: the model `scell` reads the Raw slot, or the dictionary entry of the row's code): the production cell reader is pure and reads the model `ccell`, validity then data), `head_cell` (`Column.head` keeps every cell; with `head_len` / `head_dtype` the exact prefix), `depth_for_fits` (`Kernel.depth_for(n)` gives at least n slots for n <= 2^31), `slice_cell_u32` (row k of `Column.slice(c, off, n)` is row `off + k` of c for every k below the slice's length, data and validity, on a U32 column: the exact subrange, through `gather_contents` and `iota_cell`) |
 | 13 Evaluator typing (`PROOF_eval`, `PROOF_evalops`, `PROOF_evalrun`; plan P2, M5 part 2) | models `cdtype` / `clen` / `klen` / `skind` / `fschema` / `frame_ok` and the Type-valued `ColTy` / `ResTy` / `StkTy` / `RunTy` / `EvalTy`; purity of the readers (`len_w`, `dtype_w`, `cell_w`, `frame_height_w`, `frame_schema_w`), the P0 bridge `wf_frame_ok` (a `WFFrame` satisfies the shape facts the typing theorems assume), `get_cloned_typed` (`Frame.get_cloned` answers the frame unchanged and a copy of the column `Schema.find` names, of its dtype and h rows), `bcast_typed`, `unit_typed`; the operation laws `eval_un_typed`, `eval_bin_typed`, `eval_cast_typed` (fails exactly when `X.Cast.total` is False), `eval_try_cast_typed`, `eval_fill_typed`, `eval_when_typed`, `eval_isin_typed`, `eval_clip_typed`, `eval_strpred_typed`, `eval_agg_typed` (every operation answers a column of the dtype its typing rule in `expr.bend` gives, as long as its operand, never a failure except the strict cast); and the stack machine: `run_typed` (the postfix code `Eval.compile(e, acc)` of an expression the shared analysis `A.Expr.analyse` accepts with record (t, k, tot), run by `Eval.run` from a frame of h rows with that schema and a stack whose slots have shapes `sh`, leaves the frame unchanged and pushes one slot of dtype t and kind `skind(k)` with `klen` rows, or fails only when tot is False; by induction over the expression with the stack invariant, every Expr node), `eval_full_typed` (`Eval.full(f, e)` over a well-formed frame answers the frame unchanged and a column of the analysis' dtype with the frame's height, or a failure the analysis allowed), `eval_expr_typed` (`Eval.expr`: the same with one row for a reduction, `elen`) |
 
 ### 8.1 Assurance matrix (plan M_01 section 6: theorem -> production function -> assumptions -> checker)
@@ -817,7 +822,7 @@ Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 | `mask_not_cell`, `mask_and_cell`, `mask_or_cell`, `iota_cell` | `Kernel.map`, `Kernel.zip`, `Kernel.iota_from` (template loop lemmas `map_go` / `zip_go` instantiated at the mask combinators) | `n <= 2^d` | bend, --verdict |
 | `u32_fold_sum`, `u32_fold_keeps`, `popcount_sum` | `Kernel.fold` with `U32.add` (`Eval.agg.w` Sum over U32, `Kernel.popcount` behind filter's kept count, `Valid.count`, `Eval.dropnull`) | none (any n; the spec `FSum` is the modulo-2^32 running sum over the first n cells; "valid cells" = the cells left after `Eval.dropnull`'s compaction, see `compact_contents`) | bend, --verdict |
 | `compact_contents`, `compact_keeps_mask` | `Kernel.compact_keep` = `compact_keep.go` + `compact.put` (U32 instance), the loop behind `Column.compact`, hence `Frame.filter_mask` (filter) and `Eval.dropnull` | `CRoom(to_nat n, 0, 0, d, mask)`: every mask word is 0/1 and the write cursor stays below 2^d at each step. `Column.compact` allocates `depth_for(kept + 1)` slots, so the cursor (<= the kept count) always fits; that arithmetic ("cursor <= popcount < 2^d") is NOT yet proven, `CRoom` is the hypothesis | bend, --verdict |
-| `cell_pure`, `head_cell` | `Column.cell` (= `Column.take_valid`, `Valid.get`, `Column.cell.a/b/c`, `Column.data_cell`, `Column.cell.w/f/s`, `Column.mk_w`), `Column.head` | none (every column, every index; the model `ccell` reads validity then data with `rd_at`) | bend, --verdict |
+| `cell_pure`, `head_cell` | `Column.cell` (= `Column.take_valid`, `Valid.get`, `Column.cell.a/b/c`, `Column.data_cell`, `Column.cell.w/f/s`, `Column.mk_w`, M4: `ST.Strs.get`, `Strs.get.r/c/d`, `Dict.get`, `Dict.get.k`), `Column.head` | none (every column, every index; the model `ccell` reads validity then data with `rd_at`) | bend, --verdict |
 | `depth_for_fits` | `Kernel.depth_for` (= `depth_for.go`, fuel 32) | `n <= 2^31` (for larger n the loop runs out of fuel and answers 32, whose slot count wraps to 0; the row cap keeps n <= 2^23) | bend, --verdict |
 | `slice_cell_u32` | `Column.slice` (= `slice.a/b/c`, `Column.gather`, `Column.gather.b/c/d/data`, `Valid.gather`, `Column.out.w`, `Kernel.iota_from`, `Kernel.gather`), on `CU32` columns | `n <= 2^31`, `k < slice_len(off, n, len)`; U32 instance (Bool / I32 columns are the same word buffers and the same proof text; F32 / String need `gather_contents` at those instances) | bend, --verdict |
 | `len_w`, `dtype_w`, `cell_w`, `frame_height_w`, `frame_schema_w`, `wf_frame_ok` | `Column.len`, `Column.dtype`, `Column.cell`, `Frame.height`, `Frame.schema` (= `Cols.schema`), the P0 predicates | none (every column / frame; the readers are pure and answer the models `clen` / `cdtype` / `lit_dtype` / `fheight` / `fschema`) | bend, --verdict |
@@ -2017,6 +2022,155 @@ to ONE instruction `ITable{TOp}` (so a proof's Instr case split grows by one cas
    `collect_show`; success for `schema` and `height`; `height` of the empty frame is the edge case).
    Expectations were reasoned from the table format and the error texts of 15.9 before the run.
 
+### M4 string experiment (Raw / Dictionary storage, streaming CSV reader, the default)
+
+Plan M_01 section 5. Measurements and the per-workload table: bench/README.md "M4 string
+experiment"; raw runs: bench/results/m4/*.jsonl; Bend lessons: IMPLEMENTING.md "M4".
+
+1. **Representation**: `CStr{len, depth, valid, data: ST.Strs}` (src/strs.bend) with
+   `ST.Strs = SRaw{data: Array<String>} | SDict{codes: Array<U32>, dict: ST.Dict}`, not a sixth
+   Column constructor (every 5-way match in src/ and the proof files would have needed a new
+   case). `Dict{k, dd, strs, b, slots, tag}`: k entries in `strs` (2^dd slots), an open-addressing
+   index (FNV-1a + Fibonacci slot, linear probing, load <= 1/2) instead of the plan's
+   `Map<String, U32>` (a Map lookup costs ~3x a probe and the reader codes every cell through
+   it), and a fingerprint `tag`. The dtype stays `str`; codes never show (not a categorical
+   dtype, not a rank, not a global id). Invariants: every valid row's code < k; entries pairwise
+   distinct; the index maps each entry to its code; **entry 0 is always `""`**, so a null row
+   holds code 0 and decodes to `""`, exactly the Raw invariant (an invalid slot holds the dtype
+   default) and `Strs.decode` is a plain gather; null stays validity, never an entry.
+2. **Tag is a fingerprint, not an identity** (deviation): Bend has no global counter, so `tag`
+   is an FNV mix of the entries in code order. Equal tags are verified entry by entry
+   (`Dict.same`) before two columns' codes are compared directly; otherwise the smaller
+   dictionary is re-coded into the larger (`Dict.recode`; a miss is `Dict.miss()` = 2^32 - 1,
+   never a code).
+3. **Operations** (section 5 list): `col == lit` / `!=` codes the literal once (a 1-row Str side
+   next to a Dictionary column broadcasts as a one-entry Dictionary, `Eval.fitd`, then the
+   column x column path re-codes 2 entries); column x column equality as in item 2; ordering
+   (sort keys, `<`/`<=`/`>`/`>=`, min / max) maps codes through `Dict.ranks` (one sort of the
+   entries; Base `Map.to_list` order = code points with a prefix first = `String.is_lt`); two
+   dictionaries are merged (`Dict.merge`) and the merged entries ranked once; group_by keys and
+   unique use the codes (densified); join keys: both sides' dictionaries coded into one key
+   space (`J.Key`), so equal values with different codes on the two sides meet (the measured
+   join files are built that way); string predicates, `len_chars`, `cast` from str and `is_in`
+   run once per ENTRY and gather by code (`Strs.map / map_maybe / map_p`); `when` and
+   `fill_null` over two Dictionaries merge them (`Eval.when.sd`, `Eval.fill.sd`); concat merges
+   explicitly (`Strs.append`: b's dictionary into a's, b's rows re-coded); a Raw x Dictionary
+   pair decodes the Dictionary side. gather / filter / head / slice / clone move codes only.
+   Render, dump, `Column.cell` decode (`Strs.get`).
+4. **Encoding decision** (`ST.StrEnc`): `EncRaw`, `EncDict` (always), `EncAuto` (by measured
+   cardinality): while reading, a column stays a Dictionary while its entries k satisfy
+   `k <= max(16384, rows_so_far / 64)` (`Csv.dict_over`, checked at every cell); past it the
+   column falls back to Raw at once, decoding the rows coded so far (the only rescan: of a
+   prefix, at most ~16k rows for a column distinct from the start; no rescan when the
+   selection is made). Threshold from the 1M-row sweep (bench/README.md): at 1 % distinct
+   (10,000 values) the Dictionary parse costs nothing measurable and every operation wins
+   13-55x; at 10 % (100,000) the parse costs ~30 % while group_by / sort still win; at 50 %
+   and fully distinct, forced Dictionary loses on parse (-32..-50 %), `<` against a literal
+   (ranking 1M entries: 36-50x slower), max over groups (3x slower), join (-15 %) and drop
+   (3.5-4.5x slower), which Auto avoids by falling back. `EncAutoAt{floor, den}` is the same rule
+   with other numbers (tests).
+5. **Streaming reader** (src/csv.bend, src/csvparse.bend): `Csv.read_full(path, opts, ts, enc,
+   chunk, cap)` reads pieces with `File.read` after a 4 KiB `File.read_at` probe for the
+   piece's last LF (so no UTF-8 sequence is split; a piece without a LF doubles), parses each
+   piece to records (the walk's state resumes on the next piece), and hands them to a sink:
+   header / width, blank lines, ragged records, dtype count, row cap, inference over the first
+   `infer_rows` records, then one typed builder per column (words, f32, Raw strings, or
+   Dictionary codes coded as produced). No list of every record, no Scalar lists, no
+   whole-file cons string. **Deviation: the default piece is 64 MiB (`Csv.chunk`), not 1 MiB**:
+   natively, 1 MiB pieces made the 41 MB read ~3x slower (9.0 s Raw / 8.5 s Dictionary at 1 MiB
+   vs 2.6 s / 1.9 s in one piece, at the time of the change; per-piece time rose from 65 to
+   ~200 ms over 40 pieces: the allocator's LIFO free lists hand the next piece scattered
+   memory, IMPLEMENTING.md M4). **Transient full-string materialisation that remains**
+   (reported, as section 5 asks): a file under 64 MiB is read as ONE transient `String` (the
+   41 MB benchmark file included), freed piece by piece as it is parsed; each field's text is a
+   transient cons string (a Dictionary cell's string is dropped once coded; a Raw cell's is the
+   cell). Larger files stream in 64 MiB pieces. Tests read with 1..64-byte pieces
+   (tests/csv_chunks.bend) and every storage gives the 1 MiB Raw dump.
+6. **Default (the gate)**: **`Csv.enc_default() = EncAuto`**: `read_csv`, `read_csv_opts`,
+   `read_csv_schema`, `Csv.parse*` and `scan_csv`'s collect hold a low-cardinality str column
+   as a Dictionary and a high-cardinality one as Raw. Gate (plan section 5): >= 1.5x median on
+   representative low-cardinality workloads, no material memory regression, no > 15 % median
+   slowdown on numeric or high-cardinality controls. Outcome (medians of 5 processes, A/B
+   interleaved, 1 and 12 threads; bench/README.md has every cell, spread and machine load):
+   **passed, Auto stays the default** (decided 2026-10-09 on the final measurement set).
+   Low-cardinality (the sales keys, 8-64 distinct) auto vs raw at 1M: q1 8.3-8.4x, q3
+   8.5-15.6x, q4 5.1-8.8x, q5 13.9-19.6x (100k 4.4-22.5x, 1k 2-4x); isolated operations on
+   8 / 64 / 1,000 distinct at 1M: eq 29-31x, gather 160-200x, sort 7.8-35x, group 22-91x,
+   join 8.9-33x. Memory: peak RSS auto <= raw in every sales cell (1M 1.28-1.35 GB vs
+   1.31-1.42 GB raw, 1.63-1.84 GB master); five repeated group_bys +2 % over one (raw +1-7 %).
+   Numeric controls: q2 pooled medians 0.90x / 1.02x at 1M (1 / 12 threads), 1.00x / 0.86x at
+   100k, inside 15 % but the closest cell (a 7-12 ms query at the noise floor); q6 1.37-1.52x
+   faster; numeric-keyed sort / group 2.3-3.4x faster. High-cardinality controls (fully
+   distinct columns at 100k and 1M, 100k / 500k distinct at 1M): auto 0.88-1.24x of raw,
+   median 1.00x, because Auto falls back to Raw (forced Dictionary would lose up to 50x on
+   `<`, 4x on drop, 1.5x on the parse). Targets: 3x on q1 / q3 / q5 met; **41 MB parse under
+   1.5 s not met**: 1.98 s auto at 12 threads (raw 2.46 s, master 4.28 s; 1 thread 4.38 /
+   4.53 / 8.95 s). The streaming reader's effect (master -> raw) and the dictionary's (raw ->
+   auto) separate: the reader parses the 41 MB file 1.98x / 1.74x faster with 18-24 % less
+   peak RSS and leaves the queries unchanged; the dictionary adds 1.03x / 1.24x on that parse
+   and 5-22x on the queries. Costs that remain: parsing long low-cardinality strings
+   (0.70-0.94x of raw's parse at 100k, prefix_1000 at 1M 0.79x), fully distinct Raw group_by /
+   sort stay slow (7.9-13 s at 1M), and a file under 64 MiB is read as one transient String
+   (item 5). The table with every cell, spread and load: bench/README.md "M4 string
+   experiment".
+7. **Facade** (15.2.7 rows added): `DF.read_csv_enc(path, opts, dtypes, enc)` with `DF.str_auto()`
+   (the default), `DF.str_raw()`, `DF.str_dict()` (type alias `DF.StrEnc()`);
+   `DF.encode_strings(f, dict: Bool)` converts every str column (values unchanged);
+   `DF.dict_columns(f) -> Frame & List<String>` names the Dictionary columns. Frames built from
+   literals (`DF.column`, `from_columns`) and new string results of expressions start Raw;
+   results computed from Dictionary columns stay Dictionaries. `scan_csv` has no storage
+   argument (its collect uses the default; a lazy query over another storage reads with
+   `read_csv_enc` and binds the frame with `DF.source`), so no Plan node changed.
+8. **Proofs**: `LAWS.ccell`'s Str case reads `LAWS.scell` (Raw: the slot; Dictionary: the
+   entry of the row's code), and `PROOF_contents` proves `ST.Strs.get` pure against it
+   (`strs_get_pure`), so `cell_pure` covers both storages. `WFColumn`'s Str case names the
+   storage (`WFStrs`, `WFDictCodes`). Every proof that only moves `data` (head, len, dtype,
+   witnesses) was unchanged. The P2 typing laws (section 8 row 13) cover both storages since
+   the merge of M5 part 2: `PROOF_eval` `strs_get_w` (the cell witness), `sclone_w` /
+   `dclone_w` (clone), `fill_str_w` / `when_str_w` (with the Dictionary merge paths),
+   `bcast_dict_w`, `isdict_w`; `PROOF_evalops` `aggs_*_w` / `aggdense_nu_s` (Str aggregations
+   per storage) and the Str casts / is_in / predicates through `ST.Strs.map_maybe` /
+   `map_p`; `PROOF_evalrun` `step2_d` / `fitd_w` (the binary step reads both operands'
+   storage and broadcasts a literal as a one-entry Dictionary next to a Dictionary). Because Auto (a Dictionary for low-cardinality columns) is the
+   default, plan section 5 puts the Dictionary's decode-preserving lemmas into the P1 chain
+   (plan section 6 P1: "Dictionary encode/decode/remap preserve the decoded Str cells"). Not
+   written in M4 (the proof agent's scope). Each lemma says: for every row i below the length,
+   `scell(op(s, ..), i)` equals the Raw operation's cell (equivalently `Strs.decode(op_dict(..))
+   == op_raw(Strs.decode(..))`), under `WFStrs` (every valid code < k, entries pairwise
+   distinct, the index maps each entry to its code, entry 0 is `""`), and `WFStrs` is preserved.
+   **Required for P1** (the functions the kernels P1 already covers call on a Dictionary, plus
+   encode / decode / remap):
+   - the model: `Dict.decode` / `Strs.decode` (a gather of `strs` by `codes`: row i decodes to
+     `scell(s, i)`, via `gather_contents`);
+   - encode: `Strs.encode` (`Strs.encode.raw`, `Enc.put`, `Enc.step`, `Enc.go`, `Enc.fin`),
+     `Dict.code` (`Dict.code.p` / `.k` / `.h`, `Dict.add`, `Dict.fit`, `Dict.room`) and the index
+     (`Ix.slot`, `Ix.look`, `Ix.seek` / `Ix.seek.go`, `Ix.grow` / `Ix.grow.go`, `Ix.move` /
+     `Ix.move.k`, `Str.same` sound and complete; `Str.hash` / `Str.fnv` need only determinism),
+     `Dict.find`, `Dict.empty` (entry 0 = `""`);
+   - decode back and the column / frame wrappers: `Strs.raw`, `Column.encode`, `Column.decode`,
+     `Column.recode`, `Frame.encode`;
+   - remap: `Dict.recode` (`Dict.rc`, `Dict.rc.op` / `.put` / `.step` / `.go` / `.fin` /
+     `.fin2`; a miss, `Dict.miss()`, is never a code), `Dict.merge`, `Dict.same` (`Dict.same.*`:
+     true implies equal entries), `Strs.append` (`Strs.app.m`) under `Cat.col` (concat);
+   - the P1 kernels' Str-Dictionary case: `Strs.gather` / `Strs.compact` (codes only; under
+     `Column.gather.data`, `Column.compact.data`, `Column.slice`), `Strs.clone` / `Dict.clone`
+     (`Column.clone.s`), `Strs.fix` (null slots to code 0, which decodes to `""`), and
+     `Strs.get` (done: `strs_get_pure`);
+   - fill_null / when over two Dictionaries (P1's validity combinators): `Eval.fill.sd` /
+     `Eval.fill.sd2`, `Eval.when.sd` / `Eval.when.sd2` (merge, then recode), `Eval.fix.s`.
+   **Only if a later claim reaches them** (string expressions and comparisons are P2 / P3
+   scope, not P1): `Strs.map` (`Dict.map.k` / `.t` / `.t2`), `Strs.map_maybe` (`Dict.mm.t` /
+   `.g`), `Strs.map_p` (`Dict.mp.t` / `.t2`), `Strs.const`, `Eval.fitd`, `Eval.zd.eq.*`,
+   `Eval.zd.ord*` with `Dict.ranks` (`Dict.rk.*`; rank order = `String.is_lt` order needs a
+   Base `Map.to_list` order lemma), `Eval.ds.*` (min / max / first by rank), `Eval.agg.sd`,
+   `Eval.isin`, `Eval.strpred.k`, `Eval.cast.s`, `Eval.zip.dd`.
+   **Excluded by plan section 6** (CSV, hash-join, radix-sort and grouping partition stay
+   tested, not proven): the reader's builder (`Ds.put`, `Ds.cell`, `Ds.go`, `CB.d.*`,
+   `Parts.dec*`, `Csv.dict_over`), `Sort.dict_words` (`.b`), `Grp.enc.dict` / `Grp.enc.dk.*` /
+   `Grp.enc.sk`, `Grp.agg.v`, `Key.enc.*` / `Join.fix`. These are covered by
+   tests/strs_decode.bend, tests/csv_chunks.bend, tests/facade_m4.bend and the differential
+   generator's Dictionary mode (`make diff DIFF_ARGS=--dict`).
+
 ### M5 (proof closure: P1 buffer contents; P2 / P3 not reached)
 
 1. **What M5 delivered**: LAWS.bend section 11 and `PROOF_bits.bend` /
@@ -2104,6 +2258,13 @@ to ONE instruction `ITable{TOp}` (so a proof's Instr case split grows by one cas
    `eval_agg_typed` over strings, `eval_fill_typed` / `eval_when_typed` / `eval_bin_typed` on
    string operands) wherever `eval.bend` takes the dictionary path; `run_typed` and the entry
    points are representation-agnostic and need no change.
+   (Done when M4 merged this branch, 2026-10-09: the Str storage is a sum type inside `CStr`,
+   not a sixth constructor, so `cdtype` / `clen` / `len_w` / `dtype_w` / `col_dup2` /
+   `clen_dup` / `get_cloned_typed` needed nothing; `cell_w`, `clone_w`, the constant builders
+   of `bcast_typed` / `unit_typed` (a Raw constant) and the string operation laws got
+   per-storage cases; and
+   `run_typed` DID need one change: the binary step reads both operands' storage (`step2_d`,
+   `fitd_w`). Section 14 "M4 string experiment" item 8.)
 6. **Fixtures**: `tests/proof_negative/head_sink_below_select.bend` (the release pass sinking
    below every Select is refused by the `hmerge_run` term), `un_neg_wrong_dtype.bend` (Neg over
    i32 answering u32 is refused by the `eval_un_typed` case), `fit_no_broadcast.bend` (a stack
@@ -2304,7 +2465,8 @@ stays refused (not in 2.1; Polars allows it).
 | Facade | src | Semantics | Errors |
 |---|---|---|---|
 | `DF.csv_opts(sep: Char, has_header: Bool, infer_rows: U32) -> R.CsvOpts` | constructor | `Csv.default() = CsvOpts{',', True{}, 100}`; `infer_rows = 0` means every row | |
-| `DF.read_csv(path)` (exists), `DF.read_csv_opts(path, opts)`, `DF.read_csv_schema(path, opts, dtypes: List<&2, D.DType>) -> IO(ResT(Frame))` | `R.Csv.read`, `R.Csv.read_with` | whole file read once; 15.6 | `IoError{code, text}`; `ParseError{0, "malformed csv"}`; `ParseError{line, "expected <k> fields, got <g>"}`; `InvalidOperation{"csv schema: <d> dtypes for <k> columns"}`; `ParseError{line, "column <name>: cannot parse \"<text>\" as <dtype>"}`; row cap |
+| `DF.read_csv(path)` (exists), `DF.read_csv_opts(path, opts)`, `DF.read_csv_schema(path, opts, dtypes: List<&2, D.DType>) -> IO(ResT(Frame))` | `R.Csv.read`, `R.Csv.read_with` | file read once (amended M4: in pieces of up to 64 MiB; str columns in the default storage, Auto: section 14 M4); 15.6 | `IoError{code, text}`; `ParseError{0, "malformed csv"}`; `ParseError{line, "expected <k> fields, got <g>"}`; `InvalidOperation{"csv schema: <d> dtypes for <k> columns"}`; `ParseError{line, "column <name>: cannot parse \"<text>\" as <dtype>"}`; row cap |
+| `DF.read_csv_enc(path, opts, dtypes, enc: DF.StrEnc()) -> IO(ResT(Frame))` with `DF.str_auto()` (the default), `DF.str_raw()`, `DF.str_dict()`; `DF.encode_strings(f, dict: Bool) -> Frame`; `DF.dict_columns(f) -> Frame & List<&2, String>` (added M4) | `R.Csv.read_enc`; `C.Frame.encode`; `C.Column.is_dict` | the str storage: Raw (a string per row), Dictionary (a code per row, each distinct string once) or Auto (a Dictionary while the column has at most max(16384, rows / 64) distinct values, else Raw); values, dtypes, dumps and errors are the same in every storage; `encode_strings` converts every str column; `dict_columns` names the Dictionary columns in column order | as `read_csv_schema` |
 | `DF.scan_csv(path)` (exists), `DF.scan_csv_opts(path, opts) -> IO(Res(Plan))` | `P.Lazy.scan_csv` | reads a bounded prefix (15.6.4) to infer `ScanCsv.schema`; collect reads the whole file once, strictly, with the frozen schema | as read, plus at collect `InvalidOperation{"scan_csv <path>: data schema [<file>] differs from the plan's [<plan>]"}` |
 | `DF.scan_csv_schema(path, opts, schema: Schema) -> Plan` | `P.ScanCsv{path, opts, schema}` | pure: no IO at plan time; the header must match `schema`'s names at collect | the frozen-schema error above (names), `ParseError` (values) |
 | `DF.write_csv(r, path)` (exists), `DF.write_csv_opts(r, path, w: R.CsvWriteOpts)`; `DF.write_opts(sep: Char, include_header: Bool, float_precision: Maybe<&2, U32>) -> R.CsvWriteOpts` | `R.Csv.write`, `R.Csv.write_with`; `Csv.render_with` | 15.6.3 | `IoError` |
@@ -2652,8 +2814,8 @@ blank lines are skipped by the reader, so they do not count) and the file is not
 exhausted, read the next 64 KiB; cut the text at the last line end outside quotes;
 `Csv.infer` on that prefix (records that are complete within it); close. It never
 reads the whole file (unless the file is smaller than the prefix) and never builds
-columns. `collect` reads the file once (`Csv.read_with` with the frozen dtypes, 1 MiB
-chunks in M4's csvparse), strictly: a value that does not parse under the frozen dtype
+columns. `collect` reads the file once (`Csv.read_with` with the frozen dtypes; amended
+M4: in pieces of up to 64 MiB, not 1 MiB, see section 14 M4), strictly: a value that does not parse under the frozen dtype
 is `ParseError{line, "column <name>: cannot parse \"<text>\" as <dtype>"}`; a header
 whose names or count differ from the plan's is `InvalidOperation{"scan_csv <path>: data
 schema [<file schema>] differs from the plan's [<plan schema>]"}` (schemas shown by

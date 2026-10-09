@@ -16,6 +16,7 @@ import ./src/dtype.bend as D
 import ./src/err.bend as E
 import ./src/kernels.bend as K
 import ./src/column.bend as C
+import ./src/strs.bend as ST
 import ./src/schema.bend as S
 import ./src/expr.bend as X
 import ./src/analysis.bend as A
@@ -263,27 +264,56 @@ def cellw_f(+len: U32, +d: Nat, v: C.Valid, x: Array<F32>, +i: U32) -> Laws.Cell
     case C.Mask{m}:
       cellm_f(len, d, m, x, i, PC.get_w(U32, m, i))
 
-def dcell_s(+len: U32, +d: Nat, -v: C.Valid, -x: Array<String>, +i: U32, w: &x2: Array<String> -> &y: String -> {x2 == x : Array<String>} & {Array.get(String, x, i) == (x, y) : Array<String> & String} & {y == Laws.rd_at(String, x, i) : String}) -> &sc: D.Scalar -> {C.Column.data_cell(C.CStr{len, d, v, x}, i) == (C.CStr{len, d, v, x}, sc) : C.Column & D.Scalar} & {Laws.lit_dtype(sc, D.TStr{}) == D.TStr{} : D.DType}:
-  (x2, +y, e1, e2, e3) = w
-  %Equal.sym(Array<String> & String, Array.get(String, x, i), (x, y), e2) : &sc: D.Scalar -> {C.Column.cell.s(len, d, v, _) == (C.CStr{len, d, v, x}, sc) : C.Column & D.Scalar} & {Laws.lit_dtype(sc, D.TStr{}) == D.TStr{} : D.DType}
+# the storage reader as a witness (M4: a Raw slot, or a Dictionary code then its entry), as
+# PC.strs_get_pure but with the answer as a value
+def sgw_raw(-a: Array<String>, +i: U32, w: &x: String -> {Array.get(String, a, i) == (a, x) : Array<String> & String} & {x == Laws.rd_at(String, a, i) : String}) -> &y: String -> {ST.Strs.get(ST.SRaw{a}, i) == (ST.SRaw{a}, y) : ST.Strs & String}:
+  (+x, e1, e2) = w
+  %Equal.sym(Array<String> & String, Array.get(String, a, i), (a, x), e1) : &y: String -> {ST.Strs.get.r(_) == (ST.SRaw{a}, y) : ST.Strs & String}
+  (x, {==})
+
+def sgw_entry(-codes: Array<U32>, +k: U32, +dd: Nat, -strs: Array<String>, +b: Nat, -slots: Array<ST.SSlot>, +tag: U32, +c: U32, w: &s: String -> {Array.get(String, strs, c) == (strs, s) : Array<String> & String} & {s == Laws.rd_at(String, strs, c) : String}) -> &y: String -> {ST.Strs.get.c(ST.Dict{k, dd, strs, b, slots, tag}, (codes, c)) == (ST.SDict{codes, ST.Dict{k, dd, strs, b, slots, tag}}, y) : ST.Strs & String}:
+  (+s, e1, e2) = w
+  %Equal.sym(Array<String> & String, Array.get(String, strs, c), (strs, s), e1) : &y: String -> {ST.Strs.get.d(codes, ST.Dict.get.k(k, dd, b, slots, tag, _)) == (ST.SDict{codes, ST.Dict{k, dd, strs, b, slots, tag}}, y) : ST.Strs & String}
+  (s, {==})
+
+def sgw_dict_k(-codes: Array<U32>, +k: U32, +dd: Nat, strs: Array<String>, +b: Nat, -slots: Array<ST.SSlot>, +tag: U32, +i: U32, w: &c: U32 -> {Array.get(U32, codes, i) == (codes, c) : Array<U32> & U32} & {c == Laws.rd_at(U32, codes, i) : U32}) -> &y: String -> {ST.Strs.get(ST.SDict{codes, ST.Dict{k, dd, strs, b, slots, tag}}, i) == (ST.SDict{codes, ST.Dict{k, dd, strs, b, slots, tag}}, y) : ST.Strs & String}:
+  (+c, e1, e2) = w
+  %Equal.sym(Array<U32> & U32, Array.get(U32, codes, i), (codes, c), e1) : &y: String -> {ST.Strs.get.c(ST.Dict{k, dd, strs, b, slots, tag}, _) == (ST.SDict{codes, ST.Dict{k, dd, strs, b, slots, tag}}, y) : ST.Strs & String}
+  sgw_entry(codes, k, dd, strs, b, slots, tag, c, PK.get_at_w(String, strs, c))
+
+def sgw_dict(codes: Array<U32>, d: ST.Dict, +i: U32) -> &y: String -> {ST.Strs.get(ST.SDict{codes, d}, i) == (ST.SDict{codes, d}, y) : ST.Strs & String}:
+  match d:
+    case ST.Dict{+k, +dd, strs, +b, slots, +tag}:
+      sgw_dict_k(codes, k, dd, strs, b, slots, tag, i, PK.get_at_w(U32, codes, i))
+
+def strs_get_w(x: ST.Strs, +i: U32) -> &y: String -> {ST.Strs.get(x, i) == (x, y) : ST.Strs & String}:
+  match x:
+    case ST.SRaw{a}:
+      sgw_raw(a, i, PK.get_at_w(String, a, i))
+    case ST.SDict{codes, d}:
+      sgw_dict(codes, d, i)
+
+def dcell_s(+len: U32, +d: Nat, -v: C.Valid, -x: ST.Strs, +i: U32, w: &y: String -> {ST.Strs.get(x, i) == (x, y) : ST.Strs & String}) -> &sc: D.Scalar -> {C.Column.data_cell(C.CStr{len, d, v, x}, i) == (C.CStr{len, d, v, x}, sc) : C.Column & D.Scalar} & {Laws.lit_dtype(sc, D.TStr{}) == D.TStr{} : D.DType}:
+  (+y, e) = w
+  %Equal.sym(ST.Strs & String, ST.Strs.get(x, i), (x, y), e) : &sc: D.Scalar -> {C.Column.cell.s(len, d, v, _) == (C.CStr{len, d, v, x}, sc) : C.Column & D.Scalar} & {Laws.lit_dtype(sc, D.TStr{}) == D.TStr{} : D.DType}
   (D.SStr{y}, {==}, {==})
 
-def cellc_s(ok: Bool, +len: U32, +d: Nat, -m: Array<U32>, x: Array<String>, +i: U32) -> &sc: D.Scalar -> {C.Column.cell.c(ok, i, C.CStr{len, d, C.Mask{m}, x}) == (C.CStr{len, d, C.Mask{m}, x}, sc) : C.Column & D.Scalar} & {Laws.lit_dtype(sc, D.TStr{}) == D.TStr{} : D.DType}:
+def cellc_s(ok: Bool, +len: U32, +d: Nat, -m: Array<U32>, x: ST.Strs, +i: U32) -> &sc: D.Scalar -> {C.Column.cell.c(ok, i, C.CStr{len, d, C.Mask{m}, x}) == (C.CStr{len, d, C.Mask{m}, x}, sc) : C.Column & D.Scalar} & {Laws.lit_dtype(sc, D.TStr{}) == D.TStr{} : D.DType}:
   match ok:
     case True{}:
-      dcell_s(len, d, C.Mask{m}, x, i, PC.get_w(String, x, i))
+      dcell_s(len, d, C.Mask{m}, x, i, strs_get_w(x, i))
     case False{}:
       (D.SNull{}, {==}, {==})
 
-def cellm_s(+len: U32, +d: Nat, -m: Array<U32>, x: Array<String>, +i: U32, w: &m2: Array<U32> -> &y: U32 -> {m2 == m : Array<U32>} & {Array.get(U32, m, i) == (m, y) : Array<U32> & U32} & {y == Laws.rd_at(U32, m, i) : U32}) -> Laws.CellW(C.CStr{len, d, C.Mask{m}, x}, i):
+def cellm_s(+len: U32, +d: Nat, -m: Array<U32>, x: ST.Strs, +i: U32, w: &m2: Array<U32> -> &y: U32 -> {m2 == m : Array<U32>} & {Array.get(U32, m, i) == (m, y) : Array<U32> & U32} & {y == Laws.rd_at(U32, m, i) : U32}) -> Laws.CellW(C.CStr{len, d, C.Mask{m}, x}, i):
   (m2, +y, e1, e2, e3) = w
   %Equal.sym(Array<U32> & U32, Array.get(U32, m, i), (m, y), e2) : &sc: D.Scalar -> {C.Column.cell.b(i, C.CStr{len, d, C.AllValid{}, x}, C.Valid.get.k(_)) == (C.CStr{len, d, C.Mask{m}, x}, sc) : C.Column & D.Scalar} & {Laws.lit_dtype(sc, D.TStr{}) == D.TStr{} : D.DType}
   cellc_s(U32.is_ne(y, 0), len, d, m, x, i)
 
-def cellw_s(+len: U32, +d: Nat, v: C.Valid, x: Array<String>, +i: U32) -> Laws.CellW(C.CStr{len, d, v, x}, i):
+def cellw_s(+len: U32, +d: Nat, v: C.Valid, x: ST.Strs, +i: U32) -> Laws.CellW(C.CStr{len, d, v, x}, i):
   match v:
     case C.AllValid{}:
-      dcell_s(len, d, C.AllValid{}, x, i, PC.get_w(String, x, i))
+      dcell_s(len, d, C.AllValid{}, x, i, strs_get_w(x, i))
     case C.Mask{m}:
       cellm_s(len, d, m, x, i, PC.get_w(U32, m, i))
 
@@ -394,13 +424,62 @@ def clone_f(+len: U32, +d: Nat, -v: C.Valid, -x: Array<F32>,
   %ex2 : &c1: C.Column -> &c2: C.Column -> {C.Column.clone.f(len, d, (v1, v2), (x1, x2)) == (c1, c2) : C.Column & C.Column} & {c1 == C.CF32{len, d, v1, x1} : C.Column} & {c2 == C.CF32{len, d, v2, _} : C.Column}
   (C.CF32{len, d, v1, x1}, C.CF32{len, d, v2, x2}, {==}, {==}, {==})
 
-def clone_s(+len: U32, +d: Nat, -v: C.Valid, -x: Array<String>,
+# ST.Strs.clone gives two copies equal to the original (M4: Raw, one Array.clone; Dictionary, the
+# codes, the entries and the index slots)
+def sclone_r(-a: Array<String>, w: &a1: Array<String> -> &a2: Array<String> -> {Array.clone(String, a) == (a1, a2) : Array<String> & Array<String>} & {a1 == a : Array<String>} & {a2 == a : Array<String>}) -> &x1: ST.Strs -> &x2: ST.Strs -> {ST.Strs.clone(ST.SRaw{a}) == (x1, x2) : ST.Strs & ST.Strs} & {x1 == ST.SRaw{a} : ST.Strs} & {x2 == ST.SRaw{a} : ST.Strs}:
+  (a1, a2, e, e1, e2) = w
+  %Equal.sym(Array<String> & Array<String>, Array.clone(String, a), (a1, a2), e) : &x1: ST.Strs -> &x2: ST.Strs -> {ST.Strs.clone.r(_) == (x1, x2) : ST.Strs & ST.Strs} & {x1 == ST.SRaw{a} : ST.Strs} & {x2 == ST.SRaw{a} : ST.Strs}
+  %e1 : &x1: ST.Strs -> &x2: ST.Strs -> {ST.Strs.clone.r((a1, a2)) == (x1, x2) : ST.Strs & ST.Strs} & {x1 == ST.SRaw{_} : ST.Strs} & {x2 == ST.SRaw{a} : ST.Strs}
+  %e2 : &x1: ST.Strs -> &x2: ST.Strs -> {ST.Strs.clone.r((a1, a2)) == (x1, x2) : ST.Strs & ST.Strs} & {x1 == ST.SRaw{a1} : ST.Strs} & {x2 == ST.SRaw{_} : ST.Strs}
+  (ST.SRaw{a1}, ST.SRaw{a2}, {==}, {==}, {==})
+
+def dclone_k(+k: U32, +dd: Nat, -strs: Array<String>, +b: Nat, -slots: Array<ST.SSlot>, +tag: U32,
+  ws: &s1: Array<String> -> &s2: Array<String> -> {Array.clone(String, strs) == (s1, s2) : Array<String> & Array<String>} & {s1 == strs : Array<String>} & {s2 == strs : Array<String>},
+  wt: &t1: Array<ST.SSlot> -> &t2: Array<ST.SSlot> -> {Array.clone(ST.SSlot, slots) == (t1, t2) : Array<ST.SSlot> & Array<ST.SSlot>} & {t1 == slots : Array<ST.SSlot>} & {t2 == slots : Array<ST.SSlot>})
+  -> &d1: ST.Dict -> &d2: ST.Dict -> {ST.Dict.clone(ST.Dict{k, dd, strs, b, slots, tag}) == (d1, d2) : ST.Dict & ST.Dict} & {d1 == ST.Dict{k, dd, strs, b, slots, tag} : ST.Dict} & {d2 == ST.Dict{k, dd, strs, b, slots, tag} : ST.Dict}:
+  (s1, s2, es, es1, es2) = ws
+  (t1, t2, et, et1, et2) = wt
+  %Equal.sym(Array<String> & Array<String>, Array.clone(String, strs), (s1, s2), es) : &d1: ST.Dict -> &d2: ST.Dict -> {ST.Dict.clone.k(k, dd, b, tag, _, Array.clone(ST.SSlot, slots)) == (d1, d2) : ST.Dict & ST.Dict} & {d1 == ST.Dict{k, dd, strs, b, slots, tag} : ST.Dict} & {d2 == ST.Dict{k, dd, strs, b, slots, tag} : ST.Dict}
+  %Equal.sym(Array<ST.SSlot> & Array<ST.SSlot>, Array.clone(ST.SSlot, slots), (t1, t2), et) : &d1: ST.Dict -> &d2: ST.Dict -> {ST.Dict.clone.k(k, dd, b, tag, (s1, s2), _) == (d1, d2) : ST.Dict & ST.Dict} & {d1 == ST.Dict{k, dd, strs, b, slots, tag} : ST.Dict} & {d2 == ST.Dict{k, dd, strs, b, slots, tag} : ST.Dict}
+  %es1 : &d1: ST.Dict -> &d2: ST.Dict -> {ST.Dict.clone.k(k, dd, b, tag, (s1, s2), (t1, t2)) == (d1, d2) : ST.Dict & ST.Dict} & {d1 == ST.Dict{k, dd, _, b, slots, tag} : ST.Dict} & {d2 == ST.Dict{k, dd, strs, b, slots, tag} : ST.Dict}
+  %es2 : &d1: ST.Dict -> &d2: ST.Dict -> {ST.Dict.clone.k(k, dd, b, tag, (s1, s2), (t1, t2)) == (d1, d2) : ST.Dict & ST.Dict} & {d1 == ST.Dict{k, dd, s1, b, slots, tag} : ST.Dict} & {d2 == ST.Dict{k, dd, _, b, slots, tag} : ST.Dict}
+  %et1 : &d1: ST.Dict -> &d2: ST.Dict -> {ST.Dict.clone.k(k, dd, b, tag, (s1, s2), (t1, t2)) == (d1, d2) : ST.Dict & ST.Dict} & {d1 == ST.Dict{k, dd, s1, b, _, tag} : ST.Dict} & {d2 == ST.Dict{k, dd, s2, b, slots, tag} : ST.Dict}
+  %et2 : &d1: ST.Dict -> &d2: ST.Dict -> {ST.Dict.clone.k(k, dd, b, tag, (s1, s2), (t1, t2)) == (d1, d2) : ST.Dict & ST.Dict} & {d1 == ST.Dict{k, dd, s1, b, t1, tag} : ST.Dict} & {d2 == ST.Dict{k, dd, s2, b, _, tag} : ST.Dict}
+  (ST.Dict{k, dd, s1, b, t1, tag}, ST.Dict{k, dd, s2, b, t2, tag}, {==}, {==}, {==})
+
+def dclone_w(d: ST.Dict) -> &d1: ST.Dict -> &d2: ST.Dict -> {ST.Dict.clone(d) == (d1, d2) : ST.Dict & ST.Dict} & {d1 == d : ST.Dict} & {d2 == d : ST.Dict}:
+  match d:
+    case ST.Dict{+k, +dd, strs, +b, slots, +tag}:
+      dclone_k(k, dd, strs, b, slots, tag, aclone_w(String, strs), aclone_w(ST.SSlot, slots))
+
+def sclone_d(-codes: Array<U32>, -d: ST.Dict,
+  wc: &c1: Array<U32> -> &c2: Array<U32> -> {Array.clone(U32, codes) == (c1, c2) : Array<U32> & Array<U32>} & {c1 == codes : Array<U32>} & {c2 == codes : Array<U32>},
+  wd: &d1: ST.Dict -> &d2: ST.Dict -> {ST.Dict.clone(d) == (d1, d2) : ST.Dict & ST.Dict} & {d1 == d : ST.Dict} & {d2 == d : ST.Dict})
+  -> &x1: ST.Strs -> &x2: ST.Strs -> {ST.Strs.clone(ST.SDict{codes, d}) == (x1, x2) : ST.Strs & ST.Strs} & {x1 == ST.SDict{codes, d} : ST.Strs} & {x2 == ST.SDict{codes, d} : ST.Strs}:
+  (c1, c2, ec, ec1, ec2) = wc
+  (d1, d2, ed, ed1, ed2) = wd
+  %Equal.sym(Array<U32> & Array<U32>, Array.clone(U32, codes), (c1, c2), ec) : &x1: ST.Strs -> &x2: ST.Strs -> {ST.Strs.clone.d(_, ST.Dict.clone(d)) == (x1, x2) : ST.Strs & ST.Strs} & {x1 == ST.SDict{codes, d} : ST.Strs} & {x2 == ST.SDict{codes, d} : ST.Strs}
+  %Equal.sym(ST.Dict & ST.Dict, ST.Dict.clone(d), (d1, d2), ed) : &x1: ST.Strs -> &x2: ST.Strs -> {ST.Strs.clone.d((c1, c2), _) == (x1, x2) : ST.Strs & ST.Strs} & {x1 == ST.SDict{codes, d} : ST.Strs} & {x2 == ST.SDict{codes, d} : ST.Strs}
+  %ec1 : &x1: ST.Strs -> &x2: ST.Strs -> {ST.Strs.clone.d((c1, c2), (d1, d2)) == (x1, x2) : ST.Strs & ST.Strs} & {x1 == ST.SDict{_, d} : ST.Strs} & {x2 == ST.SDict{codes, d} : ST.Strs}
+  %ec2 : &x1: ST.Strs -> &x2: ST.Strs -> {ST.Strs.clone.d((c1, c2), (d1, d2)) == (x1, x2) : ST.Strs & ST.Strs} & {x1 == ST.SDict{c1, d} : ST.Strs} & {x2 == ST.SDict{_, d} : ST.Strs}
+  %ed1 : &x1: ST.Strs -> &x2: ST.Strs -> {ST.Strs.clone.d((c1, c2), (d1, d2)) == (x1, x2) : ST.Strs & ST.Strs} & {x1 == ST.SDict{c1, _} : ST.Strs} & {x2 == ST.SDict{c2, d} : ST.Strs}
+  %ed2 : &x1: ST.Strs -> &x2: ST.Strs -> {ST.Strs.clone.d((c1, c2), (d1, d2)) == (x1, x2) : ST.Strs & ST.Strs} & {x1 == ST.SDict{c1, d1} : ST.Strs} & {x2 == ST.SDict{c2, _} : ST.Strs}
+  (ST.SDict{c1, d1}, ST.SDict{c2, d2}, {==}, {==}, {==})
+
+def sclone_w(x: ST.Strs) -> &x1: ST.Strs -> &x2: ST.Strs -> {ST.Strs.clone(x) == (x1, x2) : ST.Strs & ST.Strs} & {x1 == x : ST.Strs} & {x2 == x : ST.Strs}:
+  match x:
+    case ST.SRaw{a}:
+      sclone_r(a, aclone_w(String, a))
+    case ST.SDict{codes, d}:
+      sclone_d(codes, d, aclone_w(U32, codes), dclone_w(d))
+
+def clone_s(+len: U32, +d: Nat, -v: C.Valid, -x: ST.Strs,
   wv: &v1: C.Valid -> &v2: C.Valid -> {C.Valid.clone(v) == (v1, v2) : C.Valid & C.Valid} & {v1 == v : C.Valid} & {v2 == v : C.Valid},
-  wx: &x1: Array<String> -> &x2: Array<String> -> {Array.clone(String, x) == (x1, x2) : Array<String> & Array<String>} & {x1 == x : Array<String>} & {x2 == x : Array<String>}) -> CloneW(C.CStr{len, d, v, x}):
+  wx: &x1: ST.Strs -> &x2: ST.Strs -> {ST.Strs.clone(x) == (x1, x2) : ST.Strs & ST.Strs} & {x1 == x : ST.Strs} & {x2 == x : ST.Strs}) -> CloneW(C.CStr{len, d, v, x}):
   (v1, v2, ev, ev1, ev2) = wv
   (x1, x2, ex, ex1, ex2) = wx
-  %Equal.sym(C.Valid & C.Valid, C.Valid.clone(v), (v1, v2), ev) : &c1: C.Column -> &c2: C.Column -> {C.Column.clone.s(len, d, _, Array.clone(String, x)) == (c1, c2) : C.Column & C.Column} & {c1 == C.CStr{len, d, v, x} : C.Column} & {c2 == C.CStr{len, d, v, x} : C.Column}
-  %Equal.sym(Array<String> & Array<String>, Array.clone(String, x), (x1, x2), ex) : &c1: C.Column -> &c2: C.Column -> {C.Column.clone.s(len, d, (v1, v2), _) == (c1, c2) : C.Column & C.Column} & {c1 == C.CStr{len, d, v, x} : C.Column} & {c2 == C.CStr{len, d, v, x} : C.Column}
+  %Equal.sym(C.Valid & C.Valid, C.Valid.clone(v), (v1, v2), ev) : &c1: C.Column -> &c2: C.Column -> {C.Column.clone.s(len, d, _, ST.Strs.clone(x)) == (c1, c2) : C.Column & C.Column} & {c1 == C.CStr{len, d, v, x} : C.Column} & {c2 == C.CStr{len, d, v, x} : C.Column}
+  %Equal.sym(ST.Strs & ST.Strs, ST.Strs.clone(x), (x1, x2), ex) : &c1: C.Column -> &c2: C.Column -> {C.Column.clone.s(len, d, (v1, v2), _) == (c1, c2) : C.Column & C.Column} & {c1 == C.CStr{len, d, v, x} : C.Column} & {c2 == C.CStr{len, d, v, x} : C.Column}
   %ev1 : &c1: C.Column -> &c2: C.Column -> {C.Column.clone.s(len, d, (v1, v2), (x1, x2)) == (c1, c2) : C.Column & C.Column} & {c1 == C.CStr{len, d, _, x} : C.Column} & {c2 == C.CStr{len, d, v, x} : C.Column}
   %ev2 : &c1: C.Column -> &c2: C.Column -> {C.Column.clone.s(len, d, (v1, v2), (x1, x2)) == (c1, c2) : C.Column & C.Column} & {c1 == C.CStr{len, d, v1, x} : C.Column} & {c2 == C.CStr{len, d, _, x} : C.Column}
   %ex1 : &c1: C.Column -> &c2: C.Column -> {C.Column.clone.s(len, d, (v1, v2), (x1, x2)) == (c1, c2) : C.Column & C.Column} & {c1 == C.CStr{len, d, v1, _} : C.Column} & {c2 == C.CStr{len, d, v2, x} : C.Column}
@@ -418,7 +497,7 @@ def clone_w(c: C.Column) -> CloneW(c):
     case C.CF32{len, d, v, x}:
       clone_f(len, d, v, x, vclone_w(v), aclone_w(F32, x))
     case C.CStr{len, d, v, x}:
-      clone_s(len, d, v, x, vclone_w(v), aclone_w(String, x))
+      clone_s(len, d, v, x, vclone_w(v), sclone_w(x))
 
 # ---- set_valid / null_count / dropnull keep the dtype (witness form) ----------------------------------
 
@@ -494,13 +573,13 @@ def ncount_f(+len: U32, +d: Nat, v: C.Valid, x: Array<F32>) -> NullCountW(C.CF32
     case C.Mask{m}:
       ncount_mask_f(len, d, m, x, PC.fold_go(U32.to_nat(len), 0, 0, m))
 
-def ncount_mask_s(+len: U32, +d: Nat, -m: Array<U32>, x: Array<String>, w: PC.FGoal(U32.to_nat(len), 0, 0, m, Array.get(U32, m, 0))) -> NullCountW(C.CStr{len, d, C.Mask{m}, x}):
+def ncount_mask_s(+len: U32, +d: Nat, -m: Array<U32>, x: ST.Strs, w: PC.FGoal(U32.to_nat(len), 0, 0, m, Array.get(U32, m, 0))) -> NullCountW(C.CStr{len, d, C.Mask{m}, x}):
   (a2, +res, eq, ea, spec) = w
   %Equal.sym(Array<U32> & U32, K.Kernel.fold.go(~U32, ~U32, ~(acc => x => U32.add(acc, x)), U32.to_nat(len), 0, 0, Array.get(U32, m, 0)), (a2, res), eq) : &c2: C.Column -> &k: U32 -> {C.Column.null_count.c(len, C.CStr{len, d, C.AllValid{}, x}, C.Valid.count.k(len, _)) == (c2, k) : C.Column & U32} & {c2 == C.CStr{len, d, C.Mask{m}, x} : C.Column}
   %ea : &c2: C.Column -> &k: U32 -> {C.Column.null_count.c(len, C.CStr{len, d, C.AllValid{}, x}, C.Valid.count.k(len, (a2, res))) == (c2, k) : C.Column & U32} & {c2 == C.CStr{len, d, C.Mask{_}, x} : C.Column}
   (C.CStr{len, d, C.Mask{a2}, x}, U32.sub(len, res), {==}, {==})
 
-def ncount_s(+len: U32, +d: Nat, v: C.Valid, x: Array<String>) -> NullCountW(C.CStr{len, d, v, x}):
+def ncount_s(+len: U32, +d: Nat, v: C.Valid, x: ST.Strs) -> NullCountW(C.CStr{len, d, v, x}):
   match v:
     case C.AllValid{}:
       (C.CStr{len, d, C.AllValid{}, x}, U32.sub(len, len), {==}, {==})
@@ -546,7 +625,7 @@ def outf_w(+n: U32, +d: Nat, r: Array<F32> & Array<U32>) -> OutW(D.TF32{}, n, C.
   (o, ix) = r
   (C.CF32{n, d, C.AllValid{}, o}, ix, {==}, {==}, {==})
 
-def outs_w(+n: U32, +d: Nat, r: Array<String> & Array<U32>) -> OutW(D.TStr{}, n, C.Column.out.s(n, d, r)):
+def outs_w(+n: U32, +d: Nat, r: ST.Strs & Array<U32>) -> OutW(D.TStr{}, n, C.Column.out.s(n, d, r)):
   (o, ix) = r
   (C.CStr{n, d, C.AllValid{}, o}, ix, {==}, {==}, {==})
 
@@ -612,12 +691,12 @@ def drop_f(+len: U32, +d: Nat, v: C.Valid, x: Array<F32>) -> DropW(C.CF32{len, d
     case C.Mask{m}:
       drop_mask_f(len, d, m, x, PC.fold_go(U32.to_nat(len), 0, 0, m))
 
-def drop_mask_s(+len: U32, +d: Nat, -m: Array<U32>, x: Array<String>, w: PC.FGoal(U32.to_nat(len), 0, 0, m, Array.get(U32, m, 0))) -> DropW(C.CStr{len, d, C.Mask{m}, x}):
+def drop_mask_s(+len: U32, +d: Nat, -m: Array<U32>, x: ST.Strs, w: PC.FGoal(U32.to_nat(len), 0, 0, m, Array.get(U32, m, 0))) -> DropW(C.CStr{len, d, C.Mask{m}, x}):
   (a2, +res, eq, ea, spec) = w
   %Equal.sym(Array<U32> & U32, K.Kernel.fold.go(~U32, ~U32, ~(acc => x => U32.add(acc, x)), U32.to_nat(len), 0, 0, Array.get(U32, m, 0)), (a2, res), eq) : &c2: C.Column -> {V.Eval.dropnull.c(C.CStr{len, d, C.AllValid{}, x}, _) == c2 : C.Column} & {Laws.cdtype(c2) == D.TStr{} : D.DType}
-  drop_fin(D.TStr{}, res, C.Column.compact.data(C.CStr{len, d, C.AllValid{}, x}, a2, res, K.Kernel.depth_for(U32.add(res, 1))), outs_w(res, K.Kernel.depth_for(U32.add(res, 1)), K.Kernel.compact_keep(~String, len, K.Kernel.depth_for(U32.add(res, 1)), x, a2, "")))
+  drop_fin(D.TStr{}, res, C.Column.compact.data(C.CStr{len, d, C.AllValid{}, x}, a2, res, K.Kernel.depth_for(U32.add(res, 1))), outs_w(res, K.Kernel.depth_for(U32.add(res, 1)), ST.Strs.compact(x, a2, len, K.Kernel.depth_for(U32.add(res, 1)))))
 
-def drop_s(+len: U32, +d: Nat, v: C.Valid, x: Array<String>) -> DropW(C.CStr{len, d, v, x}):
+def drop_s(+len: U32, +d: Nat, v: C.Valid, x: ST.Strs) -> DropW(C.CStr{len, d, v, x}):
   match v:
     case C.AllValid{}:
       (C.CStr{len, d, C.AllValid{}, x}, {==}, {==})
@@ -674,16 +753,16 @@ def fixf_w(+n: U32, d: Nat, v: C.Valid, x: Array<F32>) -> Laws.ColW(D.TF32{}, n,
     case C.Mask{m}:
       fixf2_w(n, d, K.Kernel.mask_data(~F32, n, x, m, 0.0))
 
-def fixs2_w(+n: U32, d: Nat, r: Array<String> & Array<U32>) -> Laws.ColW(D.TStr{}, n, V.Eval.fix.s2(n, d, r)):
+def fixs2_w(+n: U32, d: Nat, r: ST.Strs & Array<U32>) -> Laws.ColW(D.TStr{}, n, V.Eval.fix.s2(n, d, r)):
   (x, m) = r
   (C.CStr{n, d, C.Mask{m}, x}, {==}, ({==}, {==}))
 
-def fixs_w(+n: U32, d: Nat, v: C.Valid, x: Array<String>) -> Laws.ColW(D.TStr{}, n, V.Eval.fix.s(n, d, v, x)):
+def fixs_w(+n: U32, d: Nat, v: C.Valid, x: ST.Strs) -> Laws.ColW(D.TStr{}, n, V.Eval.fix.s(n, d, v, x)):
   match v:
     case C.AllValid{}:
       (C.CStr{n, d, C.AllValid{}, x}, {==}, ({==}, {==}))
     case C.Mask{m}:
-      fixs2_w(n, d, K.Kernel.mask_data(~String, n, x, m, ""))
+      fixs2_w(n, d, ST.Strs.fix(n, x, m))
 
 # Eval.fix of Column.mk_w(t, ..) for any t: a word column of dtype mkd(t)
 def fix_mkw_w(t: D.DType, +n: U32, +d: Nat, v: C.Valid, x: Array<U32>) -> Laws.ColW(Laws.mkd(t), n, V.Eval.fix(C.Column.mk_w(t, n, d, v, x))):
@@ -735,7 +814,27 @@ def fill_f_w(+n: U32, d: Nat, r: C.Valid & Array<F32>) -> Laws.ResW(True{}, D.TF
 
 def fill_s_w(+n: U32, d: Nat, r: C.Valid & Array<String>) -> Laws.ResW(True{}, D.TStr{}, n, V.Eval.fill.s(n, d, r)):
   (v, x) = r
-  (Done{C.CStr{n, d, v, x}}, {==}, ({==}, {==}))
+  (Done{C.CStr{n, d, v, ST.SRaw{x}}}, {==}, ({==}, {==}))
+
+# M4: fill_null over two Dictionaries (merge, then the codes are chosen)
+def fill_sd2_w(+n: U32, d: Nat, dict: ST.Dict, r: C.Valid & Array<U32>) -> Laws.ResW(True{}, D.TStr{}, n, V.Eval.fill.sd2(n, d, dict, r)):
+  (v, x) = r
+  (Done{C.CStr{n, d, v, ST.SDict{x, dict}}}, {==}, ({==}, {==}))
+
+def fill_sd_w(+n: U32, +d: Nat, va: C.Valid, vb: C.Valid, ca: Array<U32>, cb: Array<U32>, r: ST.Dict & ST.Dict & Array<U32>) -> Laws.ResW(True{}, D.TStr{}, n, V.Eval.fill.sd(n, d, va, vb, ca, cb, r)):
+  (db, da, m) = r
+  fill_sd2_w(n, d, da, V.Eval.fill.t(~U32, n, d, va, vb, ca, V.Eval.zd.map(n, d, m, cb)))
+
+def fill_str_w(+n: U32, +d: Nat, va: C.Valid, vb: C.Valid, xa: ST.Strs, xb: ST.Strs) -> Laws.ResW(True{}, D.TStr{}, n, V.Eval.fill.str(n, d, va, vb, xa, xb)):
+  match xa:
+    case ST.SRaw{a}:
+      fill_s_w(n, d, V.Eval.fill.t(~String, n, d, va, vb, ST.Strs.decode(n, d, ST.SRaw{a}), ST.Strs.decode(n, d, xb)))
+    case ST.SDict{ca, da}:
+      match xb:
+        case ST.SDict{cb, db}:
+          fill_sd_w(n, d, va, vb, ca, cb, ST.Dict.merge(db, da))
+        case ST.SRaw{b}:
+          fill_s_w(n, d, V.Eval.fill.t(~String, n, d, va, vb, ST.Strs.decode(n, d, ST.SDict{ca, da}), ST.Strs.decode(n, d, ST.SRaw{b})))
 
 def when_w_w(+t: D.DType, +n: U32, +d: Nat, va: C.Valid, vb: C.Valid, r: Array<U32> & Array<U32>) -> Laws.ResW(True{}, Laws.mkd(t), n, V.Eval.when.w(t, n, d, va, vb, r)):
   (m, x) = r
@@ -747,7 +846,27 @@ def when_f_w(+n: U32, +d: Nat, va: C.Valid, vb: C.Valid, r: Array<U32> & Array<F
 
 def when_s_w(+n: U32, +d: Nat, va: C.Valid, vb: C.Valid, r: Array<U32> & Array<String>) -> Laws.ResW(True{}, D.TStr{}, n, V.Eval.when.s(n, d, va, vb, r)):
   (m, x) = r
-  (Done{C.CStr{n, d, V.Eval.when.valid(n, d, va, vb, m), x}}, {==}, ({==}, {==}))
+  (Done{C.CStr{n, d, V.Eval.when.valid(n, d, va, vb, m), ST.SRaw{x}}}, {==}, ({==}, {==}))
+
+# M4: when over two Dictionaries (merge, then the codes are chosen)
+def when_sd2_w(+n: U32, +d: Nat, va: C.Valid, vb: C.Valid, dict: ST.Dict, r: Array<U32> & Array<U32>) -> Laws.ResW(True{}, D.TStr{}, n, V.Eval.when.sd2(n, d, va, vb, dict, r)):
+  (m, x) = r
+  (Done{C.CStr{n, d, V.Eval.when.valid(n, d, va, vb, m), ST.SDict{x, dict}}}, {==}, ({==}, {==}))
+
+def when_sd_w(+n: U32, +d: Nat, m: Array<U32>, va: C.Valid, vb: C.Valid, ca: Array<U32>, cb: Array<U32>, r: ST.Dict & ST.Dict & Array<U32>) -> Laws.ResW(True{}, D.TStr{}, n, V.Eval.when.sd(n, d, m, va, vb, ca, cb, r)):
+  (db, da, mb) = r
+  when_sd2_w(n, d, va, vb, da, K.Kernel.choose(~U32, n, m, ca, V.Eval.zd.map(n, d, mb, cb)))
+
+def when_str_w(+n: U32, +d: Nat, m: Array<U32>, va: C.Valid, vb: C.Valid, xa: ST.Strs, xb: ST.Strs) -> Laws.ResW(True{}, D.TStr{}, n, V.Eval.when.str(n, d, m, va, vb, xa, xb)):
+  match xa:
+    case ST.SRaw{a}:
+      when_s_w(n, d, va, vb, K.Kernel.choose(~String, n, m, ST.Strs.decode(n, d, ST.SRaw{a}), ST.Strs.decode(n, d, xb)))
+    case ST.SDict{ca, da}:
+      match xb:
+        case ST.SDict{cb, db}:
+          when_sd_w(n, d, m, va, vb, ca, cb, ST.Dict.merge(db, da))
+        case ST.SRaw{b}:
+          when_s_w(n, d, va, vb, K.Kernel.choose(~String, n, m, ST.Strs.decode(n, d, ST.SDict{ca, da}), ST.Strs.decode(n, d, ST.SRaw{b})))
 
 def constnull_w(t: D.DType, +n: U32, +d: Nat) -> Laws.ColW(t, n, V.Eval.const_null(t, n, d)):
   match t:
@@ -760,7 +879,7 @@ def constnull_w(t: D.DType, +n: U32, +d: Nat) -> Laws.ColW(t, n, V.Eval.const_nu
     case D.TF32{}:
       (C.CF32{n, d, C.Mask{Array.new(U32, d, 0)}, Array.new(F32, d, 0.0)}, {==}, ({==}, {==}))
     case D.TStr{}:
-      (C.CStr{n, d, C.Mask{Array.new(U32, d, 0)}, Array.new(String, d, "")}, {==}, ({==}, {==}))
+      (C.CStr{n, d, C.Mask{Array.new(U32, d, 0)}, ST.SRaw{Array.new(String, d, "")}}, {==}, ({==}, {==}))
 
 # Eval.const_col.d of a scalar whose dtype (t for null) is t2: dtype t2, n rows
 def constcol_w(s: D.Scalar, +t: D.DType, +t2: D.DType, +n: U32, +d: Nat, hs: {Laws.lit_dtype(s, t) == t2 : D.DType}) -> Laws.ColW(t2, n, V.Eval.const_col.d(s, t, n, d)):
@@ -777,7 +896,7 @@ def constcol_w(s: D.Scalar, +t: D.DType, +t2: D.DType, +n: U32, +d: Nat, hs: {La
     case D.SF32{v}:
       (C.CF32{n, d, C.AllValid{}, Array.new(F32, d, v)}, {==}, (hs, {==}))
     case D.SStr{v}:
-      (C.CStr{n, d, C.AllValid{}, Array.new(String, d, v)}, {==}, (hs, {==}))
+      (C.CStr{n, d, C.AllValid{}, ST.SRaw{Array.new(String, d, v)}}, {==}, (hs, {==}))
 
 def unit_fin(+t: D.DType, -c0: C.Column, w: Laws.ColW(t, 1, c0)) -> Laws.ColTy(t, 1, c0):
   (c2, e, ty) = w
@@ -805,6 +924,76 @@ def Laws.bcast_typed(c, n):
       bcast_fin(D.TF32{}, n, C.CF32{len, d, v, x}, cellw_f(len, d, v, x, 0), {==})
     case C.CStr{+len, +d, v, x}:
       bcast_fin(D.TStr{}, n, C.CStr{len, d, v, x}, cellw_s(len, d, v, x, 0), {==})
+
+# M4: Eval.bcast_dict (a 1-row Str value next to a Dictionary column becomes a one-entry
+# Dictionary; every other dtype as Eval.bcast) has the dtype of its operand and n rows
+def bcdnull_w(t: D.DType, +n: U32, +d: Nat) -> Laws.ColW(t, n, V.Eval.bcd.null(t, n, d)):
+  match t:
+    case D.TBool{}:
+      constnull_w(D.TBool{}, n, d)
+    case D.TU32{}:
+      constnull_w(D.TU32{}, n, d)
+    case D.TI32{}:
+      constnull_w(D.TI32{}, n, d)
+    case D.TF32{}:
+      constnull_w(D.TF32{}, n, d)
+    case D.TStr{}:
+      (C.CStr{n, d, C.Mask{Array.new(U32, d, 0)}, ST.SDict{Array.new(U32, d, 0), ST.Dict.empty()}}, {==}, ({==}, {==}))
+
+def constcol_dict_w(s: D.Scalar, +t: D.DType, +t2: D.DType, +n: U32, +d: Nat, hs: {Laws.lit_dtype(s, t) == t2 : D.DType}) -> Laws.ColW(t2, n, V.Eval.bcd.s(s, t, n, d)):
+  match s:
+    case D.SNull{}:
+      %hs : Laws.ColW(_, n, V.Eval.bcd.null(t, n, d))
+      bcdnull_w(t, n, d)
+    case D.SBool{b}:
+      constcol_w(D.SBool{b}, t, t2, n, d, hs)
+    case D.SU32{v}:
+      constcol_w(D.SU32{v}, t, t2, n, d, hs)
+    case D.SI32{v}:
+      constcol_w(D.SI32{v}, t, t2, n, d, hs)
+    case D.SF32{v}:
+      constcol_w(D.SF32{v}, t, t2, n, d, hs)
+    case D.SStr{v}:
+      (C.CStr{n, d, C.AllValid{}, ST.Strs.const(d, v)}, {==}, (hs, {==}))
+
+def bcd_fin(+t: D.DType, +n: U32, -c: C.Column, w: Laws.CellW(c, 0), et: {Laws.cdtype(c) == t : D.DType}) -> Laws.ColW(t, n, V.Eval.bcd.b(n, t, C.Column.cell(c, 0))):
+  (s, e, ed) = w
+  %Equal.sym(C.Column & D.Scalar, C.Column.cell(c, 0), (c, s), e) : Laws.ColW(t, n, V.Eval.bcd.b(n, t, _))
+  constcol_dict_w(s, t, t, n, K.Kernel.depth_for(n), (%et : {Laws.lit_dtype(s, _) == _ : D.DType}; ed))
+
+def bcast_dict_w(c: C.Column, +n: U32) -> Laws.ColW(Laws.cdtype(c), n, V.Eval.bcast_dict(c, n)):
+  match c:
+    case C.CBool{+len, +d, v, x}:
+      bcd_fin(D.TBool{}, n, C.CBool{len, d, v, x}, cellw_b(len, d, v, x, 0), {==})
+    case C.CU32{+len, +d, v, x}:
+      bcd_fin(D.TU32{}, n, C.CU32{len, d, v, x}, cellw_u(len, d, v, x, 0), {==})
+    case C.CI32{+len, +d, v, x}:
+      bcd_fin(D.TI32{}, n, C.CI32{len, d, v, x}, cellw_i(len, d, v, x, 0), {==})
+    case C.CF32{+len, +d, v, x}:
+      bcd_fin(D.TF32{}, n, C.CF32{len, d, v, x}, cellw_f(len, d, v, x, 0), {==})
+    case C.CStr{+len, +d, v, x}:
+      bcd_fin(D.TStr{}, n, C.CStr{len, d, v, x}, cellw_s(len, d, v, x, 0), {==})
+
+# M4: C.Column.is_dict hands the column back unchanged (the flag is the storage's)
+def isdict_s(+n: U32, +d: Nat, v: C.Valid, x: ST.Strs) -> &c2: C.Column -> &b: Bool -> {C.Column.is_dict(C.CStr{n, d, v, x}) == (c2, b) : C.Column & Bool} & {c2 == C.CStr{n, d, v, x} : C.Column}:
+  match x:
+    case ST.SRaw{a}:
+      (C.CStr{n, d, v, ST.SRaw{a}}, False{}, {==}, {==})
+    case ST.SDict{cs, dd}:
+      (C.CStr{n, d, v, ST.SDict{cs, dd}}, True{}, {==}, {==})
+
+def isdict_w(c: C.Column) -> &c2: C.Column -> &b: Bool -> {C.Column.is_dict(c) == (c2, b) : C.Column & Bool} & {c2 == c : C.Column}:
+  match c:
+    case C.CBool{len, d, v, x}:
+      (C.CBool{len, d, v, x}, False{}, {==}, {==})
+    case C.CU32{len, d, v, x}:
+      (C.CU32{len, d, v, x}, False{}, {==}, {==})
+    case C.CI32{len, d, v, x}:
+      (C.CI32{len, d, v, x}, False{}, {==}, {==})
+    case C.CF32{len, d, v, x}:
+      (C.CF32{len, d, v, x}, False{}, {==}, {==})
+    case C.CStr{+len, +d, v, x}:
+      isdict_s(len, d, v, x)
 
 # ---- frames: height / schema purity, the WF bridge, get_cloned -------------------------------------
 

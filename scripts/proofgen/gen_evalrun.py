@@ -499,6 +499,44 @@ def fit_w(k: V.SKind, c: C.Column, +n: U32, +t: D.DType, +m: U32, hc: Laws.ColTy
       (ed, el) = hc
       fit_lit(n, t, c, ed, Laws.bcast_typed(c, n))
 
+# M4: fitd (do2's fit): a 1-row side next to a Dictionary operand broadcasts as a one-entry
+# Dictionary (PV.bcast_dict_w), else as fit; the same dtype and length either way
+def fitd_lit(+n: U32, +t: D.DType, -c: C.Column, ed: {Laws.cdtype(c) == t : D.DType}, w: Laws.ColW(Laws.cdtype(c), n, V.Eval.bcast_dict(c, n))) -> Laws.ColW(t, n, V.Eval.bcast_dict(c, n)):
+  (c2, eb, ed2, el2) = w
+  (c2, eb, Equal.trans(D.DType, Laws.cdtype(c2), Laws.cdtype(c), t, ed2, ed), el2)
+
+def fitd_b(od: Bool, c: C.Column, +n: U32, +t: D.DType, ed: {Laws.cdtype(c) == t : D.DType}) -> Laws.ColW(t, n, V.Eval.fitd(V.KLit{}, c, n, od)):
+  match od:
+    case True{}:
+      fitd_lit(n, t, c, ed, PV.bcast_dict_w(c, n))
+    case False{}:
+      fit_lit(n, t, c, ed, Laws.bcast_typed(c, n))
+
+def fitd_a(od: Bool, c: C.Column, +n: U32, +t: D.DType, ed: {Laws.cdtype(c) == t : D.DType}) -> Laws.ColW(t, n, V.Eval.fitd(V.KAgg{}, c, n, od)):
+  match od:
+    case True{}:
+      fitd_lit(n, t, c, ed, PV.bcast_dict_w(c, n))
+    case False{}:
+      fit_lit(n, t, c, ed, Laws.bcast_typed(c, n))
+
+def fitd_f(od: Bool, c: C.Column, +n: U32, +t: D.DType, +m: U32, hc: Laws.ColTy(t, m, c)) -> Laws.ColW(t, m, V.Eval.fitd(V.KFull{}, c, n, od)):
+  match od:
+    case True{}:
+      (c, {==}, hc)
+    case False{}:
+      (c, {==}, hc)
+
+def fitd_w(k: V.SKind, od: Bool, c: C.Column, +n: U32, +t: D.DType, +m: U32, hc: Laws.ColTy(t, m, c)) -> Laws.ColW(t, fitlen(k, m, n), V.Eval.fitd(k, c, n, od)):
+  match k:
+    case V.KFull{}:
+      fitd_f(od, c, n, t, m, hc)
+    case V.KLit{}:
+      (ed, el) = hc
+      fitd_b(od, c, n, t, ed)
+    case V.KAgg{}:
+      (ed, el) = hc
+      fitd_a(od, c, n, t, ed)
+
 # a ColW restated as the ColTy of the witness (for the entry points)
 def colw_ty(+t: D.DType, +n: U32, -c0: C.Column, -c: C.Column, ed: {Laws.cdtype(c) == t : D.DType}, w: Laws.ColW(Laws.cdtype(c), n, c0)) -> Laws.ColTy(t, n, c0):
   (c2, e, ed2, el2) = w
@@ -574,7 +612,20 @@ def do2_fit(+h: U32, +i: V.Instr, +K: V.SKind, bad: Bool, ebad: {bad == False{} 
     case False{}:
       do2_fit2(h, i, K, la, lb, ta, tb, t3, tot, f, f3, sh, rest, ef, ev, A, B, na, nb, wa, wb, ena, opc)
 
-# the operands' lengths pinned (len_k): do2.a computes to do2.b over the symbolic shape test
+# the operands' storages read (M4: is_dict, the column back unchanged): do2.e computes to do2.b
+# over the symbolic shape test, each side fitted with fitd
+def step2_d(+h: U32, +i: V.Instr, +ta: D.DType, +ka: V.SKind, +tb: D.DType, +kb: V.SKind, +t3: D.DType, +tot: Bool, -f: C.Frame, f3: C.Frame, +sh: List<&2, Laws.Sh>, rest: List<&1, V.Slot>, ef: {f3 == f : C.Frame}, ev: Laws.StkTy(h, sh, rest),
+  -a2: C.Column, -b2: C.Column, hca: Laws.ColTy(ta, Laws.klen(ka, h), a2), hcb: Laws.ColTy(tb, Laws.klen(kb, h), b2),
+  wa: &a3: C.Column -> &da: Bool -> {C.Column.is_dict(a2) == (a3, da) : C.Column & Bool} & {a3 == a2 : C.Column},
+  wb: &b3: C.Column -> &db: Bool -> {C.Column.is_dict(b2) == (b3, db) : C.Column & Bool} & {b3 == b2 : C.Column},
+  opc: """ + OPC + """) -> PushW(h, t3, V.SKind.comb(ka, kb), tot, f, f3, sh, rest, V.Eval.do2.e(i, ka, kb, Laws.klen(ka, h), Laws.klen(kb, h), C.Column.is_dict(a2), C.Column.is_dict(b2))):
+  (a3, +da, ea, ea2) = wa
+  (b3, +db, eb, eb2) = wb
+  %Equal.sym(C.Column & Bool, C.Column.is_dict(a2), (a3, da), ea) : PushW(h, t3, V.SKind.comb(ka, kb), tot, f, f3, sh, rest, V.Eval.do2.e(i, ka, kb, Laws.klen(ka, h), Laws.klen(kb, h), _, C.Column.is_dict(b2)))
+  %Equal.sym(C.Column & Bool, C.Column.is_dict(b2), (b3, db), eb) : PushW(h, t3, V.SKind.comb(ka, kb), tot, f, f3, sh, rest, V.Eval.do2.e(i, ka, kb, Laws.klen(ka, h), Laws.klen(kb, h), (a3, da), _))
+  do2_fit(h, i, V.SKind.comb(ka, kb), """ + BAD2 + """, bad2_false(h, ka, kb), Laws.klen(ka, h), Laws.klen(kb, h), ta, tb, t3, tot, f, f3, sh, rest, ef, ev, V.Eval.fitd(ka, a3, """ + N2 + """, db), V.Eval.fitd(kb, b3, """ + N2 + """, da), fitlen(ka, Laws.klen(ka, h), """ + N2 + """), fitlen(kb, Laws.klen(kb, h), """ + N2 + """), fitd_w(ka, db, a3, """ + N2 + """, ta, Laws.klen(ka, h), (%Equal.sym(C.Column, a3, a2, ea2) : Laws.ColTy(ta, Laws.klen(ka, h), _); hca)), fitd_w(kb, da, b3, """ + N2 + """, tb, Laws.klen(kb, h), (%Equal.sym(C.Column, b3, b2, eb2) : Laws.ColTy(tb, Laws.klen(kb, h), _); hcb)), len2(h, ka, kb), opc)
+
+# the operands' lengths pinned (len_k): do2.a computes to do2.e
 def step2_c(+h: U32, +i: V.Instr, +ta: D.DType, +ka: V.SKind, +tb: D.DType, +kb: V.SKind, +t3: D.DType, +tot: Bool, -f: C.Frame, f3: C.Frame, +sh: List<&2, Laws.Sh>, rest: List<&1, V.Slot>, ef: {f3 == f : C.Frame}, ev: Laws.StkTy(h, sh, rest),
   -a: C.Column, -b: C.Column, wla: &a2: C.Column -> {C.Column.len(a) == (a2, Laws.klen(ka, h)) : C.Column & U32} & Laws.ColTy(ta, Laws.klen(ka, h), a2), wlb: &b2: C.Column -> {C.Column.len(b) == (b2, Laws.klen(kb, h)) : C.Column & U32} & Laws.ColTy(tb, Laws.klen(kb, h), b2),
   opc: """ + OPC + """) -> PushW(h, t3, V.SKind.comb(ka, kb), tot, f, f3, sh, rest, V.Eval.do2(i, ka, a, kb, b)):
@@ -582,7 +633,7 @@ def step2_c(+h: U32, +i: V.Instr, +ta: D.DType, +ka: V.SKind, +tb: D.DType, +kb:
   (b2, elb, hcb) = wlb
   %Equal.sym(C.Column & U32, C.Column.len(a), (a2, Laws.klen(ka, h)), ela) : PushW(h, t3, V.SKind.comb(ka, kb), tot, f, f3, sh, rest, V.Eval.do2.a(i, ka, kb, _, C.Column.len(b)))
   %Equal.sym(C.Column & U32, C.Column.len(b), (b2, Laws.klen(kb, h)), elb) : PushW(h, t3, V.SKind.comb(ka, kb), tot, f, f3, sh, rest, V.Eval.do2.a(i, ka, kb, (a2, Laws.klen(ka, h)), _))
-  do2_fit(h, i, V.SKind.comb(ka, kb), """ + BAD2 + """, bad2_false(h, ka, kb), Laws.klen(ka, h), Laws.klen(kb, h), ta, tb, t3, tot, f, f3, sh, rest, ef, ev, V.Eval.fit(ka, a2, """ + N2 + """), V.Eval.fit(kb, b2, """ + N2 + """), fitlen(ka, Laws.klen(ka, h), """ + N2 + """), fitlen(kb, Laws.klen(kb, h), """ + N2 + """), fit_w(ka, a2, """ + N2 + """, ta, Laws.klen(ka, h), hca), fit_w(kb, b2, """ + N2 + """, tb, Laws.klen(kb, h), hcb), len2(h, ka, kb), opc)
+  step2_d(h, i, ta, ka, tb, kb, t3, tot, f, f3, sh, rest, ef, ev, a2, b2, hca, hcb, PV.isdict_w(a2), PV.isdict_w(b2), opc)
 
 def step2_b(+h: U32, +i: V.Instr, +ta: D.DType, +ka: V.SKind, +tb: D.DType, +kb: V.SKind, +t3: D.DType, +tot: Bool, -f: C.Frame, -f2: C.Frame, +sh: List<&2, Laws.Sh>, f3: C.Frame, stk2: List<&1, V.Slot>, +ef2: {f2 == f : C.Frame},
   ty: {f3 == f2 : C.Frame} & Laws.StkTy(h, Laws.Sh{tb, kb} <> Laws.Sh{ta, ka} <> sh, stk2), hex2: """ + HEX2 + """, opc: """ + OPC + """)

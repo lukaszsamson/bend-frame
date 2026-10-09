@@ -60,11 +60,29 @@ Plan: plans/M_01.txt. Contract: DESIGN.md §15. Agent brief: plans/AGENT_BRIEF.m
 - 90 laws: distinct-paths lemma; gather/compact/map/zip/iota/U32 fold/popcount content theorems;
   column cell/head/slice theorems; mutation fixtures for gather and compact.
 
-## In progress
-- M4 (string storage): branch `worktree-agent-a7d278e15908e046e`. Raw/Dictionary storage,
-  streaming CSV reader, decode-equivalence tests, generator mode, concat merging are done; the
-  measurements, the gate decision and the merge are not.
+## M4 (string storage; branch `worktree-agent-a7d278e15908e046e`, ready to merge)
+- `CStr.data: ST.Strs` = Raw | Dictionary (src/strs.bend: codes + entries + hash index, entry 0
+  `""`); streaming CSV reader (64 MiB pieces; 1 MiB was 3x slower natively); EncRaw / EncDict /
+  EncAuto (Dictionary while distinct <= max(16384, rows / 64)); facade `DF.read_csv_enc`,
+  `DF.str_raw/str_dict/str_auto`, `DF.encode_strings`, `DF.dict_columns`; decode-equivalence
+  tests, generator Dictionary mode (`make diff DIFF_ARGS=--dict`), explicit merging in concat.
+- **Gate passed: Auto is the readers' default** (DESIGN §14 "M4 string experiment" item 6,
+  bench/README.md "M4 string experiment"). 1M sales auto vs raw: q1 8.3x, q3 8.5-15.6x, q4
+  5.1-8.8x, q5 13.9-19.6x; RSS auto <= raw; numeric controls inside 15 % (q2 pooled 0.90x /
+  1.02x, the closest); fully distinct controls 0.88-1.24x (median 1.00x). Reader alone (master ->
+  raw): 41 MB parse 1.98x / 1.74x faster, -18..-24 % RSS. Target 41 MB parse < 1.5 s NOT met
+  (1.98 s at 12 threads).
+- Merged with master up to M5 part 2: the P2 typing proofs (116 laws) cover both storages
+  (`make proofs` / `make verdict` green; DESIGN §14 M4 item 8 and M5 part 2 item 5).
+- Gates on the merged tree (5fd2d1c): `make test` 139/139 (0 XFAIL / XPASS), `make check`,
+  `make proofs`, `make verdict`, `make runner-check`, `make bench-check` green; `make diff SEED=1
+  N=1000` 0 failing / 0 inadmissible in Raw and in Dictionary mode (`DIFF_ARGS=--dict`);
+  `make diff-reduce SEED=1 REDUCE_N=500` no findings.
+- Open for the proof agent: the Dictionary decode-preserving lemmas for P1 (DESIGN §14 M4 item 8
+  lists exactly which functions: required / only-if-claimed / excluded).
 
+## In progress
+- M5 part 3 (if any): the Dictionary P1 lemmas above.
 
 ## Decisions
 - 2026-10-09 (user): no throwaway hub publish in M6. The clean-consumer check uses a local
@@ -72,6 +90,6 @@ Plan: plans/M_01.txt. Contract: DESIGN.md §15. Agent brief: plans/AGENT_BRIEF.m
   ready and with explicit approval.
 
 ## Next (per plan §7)
-Finish M4 and M5, then M6 (release candidate; no throwaway publish, see Decisions).
+Merge M4; the Dictionary P1 lemmas (M5); then M6 (release candidate; no throwaway publish, see Decisions).
 Not yet measured: the cost of the narrower default optimizer (no predicate
 or projection pushdown) on the q1–q6 benchmark.
