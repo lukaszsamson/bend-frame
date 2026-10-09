@@ -1215,3 +1215,186 @@ def cmask(~T: Data, f: Nat, +i: U32, +k: U32, a: Array<T>, out: Array<T>, mask: 
 
 def Laws.compact_keeps_mask(d, n, a, mask, z):
   cmask(~U32, U32.to_nat(n), 0, 0, a, Array.new(U32, d, z), mask)
+
+# ---- Column.cell is pure and reads the model ccell (LAWS.bend section 12) ---------------------------
+
+# the data part: Column.data_cell on a CBool column answers the modelled scalar
+def dcell_cbool(+len: U32, +depth: Nat, -valid: C.Valid, -data: Array<U32>, +i: U32, w: &x: U32 -> {Array.get(U32, data, i) == (data, x) : Array<U32> & U32} & {x == Laws.rd_at(U32, data, i) : U32}) -> {C.Column.data_cell(C.CBool{len, depth, valid, data}, i) == (C.CBool{len, depth, valid, data}, D.SBool{U32.is_ne(Laws.rd_at(U32, data, i), 0)}) : C.Column & D.Scalar}:
+  (+x, e1, e2) = w
+  %Equal.sym(Array<U32> & U32, Array.get(U32, data, i), (data, x), e1) : {C.Column.cell.w(D.TBool{}, len, depth, valid, _) == (C.CBool{len, depth, valid, data}, D.SBool{U32.is_ne(Laws.rd_at(U32, data, i), 0)}) : C.Column & D.Scalar}
+  %e2 : {C.Column.cell.w(D.TBool{}, len, depth, valid, (data, x)) == (C.CBool{len, depth, valid, data}, D.SBool{U32.is_ne(_, 0)}) : C.Column & D.Scalar}
+  {==}
+
+# the validity decision ok = (mask word != 0) as a parameter
+def cp_mask_cbool_ok(ok: Bool, +len: U32, +depth: Nat, -m: Array<U32>, data: Array<U32>, +i: U32) -> {C.Column.cell.c(ok, i, C.CBool{len, depth, C.Mask{m}, data}) == (C.CBool{len, depth, C.Mask{m}, data}, Bool.pick(D.Scalar, ok, D.SBool{U32.is_ne(Laws.rd_at(U32, data, i), 0)}, D.SNull{})) : C.Column & D.Scalar}:
+  match ok:
+    case True{}:
+      dcell_cbool(len, depth, C.Mask{m}, data, i, PK.get_at_w(U32, data, i))
+    case False{}:
+      {==}
+
+def cp_mask_cbool_k(+len: U32, +depth: Nat, -m: Array<U32>, data: Array<U32>, +i: U32, w: &x: U32 -> {Array.get(U32, m, i) == (m, x) : Array<U32> & U32} & {x == Laws.rd_at(U32, m, i) : U32}) -> {C.Column.cell(C.CBool{len, depth, C.Mask{m}, data}, i) == (C.CBool{len, depth, C.Mask{m}, data}, Laws.ccell(C.CBool{len, depth, C.Mask{m}, data}, i)) : C.Column & D.Scalar}:
+  (+x, e1, e2) = w
+  %Equal.sym(Array<U32> & U32, Array.get(U32, m, i), (m, x), e1) : {C.Column.cell.b(i, C.CBool{len, depth, C.AllValid{}, data}, C.Valid.get.k(_)) == (C.CBool{len, depth, C.Mask{m}, data}, Laws.ccell(C.CBool{len, depth, C.Mask{m}, data}, i)) : C.Column & D.Scalar}
+  %e2 : {C.Column.cell.b(i, C.CBool{len, depth, C.AllValid{}, data}, C.Valid.get.k((m, x))) == (C.CBool{len, depth, C.Mask{m}, data}, Bool.pick(D.Scalar, U32.is_ne(_, 0), D.SBool{U32.is_ne(Laws.rd_at(U32, data, i), 0)}, D.SNull{})) : C.Column & D.Scalar}
+  cp_mask_cbool_ok(U32.is_ne(x, 0), len, depth, m, data, i)
+
+def cp_cbool(+len: U32, +depth: Nat, valid: C.Valid, data: Array<U32>, +i: U32) -> {C.Column.cell(C.CBool{len, depth, valid, data}, i) == (C.CBool{len, depth, valid, data}, Laws.ccell(C.CBool{len, depth, valid, data}, i)) : C.Column & D.Scalar}:
+  match valid:
+    case C.AllValid{}:
+      dcell_cbool(len, depth, C.AllValid{}, data, i, PK.get_at_w(U32, data, i))
+    case C.Mask{m}:
+      cp_mask_cbool_k(len, depth, m, data, i, PK.get_at_w(U32, m, i))
+
+# the data part: Column.data_cell on a CU32 column answers the modelled scalar
+def dcell_cu32(+len: U32, +depth: Nat, -valid: C.Valid, -data: Array<U32>, +i: U32, w: &x: U32 -> {Array.get(U32, data, i) == (data, x) : Array<U32> & U32} & {x == Laws.rd_at(U32, data, i) : U32}) -> {C.Column.data_cell(C.CU32{len, depth, valid, data}, i) == (C.CU32{len, depth, valid, data}, D.SU32{Laws.rd_at(U32, data, i)}) : C.Column & D.Scalar}:
+  (+x, e1, e2) = w
+  %Equal.sym(Array<U32> & U32, Array.get(U32, data, i), (data, x), e1) : {C.Column.cell.w(D.TU32{}, len, depth, valid, _) == (C.CU32{len, depth, valid, data}, D.SU32{Laws.rd_at(U32, data, i)}) : C.Column & D.Scalar}
+  %e2 : {C.Column.cell.w(D.TU32{}, len, depth, valid, (data, x)) == (C.CU32{len, depth, valid, data}, D.SU32{_}) : C.Column & D.Scalar}
+  {==}
+
+# the validity decision ok = (mask word != 0) as a parameter
+def cp_mask_cu32_ok(ok: Bool, +len: U32, +depth: Nat, -m: Array<U32>, data: Array<U32>, +i: U32) -> {C.Column.cell.c(ok, i, C.CU32{len, depth, C.Mask{m}, data}) == (C.CU32{len, depth, C.Mask{m}, data}, Bool.pick(D.Scalar, ok, D.SU32{Laws.rd_at(U32, data, i)}, D.SNull{})) : C.Column & D.Scalar}:
+  match ok:
+    case True{}:
+      dcell_cu32(len, depth, C.Mask{m}, data, i, PK.get_at_w(U32, data, i))
+    case False{}:
+      {==}
+
+def cp_mask_cu32_k(+len: U32, +depth: Nat, -m: Array<U32>, data: Array<U32>, +i: U32, w: &x: U32 -> {Array.get(U32, m, i) == (m, x) : Array<U32> & U32} & {x == Laws.rd_at(U32, m, i) : U32}) -> {C.Column.cell(C.CU32{len, depth, C.Mask{m}, data}, i) == (C.CU32{len, depth, C.Mask{m}, data}, Laws.ccell(C.CU32{len, depth, C.Mask{m}, data}, i)) : C.Column & D.Scalar}:
+  (+x, e1, e2) = w
+  %Equal.sym(Array<U32> & U32, Array.get(U32, m, i), (m, x), e1) : {C.Column.cell.b(i, C.CU32{len, depth, C.AllValid{}, data}, C.Valid.get.k(_)) == (C.CU32{len, depth, C.Mask{m}, data}, Laws.ccell(C.CU32{len, depth, C.Mask{m}, data}, i)) : C.Column & D.Scalar}
+  %e2 : {C.Column.cell.b(i, C.CU32{len, depth, C.AllValid{}, data}, C.Valid.get.k((m, x))) == (C.CU32{len, depth, C.Mask{m}, data}, Bool.pick(D.Scalar, U32.is_ne(_, 0), D.SU32{Laws.rd_at(U32, data, i)}, D.SNull{})) : C.Column & D.Scalar}
+  cp_mask_cu32_ok(U32.is_ne(x, 0), len, depth, m, data, i)
+
+def cp_cu32(+len: U32, +depth: Nat, valid: C.Valid, data: Array<U32>, +i: U32) -> {C.Column.cell(C.CU32{len, depth, valid, data}, i) == (C.CU32{len, depth, valid, data}, Laws.ccell(C.CU32{len, depth, valid, data}, i)) : C.Column & D.Scalar}:
+  match valid:
+    case C.AllValid{}:
+      dcell_cu32(len, depth, C.AllValid{}, data, i, PK.get_at_w(U32, data, i))
+    case C.Mask{m}:
+      cp_mask_cu32_k(len, depth, m, data, i, PK.get_at_w(U32, m, i))
+
+# the data part: Column.data_cell on a CI32 column answers the modelled scalar
+def dcell_ci32(+len: U32, +depth: Nat, -valid: C.Valid, -data: Array<U32>, +i: U32, w: &x: U32 -> {Array.get(U32, data, i) == (data, x) : Array<U32> & U32} & {x == Laws.rd_at(U32, data, i) : U32}) -> {C.Column.data_cell(C.CI32{len, depth, valid, data}, i) == (C.CI32{len, depth, valid, data}, D.SI32{D.I32{Laws.rd_at(U32, data, i)}}) : C.Column & D.Scalar}:
+  (+x, e1, e2) = w
+  %Equal.sym(Array<U32> & U32, Array.get(U32, data, i), (data, x), e1) : {C.Column.cell.w(D.TI32{}, len, depth, valid, _) == (C.CI32{len, depth, valid, data}, D.SI32{D.I32{Laws.rd_at(U32, data, i)}}) : C.Column & D.Scalar}
+  %e2 : {C.Column.cell.w(D.TI32{}, len, depth, valid, (data, x)) == (C.CI32{len, depth, valid, data}, D.SI32{D.I32{_}}) : C.Column & D.Scalar}
+  {==}
+
+# the validity decision ok = (mask word != 0) as a parameter
+def cp_mask_ci32_ok(ok: Bool, +len: U32, +depth: Nat, -m: Array<U32>, data: Array<U32>, +i: U32) -> {C.Column.cell.c(ok, i, C.CI32{len, depth, C.Mask{m}, data}) == (C.CI32{len, depth, C.Mask{m}, data}, Bool.pick(D.Scalar, ok, D.SI32{D.I32{Laws.rd_at(U32, data, i)}}, D.SNull{})) : C.Column & D.Scalar}:
+  match ok:
+    case True{}:
+      dcell_ci32(len, depth, C.Mask{m}, data, i, PK.get_at_w(U32, data, i))
+    case False{}:
+      {==}
+
+def cp_mask_ci32_k(+len: U32, +depth: Nat, -m: Array<U32>, data: Array<U32>, +i: U32, w: &x: U32 -> {Array.get(U32, m, i) == (m, x) : Array<U32> & U32} & {x == Laws.rd_at(U32, m, i) : U32}) -> {C.Column.cell(C.CI32{len, depth, C.Mask{m}, data}, i) == (C.CI32{len, depth, C.Mask{m}, data}, Laws.ccell(C.CI32{len, depth, C.Mask{m}, data}, i)) : C.Column & D.Scalar}:
+  (+x, e1, e2) = w
+  %Equal.sym(Array<U32> & U32, Array.get(U32, m, i), (m, x), e1) : {C.Column.cell.b(i, C.CI32{len, depth, C.AllValid{}, data}, C.Valid.get.k(_)) == (C.CI32{len, depth, C.Mask{m}, data}, Laws.ccell(C.CI32{len, depth, C.Mask{m}, data}, i)) : C.Column & D.Scalar}
+  %e2 : {C.Column.cell.b(i, C.CI32{len, depth, C.AllValid{}, data}, C.Valid.get.k((m, x))) == (C.CI32{len, depth, C.Mask{m}, data}, Bool.pick(D.Scalar, U32.is_ne(_, 0), D.SI32{D.I32{Laws.rd_at(U32, data, i)}}, D.SNull{})) : C.Column & D.Scalar}
+  cp_mask_ci32_ok(U32.is_ne(x, 0), len, depth, m, data, i)
+
+def cp_ci32(+len: U32, +depth: Nat, valid: C.Valid, data: Array<U32>, +i: U32) -> {C.Column.cell(C.CI32{len, depth, valid, data}, i) == (C.CI32{len, depth, valid, data}, Laws.ccell(C.CI32{len, depth, valid, data}, i)) : C.Column & D.Scalar}:
+  match valid:
+    case C.AllValid{}:
+      dcell_ci32(len, depth, C.AllValid{}, data, i, PK.get_at_w(U32, data, i))
+    case C.Mask{m}:
+      cp_mask_ci32_k(len, depth, m, data, i, PK.get_at_w(U32, m, i))
+
+# the data part: Column.data_cell on a CF32 column answers the modelled scalar
+def dcell_cf32(+len: U32, +depth: Nat, -valid: C.Valid, -data: Array<F32>, +i: U32, w: &x: F32 -> {Array.get(F32, data, i) == (data, x) : Array<F32> & F32} & {x == Laws.rd_at(F32, data, i) : F32}) -> {C.Column.data_cell(C.CF32{len, depth, valid, data}, i) == (C.CF32{len, depth, valid, data}, D.SF32{Laws.rd_at(F32, data, i)}) : C.Column & D.Scalar}:
+  (+x, e1, e2) = w
+  %Equal.sym(Array<F32> & F32, Array.get(F32, data, i), (data, x), e1) : {C.Column.cell.f(len, depth, valid, _) == (C.CF32{len, depth, valid, data}, D.SF32{Laws.rd_at(F32, data, i)}) : C.Column & D.Scalar}
+  %e2 : {C.Column.cell.f(len, depth, valid, (data, x)) == (C.CF32{len, depth, valid, data}, D.SF32{_}) : C.Column & D.Scalar}
+  {==}
+
+# the validity decision ok = (mask word != 0) as a parameter
+def cp_mask_cf32_ok(ok: Bool, +len: U32, +depth: Nat, -m: Array<U32>, data: Array<F32>, +i: U32) -> {C.Column.cell.c(ok, i, C.CF32{len, depth, C.Mask{m}, data}) == (C.CF32{len, depth, C.Mask{m}, data}, Bool.pick(D.Scalar, ok, D.SF32{Laws.rd_at(F32, data, i)}, D.SNull{})) : C.Column & D.Scalar}:
+  match ok:
+    case True{}:
+      dcell_cf32(len, depth, C.Mask{m}, data, i, PK.get_at_w(F32, data, i))
+    case False{}:
+      {==}
+
+def cp_mask_cf32_k(+len: U32, +depth: Nat, -m: Array<U32>, data: Array<F32>, +i: U32, w: &x: U32 -> {Array.get(U32, m, i) == (m, x) : Array<U32> & U32} & {x == Laws.rd_at(U32, m, i) : U32}) -> {C.Column.cell(C.CF32{len, depth, C.Mask{m}, data}, i) == (C.CF32{len, depth, C.Mask{m}, data}, Laws.ccell(C.CF32{len, depth, C.Mask{m}, data}, i)) : C.Column & D.Scalar}:
+  (+x, e1, e2) = w
+  %Equal.sym(Array<U32> & U32, Array.get(U32, m, i), (m, x), e1) : {C.Column.cell.b(i, C.CF32{len, depth, C.AllValid{}, data}, C.Valid.get.k(_)) == (C.CF32{len, depth, C.Mask{m}, data}, Laws.ccell(C.CF32{len, depth, C.Mask{m}, data}, i)) : C.Column & D.Scalar}
+  %e2 : {C.Column.cell.b(i, C.CF32{len, depth, C.AllValid{}, data}, C.Valid.get.k((m, x))) == (C.CF32{len, depth, C.Mask{m}, data}, Bool.pick(D.Scalar, U32.is_ne(_, 0), D.SF32{Laws.rd_at(F32, data, i)}, D.SNull{})) : C.Column & D.Scalar}
+  cp_mask_cf32_ok(U32.is_ne(x, 0), len, depth, m, data, i)
+
+def cp_cf32(+len: U32, +depth: Nat, valid: C.Valid, data: Array<F32>, +i: U32) -> {C.Column.cell(C.CF32{len, depth, valid, data}, i) == (C.CF32{len, depth, valid, data}, Laws.ccell(C.CF32{len, depth, valid, data}, i)) : C.Column & D.Scalar}:
+  match valid:
+    case C.AllValid{}:
+      dcell_cf32(len, depth, C.AllValid{}, data, i, PK.get_at_w(F32, data, i))
+    case C.Mask{m}:
+      cp_mask_cf32_k(len, depth, m, data, i, PK.get_at_w(U32, m, i))
+
+# the data part: Column.data_cell on a CStr column answers the modelled scalar
+def dcell_cstr(+len: U32, +depth: Nat, -valid: C.Valid, -data: Array<String>, +i: U32, w: &x: String -> {Array.get(String, data, i) == (data, x) : Array<String> & String} & {x == Laws.rd_at(String, data, i) : String}) -> {C.Column.data_cell(C.CStr{len, depth, valid, data}, i) == (C.CStr{len, depth, valid, data}, D.SStr{Laws.rd_at(String, data, i)}) : C.Column & D.Scalar}:
+  (+x, e1, e2) = w
+  %Equal.sym(Array<String> & String, Array.get(String, data, i), (data, x), e1) : {C.Column.cell.s(len, depth, valid, _) == (C.CStr{len, depth, valid, data}, D.SStr{Laws.rd_at(String, data, i)}) : C.Column & D.Scalar}
+  %e2 : {C.Column.cell.s(len, depth, valid, (data, x)) == (C.CStr{len, depth, valid, data}, D.SStr{_}) : C.Column & D.Scalar}
+  {==}
+
+# the validity decision ok = (mask word != 0) as a parameter
+def cp_mask_cstr_ok(ok: Bool, +len: U32, +depth: Nat, -m: Array<U32>, data: Array<String>, +i: U32) -> {C.Column.cell.c(ok, i, C.CStr{len, depth, C.Mask{m}, data}) == (C.CStr{len, depth, C.Mask{m}, data}, Bool.pick(D.Scalar, ok, D.SStr{Laws.rd_at(String, data, i)}, D.SNull{})) : C.Column & D.Scalar}:
+  match ok:
+    case True{}:
+      dcell_cstr(len, depth, C.Mask{m}, data, i, PK.get_at_w(String, data, i))
+    case False{}:
+      {==}
+
+def cp_mask_cstr_k(+len: U32, +depth: Nat, -m: Array<U32>, data: Array<String>, +i: U32, w: &x: U32 -> {Array.get(U32, m, i) == (m, x) : Array<U32> & U32} & {x == Laws.rd_at(U32, m, i) : U32}) -> {C.Column.cell(C.CStr{len, depth, C.Mask{m}, data}, i) == (C.CStr{len, depth, C.Mask{m}, data}, Laws.ccell(C.CStr{len, depth, C.Mask{m}, data}, i)) : C.Column & D.Scalar}:
+  (+x, e1, e2) = w
+  %Equal.sym(Array<U32> & U32, Array.get(U32, m, i), (m, x), e1) : {C.Column.cell.b(i, C.CStr{len, depth, C.AllValid{}, data}, C.Valid.get.k(_)) == (C.CStr{len, depth, C.Mask{m}, data}, Laws.ccell(C.CStr{len, depth, C.Mask{m}, data}, i)) : C.Column & D.Scalar}
+  %e2 : {C.Column.cell.b(i, C.CStr{len, depth, C.AllValid{}, data}, C.Valid.get.k((m, x))) == (C.CStr{len, depth, C.Mask{m}, data}, Bool.pick(D.Scalar, U32.is_ne(_, 0), D.SStr{Laws.rd_at(String, data, i)}, D.SNull{})) : C.Column & D.Scalar}
+  cp_mask_cstr_ok(U32.is_ne(x, 0), len, depth, m, data, i)
+
+def cp_cstr(+len: U32, +depth: Nat, valid: C.Valid, data: Array<String>, +i: U32) -> {C.Column.cell(C.CStr{len, depth, valid, data}, i) == (C.CStr{len, depth, valid, data}, Laws.ccell(C.CStr{len, depth, valid, data}, i)) : C.Column & D.Scalar}:
+  match valid:
+    case C.AllValid{}:
+      dcell_cstr(len, depth, C.AllValid{}, data, i, PK.get_at_w(String, data, i))
+    case C.Mask{m}:
+      cp_mask_cstr_k(len, depth, m, data, i, PK.get_at_w(U32, m, i))
+
+def Laws.cell_pure(c, i):
+  match c:
+    case C.CBool{+len, +depth, valid, data}:
+      cp_cbool(len, depth, valid, data, i)
+    case C.CU32{+len, +depth, valid, data}:
+      cp_cu32(len, depth, valid, data, i)
+    case C.CI32{+len, +depth, valid, data}:
+      cp_ci32(len, depth, valid, data, i)
+    case C.CF32{+len, +depth, valid, data}:
+      cp_cf32(len, depth, valid, data, i)
+    case C.CStr{+len, +depth, valid, data}:
+      cp_cstr(len, depth, valid, data, i)
+
+def Laws.head_cell(c, n, k):
+  match c:
+    case C.CBool{len, depth, valid, data}:
+      {==}
+    case C.CU32{len, depth, valid, data}:
+      {==}
+    case C.CI32{len, depth, valid, data}:
+      {==}
+    case C.CF32{len, depth, valid, data}:
+      {==}
+    case C.CStr{len, depth, valid, data}:
+      {==}
+
+# ---- Kernel.depth_for gives at least n slots for n <= 2^31 -------------------------------------------
+
+# the loop with 1+f fuel left at depth d, the exit test c = (n <= 2^d) as a parameter, and n <= 2^(f+d)
+def dff_go(f: Nat, +n: U32, +d: Nat, c: Bool, e: {U32.is_le(n, U32.shln(1, d)) == c : Bool}, h: {U32.is_le(n, U32.shln(1, Nat.add(f, d))) == True{} : Bool}) -> {U32.is_le(n, U32.shln(1, K.Kernel.depth_for.go(1n+f, n, d, c))) == True{} : Bool}:
+  match f c:
+    case _ True{}:
+      e
+    case 0n False{}:
+      Empty.absurd({U32.is_le(n, U32.shln(1, K.Kernel.depth_for.go(0n, n, 1n+d, U32.is_le(n, U32.shln(1, 1n+d))))) == True{} : Bool}, L.true_false(Equal.trans(Bool, True{}, U32.is_le(n, U32.shln(1, d)), False{}, Equal.sym(Bool, U32.is_le(n, U32.shln(1, d)), True{}, h), e)))
+    case 1n++q False{}:
+      dff_go(q, n, 1n+d, U32.is_le(n, U32.shln(1, 1n+d)), {==}, (%Equal.sym(Nat, Nat.add(q, 1n+d), 1n+Nat.add(q, d), B.add_succ(q, d)) : {U32.is_le(n, U32.shln(1, _)) == True{} : Bool}; h))
+
+def Laws.depth_for_fits(n, h):
+  dff_go(31n, n, 0n, U32.is_le(n, 1), {==}, h)

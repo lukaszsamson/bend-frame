@@ -1279,3 +1279,56 @@ law compact_keeps_mask:
   for mask: Array<U32>
   for +z: U32
   {Pair.snd(Array<U32>, Array<U32>, K.Kernel.compact_keep(~U32, n, d, a, mask, z)) == mask : Array<U32>}
+
+
+# =====================================================================================
+# 12. Column cells (plan M_01 section 6 P1, M5): Column.cell is pure and reads the model
+#     ccell; head keeps every cell; slice of a U32 column is the exact subrange
+# =====================================================================================
+
+# the validity bit at row i as Column.cell reads it (AllValid: every row)
+def vbit(v: C.Valid, +i: U32) -> Bool:
+  match v:
+    case C.AllValid{}:
+      True{}
+    case C.Mask{m}:
+      U32.is_ne(rd_at(U32, m, i), 0)
+
+# the scalar at row i (SNull when the row is invalid), as a pure function of the buffers: the
+# model of Column.cell (Column.cell.word's dtype dispatch written out per constructor)
+def ccell(c: C.Column, +i: U32) -> D.Scalar:
+  match c:
+    case C.CBool{len, depth, valid, data}:
+      Bool.pick(D.Scalar, vbit(valid, i), D.SBool{U32.is_ne(rd_at(U32, data, i), 0)}, D.SNull{})
+    case C.CU32{len, depth, valid, data}:
+      Bool.pick(D.Scalar, vbit(valid, i), D.SU32{rd_at(U32, data, i)}, D.SNull{})
+    case C.CI32{len, depth, valid, data}:
+      Bool.pick(D.Scalar, vbit(valid, i), D.SI32{D.I32{rd_at(U32, data, i)}}, D.SNull{})
+    case C.CF32{len, depth, valid, data}:
+      Bool.pick(D.Scalar, vbit(valid, i), D.SF32{rd_at(F32, data, i)}, D.SNull{})
+    case C.CStr{len, depth, valid, data}:
+      Bool.pick(D.Scalar, vbit(valid, i), D.SStr{rd_at(String, data, i)}, D.SNull{})
+
+# the row count Column.slice(c, off, n) answers: min(n, len - off), 0 past the end
+def slice_len(+off: U32, +n: U32, +len: U32) -> U32:
+  U32.min(n, Bool.pick(U32, U32.is_lt(off, len), U32.sub(len, off), 0))
+
+# LAW: Column.cell is pure: it hands the column back and answers the modelled cell
+law cell_pure:
+  for c: C.Column
+  for +i: U32
+  {C.Column.cell(c, i) == (c, ccell(c, i)) : C.Column & D.Scalar}
+
+# LAW: head keeps every cell (with head_len / head_dtype: the exact prefix)
+law head_cell:
+  for c: C.Column
+  for +n: U32
+  for +k: U32
+  {ccell(C.Column.head(c, n), k) == ccell(c, k) : D.Scalar}
+
+# LAW: Kernel.depth_for(n) gives at least n slots (for n <= 2^31; the row cap keeps n <= 2^23)
+law depth_for_fits:
+  for +n: U32
+  for h: {U32.is_le(n, U32.shln(1, 31n)) == True{} : Bool}
+  {U32.is_le(n, U32.shln(1, K.Kernel.depth_for(n))) == True{} : Bool}
+
