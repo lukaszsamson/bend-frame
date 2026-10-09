@@ -1,7 +1,8 @@
 # M3 expressions under the optimizers (DESIGN.md 15.2.8, 15.3.2): when / is_in / clip / the string
-# functions are row-wise, total and local, so the release optimizer may sink a Head below a Select
-# of them; std / var / median are reductions (KRed, not local), so a Select or WithColumns holding
-# one is a barrier (head2-over-centered, B01-f). The plans' results agree in every mode.
+# functions are row-wise, total and local, so optimize_full's head pass may sink a Head below a
+# Select of them (the release optimizer merges Heads only since M5 part 2: the Head stays above the
+# Select); std / var / median are reductions (KRed, not local), so a Select or WithColumns holding
+# one is a barrier in both (head2-over-centered, B01-f). The plans' results agree in every mode.
 import Base
 import ./../frame.bend as DF
 import ./../src/dtype.bend as D
@@ -43,12 +44,17 @@ def p3() -> P.Plan:
 def main() -> IO(Unit):
   do IO<Unit>:
     IO.print(DF.explain(DF.optimize(p1())) ++ "\n")
+    IO.print(DF.explain(DF.optimize_full(p1())) ++ "\n")
     R.agree("head over row-wise", R.e_head(R.e_select(t(), rowwise()), 2), p1(), env(), env(), env())
     IO.print(DF.explain(DF.optimize(p2())) ++ "\n")
     IO.print(DF.explain(DF.optimize_full(p2())) ++ "\n")
     R.agree("head over median-centred", R.e_head(R.e_with(t(), centred()), 2), p2(), env(), env(), env())
     IO.print(DF.explain(DF.optimize_full(p3())) ++ "\n")
     R.agree("filter over row-wise", R.e_filter(R.e_with(t(), rowwise()), DF.contains_literal(DF.col("s"), "b")), p3(), env(), env(), env())
+#|HEAD 2
+#|  SELECT [when(col("a").is_in([1, 9])).then(col("a").clip(2, 5)).otherwise(lit(0)).alias("w"), col("s").str.len_chars().alias("n"), col("s").str.starts_with("a").alias("sa")]
+#|    SOURCE t [a:u32, s:str]
+#|
 #|SELECT [when(col("a").is_in([1, 9])).then(col("a").clip(2, 5)).otherwise(lit(0)).alias("w"), col("s").str.len_chars().alias("n"), col("s").str.starts_with("a").alias("sa")]
 #|  HEAD 2
 #|    SOURCE t [a:u32, s:str]

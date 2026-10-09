@@ -577,3 +577,97 @@ def Laws.head_pass_merges(p, n):
       hwrap_nah(n, P.Concat{ci, P.Opt.head(l, None{}), P.Opt.head(r, None{})}, {==}, L.and_true(Laws.no_adjacent_heads(P.Opt.head(l, None{})), Laws.no_adjacent_heads(P.Opt.head(r, None{})), Laws.head_pass_merges(l, None{}), Laws.head_pass_merges(r, None{})))
     case P.Head{m, x}:
       Laws.head_pass_merges(x, Some{P.Opt.hmin(m, n)})
+
+# ---- the release optimizer's head pass (Opt.hmerge: merging only, every other node a barrier) ----
+
+def Laws.hmerge_keeps_schema(p, n):
+  match p:
+    case P.ScanCsv{path, o, s}:
+      hwrap_schema(n, P.ScanCsv{path, o, s})
+    case P.Source{nm, s}:
+      hwrap_schema(n, P.Source{nm, s})
+    case P.Select{+es, +x}:
+      %Equal.sym(E.Res(List<&2, S.Field>), P.Plan.schema(P.Opt.hwrap(n, P.Select{es, P.Opt.hmerge(x, None{})})), P.Plan.schema(P.Select{es, P.Opt.hmerge(x, None{})}), hwrap_schema(n, P.Select{es, P.Opt.hmerge(x, None{})})) : {_ == P.Plan.schema.select(es, P.Plan.schema(x)) : E.Res(List<&2, S.Field>)}
+      %Laws.hmerge_keeps_schema(x, None{}) : {P.Plan.schema.select(es, P.Plan.schema(P.Opt.hmerge(x, None{}))) == P.Plan.schema.select(es, _) : E.Res(List<&2, S.Field>)}
+      {==}
+    case P.WithColumns{+es, +x}:
+      %Equal.sym(E.Res(List<&2, S.Field>), P.Plan.schema(P.Opt.hwrap(n, P.WithColumns{es, P.Opt.hmerge(x, None{})})), P.Plan.schema(P.WithColumns{es, P.Opt.hmerge(x, None{})}), hwrap_schema(n, P.WithColumns{es, P.Opt.hmerge(x, None{})})) : {_ == P.Plan.schema.wc(es, P.Plan.schema(x)) : E.Res(List<&2, S.Field>)}
+      %Laws.hmerge_keeps_schema(x, None{}) : {P.Plan.schema.wc(es, P.Plan.schema(P.Opt.hmerge(x, None{}))) == P.Plan.schema.wc(es, _) : E.Res(List<&2, S.Field>)}
+      {==}
+    case P.Filter{e, +x}:
+      %Equal.sym(E.Res(List<&2, S.Field>), P.Plan.schema(P.Opt.hwrap(n, P.Filter{e, P.Opt.hmerge(x, None{})})), P.Plan.schema(P.Filter{e, P.Opt.hmerge(x, None{})}), hwrap_schema(n, P.Filter{e, P.Opt.hmerge(x, None{})})) : {_ == P.Plan.schema.filter(e, P.Plan.schema(x)) : E.Res(List<&2, S.Field>)}
+      %Laws.hmerge_keeps_schema(x, None{}) : {P.Plan.schema.filter(e, P.Plan.schema(P.Opt.hmerge(x, None{}))) == P.Plan.schema.filter(e, _) : E.Res(List<&2, S.Field>)}
+      {==}
+    case P.Sort{ks, +x}:
+      %Equal.sym(E.Res(List<&2, S.Field>), P.Plan.schema(P.Opt.hwrap(n, P.Sort{ks, P.Opt.hmerge(x, None{})})), P.Plan.schema(P.Sort{ks, P.Opt.hmerge(x, None{})}), hwrap_schema(n, P.Sort{ks, P.Opt.hmerge(x, None{})})) : {_ == P.Plan.schema.sort(ks, P.Plan.schema(x)) : E.Res(List<&2, S.Field>)}
+      %Laws.hmerge_keeps_schema(x, None{}) : {P.Plan.schema.sort(ks, P.Plan.schema(P.Opt.hmerge(x, None{}))) == P.Plan.schema.sort(ks, _) : E.Res(List<&2, S.Field>)}
+      {==}
+    case P.Drop{ks, +x}:
+      %Equal.sym(E.Res(List<&2, S.Field>), P.Plan.schema(P.Opt.hwrap(n, P.Drop{ks, P.Opt.hmerge(x, None{})})), P.Plan.schema(P.Drop{ks, P.Opt.hmerge(x, None{})}), hwrap_schema(n, P.Drop{ks, P.Opt.hmerge(x, None{})})) : {_ == P.Plan.schema.drop(ks, P.Plan.schema(x)) : E.Res(List<&2, S.Field>)}
+      %Laws.hmerge_keeps_schema(x, None{}) : {P.Plan.schema.drop(ks, P.Plan.schema(P.Opt.hmerge(x, None{}))) == P.Plan.schema.drop(ks, _) : E.Res(List<&2, S.Field>)}
+      {==}
+    case P.Rename{ks, +x}:
+      %Equal.sym(E.Res(List<&2, S.Field>), P.Plan.schema(P.Opt.hwrap(n, P.Rename{ks, P.Opt.hmerge(x, None{})})), P.Plan.schema(P.Rename{ks, P.Opt.hmerge(x, None{})}), hwrap_schema(n, P.Rename{ks, P.Opt.hmerge(x, None{})})) : {_ == P.Plan.schema.rename(ks, P.Plan.schema(x)) : E.Res(List<&2, S.Field>)}
+      %Laws.hmerge_keeps_schema(x, None{}) : {P.Plan.schema.rename(ks, P.Plan.schema(P.Opt.hmerge(x, None{}))) == P.Plan.schema.rename(ks, _) : E.Res(List<&2, S.Field>)}
+      {==}
+    case P.Slice{ks, kl, +x}:
+      %Equal.sym(E.Res(List<&2, S.Field>), P.Plan.schema(P.Opt.hwrap(n, P.Slice{ks, kl, P.Opt.hmerge(x, None{})})), P.Plan.schema(P.Slice{ks, kl, P.Opt.hmerge(x, None{})}), hwrap_schema(n, P.Slice{ks, kl, P.Opt.hmerge(x, None{})})) : {_ == P.Plan.schema.slice(ks, kl, P.Plan.schema(x)) : E.Res(List<&2, S.Field>)}
+      %Laws.hmerge_keeps_schema(x, None{}) : {P.Plan.schema.slice(ks, kl, P.Plan.schema(P.Opt.hmerge(x, None{}))) == P.Plan.schema.slice(ks, kl, _) : E.Res(List<&2, S.Field>)}
+      {==}
+    case P.Tail{ks, +x}:
+      %Equal.sym(E.Res(List<&2, S.Field>), P.Plan.schema(P.Opt.hwrap(n, P.Tail{ks, P.Opt.hmerge(x, None{})})), P.Plan.schema(P.Tail{ks, P.Opt.hmerge(x, None{})}), hwrap_schema(n, P.Tail{ks, P.Opt.hmerge(x, None{})})) : {_ == P.Plan.schema.tail(ks, P.Plan.schema(x)) : E.Res(List<&2, S.Field>)}
+      %Laws.hmerge_keeps_schema(x, None{}) : {P.Plan.schema.tail(ks, P.Plan.schema(P.Opt.hmerge(x, None{}))) == P.Plan.schema.tail(ks, _) : E.Res(List<&2, S.Field>)}
+      {==}
+    case P.Unique{ks, +x}:
+      %Equal.sym(E.Res(List<&2, S.Field>), P.Plan.schema(P.Opt.hwrap(n, P.Unique{ks, P.Opt.hmerge(x, None{})})), P.Plan.schema(P.Unique{ks, P.Opt.hmerge(x, None{})}), hwrap_schema(n, P.Unique{ks, P.Opt.hmerge(x, None{})})) : {_ == P.Plan.schema.unique(ks, P.Plan.schema(x)) : E.Res(List<&2, S.Field>)}
+      %Laws.hmerge_keeps_schema(x, None{}) : {P.Plan.schema.unique(ks, P.Plan.schema(P.Opt.hmerge(x, None{}))) == P.Plan.schema.unique(ks, _) : E.Res(List<&2, S.Field>)}
+      {==}
+    case P.GroupBy{ks, ags, mo, +x}:
+      %Equal.sym(E.Res(List<&2, S.Field>), P.Plan.schema(P.Opt.hwrap(n, P.GroupBy{ks, ags, mo, P.Opt.hmerge(x, None{})})), P.Plan.schema(P.GroupBy{ks, ags, mo, P.Opt.hmerge(x, None{})}), hwrap_schema(n, P.GroupBy{ks, ags, mo, P.Opt.hmerge(x, None{})})) : {_ == P.Plan.schema.gb(ks, ags, P.Plan.schema(x)) : E.Res(List<&2, S.Field>)}
+      %Laws.hmerge_keeps_schema(x, None{}) : {P.Plan.schema.gb(ks, ags, P.Plan.schema(P.Opt.hmerge(x, None{}))) == P.Plan.schema.gb(ks, ags, _) : E.Res(List<&2, S.Field>)}
+      {==}
+    case P.Join{how, lo, ro, +l, +r}:
+      %Equal.sym(E.Res(List<&2, S.Field>), P.Plan.schema(P.Opt.hwrap(n, P.Join{how, lo, ro, P.Opt.hmerge(l, None{}), P.Opt.hmerge(r, None{})})), P.Plan.schema(P.Join{how, lo, ro, P.Opt.hmerge(l, None{}), P.Opt.hmerge(r, None{})}), hwrap_schema(n, P.Join{how, lo, ro, P.Opt.hmerge(l, None{}), P.Opt.hmerge(r, None{})})) : {_ == P.Plan.schema.join(how, lo, ro, P.Plan.schema(l), P.Plan.schema(r)) : E.Res(List<&2, S.Field>)}
+      %Laws.hmerge_keeps_schema(l, None{}) : {P.Plan.schema.join(how, lo, ro, P.Plan.schema(P.Opt.hmerge(l, None{})), P.Plan.schema(P.Opt.hmerge(r, None{}))) == P.Plan.schema.join(how, lo, ro, _, P.Plan.schema(r)) : E.Res(List<&2, S.Field>)}
+      %Laws.hmerge_keeps_schema(r, None{}) : {P.Plan.schema.join(how, lo, ro, P.Plan.schema(P.Opt.hmerge(l, None{})), P.Plan.schema(P.Opt.hmerge(r, None{}))) == P.Plan.schema.join(how, lo, ro, P.Plan.schema(P.Opt.hmerge(l, None{})), _) : E.Res(List<&2, S.Field>)}
+      {==}
+    case P.Concat{ci, +l, +r}:
+      %Equal.sym(E.Res(List<&2, S.Field>), P.Plan.schema(P.Opt.hwrap(n, P.Concat{ci, P.Opt.hmerge(l, None{}), P.Opt.hmerge(r, None{})})), P.Plan.schema(P.Concat{ci, P.Opt.hmerge(l, None{}), P.Opt.hmerge(r, None{})}), hwrap_schema(n, P.Concat{ci, P.Opt.hmerge(l, None{}), P.Opt.hmerge(r, None{})})) : {_ == P.Plan.schema.concat(ci, P.Plan.schema(l), P.Plan.schema(r)) : E.Res(List<&2, S.Field>)}
+      %Laws.hmerge_keeps_schema(l, None{}) : {P.Plan.schema.concat(ci, P.Plan.schema(P.Opt.hmerge(l, None{})), P.Plan.schema(P.Opt.hmerge(r, None{}))) == P.Plan.schema.concat(ci, _, P.Plan.schema(r)) : E.Res(List<&2, S.Field>)}
+      %Laws.hmerge_keeps_schema(r, None{}) : {P.Plan.schema.concat(ci, P.Plan.schema(P.Opt.hmerge(l, None{})), P.Plan.schema(P.Opt.hmerge(r, None{}))) == P.Plan.schema.concat(ci, P.Plan.schema(P.Opt.hmerge(l, None{})), _) : E.Res(List<&2, S.Field>)}
+      {==}
+    case P.Head{m, x}:
+      Laws.hmerge_keeps_schema(x, Some{P.Opt.hmin(m, n)})
+
+def Laws.hmerge_merges(p, n):
+  match p:
+    case P.ScanCsv{path, o, sc}:
+      hwrap_nah(n, P.ScanCsv{path, o, sc}, {==}, {==})
+    case P.Source{nm, sc}:
+      hwrap_nah(n, P.Source{nm, sc}, {==}, {==})
+    case P.Select{es, +x}:
+      hwrap_nah(n, P.Select{es, P.Opt.hmerge(x, None{})}, {==}, Laws.hmerge_merges(x, None{}))
+    case P.WithColumns{es, +x}:
+      hwrap_nah(n, P.WithColumns{es, P.Opt.hmerge(x, None{})}, {==}, Laws.hmerge_merges(x, None{}))
+    case P.Filter{e, +x}:
+      hwrap_nah(n, P.Filter{e, P.Opt.hmerge(x, None{})}, {==}, Laws.hmerge_merges(x, None{}))
+    case P.Sort{ks, +x}:
+      hwrap_nah(n, P.Sort{ks, P.Opt.hmerge(x, None{})}, {==}, Laws.hmerge_merges(x, None{}))
+    case P.Drop{ks, +x}:
+      hwrap_nah(n, P.Drop{ks, P.Opt.hmerge(x, None{})}, {==}, Laws.hmerge_merges(x, None{}))
+    case P.Rename{ks, +x}:
+      hwrap_nah(n, P.Rename{ks, P.Opt.hmerge(x, None{})}, {==}, Laws.hmerge_merges(x, None{}))
+    case P.Slice{ks, kl, +x}:
+      hwrap_nah(n, P.Slice{ks, kl, P.Opt.hmerge(x, None{})}, {==}, Laws.hmerge_merges(x, None{}))
+    case P.Tail{ks, +x}:
+      hwrap_nah(n, P.Tail{ks, P.Opt.hmerge(x, None{})}, {==}, Laws.hmerge_merges(x, None{}))
+    case P.Unique{ks, +x}:
+      hwrap_nah(n, P.Unique{ks, P.Opt.hmerge(x, None{})}, {==}, Laws.hmerge_merges(x, None{}))
+    case P.GroupBy{ks, ags, mo, +x}:
+      hwrap_nah(n, P.GroupBy{ks, ags, mo, P.Opt.hmerge(x, None{})}, {==}, Laws.hmerge_merges(x, None{}))
+    case P.Join{how, lo, ro, +l, +r}:
+      hwrap_nah(n, P.Join{how, lo, ro, P.Opt.hmerge(l, None{}), P.Opt.hmerge(r, None{})}, {==}, L.and_true(Laws.no_adjacent_heads(P.Opt.hmerge(l, None{})), Laws.no_adjacent_heads(P.Opt.hmerge(r, None{})), Laws.hmerge_merges(l, None{}), Laws.hmerge_merges(r, None{})))
+    case P.Concat{ci, +l, +r}:
+      hwrap_nah(n, P.Concat{ci, P.Opt.hmerge(l, None{}), P.Opt.hmerge(r, None{})}, {==}, L.and_true(Laws.no_adjacent_heads(P.Opt.hmerge(l, None{})), Laws.no_adjacent_heads(P.Opt.hmerge(r, None{})), Laws.hmerge_merges(l, None{}), Laws.hmerge_merges(r, None{})))
+    case P.Head{m, x}:
+      Laws.hmerge_merges(x, Some{P.Opt.hmin(m, n)})

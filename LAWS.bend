@@ -21,6 +21,7 @@ import ./src/analysis.bend as A
 import ./src/sort.bend as O
 import ./src/plan.bend as P
 import ./src/exec.bend as Q
+import ./src/eval.bend as V
 import ./src/dump.bend as DP
 
 # ---- helpers used only to state laws ----------------------------------------------
@@ -551,6 +552,19 @@ law head_pass_merges:
   for +n: Maybe<&2, U32>
   {no_adjacent_heads(P.Opt.head(p, n)) == True{} : Bool}
 
+# LAW: the release optimizer's head pass (Opt.hmerge: Head merging only, every other node
+# a barrier) keeps the schema of every plan, for any pending row limit
+law hmerge_keeps_schema:
+  for p: P.Plan
+  for +n: Maybe<&2, U32>
+  {P.Plan.schema(P.Opt.hmerge(p, n)) == P.Plan.schema(p) : E.Res(List<&2, S.Field>)}
+
+# LAW: after it no Head sits directly on another Head
+law hmerge_merges:
+  for p: P.Plan
+  for +n: Maybe<&2, U32>
+  {no_adjacent_heads(P.Opt.hmerge(p, n)) == True{} : Bool}
+
 # =====================================================================================
 # 5. Columns (src/column.bend)
 # =====================================================================================
@@ -671,10 +685,12 @@ def markw(code: List<&2, Q.Instr>, +suffix: List<&2, Q.Instr>) -> List<&2, Q.Ins
     case i <> +t:
       Q.Exec.mark.i(i, List.append(&2, Q.Instr, t, suffix)) <> markw(t, suffix)
 
-# the R1 fragment: a plan in which every Select / WithColumns is a Head barrier
-# (the analysis does not certify it: Opt.sinks is False), so Opt.head only ever
-# merges adjacent Heads. Head sinking through certified nodes is R3 (plan M_01
-# section 6 P3), not claimed here.
+# the R1 fragment of optimize_full's head pass (Opt.head): a plan in which every
+# Select / WithColumns is a Head barrier (the analysis does not certify it: Opt.sinks
+# is False), so Opt.head only ever merges adjacent Heads. Head sinking through
+# certified nodes is R3 (plan M_01 section 6 P3), not claimed anywhere: since M5 part
+# 2 the release optimizer runs Opt.hmerge, which never sinks (hmerge_run,
+# release_run below need no such hypothesis).
 def merge_only(p: P.Plan) -> Bool:
   match p:
     case P.ScanCsv{path, o, s}:
@@ -774,24 +790,39 @@ law head_pass_run:
   for rf: @s: Q.St -> {Q.Exec.loop(Q.Exec.mark(List.append(&2, Q.Instr, hcode(n), s1)), s) == Q.Exec.loop(Q.Exec.mark(s2), s) : Q.St}
   {Q.Exec.loop(Q.Exec.mark(List.append(&2, Q.Instr, Q.Exec.compile(P.Opt.head(p, n), Nil{}), s1)), st) == Q.Exec.loop(Q.Exec.mark(List.append(&2, Q.Instr, Q.Exec.compile(p, Nil{}), s2)), st) : Q.St}
 
-# LAW G6 on the R1 fragment: the release optimizer preserves the production
-# runner's result for every well-typed merge-only plan
-law release_merge_only:
+# LAW: Opt.hmerge never changes which Sources the code reads, in which order
+law hmerge_keeps_sources:
+  for p: P.Plan
+  for +n: Maybe<&2, U32>
+  for +acc: List<&2, Q.Instr>
+  {srcs(Q.Exec.compile(P.Opt.hmerge(p, n), acc)) == srcs(Q.Exec.compile(P.Opt.hwrap(n, p), acc)) : List<&2, String>}
+
+# LAW R1 (the release pass): Opt.hmerge with a pending limit n followed by the code s1
+# runs exactly like the plan followed by s2, for EVERY plan, whenever "hcode(n) then s1"
+# and s2 read the same Sources (rs) and run alike from every state (rf). With n = None
+# and s1 = s2 = Nil this is Optimize.release's body on a well-typed plan.
+law hmerge_run:
+  for p: P.Plan
+  for +n: Maybe<&2, U32>
+  for +s1: List<&2, Q.Instr>
+  for +s2: List<&2, Q.Instr>
+  for st: Q.St
+  for +rs: {srcs(List.append(&2, Q.Instr, hcode(n), s1)) == srcs(s2) : List<&2, String>}
+  for rf: @s: Q.St -> {Q.Exec.loop(Q.Exec.mark(List.append(&2, Q.Instr, hcode(n), s1)), s) == Q.Exec.loop(Q.Exec.mark(s2), s) : Q.St}
+  {Q.Exec.loop(Q.Exec.mark(List.append(&2, Q.Instr, Q.Exec.compile(P.Opt.hmerge(p, n), Nil{}), s1)), st) == Q.Exec.loop(Q.Exec.mark(List.append(&2, Q.Instr, Q.Exec.compile(p, Nil{}), s2)), st) : Q.St}
+
+# LAW G6: the release optimizer preserves the production runner's result for EVERY
+# plan (well typed or not: an ill-typed plan comes back unchanged) and every env
+law release_run:
   for +p: P.Plan
-  for s: List<&2, S.Field>
   for env: P.Env
-  for ok: {P.Plan.schema(p) == Done{s} : E.Res(List<&2, S.Field>)}
-  for +mo: {merge_only(p) == True{} : Bool}
   {Q.Exec.run_pure(P.Optimize.release(p), env) == Q.Exec.run_pure(p, env) : E.ResT(C.Frame)}
 
 # LAW: the same, observed through the typed oracle (dtypes, ordered names,
 # height, validity, cells as DF.dump prints them, or the error)
-law release_merge_only_obs:
+law release_run_obs:
   for +p: P.Plan
-  for s: List<&2, S.Field>
   for env: P.Env
-  for ok: {P.Plan.schema(p) == Done{s} : E.Res(List<&2, S.Field>)}
-  for +mo: {merge_only(p) == True{} : Bool}
   {DP.Dump.result(Q.Exec.run_pure(P.Optimize.release(p), env)) == DP.Dump.result(Q.Exec.run_pure(p, env)) : String}
 
 # =====================================================================================
@@ -1417,3 +1448,409 @@ law slice_cell_u32:
   for h31: {U32.is_le(n, U32.shln(1, 31n)) == True{} : Bool}
   for hk: {U32.is_lt(k, slice_len(off, n, len)) == True{} : Bool}
   {ccell(C.Column.slice(C.CU32{len, depth, valid, data}, off, n), k) == ccell(C.CU32{len, depth, valid, data}, U32.add(off, k)) : D.Scalar}
+
+# =====================================================================================
+# 13. Evaluator typing (plan M_01 section 6 P2, M5 part 2): the production evaluator
+#     (src/eval.bend) answers columns of the dtype the shared analysis (src/analysis.bend)
+#     predicts, of the frame's height, and fails only where the analysis says it may
+# =====================================================================================
+#
+# Models (pure functions of a column's fields, the column erased): cdtype / clen are what
+# Column.dtype / Column.len answer (len_w, dtype_w); a typed slot of the stack machine
+# holds a column of the analysis' dtype whose length is the frame's height for a KFull
+# slot and 1 for a literal / reduction slot (klen). ColTy / ResTy / StkTy / RunTy state
+# that over the production values; every law below is over src/eval.bend's functions.
+
+def cdtype(c: C.Column) -> D.DType:
+  match c:
+    case C.CBool{len, depth, valid, data}:
+      D.TBool{}
+    case C.CU32{len, depth, valid, data}:
+      D.TU32{}
+    case C.CI32{len, depth, valid, data}:
+      D.TI32{}
+    case C.CF32{len, depth, valid, data}:
+      D.TF32{}
+    case C.CStr{len, depth, valid, data}:
+      D.TStr{}
+
+def clen(c: C.Column) -> U32:
+  match c:
+    case C.CBool{len, depth, valid, data}:
+      len
+    case C.CU32{len, depth, valid, data}:
+      len
+    case C.CI32{len, depth, valid, data}:
+      len
+    case C.CF32{len, depth, valid, data}:
+      len
+    case C.CStr{len, depth, valid, data}:
+      len
+
+# the dtype Column.mk_w(t, ..) builds (U32 for every non-word dtype; Eval only asks for word dtypes)
+def mkd(t: D.DType) -> D.DType:
+  match t:
+    case D.TBool{}:
+      D.TBool{}
+    case D.TI32{}:
+      D.TI32{}
+    case _:
+      D.TU32{}
+
+# the dtype of a scalar, t for the null scalar (what Eval.const_col / Eval.unit build)
+def lit_dtype(s: D.Scalar, t: D.DType) -> D.DType:
+  match s:
+    case D.SNull{}:
+      t
+    case D.SBool{b}:
+      D.TBool{}
+    case D.SU32{v}:
+      D.TU32{}
+    case D.SI32{v}:
+      D.TI32{}
+    case D.SF32{v}:
+      D.TF32{}
+    case D.SStr{v}:
+      D.TStr{}
+
+# the length of a slot's column: the height for a full column, one row otherwise
+def klen(k: V.SKind, +h: U32) -> U32:
+  match k:
+    case V.KFull{}:
+      h
+    case _:
+      1
+
+# the stack machine's kind of an analysis kind (KRow <-> KFull, KScalar <-> KLit, KRed <-> KAgg)
+def skind(k: A.AKind) -> V.SKind:
+  match k:
+    case A.KRow{}:
+      V.KFull{}
+    case A.KScalar{}:
+      V.KLit{}
+    case A.KRed{}:
+      V.KAgg{}
+
+# Eval.expr's height for a kind: a reduction stays one row, a literal broadcasts
+def elen(k: A.AKind, +h: U32) -> U32:
+  match k:
+    case A.KRed{}:
+      1
+    case _:
+      h
+
+# a column has dtype t and n rows (the column erased: the claim is about any column term)
+def ColTy(+t: D.DType, +n: U32, -c: C.Column) -> Type:
+  {cdtype(c) == t : D.DType} & {clen(c) == n : U32}
+
+# a column result: Done holds a typed column; Fail is allowed only when tot is False
+def ResTy(+tot: Bool, +t: D.DType, +n: U32, r: E.ResT(C.Column)) -> Type:
+  match r:
+    case Fail{e}:
+      {tot == False{} : Bool}
+    case Done{c}:
+      ColTy(t, n, c)
+
+# the production result r0 as a witness r (the live value) that ResTy describes
+def ResW(+tot: Bool, +t: D.DType, +n: U32, -r0: E.ResT(C.Column)) -> Type:
+  &r: E.ResT(C.Column) -> {r0 == r : E.ResT(C.Column)} & ResTy(tot, t, n, r)
+
+# the shape of a stack slot: its dtype and kind
+type Sh is Data:
+  Sh{t: D.DType, k: V.SKind}
+
+# every slot of the stack has its shape: the kind, and a column of the dtype with klen rows
+def StkTy(+h: U32, sh: List<&2, Sh>, stk: List<&1, V.Slot>) -> Type:
+  match sh stk:
+    case Nil{} Nil{}:
+      Unit
+    case Sh{t, +k} <> sh2 V.Slot{+k2, c} <> rest:
+      {k2 == k : V.SKind} & ColTy(t, klen(k, h), c) & StkTy(h, sh2, rest)
+    case _ _:
+      Empty
+
+# the machine's state after a run: the frame is f again and a slot of shape Sh{t, k} sits on
+# a stack of shape sh; or the run failed, which the analysis allowed (tot False)
+def ResSt(+h: U32, +t: D.DType, +k: V.SKind, +tot: Bool, -f: C.Frame, sh: List<&2, Sh>, f2: C.Frame, r: E.ResT(List<&1, V.Slot>)) -> Type:
+  match r:
+    case Fail{e}:
+      {tot == False{} : Bool}
+    case Done{stk2}:
+      {f2 == f : C.Frame} & StkTy(h, Sh{t, k} <> sh, stk2)
+
+def RunTy(+h: U32, +t: D.DType, +k: V.SKind, +tot: Bool, -f: C.Frame, sh: List<&2, Sh>, st: V.EvSt) -> Type:
+  match st:
+    case V.EvSt{f2, r}:
+      ResSt(h, t, k, tot, f, sh, f2, r)
+
+# running `code` from frame f and stack stk, then acc, is running acc from a state st that
+# RunTy describes (the witness st is the live state after code)
+def RunW(+h: U32, +t: D.DType, +k: V.SKind, +tot: Bool, -f: C.Frame, sh: List<&2, Sh>, -stk: List<&1, V.Slot>, -acc: List<&2, V.Instr>, -code: List<&2, V.Instr>) -> Type:
+  &st: V.EvSt -> {V.Eval.run(code, h, V.EvSt{f, Done{stk}}) == V.Eval.run(acc, h, st) : V.EvSt} & RunTy(h, t, k, tot, f, sh, st)
+
+# the frame's height and schema as pure functions (what Frame.height / Frame.schema answer)
+def fheight(f: C.Frame) -> U32:
+  match f:
+    case C.Frame{h, cols}:
+      h
+
+def cschema(cols: List<&1, C.Named>) -> List<&2, S.Field>:
+  match cols:
+    case Nil{}:
+      Nil{}
+    case C.Named{n, c} <> rest:
+      S.Field{n, cdtype(c)} <> cschema(rest)
+
+def fschema(f: C.Frame) -> List<&2, S.Field>:
+  match f:
+    case C.Frame{h, cols}:
+      cschema(cols)
+
+# every column has h rows and a name not among the earlier ones (the Bool form of WFCols'
+# shape facts, so it can be a reusable hypothesis)
+def cols_ok(+h: U32, cols: List<&1, C.Named>, +seen: List<&2, String>) -> Bool:
+  match cols:
+    case Nil{}:
+      True{}
+    case C.Named{+n, c} <> rest:
+      Bool.and(Bool.not(C.Names.has(seen, n)), Bool.and(U32.is_eq(clen(c), h), cols_ok(h, rest, n <> seen)))
+
+def frame_ok(+h: U32, f: C.Frame) -> Bool:
+  match f:
+    case C.Frame{h2, cols}:
+      Bool.and(U32.is_eq(h2, h), cols_ok(h, cols, Nil{}))
+
+# Eval.full / Eval.expr's answer: the frame back unchanged and a column of dtype t with n rows,
+# or a failure the analysis allowed
+def EvalTyR(+t: D.DType, +tot: Bool, +n: U32, -f: C.Frame, f2: C.Frame, rc: E.ResT(C.Column)) -> Type:
+  match rc:
+    case Fail{e}:
+      {tot == False{} : Bool}
+    case Done{c}:
+      {f2 == f : C.Frame} & ColTy(t, n, c)
+
+def EvalTy(+t: D.DType, +tot: Bool, +n: U32, -f: C.Frame, r: C.Frame & E.ResT(C.Column)) -> Type:
+  (f2, rc) = r
+  EvalTyR(t, tot, n, f, f2, rc)
+
+# LAW: Column.len is pure: the column back (as a live witness equal to it) and clen
+def LenW(-c: C.Column) -> Type:
+  &c2: C.Column -> {C.Column.len(c) == (c2, clen(c)) : C.Column & U32} & {c2 == c : C.Column}
+
+law len_w:
+  for c: C.Column
+  LenW(c)
+
+# LAW: Column.dtype is pure the same way
+def DtypeW(-c: C.Column) -> Type:
+  &c2: C.Column -> {C.Column.dtype(c) == (c2, cdtype(c)) : C.Column & D.DType} & {c2 == c : C.Column}
+
+law dtype_w:
+  for c: C.Column
+  DtypeW(c)
+
+# LAW: Column.cell answers a scalar of the column's dtype, or the null scalar
+def CellW(-c: C.Column, +i: U32) -> Type:
+  &s: D.Scalar -> {C.Column.cell(c, i) == (c, s) : C.Column & D.Scalar} & {lit_dtype(s, cdtype(c)) == cdtype(c) : D.DType}
+
+law cell_w:
+  for c: C.Column
+  for +i: U32
+  CellW(c, i)
+
+# LAW: Frame.height / Frame.schema are pure (the frame back, equal to the input)
+def HeightW(-f: C.Frame) -> Type:
+  &f2: C.Frame -> {C.Frame.height(f) == (f2, fheight(f)) : C.Frame & U32} & {f2 == f : C.Frame}
+
+def SchemaW(-f: C.Frame) -> Type:
+  &f2: C.Frame -> {S.Frame.schema(f) == (f2, fschema(f)) : C.Frame & List<&2, S.Field>} & {f2 == f : C.Frame}
+
+law frame_height_w:
+  for f: C.Frame
+  HeightW(f)
+
+law frame_schema_w:
+  for f: C.Frame
+  SchemaW(f)
+
+# LAW: a well-formed frame (P0) satisfies the shape facts the typing theorems assume
+law wf_frame_ok:
+  for f: C.Frame
+  for wf: WFFrame(f)
+  {frame_ok(fheight(f), f) == True{} : Bool}
+
+# the frame back (equal to f) and a copy of the column named n: dtype t, h rows
+def GetW(-f: C.Frame, +n: String, +h: U32, +t: D.DType) -> Type:
+  &f2: C.Frame -> &c: C.Column -> {C.Frame.get_cloned(f, n) == (f2, Done{c}) : C.Frame & E.ResT(C.Column)} & {f2 == f : C.Frame} & ColTy(t, h, c)
+
+# LAW: Frame.get_cloned on a frame of h rows with unique names answers the frame unchanged and
+# a copy of the column the schema names, of the schema's dtype and h rows
+law get_cloned_typed:
+  for f: C.Frame
+  for +n: String
+  for +h: U32
+  for +t: D.DType
+  for +hf: {frame_ok(h, f) == True{} : Bool}
+  for hfind: {S.Schema.find(fschema(f), n) == Some{t} : Maybe<&2, D.DType>}
+  GetW(f, n, h, t)
+
+# LAW: broadcasting keeps the dtype and gives n rows
+def ColW(+t: D.DType, +n: U32, -c0: C.Column) -> Type:
+  &c2: C.Column -> {c0 == c2 : C.Column} & ColTy(t, n, c2)
+
+law bcast_typed:
+  for c: C.Column
+  for +n: U32
+  ColW(cdtype(c), n, V.Eval.bcast(c, n))
+
+# LAW: a one-row constant column has the scalar's dtype (t for a null) and one row
+law unit_typed:
+  for +v: D.Scalar
+  for +t: D.DType
+  ColTy(lit_dtype(v, t), 1, V.Eval.unit(v, t))
+
+# ---- the operations (src/eval.bend): each answers a column of the dtype its typing rule
+#      (src/expr.bend) gives, as long as the operand, and fails only where the analysis allows --
+
+# LAW: Eval.un on an operand the un rule accepts: that dtype, the same length, never a failure
+law eval_un_typed:
+  for op: X.UnOp
+  for c: C.Column
+  for +t: D.DType
+  for hok: {X.Expr.type.un.ok(op, cdtype(c)) == Done{t} : E.Res(D.DType)}
+  ResW(True{}, t, clen(c), V.Eval.un(op, c))
+
+# LAW: Eval.bin on operands the bin rule accepts: that dtype, the left operand's length
+law eval_bin_typed:
+  for +op: X.BinOp
+  for a: C.Column
+  for b: C.Column
+  for +t: D.DType
+  for hok: {X.Expr.type.bin.ok(op, cdtype(a), cdtype(b)) == Done{t} : E.Res(D.DType)}
+  ResW(True{}, t, clen(a), V.Eval.bin(op, a, b))
+
+# LAW: a well-typed cast answers `to` with the operand's length; it may fail only when the
+# pair is fallible (X.Cast.total False), which is exactly the analysis' totality flag
+law eval_cast_typed:
+  for +to: D.DType
+  for c: C.Column
+  for hok: {X.Cast.ok(cdtype(c), to) == True{} : Bool}
+  ResW(X.Cast.total(cdtype(c), to), to, clen(c), V.Eval.cast(to, c))
+
+# LAW: try_cast never fails on a castable pair
+law eval_try_cast_typed:
+  for +to: D.DType
+  for c: C.Column
+  for hok: {X.Cast.ok(cdtype(c), to) == True{} : Bool}
+  ResW(True{}, to, clen(c), V.Eval.try_cast(to, c))
+
+# LAW: fill_null keeps the (shared) dtype and the first operand's length
+law eval_fill_typed:
+  for a: C.Column
+  for b: C.Column
+  for +t: D.DType
+  for hok: {X.Expr.type.fill(Done{cdtype(a)}, Done{cdtype(b)}) == Done{t} : E.Res(D.DType)}
+  ResW(True{}, t, clen(a), V.Eval.fill(a, b))
+
+# LAW: when / then / otherwise answers the branches' dtype with the then-branch's length
+law eval_when_typed:
+  for c: C.Column
+  for a: C.Column
+  for b: C.Column
+  for +t: D.DType
+  for hok: {X.Expr.type.when.ok(cdtype(c), cdtype(a), cdtype(b)) == Done{t} : E.Res(D.DType)}
+  ResW(True{}, t, clen(a), V.Eval.when(c, a, b))
+
+# LAW: is_in answers bool, same length
+law eval_isin_typed:
+  for +vs: List<&2, D.Scalar>
+  for c: C.Column
+  for +t: D.DType
+  for hok: {X.Expr.type.isin.ok(vs, cdtype(c)) == Done{t} : E.Res(D.DType)}
+  ResW(True{}, t, clen(c), V.Eval.isin(vs, c))
+
+# LAW: clip keeps the numeric dtype, same length
+law eval_clip_typed:
+  for +lo: D.Scalar
+  for +hi: D.Scalar
+  for c: C.Column
+  for +t: D.DType
+  for hok: {X.Expr.type.clip.ok(lo, hi, cdtype(c)) == Done{t} : E.Res(D.DType)}
+  ResW(True{}, t, clen(c), V.Eval.clip(lo, hi, c))
+
+# LAW: the string predicates answer bool, same length
+law eval_strpred_typed:
+  for op: X.StrPredOp
+  for +pat: String
+  for c: C.Column
+  for +t: D.DType
+  for hok: {X.Expr.type.strpred.ok(op, cdtype(c)) == Done{t} : E.Res(D.DType)}
+  ResW(True{}, t, clen(c), V.Eval.strpred(op, pat, c))
+
+# LAW: an aggregation answers one row of the agg rule's dtype, never a failure
+law eval_agg_typed:
+  for op: X.AggOp
+  for c: C.Column
+  for +t: D.DType
+  for hok: {X.Expr.type.agg.ok(op, cdtype(c)) == Done{t} : E.Res(D.DType)}
+  ResW(True{}, t, 1, V.Eval.agg(op, c))
+
+# ---- the stack machine (Eval.compile + Eval.run) and the entry points Eval.full / Eval.expr ------
+#
+# The main theorem: the postfix code of an expression the analysis accepts, run from a
+# frame of h rows (frame_ok: every column h rows, names unique) whose schema s the
+# analysis saw, on a stack whose slots have shape sh, leaves the frame unchanged and
+# pushes one slot of the analysis' dtype and kind (klen rows), or fails where the
+# analysis allowed (tot False). By induction over the expression with the stack
+# invariant StkTy; every operation's typing law (above) supplies the step.
+
+# LAW: the stack machine's typing invariant (P2)
+law run_typed:
+  for +e: X.Expr
+  for +s: List<&2, S.Field>
+  for +h: U32
+  for +acc: List<&2, V.Instr>
+  for f: C.Frame
+  for stk: List<&1, V.Slot>
+  for +sh: List<&2, Sh>
+  for +hs: {fschema(f) == s : List<&2, S.Field>}
+  for +hf: {frame_ok(h, f) == True{} : Bool}
+  for ev: StkTy(h, sh, stk)
+  for +t: D.DType
+  for +rs: List<&2, String>
+  for +k: A.AKind
+  for +tot: Bool
+  for +loc: Bool
+  for ha: {A.Expr.analyse(e, s) == Done{A.Ana{t, rs, k, tot, loc}} : E.Res(A.Ana)}
+  RunW(h, t, skind(k), tot, f, sh, stk, acc, V.Eval.compile(e, acc))
+
+# LAW (P2, the theorem the release claim names): over a well-formed frame, an expression
+# the shared analysis types as (dtype t, total tot) evaluates with Eval.full to the frame
+# unchanged and a column of dtype t with the frame's height; it fails only when tot is
+# False (a fallible strict cast), with the frame unchanged too
+law eval_full_typed:
+  for f: C.Frame
+  for +e: X.Expr
+  for wf: WFFrame(f)
+  for +t: D.DType
+  for +rs: List<&2, String>
+  for +k: A.AKind
+  for +tot: Bool
+  for +loc: Bool
+  for ha: {A.Expr.analyse(e, fschema(f)) == Done{A.Ana{t, rs, k, tot, loc}} : E.Res(A.Ana)}
+  EvalTy(t, tot, fheight(f), f, V.Eval.full(f, e))
+
+# LAW: Eval.expr (select's per-expression evaluation): the same, with the analysis' kind
+# deciding the height: a reduction (KRed) answers one row, a row-wise or literal expression
+# the frame's height (elen)
+law eval_expr_typed:
+  for f: C.Frame
+  for +e: X.Expr
+  for wf: WFFrame(f)
+  for +t: D.DType
+  for +rs: List<&2, String>
+  for +k: A.AKind
+  for +tot: Bool
+  for +loc: Bool
+  for ha: {A.Expr.analyse(e, fschema(f)) == Done{A.Ana{t, rs, k, tot, loc}} : E.Res(A.Ana)}
+  EvalTy(t, tot, elen(k, fheight(f)), f, V.Eval.expr(f, e))

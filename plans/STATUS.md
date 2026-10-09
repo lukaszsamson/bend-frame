@@ -43,6 +43,19 @@ Plan: plans/M_01.txt. Contract: DESIGN.md §15. Agent brief: plans/AGENT_BRIEF.m
   clip/is_between, string predicates, std/var/median. Facade leftovers (DF.column/schema/height/
   collect_show). Examples dedupe, sales_summary, dirty_csv use only the facade.
 
+## M5 part 2 (P2 closed, P3 fallback; branch `worktree-agent-a301b0de831e4ede8`)
+- P3 fallback taken: `Optimize.release` = `Opt.hmerge` (adjacent-Head merging only); `release_run`
+  / `release_run_obs` proven for EVERY plan and env (no admissibility hypothesis). The certified
+  Head sink stays in `optimize_full` (opt-in, tested). Cost on q1-q6: none (no bench plan has a
+  Head above a Select/WithColumns; tests/plan_release_bench.bend pins that the plans are unchanged).
+- P2 closed: LAWS section 13 (116 laws): reader purity, the WF bridge, `get_cloned_typed`, the ten
+  operation typing laws (`eval_un_typed` .. `eval_agg_typed`), `run_typed` (the stack machine, every
+  Expr node) and `eval_full_typed` / `eval_expr_typed` over the production `Eval.full` / `Eval.expr`.
+  `make proofs` ~1.2 s, `make verdict` ~2.9 s (loaded machine). Seven negative fixtures.
+- Final G6 wording in DESIGN section 8. Not done: R3 as a theorem (cell-level commutation), R2/R4/R5,
+  cell values and the refs / locality parts of the analysis record, dictionary lemmas (M4 not merged
+  into this branch; DESIGN section 14 "M5 part 2" lists what a Dictionary variant needs).
+
 ## M5 part 1 (merged 2026-10-09)
 - 90 laws: distinct-paths lemma; gather/compact/map/zip/iota/U32 fold/popcount content theorems;
   column cell/head/slice theorems; mutation fixtures for gather and compact.
@@ -51,8 +64,7 @@ Plan: plans/M_01.txt. Contract: DESIGN.md §15. Agent brief: plans/AGENT_BRIEF.m
 - M4 (string storage): branch `worktree-agent-a7d278e15908e046e`. Raw/Dictionary storage,
   streaming CSV reader, decode-equivalence tests, generator mode, concat merging are done; the
   measurements, the gate decision and the merge are not.
-- M5 part 2: P2 (evaluator typing soundness) and R3, or else the fallback of dropping the head
-  sink from `Optimize.release`.
+
 
 ## Decisions
 - 2026-10-09 (user): no throwaway hub publish in M6. The clean-consumer check uses a local
