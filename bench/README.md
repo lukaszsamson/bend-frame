@@ -32,6 +32,21 @@ threads and once with `POLARS_MAX_THREADS=1` (must be set before import) for com
 single-threaded Bend. Results: `results/polars.json` as `{query, n, seconds, threads}`.
 Note q6 includes the `describe()` computation (eager) inside the timed call.
 
+## The release optimizer (M5 part 2)
+
+Since M5 part 2 the default optimizer (`DF.optimize`, `Lazy.collect`) merges adjacent Heads
+only (`Optimize.release` = `Opt.hmerge`, proven result-preserving for every plan: LAWS.bend
+`release_run`); the analysis-certified Head sink and the other passes are opt-in
+(`optimize_full`). Cost on this benchmark: none. No q1-q6 plan has a Head above a
+Select/WithColumns (q4's Head sits on a Sort, a barrier for both passes), so the release
+optimizer, the previous head pass and the raw plan coincide for q1-q5
+(`tests/plan_release_bench.bend` pins the explain texts). Measured on 2026-10-09, q4 at 100k rows,
+1 thread, the pre-fallback build (commit 3bd4316^, release = `Opt.head` with the sink) and the
+current build interleaved over 4 rounds on a machine with load average 8-14 (another agent
+benchmarking at the same time): old 43 / 41 / 39 / 60 ms, new 43 / 41 / 41 / 42 ms; the controls
+q1 (old 8, 10; new 10, 8 ms) and q3 (old 36, 38; new 36, 34 ms) scatter the same way. Within the
+1 ms clock and the machine noise, no difference.
+
 ## Bend side (M7)
 
 `bench/main.bend` is the native driver (`bend bench/main.bend -o build/bench`; `scripts/bench.sh` builds and runs it):
