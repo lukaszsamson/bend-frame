@@ -12,6 +12,9 @@
 #   PROOF_exec.bend     section 8  the production runner: R1 head merge against Exec.run_pure
 #   PROOF_bits.bend     word-level toolkit (single bits, below-2^d, sub/mask/inc) for section 11
 #   PROOF_contents.bend section 11  buffer contents: distinct paths, Array.set separation, kernel contents
+#   PROOF_eval.bend     section 13  evaluator typing: purity, shapes, the WF bridge, get_cloned
+#   PROOF_evalops.bend  section 13  the operations: eval_un/bin/cast/..agg_typed
+#   PROOF_evalrun.bend  section 13  the stack machine (run_typed) and Eval.full / Eval.expr
 import Base
 import ./LAWS.bend as Laws
 import ./PROOF_lib.bend as L
@@ -22,3 +25,6 @@ import ./PROOF_kernels.bend as PK
 import ./PROOF_exec.bend as PE
 import ./PROOF_bits.bend as PB
 import ./PROOF_contents.bend as PC
+import ./PROOF_eval.bend as PV
+import ./PROOF_evalops.bend as PO
+import ./PROOF_evalrun.bend as PR
