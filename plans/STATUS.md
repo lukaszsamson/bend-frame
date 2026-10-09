@@ -81,8 +81,27 @@ Plan: plans/M_01.txt. Contract: DESIGN.md §15. Agent brief: plans/AGENT_BRIEF.m
 - Open for the proof agent: the Dictionary decode-preserving lemmas for P1 (DESIGN §14 M4 item 8
   lists exactly which functions: required / only-if-claimed / excluded).
 
+## M5 part 3 (P1 Dictionary lemmas; branch `worktree-agent-aa4a2bf9a7504a99f`)
+- 138 laws (section 14: 22). `make proofs` ~1.6 s, `make verdict` ~4.6 s, both green; `make
+  check`, `make test` (141 incl. 9 negative fixtures), `make runner-check` green.
+- Proven over the production src/strs.bend: the decode model (`decode_cell`), gather / compact /
+  clone in both storages, `Str.same`, `Dict.empty`, `Dict.code` with the index (`dict_code_spec`,
+  incl. `Keep`: old codes keep their entries), `Strs.encode` (`strs_encode_cells` / `_cell`),
+  `Strs.raw` and the column / frame wrappers (`column_encode/decode/recode_cell`,
+  `cols_encode_cells`, `frame_encode_cells` = `DF.encode_strings`), `dict_miss_not_code`,
+  `dict_merge_spec`, `dict_same_sound`, `dict_find_spec`, `dict_recode_spec`. Two mutation
+  fixtures (an encoder reusing code 0; a remap writing the wrong slot).
+- Hypotheses not derived (DESIGN section 14 "M5 part 3" item 3): the hash probe's termination
+  (`Probe`, per row along the loops), the per-step entry bound in `MergeProbe`, index
+  completeness (find / recode are sound, not complete).
+- Not done (tested only; DESIGN section 8 lists them): `Strs.append` under `Cat.col` (needs a
+  `Kernel.append` / `copy_into` content theorem and `U32.add` lemmas), `Strs.fix` / `Eval.fix.s`
+  (`Kernel.mask_data`, in place), `Eval.fill.sd/.sd2` and `Eval.when.sd/.sd2` (`Kernel.choose`,
+  in place; their `Dict.merge` half is proven), `WFStrs` for an encoded column.
+
 ## In progress
-- M5 part 3 (if any): the Dictionary P1 lemmas above.
+- nothing (M5 part 3 stops at the laws above; the remaining Dictionary items are listed under
+  M5 part 3 "Not done").
 
 ## Decisions
 - 2026-10-09 (user): no throwaway hub publish in M6. The clean-consumer check uses a local
@@ -90,6 +109,8 @@ Plan: plans/M_01.txt. Contract: DESIGN.md §15. Agent brief: plans/AGENT_BRIEF.m
   ready and with explicit approval.
 
 ## Next (per plan §7)
-Merge M4; the Dictionary P1 lemmas (M5); then M6 (release candidate; no throwaway publish, see Decisions).
+Merge M5 part 3; then M6 (release candidate; no throwaway publish, see Decisions). Optional before
+M6: the in-place kernel content theorems (`Kernel.mask_data`, `Kernel.choose`) and `Kernel.append`,
+which would close `Strs.fix`, fill / when over Dictionaries and concat.
 Not yet measured: the cost of the narrower default optimizer (no predicate
 or projection pushdown) on the q1–q6 benchmark.

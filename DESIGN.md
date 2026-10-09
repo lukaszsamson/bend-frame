@@ -763,15 +763,15 @@ therefore sequential inside a column and parallel ACROSS independent work:
 
 ## 8. Laws (`LAWS.bend`) and how they are proven (`PROOF*.bend`) [opus]
 
-Status (M5 part 2, P1 and P2 closed, P3 by the fallback): `LAWS.bend` states 116
-laws over `src/`; `PROOF.bend` imports `PROOF_lib`, `PROOF_schema`, `PROOF_expr`,
-`PROOF_plan`, `PROOF_kernels`, `PROOF_exec`, `PROOF_bits`, `PROOF_contents`,
-`PROOF_eval`, `PROOF_evalops` and `PROOF_evalrun` (one file per area; `L.*` is the
-shared toolkit, `B.*` the word-level toolkit) and proves all of them: `bend PROOF.bend`
-prints ALL PROOFS CHECK in ~1.2 s wall (2.2 s CPU, `make proofs`), `bend PROOF.bend
---verdict` prints it again under the independent BendTT kernel in ~2.9 s (`make
-verdict`; both measured on a machine with load 14). No `@unsafe`, no foreign code, no
-open law, no axiom. Seven negative fixtures in `tests/proof_negative/` (plan M_01 T5)
+Status (M5 part 3, P1 and P2 closed, P3 by the fallback, the Dictionary string storage
+in the P1 chain): `LAWS.bend` states 138 laws over `src/`; `PROOF.bend` imports
+`PROOF_lib`, `PROOF_schema`, `PROOF_expr`, `PROOF_plan`, `PROOF_kernels`, `PROOF_exec`,
+`PROOF_bits`, `PROOF_contents`, `PROOF_eval`, `PROOF_evalops`, `PROOF_evalrun` and
+`PROOF_strs` (one file per area; `L.*` is the shared toolkit, `B.*` the word-level
+toolkit) and proves all of them: `bend PROOF.bend` prints ALL PROOFS CHECK in ~1.6 s wall
+(3.1 s CPU, `make proofs`), `bend PROOF.bend --verdict` prints it again under the
+independent BendTT kernel in ~4.6 s (`make verdict`). No `@unsafe`, no foreign code, no
+open law, no axiom. Nine negative fixtures in `tests/proof_negative/` (plan M_01 T5)
 show the claims are load-bearing: a slots law falsified to 2^(d+1); a mutated copy of
 the production head rule `Opt.hmin` (the outer limit wins) that the real R1 proof term is
 refused for; a copy of `Kernel.gather.go` reading the source at the wrong index (plus one)
@@ -782,8 +782,11 @@ below every Select (certificate or not) that the real `hmerge_run` term is refus
 copy of the unary evaluator in which Neg over i32 answers a u32 column (same words, wrong
 dtype) that the real `eval_un_typed` case is refused for; and a copy of the stack
 machine's `Eval.fit` that does not broadcast a 1-row side, refused by the `fit_w` shape
-lemma behind `run_typed`; each with the mutated function in the checker's `expected` and
-the production one in `observed`.
+lemma behind `run_typed`; a copy of the string encoder's loop `Enc.go` that gives every row
+code 0 (reusing the empty string's code) refused by the real `strs_encode_cells` term; and a
+copy of the dictionary re-coding loop `Dict.rc.go` that writes the merge map at the wrong
+slot (c + 1) refused by the real `dict_merge_spec` term; each with the mutated function in
+the checker's `expected` and the production one in `observed`.
 
 Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 
@@ -802,6 +805,7 @@ Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 | 11 Buffer contents, the full theorems (`PROOF_bits`, `PROOF_contents`; plan P1, M5) | `rd_at_wf` (`rd_at` of a well-formed array reads with the slot count 2^d), `paths_distinct` (THE distinct-paths bit-vector lemma: two indices below 2^d whose halving decisions through `Array.get`/`Array.set`'s descent agree are equal, over `Word.and / shr / sub / cmp`), `array_set_other` (a write at i leaves every other slot j below 2^d alone), `wf_array_set`, `gather_contents` (`Kernel.gather` at the U32 instance: `out[k] == src[perm[k]]` for every k < n when n <= 2^d) and `gather_keeps_perm`, `mask_not_cell` / `mask_and_cell` / `mask_or_cell` (`Kernel.map` / `Kernel.zip` slot contents: the validity combinators' truth tables slot by slot), `iota_cell` (`Kernel.iota_from`: `off + k`), `u32_fold_sum` / `u32_fold_keeps` (the production U32 fold with `U32.add` is the modulo-2^32 running sum of the first n cells, `FSum`), `popcount_sum` (the kept-row / valid-cell count is the sum of the mask words), `compact_contents` (`Kernel.compact_keep` at the U32 instance writes the kept rows in order at the cursor positions, `CSpec`, under the explicit precondition `CRoom`: 0/1 words and a cursor below 2^d) and `compact_keeps_mask` (data and validity stay aligned: one mask filters every buffer) |
 | 12 Column cells (`PROOF_contents`) | `cell_pure` (`Column.cell(c, i) == (c, ccell(c, i))` for all five column kinds, and for a Str column both storages, Raw and Dictionary (M4: the model `scell` reads the Raw slot, or the dictionary entry of the row's code): the production cell reader is pure and reads the model `ccell`, validity then data), `head_cell` (`Column.head` keeps every cell; with `head_len` / `head_dtype` the exact prefix), `depth_for_fits` (`Kernel.depth_for(n)` gives at least n slots for n <= 2^31), `slice_cell_u32` (row k of `Column.slice(c, off, n)` is row `off + k` of c for every k below the slice's length, data and validity, on a U32 column: the exact subrange, through `gather_contents` and `iota_cell`) |
 | 13 Evaluator typing (`PROOF_eval`, `PROOF_evalops`, `PROOF_evalrun`; plan P2, M5 part 2) | models `cdtype` / `clen` / `klen` / `skind` / `fschema` / `frame_ok` and the Type-valued `ColTy` / `ResTy` / `StkTy` / `RunTy` / `EvalTy`; purity of the readers (`len_w`, `dtype_w`, `cell_w`, `frame_height_w`, `frame_schema_w`), the P0 bridge `wf_frame_ok` (a `WFFrame` satisfies the shape facts the typing theorems assume), `get_cloned_typed` (`Frame.get_cloned` answers the frame unchanged and a copy of the column `Schema.find` names, of its dtype and h rows), `bcast_typed`, `unit_typed`; the operation laws `eval_un_typed`, `eval_bin_typed`, `eval_cast_typed` (fails exactly when `X.Cast.total` is False), `eval_try_cast_typed`, `eval_fill_typed`, `eval_when_typed`, `eval_isin_typed`, `eval_clip_typed`, `eval_strpred_typed`, `eval_agg_typed` (every operation answers a column of the dtype its typing rule in `expr.bend` gives, as long as its operand, never a failure except the strict cast); and the stack machine: `run_typed` (the postfix code `Eval.compile(e, acc)` of an expression the shared analysis `A.Expr.analyse` accepts with record (t, k, tot), run by `Eval.run` from a frame of h rows with that schema and a stack whose slots have shapes `sh`, leaves the frame unchanged and pushes one slot of dtype t and kind `skind(k)` with `klen` rows, or fails only when tot is False; by induction over the expression with the stack invariant, every Expr node), `eval_full_typed` (`Eval.full(f, e)` over a well-formed frame answers the frame unchanged and a column of the analysis' dtype with the frame's height, or a failure the analysis allowed), `eval_expr_typed` (`Eval.expr`: the same with one row for a reduction, `elen`) |
+| 14 Dictionary strings (`PROOF_strs`; plan section 5 last paragraph and section 6 P1, M5 part 3) | the entry-list model `WFDictE(d, es)` (k = |es| entries fitting 2^dd slots, entry 0 `""`, every slot below k its list entry, a sound index `WFIx`: every slot empty or naming a code in range whose entry is its key); `decode_cell` (`Strs.decode` reads row i as `scell(s, i)`: decode(Dictionary) is the Raw column), `strs_gather_cells`, `strs_compact_cells` (both storages: the codes gathered / compacted read as the Raw operation's cells; the gather / compact loops of section 11 as template proofs at the String and U32 instances), `strs_clone_w` / `dict_clone_w`; `str_same_sound` / `str_same_complete` (the index's key comparison); `dict_empty_wf`; `dict_code_spec` (`Dict.code` keeps `WFDictE`, extends the entries by at most s, answers a code in range that decodes to s, and every old code keeps its entry (`Keep`), through `Dict.add` / `Dict.fit` / `Dict.room` / `Ix.seek` / `Ix.grow`); `strs_encode_cells` / `strs_encode_cell` (`Strs.encode` of a Raw column: a well-formed code array and dictionary, every row's code naming the row's string: `EncRows`; per row `scell(encode(s), i) == scell(s, i)`); `strs_raw_cell`, `column_encode_cell` / `column_decode_cell` / `column_recode_cell`, `cols_encode_cells`, `frame_encode_cells` (`DF.encode_strings` keeps the height, the names and every cell); `dict_miss_not_code`; `dict_merge_spec` (`Dict.merge`: src back, dst extended and well formed, dst's old codes keep their entries, the map re-codes every entry of src: `nthd(es2, m[c]) == dentry(src, c)`); `dict_same_sound` (`Dict.same` True only for equal entry lists); `dict_find_spec` (`Dict.find`: a miss or a sound code naming s, the dictionary back); `dict_recode_spec` (`Dict.recode`: per entry of src a miss or a code of dst naming it) |
 
 ### 8.1 Assurance matrix (plan M_01 section 6: theorem -> production function -> assumptions -> checker)
 
@@ -830,6 +834,10 @@ Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 | `eval_un_typed` .. `eval_agg_typed` (10 laws) | `Eval.un`, `Eval.bin`, `Eval.cast`, `Eval.try_cast`, `Eval.fill`, `Eval.when`, `Eval.isin`, `Eval.clip`, `Eval.strpred`, `Eval.agg` and everything they call (`Column.mk_w`, `Eval.fix`, the kernels, `Kernel.depth_for`) | the operand dtypes are accepted by the operation's rule in `expr.bend` (`Expr.type.un.ok`, `bin.ok`, `Cast.ok`, `fill`, `when.ok`, `isin.ok`, `clip.ok`, `strpred.ok`, `agg.ok`); the claims are dtype, length and totality (`ResW`): not the cells | bend, --verdict |
 | `run_typed` | `Eval.compile`, `Eval.run` (= `Eval.step`, `Eval.exec`, `Eval.app1/2/3`, `Eval.do1/2/3`, `Eval.fit`, `Eval.fit_agg`, `Eval.push`, `Eval.wrap`, `Eval.unit`, `Eval.bcast`, `Frame.get_cloned`), `A.Expr.analyse` | `fschema(f) == s`, `frame_ok(h, f)`, a stack satisfying `StkTy(h, sh, stk)`, `A.Expr.analyse(e, s) == Done{Ana{t, rs, k, tot, loc}}`; every Expr node (Col, Lit, Alias, Cast, TryCast, Un, Bin, FillNull, Agg, When, IsIn, Clip, StrPred). Claims: frame unchanged, one new slot of dtype t and kind `skind(k)` with `klen` rows, failure only when tot is False. NOT claimed: cell values, that only the columns `rs` are read, the locality field `loc` | bend, --verdict |
 | `eval_full_typed`, `eval_expr_typed` | `Eval.full`, `Eval.expr` (= `Eval.slot`, `Eval.slot.s/t/h`, `Eval.fin`, `Eval.mode.a/b`, `Eval.unslot`) | `WFFrame(f)` (P0) and `A.Expr.analyse(e, fschema f) == Done{..}`: the production type check `A.Ana.type` is the same analysis, so a Done answer is exactly what `Eval.select` / `with_columns` / `filter` evaluate; the column has the frame's height (`Eval.full`) or `elen` (`Eval.expr`: 1 for a reduction) | bend, --verdict |
+| `decode_cell`, `strs_gather_cells`, `strs_compact_cells`, `strs_clone_w`, `dict_clone_w` | `Strs.decode` / `Dict.decode`, `Strs.gather`, `Strs.compact`, `Strs.clone` / `Dict.clone` (= `Strs.out.r/d`, `Strs.clone.r/d`, `Dict.clone.k`, `Kernel.gather` / `Kernel.compact_keep` at the String and U32 instances), i.e. the Str case of `Column.gather.data`, `Column.compact.data`, `Column.slice`, `Column.clone.s` | `n <= 2^d` (gather / decode), `CRoom` (compact, as section 11); no dictionary invariant needed (codes move unchanged) | bend, --verdict |
+| `str_same_sound`, `str_same_complete`, `dict_empty_wf`, `dict_code_spec` | `Str.same`, `Dict.empty`, `Dict.code` (= `Dict.code.h/k/p`, `Dict.add`, `Dict.fit`, `Dict.fit.k`, `Dict.room`, `Dict.dd`, `Dict.mix`, `Ix.seek` / `Ix.seek.go` / `Ix.look` / `Ix.id`, `Ix.grow` / `Ix.grow.go` / `Ix.move` / `Ix.move.k`), the index's `Array.set` / `Array.get` | `WFDictE(d, es)`; fewer than 2^30 entries (the row cap keeps every dictionary far below); the PROBE HYPOTHESIS `Probe(d, s)`: the hash probe for s stops at a slot that is empty or holds s (production guarantees it by the load factor <= 1/2 and the pairwise distinct entries; this termination argument is not proven: the probe's answer is taken as given and shown sound). `Str.hash` is only used as a deterministic function | bend, --verdict |
+| `strs_encode_cells`, `strs_encode_cell`, `strs_raw_cell`, `column_encode_cell`, `column_decode_cell`, `column_recode_cell`, `cols_encode_cells`, `frame_encode_cells` | `Strs.encode` (= `Strs.encode.raw`, `Enc.go`, `Enc.step`, `Enc.put`, `Enc.fin` over `Dict.code` from `Dict.empty`), `Strs.raw`, `Column.encode` / `decode` / `recode`, `Cols.encode`, `Frame.encode` (= `DF.encode_strings`) | `n <= 2^d`, `n < 2^30`, the probe hypotheses along the loop (`EncProbe`: row i against the dictionary built so far); claims: the Dictionary's code array and dictionary are well formed and every row below n decodes to the Raw row (`EncRows`; per row `scell`, hence `ccell` with validity untouched) | bend, --verdict |
+| `dict_miss_not_code`, `dict_merge_spec`, `dict_same_sound`, `dict_find_spec`, `dict_recode_spec` | `Dict.miss`, `Dict.merge` / `Dict.recode` (= `Dict.rc`, `Dict.rc.go/step/op/put/fin/fin2` over `Dict.code` / `Dict.find`), `Dict.same` (= `Dict.same.k/u/t/v/w/go/fin`, `Dict.size`, `Dict.tag`), `Dict.find` (= `Dict.find.k`) | `WFDictE` of the dictionary looked up; `k <= 2^dd` of the source; the probe hypotheses along the loop (`MergeProbe` also carries the entry bound at every step, `FindProbe`); `dict_same_sound` needs nothing. Claims: the map re-codes every entry of src (merge: into the extended dst whose old codes keep their entries; recode: a miss or a code of dst naming the entry); `Dict.same` True implies equal entry lists. NOT claimed: index completeness (that every entry IS found: `Dict.find` is shown sound, never complete), so a Dictionary equality that answers "not equal" on a miss is tested, not proven | bend, --verdict |
 | sections 1-5b (schema, typing, plan schema, optimizer schema level, slots) | as listed in the table above | as stated per law | bend, --verdict |
 
 What the release chain does NOT cover, stated exactly:
@@ -873,11 +881,28 @@ Not provable or not true as stated, recorded here instead of as open laws:
   level (section 12 has `cell_pure`, `head_cell` for every kind and
   `slice_cell_u32`), `Column.gather` / `Column.compact` as cell theorems and
   `Column.slice` on F32 / String columns. `Kernel.choose` (fill_null / when
-  cells), `Kernel.mask_data` (null slots after kernels), the grouped scatter
-  invariant, the cell-level (not typing) soundness of `Eval`, the `refs` / locality
-  parts of the analysis record, R2-R5 as theorems (P3; they are not in the release
-  optimizer): not done in M5 (see section 14, M5 and M5 part 2). The typing part of
-  P2 IS proven (section 13: `run_typed`, `eval_full_typed`, `eval_expr_typed`).
+  cells), `Kernel.mask_data` (null slots after kernels), `Kernel.append` /
+  `Kernel.copy_into` (concat), the grouped scatter invariant, the cell-level (not
+  typing) soundness of `Eval`, the `refs` / locality parts of the analysis record, R2-R5
+  as theorems (P3; they are not in the release optimizer): not done in M5 (see section
+  14, M5 and M5 part 2). The typing part of P2 IS proven (section 13: `run_typed`,
+  `eval_full_typed`, `eval_expr_typed`).
+- The Dictionary string storage (section 14 of LAWS.bend, M5 part 3): PROVEN are the
+  decode model, the code-moving kernels in both storages, `Dict.code` / `Strs.encode`
+  (with the old codes kept), the column / frame wrappers, `Dict.merge`, `Dict.recode`,
+  `Dict.find`, `Dict.same` and `Dict.miss`, under the probe hypothesis (the hash probe's
+  termination at an empty slot or at the key, section 8.1). NOT proven, tested only
+  (tests/strs_decode.bend, `make diff DIFF_ARGS=--dict`): `Strs.append` under `Cat.col`
+  (concat: its `Kernel.append` = two `copy_into` loops have no content theorem, and the
+  write index `off + i` needs `U32.add` lemmas the toolkit lacks), `Strs.fix` and
+  `Eval.fix.s` (`Kernel.mask_data`, an in-place loop), `Eval.fill.sd` / `fill.sd2` and
+  `Eval.when.sd` / `when.sd2` (`Kernel.choose`, in place, plus `Eval.zd.map`; their
+  dictionary part, `Dict.merge` with the old codes kept, IS proven), index completeness
+  (every entry is found), the P0 `WFStrs` / `WFDictCodes` of an encoded column (section 14
+  proves the finer `WFDictE`; connecting the two predicates is not done), and the
+  pairwise distinctness of the entries (not needed by any cell theorem: equal codes give
+  equal strings by `WFDictE`; the converse is what `Dict.same` / `Eval.zd.eq.*` rely on
+  through the index, tested).
 - Floating error bounds, hash-join and radix-sort correctness, CSV: not v0.1
   proof deliverables (tested).
 
@@ -2133,8 +2158,10 @@ experiment"; raw runs: bench/results/m4/*.jsonl; Bend lessons: IMPLEMENTING.md "
    `map_p`; `PROOF_evalrun` `step2_d` / `fitd_w` (the binary step reads both operands'
    storage and broadcasts a literal as a one-entry Dictionary next to a Dictionary). Because Auto (a Dictionary for low-cardinality columns) is the
    default, plan section 5 puts the Dictionary's decode-preserving lemmas into the P1 chain
-   (plan section 6 P1: "Dictionary encode/decode/remap preserve the decoded Str cells"). Not
-   written in M4 (the proof agent's scope). Each lemma says: for every row i below the length,
+   (plan section 6 P1: "Dictionary encode/decode/remap preserve the decoded Str cells").
+   Written in M5 part 3 (section 8 row 14 and the matrix; the "M5 part 3" subsection below
+   says which of the functions listed here are covered and which stay tested-only). Each
+   lemma says: for every row i below the length,
    `scell(op(s, ..), i)` equals the Raw operation's cell (equivalently `Strs.decode(op_dict(..))
    == op_raw(Strs.decode(..))`), under `WFStrs` (every valid code < k, entries pairwise
    distinct, the index maps each entry to its code, entry 0 is `""`), and `WFStrs` is preserved.
@@ -2170,6 +2197,57 @@ experiment"; raw runs: bench/results/m4/*.jsonl; Bend lessons: IMPLEMENTING.md "
    `Grp.enc.sk`, `Grp.agg.v`, `Key.enc.*` / `Join.fix`. These are covered by
    tests/strs_decode.bend, tests/csv_chunks.bend, tests/facade_m4.bend and the differential
    generator's Dictionary mode (`make diff DIFF_ARGS=--dict`).
+
+### M5 part 3 (P1 Dictionary strings: LAWS.bend section 14, PROOF_strs.bend)
+
+1. **Covered** (section 8 row 14, 22 laws, all under `--verdict`): the decode model and the
+   code-moving kernels in both storages (`Strs.decode`, `Strs.gather`, `Strs.compact`,
+   `Strs.clone` / `Dict.clone`), `Str.same`, `Dict.empty`, `Dict.code` with the whole index
+   (`Ix.seek`, `Ix.grow`, `Ix.move`), `Strs.encode`, `Strs.raw`, `Column.encode` / `decode` /
+   `recode`, `Cols.encode`, `Frame.encode`, `Dict.miss`, `Dict.merge`, `Dict.same`,
+   `Dict.find`, `Dict.recode`. **Tested only** (of the "required for P1" list in item 8 of the
+   M4 subsection): `Strs.append` under `Cat.col`, `Strs.fix`, `Eval.fix.s`, `Eval.fill.sd` /
+   `.sd2`, `Eval.when.sd` / `.sd2` (section 8 "not provable or not true as stated" says why:
+   their kernels `Kernel.append`, `Kernel.mask_data`, `Kernel.choose` have no content
+   theorem yet; the dictionary half of fill / when, the merge with the old codes kept, is
+   proven).
+2. **The model**: a dictionary's entries in code order are a Data LIST `es` (`WFDictE(d, es)`:
+   `to_nat(k) == |es|`, `k <= 2^dd`, `0 < k`, `nthn(es, 0) == ""`, `WFArray(strs)`, every slot
+   below k its list entry, `WFIx`). The list is duplicable, so facts about every entry at once
+   are Data (`Ext(es, es2)`: es2 extends es); the per-slot entry facts stay an affine forall,
+   which is why `CodeW` also answers `Keep` (every old code keeps its entry): consumers
+   (merge's `KeepD`, and the concat / fill / when cells once their kernels are proven) need
+   the original dictionary's cells after the write consumed its `WFDictE`. `Keep` is proven
+   by analysing the one production write on a second clone of the entry array
+   (`PC.clone_wf`, then `set_other_w` twice: `keep_of`), the "analysed twice" technique of
+   IMPLEMENTING.md M5.
+3. **Hypotheses that are not derived** (deviations from a closed theorem, all stated in the
+   laws): (a) the PROBE hypothesis `Probe(d, s)`: `Ix.seek` stops at a slot that is empty or
+   holds s. Production guarantees it by the load factor <= 1/2 (an empty slot is always
+   within the probe's fuel) and the pairwise distinct entries; proving that termination
+   argument (a counting argument over the open-addressing table) is not done, so the laws
+   take the probe's answer as given and show it sound. The loop laws carry it per row
+   (`EncProbe`, `MergeProbe`, `FindProbe`, each threading the production's dictionary).
+   (b) the entry bound below 2^30: `strs_encode_cells` derives it from `n < 2^30` along the
+   loop (`Room(30n, inc i, f)`, `|es| <= to_nat(inc i)`); `dict_merge_spec` takes it per step
+   inside `MergeProbe` (deriving it from the two sizes needs `U32.add` arithmetic the word
+   toolkit lacks). The row cap keeps every dictionary below 2^23 + 1 entries, so both are
+   vacuous in production. (c) `dict_find_spec` / `dict_recode_spec` state soundness only
+   (`FoundK`: a miss or a code in range naming s), not completeness ("an entry is always
+   found"), which `WFIx` does not express; completeness is what makes a miss mean "not
+   equal" in `Eval.zd.eq.*` (tested).
+4. **Statement shapes** (what a reader of LAWS.bend section 14 should know): the row facts
+   abstract the code as a Data word with its equation (`EncRows`: `@code -> {code ==
+   rdN(codes, j)} -> ...`) because `rdN(out, j)` as a live term would consume the array; the
+   per-row `dentry` form is a separate law (`strs_encode_cell`). `CodeW` bounds the code both
+   as a word (`c < dk(d2)`) and in the list model (`to_nat(c) < |es2|`) because the loop
+   invariants live in the list model while `WFDictE` speaks in words. Laws are stated over
+   the opaque `ST.Dict` with the accessors `dk`, `ddd`, `dstrs`, `dentry`; the proofs match it
+   into fields at once.
+5. **Mutation fixtures** (tests/proof_negative/): `encode_reuses_code.bend` (every row gets
+   code 0) refused by the real `strs_encode_cells` term; `remap_wrong_slot.bend` (the merge
+   map written at c + 1) refused by the real `dict_merge_spec` term.
+6. **Timings**: 138 laws, `bend PROOF.bend` ~1.6 s wall / 3.1 s CPU, `--verdict` ~4.6 s.
 
 ### M5 (proof closure: P1 buffer contents; P2 / P3 not reached)
 

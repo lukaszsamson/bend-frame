@@ -910,3 +910,56 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
   are the laws the imported files do not prove). Iterate there, then paste into the generator.
 - Timings: 116 laws, `bend PROOF.bend` ~1.2 s wall / 2.2 s CPU, `--verdict` ~2.9 s wall, on a
   machine with load average 14.
+
+## M5 part 3 proofs (P1 Dictionary strings: LAWS section 14, PROOF_strs.bend)
+
+- **A Type-level hypothesis that a `match` reduces is consumed as a whole**: `hb: PC.IncLtU(bb, c, k)`
+  is Data only after the case split on `bb`, so using it twice inside the True branch is "consumed
+  more than once". Hand it to a helper with a `+hb: {U32.is_lt(c, k) == True{} : Bool}` parameter in
+  the branch (`pre_lt`, `ehyp_lt`, `keepd_c`); the same for a lambda binder used twice
+  (`+c2 => hc => keepd_c(.., hc, ..)`).
+- **The last Sigma component cannot be `+`**: when it is needed twice, pass it on to a helper whose
+  parameter is `+` (`code_id3` for `get_w`'s `{x == rd_at(a, i)}`, `mstep8a` for an `Ext`'s
+  equation). A `(+more, e2) = ext` then `helper(.., e2, ..)` with `+e2` in the helper works.
+- **Reading an array in a loop invariant**: `rdN(out, j)` as a live TERM consumes `out`, so a
+  per-row invariant abstracts the code as a Data word with its equation (`EncRows`: `@code: U32 ->
+  {code == rdN(U32, d, out, j)} -> ...`); the step transports the equation through `set_other_w`'s
+  write facts (`Equal.trans(code, rdN(c1, j), rdN(out, j), ecode, (%same_false_lt .. ; fj(j)))`).
+- **Rewrite direction, once more**: to INTRODUCE a stuck test into the goal (the goal has
+  `rdN(out, j)`, `fj(j)` speaks about `Bool.pick(same_at(..), v, rdN(out, j))`) the equation is
+  `same_false_lt(..) : {same_at(..) == False}` as it is (the motive at `False` converts to the
+  goal); to REMOVE it (the goal already has the pick) it is `Equal.sym` of that. A nested
+  `(%e : P; t)` used as the equation of an outer `%` is "cannot infer": name it (`same_at_of_eq`).
+- **Dictionaries are `type .. is Type`**: an opaque `d: ST.Dict` can only be used once, and `dk(d)`
+  in a live position consumes it. Entry counts travel as Data words beside the dictionary
+  (`wf_ek: WFDictE(d, es) -> &d2 -> &k -> {d2 == d} & {k == dk(d2)} & {to_nat(k) == |es|} &
+  WFDictE(d2, es)`; rewrite `d -> d2` in the goal and continue with d2). Equalities over
+  `ST.Dict` can be `+` like those over arrays.
+- **Facts about every entry are an affine forall; the entry LIST is Data**: state the invariants
+  of a loop over the entries in the list model (`nthd(es, c)`, `Ext(es, es2)` with `ext_nth`,
+  `ext_len`), never as "for every slot of the array". When a consumer needs the entry facts of
+  a dictionary AFTER a theorem consumed its `WFDictE`, the theorem must answer them itself
+  (`Keep` in `CodeW`): produce them from a SECOND clone of the array (`PC.clone_wf`, two
+  `set_other_w` on equal copies, the two written arrays equal by `writes_eq`), one forall per
+  consumer.
+- **A hypothesis chain over an evolving affine value** (the probe per row: `EncProbe(f, i, a,
+  d)` with the next element over `Pair.fst(Dict.code(d, rd_at(a, i)))`): keep the chain in the
+  GOAL (`EMid2 := EncProbe(..) -> ..`), rewrite the goal's dictionary / string / result pair, then
+  bind (`pr => ..`) and take it apart in a helper's parameter. Rewriting a hypothesis variable
+  is impossible; rewriting the goal that mentions it is one `%`.
+- **Per-step bounds**: counter arithmetic (`|es| <= to_nat(inc i)` with `Room(30n, inc i, f)` from
+  `n < 2^30`) is cheap for ONE source of growth (encode); with two (merge: dst's entries plus
+  src's) the clean derivation needs `U32.add` lemmas the word toolkit lacks, so `MergeProbe`
+  carries the bound per step instead (honest, stated in DESIGN section 14).
+- **`U32.to_nat(U32.shln(1, 30n))` in a type is harmless** (it stays stuck under the comparisons
+  `nat_le_lt_trans` matches on); only `Word.to_nat` of a concrete all-ones word is fatal.
+  `U32.is_lt(ST.Dict.miss(), U32.shln(1, 30n))` normalises to `False` cheaply (32-bit `Word.cmp`
+  of two literals): `dict_miss_not_code` is a closed computation plus `lt_trans_u`.
+- **Case splits on computed Bools in a cascade** (`Dict.same.k/u/t/v`): one Type-valued goal def
+  per stage with the Bool as a parameter (`SU(bk, ..)`, `SV(bt, ..)`), the production call
+  written with that Bool, and the law's proof passes the computed test with `{==}` as its
+  equation; the law's goal converts to the first stage because `Dict.size` / `Dict.tag` reduce on
+  the constructor.
+- **Parameter order is binding**: a `+ec1: {Array.set(String, s1, k, s) == c1}` parameter must
+  come after `s`; the checker reports "expected: a defined name" at the first forward reference.
+- **Timings**: 138 laws, `bend PROOF.bend` ~1.6 s wall / 3.1 s CPU, `--verdict` ~4.6 s.
