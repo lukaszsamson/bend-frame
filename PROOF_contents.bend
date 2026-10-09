@@ -834,3 +834,384 @@ def Laws.u32_fold_keeps(n, a, z):
 
 def Laws.popcount_sum(n, mask):
   fold_sum_fin(n, mask, 0, fold_go(U32.to_nat(n), 0, 0, mask))
+
+# ---- compaction (Kernel.compact_keep): clones, the cursor, the keep-one-position lemma, the spec ------
+#
+# A forall hypothesis is affine (it cannot be used twice), so the invariant "every kept row so far
+# sits at its position" cannot be transported across a write row by row. Instead: an array can be
+# copied (clone_eq / clone_wf rebuild two live copies with equations to the original) and a finite
+# Type-level chain (CRoom) can be duplicated by induction; so the remaining run is analysed twice,
+# once for the row just written (ckeep: later writes land above its position) and once for the
+# rows to come (cspec_run), on separate copies of the state.
+
+# two live copies of an array, both equal to it
+def clone_node(-T: Data, -xs: Array<T>, -ys: Array<T>, wx: &x1: Array<T> -> &x2: Array<T> -> {x1 == xs : Array<T>} & {x2 == xs : Array<T>}, wy: &y1: Array<T> -> &y2: Array<T> -> {y1 == ys : Array<T>} & {y2 == ys : Array<T>})
+  -> &a1: Array<T> -> &a2: Array<T> -> {a1 == ANode{xs, ys} : Array<T>} & {a2 == ANode{xs, ys} : Array<T>}:
+  (x1, x2, ex1, ex2) = wx
+  (y1, y2, ey1, ey2) = wy
+  (ANode{x1, y1}, ANode{x2, y2}, (%ey1 : {ANode{x1, y1} == ANode{xs, _} : Array<T>}; %ex1 : {ANode{x1, y1} == ANode{_, y1} : Array<T>}; {==}), (%ey2 : {ANode{x2, y2} == ANode{xs, _} : Array<T>}; %ex2 : {ANode{x2, y2} == ANode{_, y2} : Array<T>}; {==}))
+
+def clone_eq(-T: Data, a: Array<T>) -> &a1: Array<T> -> &a2: Array<T> -> {a1 == a : Array<T>} & {a2 == a : Array<T>}:
+  match a:
+    case ALeaf{+x}:
+      (ALeaf{x}, ALeaf{x}, {==}, {==})
+    case ANode{xs, ys}:
+      clone_node(T, xs, ys, clone_eq(T, xs), clone_eq(T, ys))
+
+# the same for a well-formed array: both copies well formed
+def clone_wf_node(-T: Data, -xs: Array<T>, -ys: Array<T>, +p: Nat,
+  wx: &x1: Array<T> -> &x2: Array<T> -> {x1 == xs : Array<T>} & {x2 == xs : Array<T>} & Laws.WFArray(T, p, x1) & Laws.WFArray(T, p, x2),
+  wy: &y1: Array<T> -> &y2: Array<T> -> {y1 == ys : Array<T>} & {y2 == ys : Array<T>} & Laws.WFArray(T, p, y1) & Laws.WFArray(T, p, y2))
+  -> &a1: Array<T> -> &a2: Array<T> -> {a1 == ANode{xs, ys} : Array<T>} & {a2 == ANode{xs, ys} : Array<T>} & Laws.WFArray(T, 1n+p, a1) & Laws.WFArray(T, 1n+p, a2):
+  (x1, x2, ex1, ex2, wx1, wx2) = wx
+  (y1, y2, ey1, ey2, wy1, wy2) = wy
+  (ANode{x1, y1}, ANode{x2, y2}, (%ey1 : {ANode{x1, y1} == ANode{xs, _} : Array<T>}; %ex1 : {ANode{x1, y1} == ANode{_, y1} : Array<T>}; {==}), (%ey2 : {ANode{x2, y2} == ANode{xs, _} : Array<T>}; %ex2 : {ANode{x2, y2} == ANode{_, y2} : Array<T>}; {==}), (wx1, wy1), (wx2, wy2))
+
+def clone_wf(-T: Data, d: Nat, a: Array<T>, wf: Laws.WFArray(T, d, a)) -> &a1: Array<T> -> &a2: Array<T> -> {a1 == a : Array<T>} & {a2 == a : Array<T>} & Laws.WFArray(T, d, a1) & Laws.WFArray(T, d, a2):
+  match d a:
+    case 0n ALeaf{+x}:
+      (ALeaf{x}, ALeaf{x}, {==}, {==}, Unit{}, Unit{})
+    case 1n++p ANode{xs, ys}:
+      (wl, wr) = wf
+      clone_wf_node(T, xs, ys, p, clone_wf(T, p, xs, wl), clone_wf(T, p, ys, wr))
+    case 0n ANode{xs, ys}:
+      Empty.absurd(&a1: Array<T> -> &a2: Array<T> -> {a1 == ANode{xs, ys} : Array<T>} & {a2 == ANode{xs, ys} : Array<T>} & Laws.WFArray(T, 0n, a1) & Laws.WFArray(T, 0n, a2), wf)
+    case 1n+p ALeaf{x}:
+      Empty.absurd(&a1: Array<T> -> &a2: Array<T> -> {a1 == ALeaf{x} : Array<T>} & {a2 == ALeaf{x} : Array<T>} & Laws.WFArray(T, 1n+p, a1) & Laws.WFArray(T, 1n+p, a2), wf)
+
+# a CRoom chain, twice
+def croom_dup_k(p: Nat, +i: U32, +k: U32, +d: Nat, -mask: Array<U32>, +b: U32, +eb: {b == Laws.rd_at(U32, mask, i) : U32}, +hb: {U32.is_le(b, 1) == True{} : Bool}, +hk: {U32.is_lt(k, U32.shln(1, d)) == True{} : Bool},
+  w: Laws.CRoom(p, U32.inc(i), U32.add(k, b), d, mask) & Laws.CRoom(p, U32.inc(i), U32.add(k, b), d, mask)) -> Laws.CRoom(1n+p, i, k, d, mask) & Laws.CRoom(1n+p, i, k, d, mask):
+  (r1, r2) = w
+  ((b, eb, hb, hk, r1), (b, eb, hb, hk, r2))
+
+def croom_dup(f: Nat, +i: U32, +k: U32, +d: Nat, -mask: Array<U32>, room: Laws.CRoom(f, i, k, d, mask)) -> Laws.CRoom(f, i, k, d, mask) & Laws.CRoom(f, i, k, d, mask):
+  match f:
+    case 0n:
+      (Unit{}, Unit{})
+    case 1n++p:
+      (+b, +eb, +hb, +hk, rest) = room
+      croom_dup_k(p, i, k, d, mask, b, eb, hb, hk, croom_dup(p, U32.inc(i), U32.add(k, b), d, mask, rest))
+
+# ---- the cursor: a 0/1 word moves it by inc or not at all --------------------------------------------
+
+def Bit01(c: Bool, +b: U32) -> Type:
+  match c:
+    case True{}:
+      {b == 1 : U32}
+    case False{}:
+      {b == 0 : U32}
+
+def le1_k(c: Cmp, +x: Word(32n), e: {Word.cmp(32n, x, B.bitw(32n, 0n)) == c : Cmp}, h: {Cmp.is_le(c) == True{} : Bool}) -> &c2: Bool -> Bit01(c2, U32{x}):
+  match c:
+    case LT{}:
+      (False{}, Equal.cong(Word(32n), U32, w => U32{w}, x, Word.zero(32n), B.lt_bitw_zabove(32n, 0n, x, e)))
+    case EQ{}:
+      (True{}, Equal.cong(Word(32n), U32, w => U32{w}, x, B.bitw(32n, 0n), L.word_cmp_eq(32n, x, B.bitw(32n, 0n), e)))
+    case GT{}:
+      Empty.absurd(&c2: Bool -> Bit01(c2, U32{x}), L.false_true(h))
+
+# a word <= 1 is 0 or 1
+def le1_cases(b: U32, h: {U32.is_le(b, 1) == True{} : Bool}) -> &c: Bool -> Bit01(c, b):
+  match b:
+    case U32{+x}:
+      le1_k(Word.cmp(32n, x, B.bitw(32n, 0n)), x, {==}, h)
+
+# x + 0 == x, x + 0 with a carry in == inc x, x + 1 == inc x
+def add_zero_r(n: Nat, x: Word(n)) -> {Word.adc(n, x, Word.zero(n), False{}, False{}) == x : Word(n)}:
+  match n:
+    case 0n:
+      match x:
+        case WNil{}:
+          {==}
+    case 1n++p:
+      match x:
+        case WCon{False{}, +t}:
+          %Equal.sym(Word(p), Word.adc(p, t, Word.zero(p), False{}, False{}), t, add_zero_r(p, t)) : {WCon{False{}, _} == WCon{False{}, t} : Word(1n+p)}
+          {==}
+        case WCon{True{}, +t}:
+          %Equal.sym(Word(p), Word.adc(p, t, Word.zero(p), False{}, False{}), t, add_zero_r(p, t)) : {WCon{True{}, _} == WCon{True{}, t} : Word(1n+p)}
+          {==}
+
+def add_zero_c(n: Nat, x: Word(n)) -> {Word.adc(n, x, Word.zero(n), False{}, True{}) == Word.inc(n, x) : Word(n)}:
+  match n:
+    case 0n:
+      match x:
+        case WNil{}:
+          {==}
+    case 1n++p:
+      match x:
+        case WCon{False{}, +t}:
+          %Equal.sym(Word(p), Word.adc(p, t, Word.zero(p), False{}, False{}), t, add_zero_r(p, t)) : {WCon{True{}, _} == WCon{True{}, t} : Word(1n+p)}
+          {==}
+        case WCon{True{}, +t}:
+          %Equal.sym(Word(p), Word.adc(p, t, Word.zero(p), False{}, True{}), Word.inc(p, t), add_zero_c(p, t)) : {WCon{False{}, _} == WCon{False{}, Word.inc(p, t)} : Word(1n+p)}
+          {==}
+
+def add_one(n: Nat, x: Word(n)) -> {Word.adc(n, x, B.bitw(n, 0n), False{}, False{}) == Word.inc(n, x) : Word(n)}:
+  match n:
+    case 0n:
+      match x:
+        case WNil{}:
+          {==}
+    case 1n++p:
+      match x:
+        case WCon{False{}, +t}:
+          %Equal.sym(Word(p), Word.adc(p, t, Word.zero(p), False{}, False{}), t, add_zero_r(p, t)) : {WCon{True{}, _} == WCon{True{}, t} : Word(1n+p)}
+          {==}
+        case WCon{True{}, +t}:
+          %Equal.sym(Word(p), Word.adc(p, t, Word.zero(p), False{}, True{}), Word.inc(p, t), add_zero_c(p, t)) : {WCon{False{}, _} == WCon{False{}, Word.inc(p, t)} : Word(1n+p)}
+          {==}
+
+def u_add0(k: U32) -> {U32.add(k, 0) == k : U32}:
+  match k:
+    case U32{x}:
+      Equal.cong(Word(32n), U32, w => U32{w}, Word.adc(32n, x, Word.zero(32n), False{}, False{}), x, add_zero_r(32n, x))
+
+def u_add1(k: U32) -> {U32.add(k, 1) == U32.inc(k) : U32}:
+  match k:
+    case U32{x}:
+      Equal.cong(Word(32n), U32, w => U32{w}, Word.adc(32n, x, B.bitw(32n, 0n), False{}, False{}), Word.inc(32n, x), add_one(32n, x))
+
+# Nat.cmp(a, 1 + a) == LT
+def nat_lt_succ(a: Nat) -> {Nat.cmp(a, 1n+a) == LT{} : Cmp}:
+  match a:
+    case 0n:
+      {==}
+    case 1n+q:
+      nat_lt_succ(q)
+
+# a word below 2^d is below its increment (inc does not wrap: the word is not maximal)
+def lt_inc_k(bb: Bool, +k: U32, +d: Nat, s: B.IncSpecU(bb, k), hk: {U32.is_lt(k, U32.shln(1, d)) == True{} : Bool}) -> {U32.is_lt(k, U32.inc(k)) == True{} : Bool}:
+  match bb:
+    case True{}:
+      B.lt_of_nat_u(k, U32.inc(k), (%Equal.sym(Nat, U32.to_nat(U32.inc(k)), 1n+U32.to_nat(k), s) : {Cmp.is_lt(Nat.cmp(U32.to_nat(k), _)) == True{} : Bool}; %Equal.sym(Cmp, Nat.cmp(U32.to_nat(k), 1n+U32.to_nat(k)), LT{}, nat_lt_succ(U32.to_nat(k))) : {Cmp.is_lt(_) == True{} : Bool}; {==}))
+    case False{}:
+      Empty.absurd({U32.is_lt(k, U32.inc(k)) == True{} : Bool}, s(U32.shln(1, d))(B.gt_of_lt_u(k, U32.shln(1, d), hk)))
+
+def lt_inc_fin(+k: U32, +d: Nat, w: &bb: Bool -> B.IncSpecU(bb, k), hk: {U32.is_lt(k, U32.shln(1, d)) == True{} : Bool}) -> {U32.is_lt(k, U32.inc(k)) == True{} : Bool}:
+  (bb, s) = w
+  lt_inc_k(bb, k, d, s, hk)
+
+def lt_inc_u(+k: U32, +d: Nat, hk: {U32.is_lt(k, U32.shln(1, d)) == True{} : Bool}) -> {U32.is_lt(k, U32.inc(k)) == True{} : Bool}:
+  lt_inc_fin(k, d, B.inc_nat_u(k), hk)
+
+# a position below the cursor stays below it after a 0/1 step
+def cursor_step_k(c: Bool, +k: U32, +b: U32, +d: Nat, s: Bit01(c, b), hk: {U32.is_lt(k, U32.shln(1, d)) == True{} : Bool}, +pos: U32, hpos: {U32.is_lt(pos, k) == True{} : Bool}) -> {U32.is_lt(pos, U32.add(k, b)) == True{} : Bool}:
+  match c:
+    case True{}:
+      %Equal.sym(U32, b, 1, s) : {U32.is_lt(pos, U32.add(k, _)) == True{} : Bool}
+      %Equal.sym(U32, U32.add(k, 1), U32.inc(k), u_add1(k)) : {U32.is_lt(pos, _) == True{} : Bool}
+      lt_trans_u(pos, k, U32.inc(k), hpos, lt_inc_u(k, d, hk))
+    case False{}:
+      %Equal.sym(U32, b, 0, s) : {U32.is_lt(pos, U32.add(k, _)) == True{} : Bool}
+      %Equal.sym(U32, U32.add(k, 0), k, u_add0(k)) : {U32.is_lt(pos, _) == True{} : Bool}
+      hpos
+
+def cursor_step_fin(+k: U32, +b: U32, +d: Nat, w: &c: Bool -> Bit01(c, b), hk: {U32.is_lt(k, U32.shln(1, d)) == True{} : Bool}, +pos: U32, hpos: {U32.is_lt(pos, k) == True{} : Bool}) -> {U32.is_lt(pos, U32.add(k, b)) == True{} : Bool}:
+  (c, s) = w
+  cursor_step_k(c, k, b, d, s, hk, pos, hpos)
+
+def cursor_step(+k: U32, +b: U32, +d: Nat, hb: {U32.is_le(b, 1) == True{} : Bool}, hk: {U32.is_lt(k, U32.shln(1, d)) == True{} : Bool}, +pos: U32, hpos: {U32.is_lt(pos, k) == True{} : Bool}) -> {U32.is_lt(pos, U32.add(k, b)) == True{} : Bool}:
+  cursor_step_fin(k, b, d, le1_cases(b, hb), hk, pos, hpos)
+
+# a kept row (word 1) moves the cursor strictly up
+def cursor_set_k(c: Bool, +k: U32, +b: U32, +d: Nat, s: Bit01(c, b), hk: {U32.is_lt(k, U32.shln(1, d)) == True{} : Bool}) -> {U32.is_ne(b, 0) == True{} : Bool} -> {U32.is_lt(k, U32.add(k, b)) == True{} : Bool}:
+  match c:
+    case True{}:
+      %Equal.sym(U32, b, 1, s) : {U32.is_ne(_, 0) == True{} : Bool} -> {U32.is_lt(k, U32.add(k, _)) == True{} : Bool}
+      %Equal.sym(U32, U32.add(k, 1), U32.inc(k), u_add1(k)) : {U32.is_ne(1, 0) == True{} : Bool} -> {U32.is_lt(k, _) == True{} : Bool}
+      nz => lt_inc_u(k, d, hk)
+    case False{}:
+      %Equal.sym(U32, b, 0, s) : {U32.is_ne(_, 0) == True{} : Bool} -> {U32.is_lt(k, U32.add(k, _)) == True{} : Bool}
+      nz => Empty.absurd({U32.is_lt(k, U32.add(k, 0)) == True{} : Bool}, L.false_true(nz))
+
+def cursor_set_fin(+k: U32, +b: U32, +d: Nat, w: &c: Bool -> Bit01(c, b), hk: {U32.is_lt(k, U32.shln(1, d)) == True{} : Bool}) -> {U32.is_ne(b, 0) == True{} : Bool} -> {U32.is_lt(k, U32.add(k, b)) == True{} : Bool}:
+  (c, s) = w
+  cursor_set_k(c, k, b, d, s, hk)
+
+def cursor_set(+k: U32, +b: U32, +d: Nat, hb: {U32.is_le(b, 1) == True{} : Bool}, hk: {U32.is_lt(k, U32.shln(1, d)) == True{} : Bool}) -> {U32.is_ne(b, 0) == True{} : Bool} -> {U32.is_lt(k, U32.add(k, b)) == True{} : Bool}:
+  cursor_set_fin(k, b, d, le1_cases(b, hb), hk)
+
+# ---- keep one position: later writes of the compaction land above it -------------------------------
+
+# the cell at pos of the output of the remaining run (pending read r of mask[i])
+def CK(~T: Data, f: Nat, +i: U32, +k: U32, +d: Nat, -a: Array<T>, -out: Array<T>, -mask: Array<U32>, -r: Array<U32> & U32, +pos: U32, +val: T) -> Type:
+  {Laws.rdN(T, d, Pair.fst(Array<T>, Array<U32>, K.Kernel.compact_keep.go(~T, f, i, k, (a, out), r)), pos) == val : T}
+
+# ... after the step's cursor move, with the read ra of a[i] pending inside compact.put
+def CKmid(~T: Data, p: Nat, +i: U32, +k: U32, +b: U32, +d: Nat, -out: Array<T>, -mask: Array<U32>, -ra: Array<T> & T, +pos: U32, +val: T) -> Type:
+  {Laws.rdN(T, d, Pair.fst(Array<T>, Array<U32>, K.Kernel.compact_keep.go(~T, p, U32.inc(i), U32.add(k, b), K.Kernel.compact.put(~T, out, k, ra), Array.get(U32, mask, U32.inc(i)))), pos) == val : T}
+
+def ckeep_s3(~T: Data, p: Nat, +i: U32, +k: U32, +b: U32, +d: Nat, a: Array<T>, -out: Array<T>, mask: Array<U32>, -maskR: Array<U32>, +em: {mask == maskR : Array<U32>}, room: Laws.CRoom(p, U32.inc(i), U32.add(k, b), d, maskR), +hb: {U32.is_le(b, 1) == True{} : Bool}, +hk: {U32.is_lt(k, U32.shln(1, d)) == True{} : Bool}, +pos: U32, +val: T, +hpos: {U32.is_lt(pos, k) == True{} : Bool}, hval: {Laws.rdN(T, d, out, pos) == val : T}, +y: T,
+  ih: @a2: Array<T> -> @c: Array<T> -> @m2: Array<U32> -> Laws.WFArray(T, d, c) -> {m2 == maskR : Array<U32>} -> Laws.CRoom(p, U32.inc(i), U32.add(k, b), d, maskR) -> {U32.is_lt(pos, U32.add(k, b)) == True{} : Bool} -> {Laws.rdN(T, d, c, pos) == val : T} -> CK(~T, p, U32.inc(i), U32.add(k, b), d, a2, c, m2, Array.get(U32, m2, U32.inc(i)), pos, val),
+  w: &c: Array<T> -> {Array.set(T, out, k, y) == c : Array<T>} & Laws.WFArray(T, d, c) & (@k2: U32 -> {Laws.rdN(T, d, c, k2) == Bool.pick(T, Laws.same_at(d, k, k2), y, Laws.rdN(T, d, out, k2)) : T}) & (@k2: U32 -> {Laws.rd_at(T, out, k2) == Laws.rdN(T, d, out, k2) : T}))
+  -> CK(~T, p, U32.inc(i), U32.add(k, b), d, a, Array.set(T, out, k, y), mask, Array.get(U32, mask, U32.inc(i)), pos, val):
+  (c, ec, wc, fj, cv) = w
+  %Equal.sym(Array<T>, Array.set(T, out, k, y), c, ec) : CK(~T, p, U32.inc(i), U32.add(k, b), d, a, _, mask, Array.get(U32, mask, U32.inc(i)), pos, val)
+  ih(a, c, mask, wc, em, room, cursor_step(k, b, d, hb, hk, pos, hpos), (%Equal.sym(T, Laws.rdN(T, d, c, pos), Bool.pick(T, Laws.same_at(d, k, pos), y, Laws.rdN(T, d, out, pos)), fj(pos)) : {_ == val : T}; %Equal.sym(Bool, Laws.same_at(d, k, pos), False{}, same_false_lt(d, k, pos, hk, hpos)) : {Bool.pick(T, _, y, Laws.rdN(T, d, out, pos)) == val : T}; hval))
+
+def ckeep_s2(~T: Data, p: Nat, +i: U32, +k: U32, +b: U32, +d: Nat, -a: Array<T>, out: Array<T>, mask: Array<U32>, wf: Laws.WFArray(T, d, out), -maskR: Array<U32>, +em: {mask == maskR : Array<U32>}, room: Laws.CRoom(p, U32.inc(i), U32.add(k, b), d, maskR), +hb: {U32.is_le(b, 1) == True{} : Bool}, +hk: {U32.is_lt(k, U32.shln(1, d)) == True{} : Bool}, +pos: U32, +val: T, +hpos: {U32.is_lt(pos, k) == True{} : Bool}, hval: {Laws.rdN(T, d, out, pos) == val : T},
+  ih: @a2: Array<T> -> @c: Array<T> -> @m2: Array<U32> -> Laws.WFArray(T, d, c) -> {m2 == maskR : Array<U32>} -> Laws.CRoom(p, U32.inc(i), U32.add(k, b), d, maskR) -> {U32.is_lt(pos, U32.add(k, b)) == True{} : Bool} -> {Laws.rdN(T, d, c, pos) == val : T} -> CK(~T, p, U32.inc(i), U32.add(k, b), d, a2, c, m2, Array.get(U32, m2, U32.inc(i)), pos, val),
+  w: &a3: Array<T> -> &y: T -> {a3 == a : Array<T>} & {Array.get(T, a, i) == (a, y) : Array<T> & T} & {y == Laws.rd_at(T, a, i) : T})
+  -> CKmid(~T, p, i, k, b, d, out, mask, Array.get(T, a, i), pos, val):
+  (a2, +y, ea, e2, ey) = w
+  %Equal.sym(Array<T> & T, Array.get(T, a, i), (a, y), e2) : CKmid(~T, p, i, k, b, d, out, mask, _, pos, val)
+  %ea : CK(~T, p, U32.inc(i), U32.add(k, b), d, _, Array.set(T, out, k, y), mask, Array.get(U32, mask, U32.inc(i)), pos, val)
+  ckeep_s3(~T, p, i, k, b, d, a2, out, mask, maskR, em, room, hb, hk, pos, val, hpos, hval, y, ih, set_other_w(T, d, out, k, y, wf))
+
+def ckeep_s1(~T: Data, p: Nat, +i: U32, +k: U32, +d: Nat, a: Array<T>, out: Array<T>, -mask: Array<U32>, wf: Laws.WFArray(T, d, out), -maskR: Array<U32>, +em: {mask == maskR : Array<U32>}, room: Laws.CRoom(1n+p, i, k, d, maskR), +pos: U32, +val: T, +hpos: {U32.is_lt(pos, k) == True{} : Bool}, hval: {Laws.rdN(T, d, out, pos) == val : T},
+  ih: @b: U32 -> @a2: Array<T> -> @c: Array<T> -> @m2: Array<U32> -> Laws.WFArray(T, d, c) -> {m2 == maskR : Array<U32>} -> Laws.CRoom(p, U32.inc(i), U32.add(k, b), d, maskR) -> {U32.is_lt(pos, U32.add(k, b)) == True{} : Bool} -> {Laws.rdN(T, d, c, pos) == val : T} -> CK(~T, p, U32.inc(i), U32.add(k, b), d, a2, c, m2, Array.get(U32, m2, U32.inc(i)), pos, val),
+  w: &m3: Array<U32> -> &x: U32 -> {m3 == mask : Array<U32>} & {Array.get(U32, mask, i) == (mask, x) : Array<U32> & U32} & {x == Laws.rd_at(U32, mask, i) : U32})
+  -> CK(~T, 1n+p, i, k, d, a, out, mask, Array.get(U32, mask, i), pos, val):
+  (+b, eb, +hb, +hk, room2) = room
+  (mask2, +x, +em2, e1, ex) = w
+  %Equal.sym(Array<U32> & U32, Array.get(U32, mask, i), (mask, x), e1) : CK(~T, 1n+p, i, k, d, a, out, mask, _, pos, val)
+  %em2 : CK(~T, 1n+p, i, k, d, a, out, _, (_, x), pos, val)
+  %Equal.sym(U32, x, b, Equal.trans(U32, x, Laws.rd_at(U32, mask, i), b, ex, Equal.trans(U32, Laws.rd_at(U32, mask, i), Laws.rd_at(U32, maskR, i), b, Equal.cong(Array<U32>, U32, q => Laws.rd_at(U32, q, i), mask, maskR, em), Equal.sym(U32, b, Laws.rd_at(U32, maskR, i), eb)))) : CK(~T, 1n+p, i, k, d, a, out, mask2, (mask2, _), pos, val)
+  ckeep_s2(~T, p, i, k, b, d, a, out, mask2, wf, maskR, Equal.trans(Array<U32>, mask2, mask, maskR, em2, em), room2, hb, hk, pos, val, hpos, hval, ih(b), get_w(T, a, i))
+
+def ckeep_zero(~T: Data, +i: U32, +k: U32, +d: Nat, a: Array<T>, out: Array<T>, -mask: Array<U32>, +pos: U32, +val: T, hval: {Laws.rdN(T, d, out, pos) == val : T},
+  w: &m3: Array<U32> -> &x: U32 -> {m3 == mask : Array<U32>} & {Array.get(U32, mask, i) == (mask, x) : Array<U32> & U32} & {x == Laws.rd_at(U32, mask, i) : U32})
+  -> CK(~T, 0n, i, k, d, a, out, mask, Array.get(U32, mask, i), pos, val):
+  (mask2, +x, em2, e1, ex) = w
+  %Equal.sym(Array<U32> & U32, Array.get(U32, mask, i), (mask, x), e1) : CK(~T, 0n, i, k, d, a, out, mask, _, pos, val)
+  hval
+
+# the remaining run never writes below the cursor: a cell at pos < k keeps its value
+def ckeep(~T: Data, f: Nat, +i: U32, +k: U32, +d: Nat, a: Array<T>, out: Array<T>, mask: Array<U32>, wf: Laws.WFArray(T, d, out), -maskR: Array<U32>, +em: {mask == maskR : Array<U32>}, room: Laws.CRoom(f, i, k, d, maskR), +pos: U32, +val: T, +hpos: {U32.is_lt(pos, k) == True{} : Bool}, hval: {Laws.rdN(T, d, out, pos) == val : T})
+  -> CK(~T, f, i, k, d, a, out, mask, Array.get(U32, mask, i), pos, val):
+  match f:
+    case 0n:
+      ckeep_zero(~T, i, k, d, a, out, mask, pos, val, hval, get_w(U32, mask, i))
+    case 1n++p:
+      ckeep_s1(~T, p, i, k, d, a, out, mask, wf, maskR, em, room, pos, val, hpos, hval, b => a2 => c => m2 => wc => em3 => room2 => hp => hv => ckeep(~T, p, U32.inc(i), U32.add(k, b), d, a2, c, m2, wc, maskR, em3, room2, pos, val, hp, hv), get_w(U32, mask, i))
+
+# ---- the spec of the whole run -----------------------------------------------------------------------
+
+# CSpec over the output of the remaining run (pending read r of mask[i]); aR / maskR are the arrays the
+# spec names, equal to the live ones
+def CS(~T: Data, f: Nat, +i: U32, +k: U32, +d: Nat, -a: Array<T>, -out: Array<T>, -mask: Array<U32>, -r: Array<U32> & U32, -aR: Array<T>, -maskR: Array<U32>) -> Type:
+  Laws.CSpec(T, f, i, k, d, aR, maskR, Pair.fst(Array<T>, Array<U32>, K.Kernel.compact_keep.go(~T, f, i, k, (a, out), r)))
+
+def CSmid(~T: Data, p: Nat, +i: U32, +k: U32, +b: U32, +d: Nat, -out: Array<T>, -mask: Array<U32>, -ra: Array<T> & T, -aR: Array<T>, -maskR: Array<U32>) -> Type:
+  Laws.CSpec(T, 1n+p, i, k, d, aR, maskR, Pair.fst(Array<T>, Array<U32>, K.Kernel.compact_keep.go(~T, p, U32.inc(i), U32.add(k, b), K.Kernel.compact.put(~T, out, k, ra), Array.get(U32, mask, U32.inc(i)))))
+
+def CSfin(~T: Data, p: Nat, +i: U32, +k: U32, +b: U32, +d: Nat, -a: Array<T>, -out2: Array<T>, -mask: Array<U32>, -aR: Array<T>, -maskR: Array<U32>) -> Type:
+  Laws.CSpec(T, 1n+p, i, k, d, aR, maskR, Pair.fst(Array<T>, Array<U32>, K.Kernel.compact_keep.go(~T, p, U32.inc(i), U32.add(k, b), (a, out2), Array.get(U32, mask, U32.inc(i)))))
+
+# the clause of the row just written, restated from the ckeep copies to the spec's copies
+def row_clause(~T: Data, +p: Nat, +i: U32, +k: U32, +b: U32, +d: Nat, -a3: Array<T>, -a4: Array<T>, -c1: Array<T>, -c2: Array<T>, -m3: Array<U32>, -m4: Array<U32>, -aR: Array<T>, +y: T,
+  ea: {a3 == a4 : Array<T>}, ec: {c1 == c2 : Array<T>}, em: {m3 == m4 : Array<U32>}, ey: {y == Laws.rd_at(T, aR, i) : T},
+  fact: CK(~T, p, U32.inc(i), U32.add(k, b), d, a3, c1, m3, Array.get(U32, m3, U32.inc(i)), k, y))
+  -> {Laws.rdN(T, d, Pair.fst(Array<T>, Array<U32>, K.Kernel.compact_keep.go(~T, p, U32.inc(i), U32.add(k, b), (a4, c2), Array.get(U32, m4, U32.inc(i)))), k) == Laws.rd_at(T, aR, i) : T}:
+  %ea : {Laws.rdN(T, d, Pair.fst(Array<T>, Array<U32>, K.Kernel.compact_keep.go(~T, p, U32.inc(i), U32.add(k, b), (_, c2), Array.get(U32, m4, U32.inc(i)))), k) == Laws.rd_at(T, aR, i) : T}
+  %ec : {Laws.rdN(T, d, Pair.fst(Array<T>, Array<U32>, K.Kernel.compact_keep.go(~T, p, U32.inc(i), U32.add(k, b), (a3, _), Array.get(U32, m4, U32.inc(i)))), k) == Laws.rd_at(T, aR, i) : T}
+  %em : {Laws.rdN(T, d, Pair.fst(Array<T>, Array<U32>, K.Kernel.compact_keep.go(~T, p, U32.inc(i), U32.add(k, b), (a3, c1), Array.get(U32, _, U32.inc(i)))), k) == Laws.rd_at(T, aR, i) : T}
+  %ey : {Laws.rdN(T, d, Pair.fst(Array<T>, Array<U32>, K.Kernel.compact_keep.go(~T, p, U32.inc(i), U32.add(k, b), (a3, c1), Array.get(U32, m3, U32.inc(i)))), k) == _ : T}
+  fact
+
+# the written cell at k on the written array's copy
+def wrote_k(~T: Data, +k: U32, +d: Nat, -out: Array<T>, -c: Array<T>, -c1: Array<T>, +y: T, ec1: {c1 == c : Array<T>}, e: {Laws.rdN(T, d, c, k) == Bool.pick(T, Laws.same_at(d, k, k), y, Laws.rdN(T, d, out, k)) : T}) -> {Laws.rdN(T, d, c1, k) == y : T}:
+  %Equal.sym(Array<T>, c1, c, ec1) : {Laws.rdN(T, d, _, k) == y : T}
+  %Equal.sym(T, Laws.rdN(T, d, c, k), Bool.pick(T, Laws.same_at(d, k, k), y, Laws.rdN(T, d, out, k)), e) : {_ == y : T}
+  %Equal.sym(Bool, Laws.same_at(d, k, k), True{}, same_at_refl(d, k)) : {Bool.pick(T, _, y, Laws.rdN(T, d, out, k)) == y : T}
+  {==}
+
+def cspec_s4(~T: Data, +p: Nat, +i: U32, +k: U32, +b: U32, +d: Nat, -a2: Array<T>, -out: Array<T>, -c: Array<T>, -mask2: Array<U32>, -aR: Array<T>, -maskR: Array<U32>, +ea2: {a2 == aR : Array<T>}, +em2: {mask2 == maskR : Array<U32>}, +eb: {b == Laws.rd_at(U32, maskR, i) : U32}, +hb: {U32.is_le(b, 1) == True{} : Bool}, +hk: {U32.is_lt(k, U32.shln(1, d)) == True{} : Bool}, +y: T, +ey: {y == Laws.rd_at(T, aR, i) : T},
+  fj: @k2: U32 -> {Laws.rdN(T, d, c, k2) == Bool.pick(T, Laws.same_at(d, k, k2), y, Laws.rdN(T, d, out, k2)) : T},
+  rooms: Laws.CRoom(p, U32.inc(i), U32.add(k, b), d, maskR) & Laws.CRoom(p, U32.inc(i), U32.add(k, b), d, maskR),
+  wa: &a3: Array<T> -> &a4: Array<T> -> {a3 == a2 : Array<T>} & {a4 == a2 : Array<T>},
+  wc: &c1: Array<T> -> &c2: Array<T> -> {c1 == c : Array<T>} & {c2 == c : Array<T>} & Laws.WFArray(T, d, c1) & Laws.WFArray(T, d, c2),
+  wm: &m3: Array<U32> -> &m4: Array<U32> -> {m3 == mask2 : Array<U32>} & {m4 == mask2 : Array<U32>},
+  ih: @a4: Array<T> -> @c2: Array<T> -> @m4: Array<U32> -> Laws.WFArray(T, d, c2) -> {a4 == aR : Array<T>} -> {m4 == maskR : Array<U32>} -> Laws.CRoom(p, U32.inc(i), U32.add(k, b), d, maskR) -> CS(~T, p, U32.inc(i), U32.add(k, b), d, a4, c2, m4, Array.get(U32, m4, U32.inc(i)), aR, maskR))
+  -> CSfin(~T, p, i, k, b, d, a2, c, mask2, aR, maskR):
+  (r1, r2) = rooms
+  (a3, a4, +ea3, +ea4) = wa
+  (c1, c2, +ec1, +ec2, wc1, wc2) = wc
+  (m3, m4, +em3, +em4) = wm
+  %ea4 : CSfin(~T, p, i, k, b, d, _, c, mask2, aR, maskR)
+  %ec2 : CSfin(~T, p, i, k, b, d, a4, _, mask2, aR, maskR)
+  %em4 : CSfin(~T, p, i, k, b, d, a4, c2, _, aR, maskR)
+  (b, eb, nz => row_clause(~T, p, i, k, b, d, a3, a4, c1, c2, m3, m4, aR, y, Equal.trans(Array<T>, a3, a2, a4, ea3, Equal.sym(Array<T>, a4, a2, ea4)), Equal.trans(Array<T>, c1, c, c2, ec1, Equal.sym(Array<T>, c2, c, ec2)), Equal.trans(Array<U32>, m3, mask2, m4, em3, Equal.sym(Array<U32>, m4, mask2, em4)), ey, ckeep(~T, p, U32.inc(i), U32.add(k, b), d, a3, c1, m3, wc1, maskR, Equal.trans(Array<U32>, m3, mask2, maskR, em3, em2), r1, k, y, cursor_set(k, b, d, hb, hk)(nz), wrote_k(~T, k, d, out, c, c1, y, ec1, fj(k)))), ih(a4, c2, m4, wc2, Equal.trans(Array<T>, a4, a2, aR, ea4, ea2), Equal.trans(Array<U32>, m4, mask2, maskR, em4, em2), r2))
+
+def cspec_s3(~T: Data, +p: Nat, +i: U32, +k: U32, +b: U32, +d: Nat, a2: Array<T>, -out: Array<T>, mask2: Array<U32>, -aR: Array<T>, -maskR: Array<U32>, +ea2: {a2 == aR : Array<T>}, +em2: {mask2 == maskR : Array<U32>}, +eb: {b == Laws.rd_at(U32, maskR, i) : U32}, +hb: {U32.is_le(b, 1) == True{} : Bool}, +hk: {U32.is_lt(k, U32.shln(1, d)) == True{} : Bool}, +y: T, +ey: {y == Laws.rd_at(T, aR, i) : T}, room: Laws.CRoom(p, U32.inc(i), U32.add(k, b), d, maskR),
+  ih: @a4: Array<T> -> @c2: Array<T> -> @m4: Array<U32> -> Laws.WFArray(T, d, c2) -> {a4 == aR : Array<T>} -> {m4 == maskR : Array<U32>} -> Laws.CRoom(p, U32.inc(i), U32.add(k, b), d, maskR) -> CS(~T, p, U32.inc(i), U32.add(k, b), d, a4, c2, m4, Array.get(U32, m4, U32.inc(i)), aR, maskR),
+  w: &c: Array<T> -> {Array.set(T, out, k, y) == c : Array<T>} & Laws.WFArray(T, d, c) & (@k2: U32 -> {Laws.rdN(T, d, c, k2) == Bool.pick(T, Laws.same_at(d, k, k2), y, Laws.rdN(T, d, out, k2)) : T}) & (@k2: U32 -> {Laws.rd_at(T, out, k2) == Laws.rdN(T, d, out, k2) : T}))
+  -> CSfin(~T, p, i, k, b, d, a2, Array.set(T, out, k, y), mask2, aR, maskR):
+  (c, ec, wc, fj, cv) = w
+  %Equal.sym(Array<T>, Array.set(T, out, k, y), c, ec) : CSfin(~T, p, i, k, b, d, a2, _, mask2, aR, maskR)
+  cspec_s4(~T, p, i, k, b, d, a2, out, c, mask2, aR, maskR, ea2, em2, eb, hb, hk, y, ey, fj, croom_dup(p, U32.inc(i), U32.add(k, b), d, maskR, room), clone_eq(T, a2), clone_wf(T, d, c, wc), clone_eq(U32, mask2), ih)
+
+def cspec_s2(~T: Data, +p: Nat, +i: U32, +k: U32, +b: U32, +d: Nat, -a: Array<T>, out: Array<T>, mask2: Array<U32>, wf: Laws.WFArray(T, d, out), -aR: Array<T>, -maskR: Array<U32>, +ea: {a == aR : Array<T>}, +em2: {mask2 == maskR : Array<U32>}, +eb: {b == Laws.rd_at(U32, maskR, i) : U32}, +hb: {U32.is_le(b, 1) == True{} : Bool}, +hk: {U32.is_lt(k, U32.shln(1, d)) == True{} : Bool}, room: Laws.CRoom(p, U32.inc(i), U32.add(k, b), d, maskR),
+  ih: @a4: Array<T> -> @c2: Array<T> -> @m4: Array<U32> -> Laws.WFArray(T, d, c2) -> {a4 == aR : Array<T>} -> {m4 == maskR : Array<U32>} -> Laws.CRoom(p, U32.inc(i), U32.add(k, b), d, maskR) -> CS(~T, p, U32.inc(i), U32.add(k, b), d, a4, c2, m4, Array.get(U32, m4, U32.inc(i)), aR, maskR),
+  w: &a3: Array<T> -> &y: T -> {a3 == a : Array<T>} & {Array.get(T, a, i) == (a, y) : Array<T> & T} & {y == Laws.rd_at(T, a, i) : T})
+  -> CSmid(~T, p, i, k, b, d, out, mask2, Array.get(T, a, i), aR, maskR):
+  (a2, +y, +ea2, e2, ey) = w
+  %Equal.sym(Array<T> & T, Array.get(T, a, i), (a, y), e2) : CSmid(~T, p, i, k, b, d, out, mask2, _, aR, maskR)
+  %ea2 : CSfin(~T, p, i, k, b, d, _, Array.set(T, out, k, y), mask2, aR, maskR)
+  cspec_s3(~T, p, i, k, b, d, a2, out, mask2, aR, maskR, Equal.trans(Array<T>, a2, a, aR, ea2, ea), em2, eb, hb, hk, y, Equal.trans(T, y, Laws.rd_at(T, a, i), Laws.rd_at(T, aR, i), ey, Equal.cong(Array<T>, T, q => Laws.rd_at(T, q, i), a, aR, ea)), room, ih, set_other_w(T, d, out, k, y, wf))
+
+def cspec_s1(~T: Data, +p: Nat, +i: U32, +k: U32, +d: Nat, a: Array<T>, out: Array<T>, -mask: Array<U32>, wf: Laws.WFArray(T, d, out), -aR: Array<T>, -maskR: Array<U32>, +ea: {a == aR : Array<T>}, +em: {mask == maskR : Array<U32>}, room: Laws.CRoom(1n+p, i, k, d, maskR),
+  ih: @b: U32 -> @a4: Array<T> -> @c2: Array<T> -> @m4: Array<U32> -> Laws.WFArray(T, d, c2) -> {a4 == aR : Array<T>} -> {m4 == maskR : Array<U32>} -> Laws.CRoom(p, U32.inc(i), U32.add(k, b), d, maskR) -> CS(~T, p, U32.inc(i), U32.add(k, b), d, a4, c2, m4, Array.get(U32, m4, U32.inc(i)), aR, maskR),
+  w: &m3: Array<U32> -> &x: U32 -> {m3 == mask : Array<U32>} & {Array.get(U32, mask, i) == (mask, x) : Array<U32> & U32} & {x == Laws.rd_at(U32, mask, i) : U32})
+  -> CS(~T, 1n+p, i, k, d, a, out, mask, Array.get(U32, mask, i), aR, maskR):
+  (+b, +eb, +hb, +hk, room2) = room
+  (mask2, +x, +em2, e1, ex) = w
+  %Equal.sym(Array<U32> & U32, Array.get(U32, mask, i), (mask, x), e1) : CS(~T, 1n+p, i, k, d, a, out, mask, _, aR, maskR)
+  %em2 : CS(~T, 1n+p, i, k, d, a, out, _, (_, x), aR, maskR)
+  %Equal.sym(U32, x, b, Equal.trans(U32, x, Laws.rd_at(U32, mask, i), b, ex, Equal.trans(U32, Laws.rd_at(U32, mask, i), Laws.rd_at(U32, maskR, i), b, Equal.cong(Array<U32>, U32, q => Laws.rd_at(U32, q, i), mask, maskR, em), Equal.sym(U32, b, Laws.rd_at(U32, maskR, i), eb)))) : CS(~T, 1n+p, i, k, d, a, out, mask2, (mask2, _), aR, maskR)
+  cspec_s2(~T, p, i, k, b, d, a, out, mask2, wf, aR, maskR, ea, Equal.trans(Array<U32>, mask2, mask, maskR, em2, em), eb, hb, hk, room2, ih(b), get_w(T, a, i))
+
+# the compaction's contract for the remaining run
+def cspec_run(~T: Data, f: Nat, +i: U32, +k: U32, +d: Nat, a: Array<T>, out: Array<T>, mask: Array<U32>, wf: Laws.WFArray(T, d, out), -aR: Array<T>, -maskR: Array<U32>, +ea: {a == aR : Array<T>}, +em: {mask == maskR : Array<U32>}, room: Laws.CRoom(f, i, k, d, maskR))
+  -> CS(~T, f, i, k, d, a, out, mask, Array.get(U32, mask, i), aR, maskR):
+  match f:
+    case 0n:
+      Unit{}
+    case 1n++p:
+      cspec_s1(~T, p, i, k, d, a, out, mask, wf, aR, maskR, ea, em, room, b => a4 => c2 => m4 => wc2 => ea4 => em4 => room2 => cspec_run(~T, p, U32.inc(i), U32.add(k, b), d, a4, c2, m4, wc2, aR, maskR, ea4, em4, room2), get_w(U32, mask, i))
+
+def Laws.compact_contents(d, n, a, mask, z, room):
+  cspec_run(~U32, U32.to_nat(n), 0, 0, d, a, Array.new(U32, d, z), mask, Laws.wf_new(U32, d, z), a, mask, {==}, {==}, room)
+
+# ---- the mask comes back ------------------------------------------------------------------------------
+
+def CM(~T: Data, f: Nat, +i: U32, +k: U32, -a: Array<T>, -out: Array<T>, -mask: Array<U32>, -r: Array<U32> & U32) -> Type:
+  {Pair.snd(Array<T>, Array<U32>, K.Kernel.compact_keep.go(~T, f, i, k, (a, out), r)) == mask : Array<U32>}
+
+def CMmid(~T: Data, p: Nat, +i: U32, +k: U32, +x: U32, -out: Array<T>, -mask: Array<U32>, -ra: Array<T> & T) -> Type:
+  {Pair.snd(Array<T>, Array<U32>, K.Kernel.compact_keep.go(~T, p, U32.inc(i), U32.add(k, x), K.Kernel.compact.put(~T, out, k, ra), Array.get(U32, mask, U32.inc(i)))) == mask : Array<U32>}
+
+def cmask_s2(~T: Data, +p: Nat, +i: U32, +k: U32, +x: U32, -a: Array<T>, out: Array<T>, mask2: Array<U32>,
+  ih: @a2: Array<T> -> @c: Array<T> -> @m2: Array<U32> -> CM(~T, p, U32.inc(i), U32.add(k, x), a2, c, m2, Array.get(U32, m2, U32.inc(i))),
+  w: &a3: Array<T> -> &y: T -> {a3 == a : Array<T>} & {Array.get(T, a, i) == (a, y) : Array<T> & T} & {y == Laws.rd_at(T, a, i) : T})
+  -> CMmid(~T, p, i, k, x, out, mask2, Array.get(T, a, i)):
+  (a2, +y, ea, e2, ey) = w
+  %Equal.sym(Array<T> & T, Array.get(T, a, i), (a, y), e2) : CMmid(~T, p, i, k, x, out, mask2, _)
+  %ea : CM(~T, p, U32.inc(i), U32.add(k, x), _, Array.set(T, out, k, y), mask2, Array.get(U32, mask2, U32.inc(i)))
+  ih(a2, Array.set(T, out, k, y), mask2)
+
+def cmask_s1(~T: Data, +p: Nat, +i: U32, +k: U32, a: Array<T>, out: Array<T>, -mask: Array<U32>,
+  ih: @x: U32 -> @a2: Array<T> -> @c: Array<T> -> @m2: Array<U32> -> CM(~T, p, U32.inc(i), U32.add(k, x), a2, c, m2, Array.get(U32, m2, U32.inc(i))),
+  w: &m3: Array<U32> -> &x: U32 -> {m3 == mask : Array<U32>} & {Array.get(U32, mask, i) == (mask, x) : Array<U32> & U32} & {x == Laws.rd_at(U32, mask, i) : U32})
+  -> CM(~T, 1n+p, i, k, a, out, mask, Array.get(U32, mask, i)):
+  (mask2, +x, em2, e1, ex) = w
+  %Equal.sym(Array<U32> & U32, Array.get(U32, mask, i), (mask, x), e1) : CM(~T, 1n+p, i, k, a, out, mask, _)
+  %em2 : CM(~T, 1n+p, i, k, a, out, _, (_, x))
+  cmask_s2(~T, p, i, k, x, a, out, mask2, ih(x), get_w(T, a, i))
+
+def cmask_zero(~T: Data, +i: U32, +k: U32, -a: Array<T>, -out: Array<T>, -mask: Array<U32>, w: &m3: Array<U32> -> &x: U32 -> {m3 == mask : Array<U32>} & {Array.get(U32, mask, i) == (mask, x) : Array<U32> & U32} & {x == Laws.rd_at(U32, mask, i) : U32}) -> CM(~T, 0n, i, k, a, out, mask, Array.get(U32, mask, i)):
+  (mask2, +x, em2, e1, ex) = w
+  %Equal.sym(Array<U32> & U32, Array.get(U32, mask, i), (mask, x), e1) : CM(~T, 0n, i, k, a, out, mask, _)
+  {==}
+
+def cmask(~T: Data, f: Nat, +i: U32, +k: U32, a: Array<T>, out: Array<T>, mask: Array<U32>) -> CM(~T, f, i, k, a, out, mask, Array.get(U32, mask, i)):
+  match f:
+    case 0n:
+      cmask_zero(~T, i, k, a, out, mask, get_w(U32, mask, i))
+    case 1n++p:
+      cmask_s1(~T, p, i, k, a, out, mask, x => a2 => c => m2 => cmask(~T, p, U32.inc(i), U32.add(k, x), a2, c, m2), get_w(U32, mask, i))
+
+def Laws.compact_keeps_mask(d, n, a, mask, z):
+  cmask(~U32, U32.to_nat(n), 0, 0, a, Array.new(U32, d, z), mask)

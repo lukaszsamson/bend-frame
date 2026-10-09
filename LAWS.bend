@@ -1237,3 +1237,45 @@ law popcount_sum:
   for +n: U32
   for mask: Array<U32>
   FSum(U32.to_nat(n), 0, 0, mask, Pair.snd(Array<U32>, U32, K.Kernel.popcount(n, mask)))
+
+# the compaction's write cursor over the next f rows from (i, k): each mask word b is 0/1 and
+# the cursor stays below 2^d at every step (Column.compact allocates depth_for(kept + 1) slots:
+# the cursor never exceeds the number of kept rows; that arithmetic is not proven here)
+def CRoom(f: Nat, +i: U32, +k: U32, +d: Nat, -mask: Array<U32>) -> Type:
+  match f:
+    case 0n:
+      Unit
+    case 1n+p:
+      &b: U32 -> {b == rd_at(U32, mask, i) : U32} & {U32.is_le(b, 1) == True{} : Bool} & {U32.is_lt(k, U32.shln(1, d)) == True{} : Bool} & CRoom(p, U32.inc(i), U32.add(k, b), d, mask)
+
+# the compaction's contract over the next f rows from (i, k): every row whose mask word is set
+# sits in o at the cursor value of its step, i.e. o[0 ..) is the order-preserving subsequence of
+# the rows with a set mask word (the kept rows), slot by slot
+def CSpec(-T: Data, f: Nat, +i: U32, +k: U32, +d: Nat, -a: Array<T>, -mask: Array<U32>, -o: Array<T>) -> Type:
+  match f:
+    case 0n:
+      Unit
+    case 1n+p:
+      &b: U32 -> {b == rd_at(U32, mask, i) : U32} & ({U32.is_ne(b, 0) == True{} : Bool} -> {rdN(T, d, o, k) == rd_at(T, a, i) : T}) & CSpec(T, p, U32.inc(i), U32.add(k, b), d, a, mask, o)
+
+# LAW: the production compaction (Kernel.compact_keep, the loop behind Column.compact and so
+# behind filter and drop-nulls; U32 instance) writes the kept rows in order at the cursor
+# positions, whenever the mask is 0/1 and the cursor stays below 2^d (CRoom)
+law compact_contents:
+  for +d: Nat
+  for +n: U32
+  for a: Array<U32>
+  for mask: Array<U32>
+  for +z: U32
+  for room: CRoom(U32.to_nat(n), 0, 0, d, mask)
+  CSpec(U32, U32.to_nat(n), 0, 0, d, a, mask, Pair.fst(Array<U32>, Array<U32>, K.Kernel.compact_keep(~U32, n, d, a, mask, z)))
+
+# LAW: the compaction hands the mask back unchanged (so one mask filters every buffer of a column
+# and every column of a frame: data and validity stay aligned)
+law compact_keeps_mask:
+  for +d: Nat
+  for +n: U32
+  for a: Array<U32>
+  for mask: Array<U32>
+  for +z: U32
+  {Pair.snd(Array<U32>, Array<U32>, K.Kernel.compact_keep(~U32, n, d, a, mask, z)) == mask : Array<U32>}
