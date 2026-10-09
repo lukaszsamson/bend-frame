@@ -1042,3 +1042,308 @@ law compact_step_cell:
   for +k: U32
   for +bit: U32
   {rd_at(U32, Pair.fst(Array<U32>, U32, K.Kernel.compact.go(~U32, 1n, i, k, (a, out), (mask, bit))), k) == rd_at(U32, a, i) : U32}
+
+# =====================================================================================
+# 11. Buffer contents, the full theorems (plan M_01 section 6 P1, M5): writes at distinct
+#     indices below 2^d take distinct paths, so the production kernels' outputs are what
+#     the per-step lemmas of section 10 say, slot by slot
+# =====================================================================================
+#
+# The read model is `rd` (section 10). `rdN(d, a, k)` is the cell at logical index k of a
+# well-formed array of depth d: rd_at with Array.size's answer 2^d in place (rd_at_wf ties
+# them). `same_d` is the sequence of halving decisions two masked indices make through a
+# perfect tree of depth d (True when they reach the same leaf); `same_at` applies the
+# masking of Array.get.at / Array.swap.at first. `paths_distinct` is the bit-vector lemma:
+# indices below 2^d that reach the same leaf are equal. `addn(j, f)` is the loop counter
+# after f increments; `Room(d, j, f)` says the next f write indices from j are below 2^d.
+
+# the cell at logical index k of a well-formed array of depth d (Array.size answers 2^d)
+def rdN(-T: Data, +d: Nat, a: Array<T>, +k: U32) -> T:
+  rd_size(T, k, (a, U32.shln(1, d)))
+
+# do two masked indices i (left-half test zi) and j (zj) reach the same leaf of a perfect
+# tree of depth d whose slot count is n? (rd's descent, decision by decision)
+def same_d(d: Nat, +n: U32, +i: U32, zi: Bool, +j: U32, zj: Bool) -> Bool:
+  match d zi zj:
+    case 0n _ _:
+      True{}
+    case 1n+p True{} True{}:
+      same_d(p, U32.shr(n), i, U32.is_lt(i, U32.shr(U32.shr(n))), j, U32.is_lt(j, U32.shr(U32.shr(n))))
+    case 1n+p False{} False{}:
+      same_d(p, U32.shr(n), U32.sub(i, U32.shr(n)), U32.is_lt(U32.sub(i, U32.shr(n)), U32.shr(U32.shr(n))), U32.sub(j, U32.shr(n)), U32.is_lt(U32.sub(j, U32.shr(n)), U32.shr(U32.shr(n))))
+    case 1n+p _ _:
+      False{}
+
+# the same for two logical indices, masked to 2^d slots as Array.get / Array.set do
+def same_at(+d: Nat, +i: U32, +j: U32) -> Bool:
+  +nn = U32.shln(1, d)
+  +mi = U32.and(i, U32.sub(nn, 1))
+  +mj = U32.and(j, U32.sub(nn, 1))
+  same_d(d, nn, mi, U32.is_lt(mi, U32.shr(nn)), mj, U32.is_lt(mj, U32.shr(nn)))
+
+# the loop counter after f increments (the kernels count with U32.inc)
+def addn(j: U32, f: Nat) -> U32:
+  match f:
+    case 0n:
+      j
+    case 1n+p:
+      U32.inc(addn(j, p))
+
+# the next f write indices from j are below 2^d (what a kernel needs of its output array)
+def Room(+d: Nat, j: U32, f: Nat) -> Type:
+  match f:
+    case 0n:
+      Unit
+    case 1n+p:
+      {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool} & Room(d, U32.inc(j), p)
+
+# LAW: rd_at of a well-formed array of depth d reads with the slot count 2^d
+law rd_at_wf:
+  for -T: Data
+  for +d: Nat
+  for a: Array<T>
+  for +k: U32
+  for wf: WFArray(T, d, a)
+  {rd_at(T, a, k) == rdN(T, d, a, k) : T}
+
+# LAW (the distinct-paths lemma): two indices below 2^d that reach the same leaf are equal
+law paths_distinct:
+  for +d: Nat
+  for +i: U32
+  for +j: U32
+  for +hi: {U32.is_lt(i, U32.shln(1, d)) == True{} : Bool}
+  for +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}
+  for h: {same_at(d, i, j) == True{} : Bool}
+  {i == j : U32}
+
+# LAW: a write at i below 2^d leaves every other slot j below 2^d alone (the production
+# Array.set on a well-formed array; array_set_get of section 10 is the slot i itself)
+law array_set_other:
+  for -T: Data
+  for +d: Nat
+  for a: Array<T>
+  for +i: U32
+  for +j: U32
+  for +v: T
+  for wf: WFArray(T, d, a)
+  for hi: {U32.is_lt(i, U32.shln(1, d)) == True{} : Bool}
+  for hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}
+  for ne: {i != j : U32}
+  {rd_at(T, Array.set(T, a, i, v), j) == rd_at(T, a, j) : T}
+
+# LAW: Array.set keeps an array well formed
+law wf_array_set:
+  for -T: Data
+  for +d: Nat
+  for a: Array<T>
+  for +i: U32
+  for +v: T
+  for wf: WFArray(T, d, a)
+  WFArray(T, d, Array.set(T, a, i, v))
+
+# LAW: the production gather (U32 instance) writes out[k] == src[perm[k]] for every k < n,
+# whenever the output's 2^d slots hold the n rows (indexes read through perm wrap as
+# Array.get wraps them; the index array comes back unchanged)
+law gather_contents:
+  for +d: Nat
+  for +n: U32
+  for src: Array<U32>
+  for perm: Array<U32>
+  for +z: U32
+  for +k: U32
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for hk: {U32.is_lt(k, n) == True{} : Bool}
+  {rd_at(U32, Pair.fst(Array<U32>, Array<U32>, K.Kernel.gather(~U32, n, d, src, perm, z)), k) == rd_at(U32, src, rd_at(U32, perm, k)) : U32}
+
+law gather_keeps_perm:
+  for +d: Nat
+  for +n: U32
+  for src: Array<U32>
+  for perm: Array<U32>
+  for +z: U32
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  {Pair.snd(Array<U32>, Array<U32>, K.Kernel.gather(~U32, n, d, src, perm, z)) == perm : Array<U32>}
+
+# LAW: Kernel.map (as mask_not) writes f(a[k]) at every k < n when n <= 2^d
+law mask_not_cell:
+  for +d: Nat
+  for +n: U32
+  for a: Array<U32>
+  for +k: U32
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for hk: {U32.is_lt(k, n) == True{} : Bool}
+  {rd_at(U32, K.Kernel.mask_not(n, d, a), k) == U32.xor(rd_at(U32, a, k), 1) : U32}
+
+# LAW: Kernel.zip (as mask_and / mask_or) writes f(a[k], b[k]) at every k < n when n <= 2^d:
+# the validity combinators' truth tables, slot by slot
+law mask_and_cell:
+  for +d: Nat
+  for +n: U32
+  for a: Array<U32>
+  for b: Array<U32>
+  for +k: U32
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for hk: {U32.is_lt(k, n) == True{} : Bool}
+  {rd_at(U32, K.Kernel.mask_and(n, d, a, b), k) == U32.and(rd_at(U32, a, k), rd_at(U32, b, k)) : U32}
+
+law mask_or_cell:
+  for +d: Nat
+  for +n: U32
+  for a: Array<U32>
+  for b: Array<U32>
+  for +k: U32
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for hk: {U32.is_lt(k, n) == True{} : Bool}
+  {rd_at(U32, K.Kernel.mask_or(n, d, a, b), k) == U32.or(rd_at(U32, a, k), rd_at(U32, b, k)) : U32}
+
+# LAW: Kernel.iota_from writes off + k at every k < n when n <= 2^d (Column.slice's index array)
+law iota_cell:
+  for +d: Nat
+  for +n: U32
+  for +off: U32
+  for +k: U32
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for hk: {U32.is_lt(k, n) == True{} : Bool}
+  {rd_at(U32, K.Kernel.iota_from(n, d, off), k) == U32.add(off, k) : U32}
+
+# the modulo-2^32 running sum of the first f cells from index i, started at acc: res is it
+# (the Type-level spec of Kernel.fold with U32.add; each cell is named so the mask is read
+# once per step)
+def FSum(f: Nat, +i: U32, +acc: U32, -a: Array<U32>, +res: U32) -> Type:
+  match f:
+    case 0n:
+      {res == acc : U32}
+    case 1n+p:
+      &x: U32 -> {x == rd_at(U32, a, i) : U32} & FSum(p, U32.inc(i), U32.add(acc, x), a, res)
+
+# LAW: the production U32 fold with U32.add is the modulo-2^32 sum of the first n cells
+# (what sum() over a U32 column computes, after its nulls are compacted away)
+law u32_fold_sum:
+  for +n: U32
+  for a: Array<U32>
+  for +z: U32
+  FSum(U32.to_nat(n), 0, z, a, Pair.snd(Array<U32>, U32, K.Kernel.fold(~U32, ~U32, ~(acc => x => U32.add(acc, x)), n, a, z)))
+
+# LAW: the fold hands the array back unchanged
+law u32_fold_keeps:
+  for +n: U32
+  for a: Array<U32>
+  for +z: U32
+  {Pair.fst(Array<U32>, U32, K.Kernel.fold(~U32, ~U32, ~(acc => x => U32.add(acc, x)), n, a, z)) == a : Array<U32>}
+
+# LAW: Kernel.popcount (the kept-row count of filter, the valid count of null_count / sum / mean)
+# is the modulo-2^32 sum of the first n mask words
+law popcount_sum:
+  for +n: U32
+  for mask: Array<U32>
+  FSum(U32.to_nat(n), 0, 0, mask, Pair.snd(Array<U32>, U32, K.Kernel.popcount(n, mask)))
+
+# the compaction's write cursor over the next f rows from (i, k): each mask word b is 0/1 and
+# the cursor stays below 2^d at every step (Column.compact allocates depth_for(kept + 1) slots:
+# the cursor never exceeds the number of kept rows; that arithmetic is not proven here)
+def CRoom(f: Nat, +i: U32, +k: U32, +d: Nat, -mask: Array<U32>) -> Type:
+  match f:
+    case 0n:
+      Unit
+    case 1n+p:
+      &b: U32 -> {b == rd_at(U32, mask, i) : U32} & {U32.is_le(b, 1) == True{} : Bool} & {U32.is_lt(k, U32.shln(1, d)) == True{} : Bool} & CRoom(p, U32.inc(i), U32.add(k, b), d, mask)
+
+# the compaction's contract over the next f rows from (i, k): every row whose mask word is set
+# sits in o at the cursor value of its step, i.e. o[0 ..) is the order-preserving subsequence of
+# the rows with a set mask word (the kept rows), slot by slot
+def CSpec(-T: Data, f: Nat, +i: U32, +k: U32, +d: Nat, -a: Array<T>, -mask: Array<U32>, -o: Array<T>) -> Type:
+  match f:
+    case 0n:
+      Unit
+    case 1n+p:
+      &b: U32 -> {b == rd_at(U32, mask, i) : U32} & ({U32.is_ne(b, 0) == True{} : Bool} -> {rdN(T, d, o, k) == rd_at(T, a, i) : T}) & CSpec(T, p, U32.inc(i), U32.add(k, b), d, a, mask, o)
+
+# LAW: the production compaction (Kernel.compact_keep, the loop behind Column.compact and so
+# behind filter and drop-nulls; U32 instance) writes the kept rows in order at the cursor
+# positions, whenever the mask is 0/1 and the cursor stays below 2^d (CRoom)
+law compact_contents:
+  for +d: Nat
+  for +n: U32
+  for a: Array<U32>
+  for mask: Array<U32>
+  for +z: U32
+  for room: CRoom(U32.to_nat(n), 0, 0, d, mask)
+  CSpec(U32, U32.to_nat(n), 0, 0, d, a, mask, Pair.fst(Array<U32>, Array<U32>, K.Kernel.compact_keep(~U32, n, d, a, mask, z)))
+
+# LAW: the compaction hands the mask back unchanged (so one mask filters every buffer of a column
+# and every column of a frame: data and validity stay aligned)
+law compact_keeps_mask:
+  for +d: Nat
+  for +n: U32
+  for a: Array<U32>
+  for mask: Array<U32>
+  for +z: U32
+  {Pair.snd(Array<U32>, Array<U32>, K.Kernel.compact_keep(~U32, n, d, a, mask, z)) == mask : Array<U32>}
+
+
+# =====================================================================================
+# 12. Column cells (plan M_01 section 6 P1, M5): Column.cell is pure and reads the model
+#     ccell; head keeps every cell; slice of a U32 column is the exact subrange
+# =====================================================================================
+
+# the validity bit at row i as Column.cell reads it (AllValid: every row)
+def vbit(v: C.Valid, +i: U32) -> Bool:
+  match v:
+    case C.AllValid{}:
+      True{}
+    case C.Mask{m}:
+      U32.is_ne(rd_at(U32, m, i), 0)
+
+# the scalar at row i (SNull when the row is invalid), as a pure function of the buffers: the
+# model of Column.cell (Column.cell.word's dtype dispatch written out per constructor)
+def ccell(c: C.Column, +i: U32) -> D.Scalar:
+  match c:
+    case C.CBool{len, depth, valid, data}:
+      Bool.pick(D.Scalar, vbit(valid, i), D.SBool{U32.is_ne(rd_at(U32, data, i), 0)}, D.SNull{})
+    case C.CU32{len, depth, valid, data}:
+      Bool.pick(D.Scalar, vbit(valid, i), D.SU32{rd_at(U32, data, i)}, D.SNull{})
+    case C.CI32{len, depth, valid, data}:
+      Bool.pick(D.Scalar, vbit(valid, i), D.SI32{D.I32{rd_at(U32, data, i)}}, D.SNull{})
+    case C.CF32{len, depth, valid, data}:
+      Bool.pick(D.Scalar, vbit(valid, i), D.SF32{rd_at(F32, data, i)}, D.SNull{})
+    case C.CStr{len, depth, valid, data}:
+      Bool.pick(D.Scalar, vbit(valid, i), D.SStr{rd_at(String, data, i)}, D.SNull{})
+
+# the row count Column.slice(c, off, n) answers: min(n, len - off), 0 past the end
+def slice_len(+off: U32, +n: U32, +len: U32) -> U32:
+  U32.min(n, Bool.pick(U32, U32.is_lt(off, len), U32.sub(len, off), 0))
+
+# LAW: Column.cell is pure: it hands the column back and answers the modelled cell
+law cell_pure:
+  for c: C.Column
+  for +i: U32
+  {C.Column.cell(c, i) == (c, ccell(c, i)) : C.Column & D.Scalar}
+
+# LAW: head keeps every cell (with head_len / head_dtype: the exact prefix)
+law head_cell:
+  for c: C.Column
+  for +n: U32
+  for +k: U32
+  {ccell(C.Column.head(c, n), k) == ccell(c, k) : D.Scalar}
+
+# LAW: Kernel.depth_for(n) gives at least n slots (for n <= 2^31; the row cap keeps n <= 2^23)
+law depth_for_fits:
+  for +n: U32
+  for h: {U32.is_le(n, U32.shln(1, 31n)) == True{} : Bool}
+  {U32.is_le(n, U32.shln(1, K.Kernel.depth_for(n))) == True{} : Bool}
+
+# LAW: slice of a U32 column is the exact subrange: row k of slice(c, off, n) is row off + k of c,
+# for every k below the slice's length (data through gather_contents / iota_cell, validity
+# through the same gather of the mask). The U32 instance stands for the word columns (Bool, I32:
+# same buffers); F32 / String need the kernel theorems at those instances
+law slice_cell_u32:
+  for +len: U32
+  for +depth: Nat
+  for valid: C.Valid
+  for data: Array<U32>
+  for +off: U32
+  for +n: U32
+  for +k: U32
+  for h31: {U32.is_le(n, U32.shln(1, 31n)) == True{} : Bool}
+  for hk: {U32.is_lt(k, slice_len(off, n, len)) == True{} : Bool}
+  {ccell(C.Column.slice(C.CU32{len, depth, valid, data}, off, n), k) == ccell(C.CU32{len, depth, valid, data}, U32.add(off, k)) : D.Scalar}

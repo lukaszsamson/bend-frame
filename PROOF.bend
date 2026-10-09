@@ -10,6 +10,8 @@
 #   PROOF_plan.bend     sections 3, 4  Plan.schema and the optimizer passes (schema level)
 #   PROOF_kernels.bend  sections 5, 5b, 7  columns, kernels (array shape and contents), P0 well-formedness
 #   PROOF_exec.bend     section 8  the production runner: R1 head merge against Exec.run_pure
+#   PROOF_bits.bend     word-level toolkit (single bits, below-2^d, sub/mask/inc) for section 11
+#   PROOF_contents.bend section 11  buffer contents: distinct paths, Array.set separation, kernel contents
 import Base
 import ./LAWS.bend as Laws
 import ./PROOF_lib.bend as L
@@ -18,3 +20,5 @@ import ./PROOF_expr.bend as PX
 import ./PROOF_plan.bend as PP
 import ./PROOF_kernels.bend as PK
 import ./PROOF_exec.bend as PE
+import ./PROOF_bits.bend as PB
+import ./PROOF_contents.bend as PC
