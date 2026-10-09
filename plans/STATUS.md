@@ -28,11 +28,12 @@ Plan: plans/M_01.txt. Contract: DESIGN.md §15. Agent brief: plans/AGENT_BRIEF.m
   (§15.9 note) and the G6 interim claim (§8).
 
 ## M5 (proof closure, P1 part; branch `worktree-agent-ae7b89e92babd1684`)
-- 86 laws, `make proofs` ~0.6 s, `make verdict` ~1.9 s, both green. P1 is closed over the
+- 90 laws, `make proofs` ~0.6 s, `make verdict` ~2 s, both green. P1 is closed over the
   production kernels: the distinct-paths bit-vector lemma (`paths_distinct`), `Array.set`
   separation (`array_set_other`), `gather_contents`, `compact_contents` (+ `CRoom`
-  precondition), `mask_not/and/or_cell`, `iota_cell`, `u32_fold_sum`, `popcount_sum` (DESIGN
-  §8 sections 11 and 8.1). Four negative fixtures in `tests/proof_negative/`.
+  precondition), `mask_not/and/or_cell`, `iota_cell`, `u32_fold_sum`, `popcount_sum`, and at
+  the column level `cell_pure`, `head_cell`, `slice_cell_u32` (DESIGN §8 sections 11, 12 and
+  8.1). Four negative fixtures in `tests/proof_negative/`.
 - Not done: P2 (analysis / evaluator soundness), P3 R2–R5 and the composition theorem, the
   column-level cell theorems, dictionary lemmas (M4 not merged into the proof branch). The
   G6 claim stays at the merge-only fragment (DESIGN §8, final wording there).

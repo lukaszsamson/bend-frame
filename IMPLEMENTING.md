@@ -767,4 +767,13 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
   `K.Kernel.compact_keep(~U32, ..)`), prove the template def with its conclusion written over
   the unfolded loop (`K.Kernel.map.go(~T, ~U, ~f, U32.to_nat(n), 0, Array.new(U, d, z),
   Array.get(T, a, 0))`), and let the law's side unfold the wrapper (as `mask_not_slots` did).
-- **Timings**: 86 laws, `bend PROOF.bend` 0.54 s wall / 1.6 s CPU; `--verdict` 1.9 s wall.
+- **A `(%e : P; t)` rewrite needs an expected type**: it cannot be the right-hand side of a
+  plain let (`+h = (%e : P; t)` is "cannot infer"); use it in argument position or restate.
+- **A `match` stays stuck on a computed Bool**: `Kernel.depth_for.go(0n, n, d, U32.is_le(..))`
+  does not reduce to `d` while the exit test is open, so an `Empty.absurd` motive must spell
+  the goal with the unreduced call.
+- **Long hole patterns**: when the goal is a deep production unfolding (`Column.slice` ->
+  `gather.c` -> `Valid.gather.k` -> `Kernel.gather.go`), generate the proof text from a script
+  with the recurring sub-terms as variables (`gen_slice.py`): the patterns are too long to
+  type twice without a slip.
+- **Timings**: 90 laws, `bend PROOF.bend` ~0.6 s wall / 1.7 s CPU; `--verdict` ~2.0 s wall.

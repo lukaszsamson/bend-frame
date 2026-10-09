@@ -758,7 +758,7 @@ therefore sequential inside a column and parallel ACROSS independent work:
 
 ## 8. Laws (`LAWS.bend`) and how they are proven (`PROOF*.bend`) [opus]
 
-Status (M5, P1 closed): `LAWS.bend` states 86 laws over `src/`; `PROOF.bend`
+Status (M5, P1 closed): `LAWS.bend` states 90 laws over `src/`; `PROOF.bend`
 imports `PROOF_lib`, `PROOF_schema`, `PROOF_expr`, `PROOF_plan`,
 `PROOF_kernels`, `PROOF_exec`, `PROOF_bits` and `PROOF_contents` (one file per
 area; `L.*` is the shared toolkit, `B.*` the word-level toolkit) and proves all
@@ -790,6 +790,7 @@ Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 | 9 P0 well-formedness (`PROOF_kernels`) | `u32_min_le`, `wf_new`, `wf_new_words`, `wf_frame_empty`, `wf_column_head`, `wf_frame_head` over the Type-valued predicates `WFArray`, `WFWords`, `WFMaskedW/T`, `WFValidW/T`, `WFColumn`, `WFColumnH`, `WFCols`, `WFFrame` (len <= 2^depth, perfect trees, 0/1 mask and bool words, null slots at the default, equal heights, unique names, the zero-column convention) |
 | 10 Buffer contents (`PROOF_kernels`) | `array_get_pure` (`Array.get(a, i) == (a, rd_at(a, i))`: the real getter is pure and reads the model `rd`, which makes the production halving decisions), `array_set_get` (read-after-write at the same index through the real `Array.set`), `gather_step`, `compact_step`, `compact_step_cell` (one iteration of the production `Kernel.gather.go` / `compact.go`, at the U32 instance) |
 | 11 Buffer contents, the full theorems (`PROOF_bits`, `PROOF_contents`; plan P1, M5) | `rd_at_wf` (`rd_at` of a well-formed array reads with the slot count 2^d), `paths_distinct` (THE distinct-paths bit-vector lemma: two indices below 2^d whose halving decisions through `Array.get`/`Array.set`'s descent agree are equal, over `Word.and / shr / sub / cmp`), `array_set_other` (a write at i leaves every other slot j below 2^d alone), `wf_array_set`, `gather_contents` (`Kernel.gather` at the U32 instance: `out[k] == src[perm[k]]` for every k < n when n <= 2^d) and `gather_keeps_perm`, `mask_not_cell` / `mask_and_cell` / `mask_or_cell` (`Kernel.map` / `Kernel.zip` slot contents: the validity combinators' truth tables slot by slot), `iota_cell` (`Kernel.iota_from`: `off + k`), `u32_fold_sum` / `u32_fold_keeps` (the production U32 fold with `U32.add` is the modulo-2^32 running sum of the first n cells, `FSum`), `popcount_sum` (the kept-row / valid-cell count is the sum of the mask words), `compact_contents` (`Kernel.compact_keep` at the U32 instance writes the kept rows in order at the cursor positions, `CSpec`, under the explicit precondition `CRoom`: 0/1 words and a cursor below 2^d) and `compact_keeps_mask` (data and validity stay aligned: one mask filters every buffer) |
+| 12 Column cells (`PROOF_contents`) | `cell_pure` (`Column.cell(c, i) == (c, ccell(c, i))` for all five column kinds: the production cell reader is pure and reads the model `ccell`, validity then data), `head_cell` (`Column.head` keeps every cell; with `head_len` / `head_dtype` the exact prefix), `depth_for_fits` (`Kernel.depth_for(n)` gives at least n slots for n <= 2^31), `slice_cell_u32` (row k of `Column.slice(c, off, n)` is row `off + k` of c for every k below the slice's length, data and validity, on a U32 column: the exact subrange, through `gather_contents` and `iota_cell`) |
 
 ### 8.1 Assurance matrix (plan M_01 section 6: theorem -> production function -> assumptions -> checker)
 
@@ -809,6 +810,9 @@ Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 | `mask_not_cell`, `mask_and_cell`, `mask_or_cell`, `iota_cell` | `Kernel.map`, `Kernel.zip`, `Kernel.iota_from` (template loop lemmas `map_go` / `zip_go` instantiated at the mask combinators) | `n <= 2^d` | bend, --verdict |
 | `u32_fold_sum`, `u32_fold_keeps`, `popcount_sum` | `Kernel.fold` with `U32.add` (`Eval.agg.w` Sum over U32, `Kernel.popcount` behind filter's kept count, `Valid.count`, `Eval.dropnull`) | none (any n; the spec `FSum` is the modulo-2^32 running sum over the first n cells; "valid cells" = the cells left after `Eval.dropnull`'s compaction, see `compact_contents`) | bend, --verdict |
 | `compact_contents`, `compact_keeps_mask` | `Kernel.compact_keep` = `compact_keep.go` + `compact.put` (U32 instance), the loop behind `Column.compact`, hence `Frame.filter_mask` (filter) and `Eval.dropnull` | `CRoom(to_nat n, 0, 0, d, mask)`: every mask word is 0/1 and the write cursor stays below 2^d at each step. `Column.compact` allocates `depth_for(kept + 1)` slots, so the cursor (<= the kept count) always fits; that arithmetic ("cursor <= popcount < 2^d") is NOT yet proven, `CRoom` is the hypothesis | bend, --verdict |
+| `cell_pure`, `head_cell` | `Column.cell` (= `Column.take_valid`, `Valid.get`, `Column.cell.a/b/c`, `Column.data_cell`, `Column.cell.w/f/s`, `Column.mk_w`), `Column.head` | none (every column, every index; the model `ccell` reads validity then data with `rd_at`) | bend, --verdict |
+| `depth_for_fits` | `Kernel.depth_for` (= `depth_for.go`, fuel 32) | `n <= 2^31` (for larger n the loop runs out of fuel and answers 32, whose slot count wraps to 0; the row cap keeps n <= 2^23) | bend, --verdict |
+| `slice_cell_u32` | `Column.slice` (= `slice.a/b/c`, `Column.gather`, `Column.gather.b/c/d/data`, `Valid.gather`, `Column.out.w`, `Kernel.iota_from`, `Kernel.gather`), on `CU32` columns | `n <= 2^31`, `k < slice_len(off, n, len)`; U32 instance (Bool / I32 columns are the same word buffers and the same proof text; F32 / String need `gather_contents` at those instances) | bend, --verdict |
 | sections 1-5b (schema, typing, plan schema, optimizer schema level, slots) | as listed in the table above | as stated per law | bend, --verdict |
 
 What the R1 chain does NOT cover, stated exactly:
@@ -841,10 +845,10 @@ Not provable or not true as stated, recorded here instead of as open laws:
   cover: the F32 / String instances of the template kernels (same text as the
   U32 instance; BendTT refuses a law at a quantified cell type), the derivation
   of `compact_contents`' precondition `CRoom` from "popcount < 2^d" (what
-  `Column.compact`'s `depth_for(kept + 1)` guarantees), and the column level:
-  `Column.gather` / `Column.compact` / `Column.slice` / `Column.head` as cell
-  theorems (`Column.cell` purity plus the section 11 kernel theorems; head is
-  immediate since it only changes `len`). `Kernel.choose` (fill_null / when
+  `Column.compact`'s `depth_for(kept + 1)` guarantees), and, at the column
+  level (section 12 has `cell_pure`, `head_cell` for every kind and
+  `slice_cell_u32`), `Column.gather` / `Column.compact` as cell theorems and
+  `Column.slice` on F32 / String columns. `Kernel.choose` (fill_null / when
   cells), `Kernel.mask_data` (null slots after kernels), the grouped scatter
   invariant, `Eval` typing soundness and the analysis soundness (P2), R2-R5
   (P3): not done in M5 (see section 14, M5).
@@ -1977,9 +1981,11 @@ to ONE instruction `ITable{TOp}` (so a proof's Instr case split grows by one cas
    (`paths_distinct`), `Array.set` separation on well-formed arrays (`array_set_other`,
    `wf_array_set`), and the full content theorems of the kernels `Kernel.gather`,
    `Kernel.compact_keep`, `Kernel.map` / `zip` (as the mask combinators), `Kernel.iota_from`,
-   `Kernel.fold` with `U32.add` and `Kernel.popcount`. 86 laws, `make proofs` and
-   `make verdict` green; four negative fixtures. The assurance matrix (section 8.1) names
-   the hypotheses of each.
+   `Kernel.fold` with `U32.add` and `Kernel.popcount`; at the column level (section 12)
+   `Column.cell` purity against the cell model `ccell`, `Column.head`'s cells and
+   `Column.slice`'s exact subrange on U32 columns. 90 laws, `make proofs` and `make verdict`
+   green; four negative fixtures. The assurance matrix (section 8.1) names the hypotheses of
+   each.
 2. **Deviation: the compaction theorem carries an explicit precondition.** `compact_contents`
    assumes `CRoom(to_nat n, 0, 0, d, mask)`: every mask word is 0/1 and the write cursor is
    below 2^d at every step. Production (`Column.compact`) allocates `depth_for(kept + 1)`
@@ -2004,8 +2010,8 @@ to ONE instruction `ITable{TOp}` (so a proof's Instr case split grows by one cas
 6. **Not done (honest scope)**: P2 (soundness of `A.Expr.analyse`, typing soundness of
    `Eval.full`; the M3b nodes When / IsIn / Clip / StrPred / LenChars and Std / Var / Median
    therefore have no analysis lemmas yet), P3 R2–R5 and the composition theorem, the
-   column-level cell theorems (`Column.head` / `slice` / `gather` / `compact` through
-   `Column.cell`), `Kernel.choose` / `mask_data` cells, the grouped scatter invariant, and
+   column-level `Column.gather` / `Column.compact` cell theorems and `Column.slice` on F32 /
+   String columns, `Kernel.choose` / `mask_data` cells, the grouped scatter invariant, and
    the dictionary lemmas (M4's representation was not merged into this branch). R3 is the
    one that would widen G6, and it needs the P2 cell-level evaluator theorems first: a sunk
    Head changes buffer depths, so `Eval.select(Frame.head(f, n), es)` and
