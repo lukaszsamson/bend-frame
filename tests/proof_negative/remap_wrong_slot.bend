@@ -7,6 +7,12 @@
 # PROOFS FAIL with the mutated Dict.rc in `expected` and the production ST.Dict.merge in
 # `observed`. The positive control dict_merge_spec_copy states the theorem over the real loop with
 # the same term and checks, so only the mutation is reported.
+# Scope: this fixture checks the production proof term against a MUTATED, RENAMED disposable copy, so it shows that
+# term is refused for that copy. The term is tied to the production function's NAME (the error compares the renamed copy
+# with the production function), so an UNMUTATED renamed copy is refused too: on its own this fixture does NOT show that
+# a wrong copy is rejected.
+# That stronger claim, a wrong PRODUCTION function is rejected, is checked by scripts/mutation_check.sh
+# (make mutation-check): it patches the production source in place and re-runs bend PROOF.bend.
 import Base
 import ./../../src/strs.bend as ST
 import ./../../LAWS.bend as Laws
@@ -89,7 +95,7 @@ def dict_merge_spec_mutated(src, dst, esd, fits, wfd, probes):
 #|- wfd    : Laws.WFDictE(dst, esd)
 #|- probes : Laws.MergeProbe(U32.to_nat(k), 0, strs, dst)
 #|Location: dict_merge_spec_mutated
-#|72 |     case ST.Dict{+k, +dd, strs, +b, slots, +tag}:
-#|73>|       PST.merge_w(k, dd, strs, b, slots, tag, dst, esd, fits, PST.wf_ek(dst, esd, wfd))(probes)
+#|78 |     case ST.Dict{+k, +dd, strs, +b, slots, +tag}:
+#|79>|       PST.merge_w(k, dd, strs, b, slots, tag, dst, esd, fits, PST.wf_ek(dst, esd, wfd))(probes)
 #|   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#|74 | 
+#|80 | 

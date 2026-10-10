@@ -6,6 +6,10 @@
 # with the mutated plan in `expected` and the Head-above-Select plan the real rule keeps
 # in `observed`. The positive control hmerge_run_copy states the theorem over the real
 # P.Opt.hmerge with the same term and checks, so only the mutation is reported.
+# Scope: this fixture checks the production proof term against a MUTATED, RENAMED disposable copy, so it shows that
+# term is refused for that copy; it is not a rejection of a mutated production function.
+# That stronger claim, a wrong PRODUCTION function is rejected, is checked by scripts/mutation_check.sh
+# (make mutation-check): it patches the production source in place and re-runs bend PROOF.bend.
 import Base
 import ./../../src/err.bend as E
 import ./../../src/column.bend as C
@@ -204,7 +208,7 @@ def hmerge_run_mutated(p, n, s1, s2, st, rs, rf):
 #|- rs : {Laws.srcs(List.append(&2, Q.Instr, Laws.hcode(n), s1)) == Laws.srcs(s2) : List<&2, String>}
 #|- rf : @s:Q.St -> {Q.Exec.loop(Q.Exec.mark(List.append(&2, Q.Instr, Laws.hcode(n), s1)), s) == Q.Exec.loop(Q.Exec.mark(s2), s) : Q.St}
 #|Location: hmerge_run_mutated
-#|144 |     case P.Select{+es, +x}:
-#|145>|       %Equal.sym(List<&2, Q.Instr>, Q.Exec.compile(P.Opt.hwrap(n, P.Select{es, Mut.hmerge(x, None{})}), Nil{}), Q.Exec.compile(P.Select{es, Mut.hmerge(x, None{})}, Laws.hcode(n)), PE.compile_hwrap(n, P.Select{es, Mut.hmerge(x, None{})})) : {Q.Exec.loop(Q.Exec.mark(List.append(&2, Q.Instr, _, s1)), st) == Q.Exec.loop(Q.Exec.mark(List.append(&2, Q.Instr, Q.Exec.compile(P.Select{es, x}, Nil{}), s2)), st) : Q.St}
+#|148 |     case P.Select{+es, +x}:
+#|149>|       %Equal.sym(List<&2, Q.Instr>, Q.Exec.compile(P.Opt.hwrap(n, P.Select{es, Mut.hmerge(x, None{})}), Nil{}), Q.Exec.compile(P.Select{es, Mut.hmerge(x, None{})}, Laws.hcode(n)), PE.compile_hwrap(n, P.Select{es, Mut.hmerge(x, None{})})) : {Q.Exec.loop(Q.Exec.mark(List.append(&2, Q.Instr, _, s1)), st) == Q.Exec.loop(Q.Exec.mark(List.append(&2, Q.Instr, Q.Exec.compile(P.Select{es, x}, Nil{}), s2)), st) : Q.St}
 #|    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#|146 |       PE.pass_unary_m(x, n, Q.ISelect{es}, s1, s2, st, hmerge_run_mutated(x, None{}, List.append(&2, Q.Instr, Q.ISelect{es} <> Laws.hcode(n), s1), Q.ISelect{es} <> s2, st, rs, s0 => rf(Q.Exec.step(Q.ISelect{es}, s0))))
+#|150 |       PE.pass_unary_m(x, n, Q.ISelect{es}, s1, s2, st, hmerge_run_mutated(x, None{}, List.append(&2, Q.Instr, Q.ISelect{es} <> Laws.hcode(n), s1), Q.ISelect{es} <> s2, st, rs, s0 => rf(Q.Exec.step(Q.ISelect{es}, s0))))

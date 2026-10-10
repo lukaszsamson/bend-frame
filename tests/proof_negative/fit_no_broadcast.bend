@@ -6,6 +6,10 @@
 # SOME PROOFS FAIL with the un-broadcast column in `expected` and Eval.bcast in `observed`.
 # The positive control fit_w_copy states the lemma over the real V.Eval.fit with the same
 # text and checks, so only the mutation is reported.
+# Scope: this fixture checks the production proof term against a MUTATED, RENAMED disposable copy, so it shows that
+# term is refused for that copy; it is not a rejection of a mutated production function.
+# That stronger claim, a wrong PRODUCTION function is rejected, is checked by scripts/mutation_check.sh
+# (make mutation-check): it patches the production source in place and re-runs bend PROOF.bend.
 import Base
 import ./../../src/dtype.bend as D
 import ./../../src/err.bend as E
@@ -76,7 +80,7 @@ def fit_w_mutated(k, c, n, t, m, hc):
 #|- ed : {Laws.cdtype(c) == t : D.DType}
 #|- el : {Laws.clen(c) == m : U32}
 #|Location: fit_w_mutated
-#|61 |       (ed, el) = hc
-#|62>|       PR.fit_lit(n, t, c, ed, Laws.bcast_typed(c, n))
+#|65 |       (ed, el) = hc
+#|66>|       PR.fit_lit(n, t, c, ed, Laws.bcast_typed(c, n))
 #|   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#|63 |     case V.KAgg{}:
+#|67 |     case V.KAgg{}:

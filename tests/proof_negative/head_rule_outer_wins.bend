@@ -6,6 +6,10 @@
 # limit in `expected` and the real `U32.min(m, n)` in `observed`. The positive control
 # head_merge_run_copy states the theorem over the real P.Opt.hmin with the same term
 # and checks, so only the mutation is reported.
+# Scope: this fixture checks the production proof term against a MUTATED, RENAMED disposable copy, so it shows that
+# term is refused for that copy; it is not a rejection of a mutated production function.
+# That stronger claim, a wrong PRODUCTION function is rejected, is checked by scripts/mutation_check.sh
+# (make mutation-check): it patches the production source in place and re-runs bend PROOF.bend.
 import Base
 import ./../../src/err.bend as E
 import ./../../src/column.bend as C
@@ -54,7 +58,7 @@ def head_merge_run_mutated(x, n, m, env):
 #|- env : P.Env
 #|- s   : Q.St
 #|Location: head_merge_run_mutated
-#|43 | def head_merge_run_mutated(x, n, m, env):
-#|44>|   PE.run_suffix(x, Q.IHead{m} <> Q.IHead{n} <> Nil{}, Q.IHead{Mut.hmin(m, Some{n})} <> Nil{}, env, {==}, s => PE.two_heads(n, m, s))
+#|47 | def head_merge_run_mutated(x, n, m, env):
+#|48>|   PE.run_suffix(x, Q.IHead{m} <> Q.IHead{n} <> Nil{}, Q.IHead{Mut.hmin(m, Some{n})} <> Nil{}, env, {==}, s => PE.two_heads(n, m, s))
 #|   |                                                                                                               ^^^^^^^^^^^^^^^^^^^^^
-#|45 | 
+#|49 | 

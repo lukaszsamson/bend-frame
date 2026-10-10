@@ -6,6 +6,12 @@
 # SOME PROOFS FAIL with the mutated encoder in `expected` and the production ST.Strs.encode in
 # `observed`. The positive control strs_encode_cells_copy states the theorem over the real encoder
 # with the same term and checks, so only the mutation is reported.
+# Scope: this fixture checks the production proof term against a MUTATED, RENAMED disposable copy, so it shows that
+# term is refused for that copy. The term is tied to the production function's NAME (the error compares the renamed copy
+# with the production function), so an UNMUTATED renamed copy is refused too: on its own this fixture does NOT show that
+# a wrong copy is rejected.
+# That stronger claim, a wrong PRODUCTION function is rejected, is checked by scripts/mutation_check.sh
+# (make mutation-check): it patches the production source in place and re-runs bend PROOF.bend.
 import Base
 import ./../../src/strs.bend as ST
 import ./../../LAWS.bend as Laws
@@ -76,7 +82,7 @@ def strs_encode_cells_mutated(n, d, a, fits, small, probes):
 #|- small  : {Cmp.is_lt(U32.cmp(n, 1073741824)) == True{} : Bool}
 #|- probes : Laws.EncProbe(U32.to_nat(n), 0, a, ST.Dict{1, 0n, [""], 2n, [ST.SSlot{"", 0}, ST.SSlot{"", 1}, ST.SSlot{"", 0}, ST.SSlot{"", 0}], 0})
 #|Location: strs_encode_cells_mutated
-#|64 | def strs_encode_cells_mutated(n, d, a, fits, small, probes):
-#|65>|   PST.enc_law(n, d, a, PST.enc_go(U32.to_nat(n), 0, d, a, ST.Dict.empty(), Array.new(U32, d, 0), "" <> Nil{}, Laws.wf_new(U32, d, 0), B.room_from(d, n, fits), PST.lim0(n, small), {==})(PST.ehyp0(d, a, Array.new(U32, d, 0), "" <> Nil{}))(Laws.dict_empty_wf())(probes))
+#|70 | def strs_encode_cells_mutated(n, d, a, fits, small, probes):
+#|71>|   PST.enc_law(n, d, a, PST.enc_go(U32.to_nat(n), 0, d, a, ST.Dict.empty(), Array.new(U32, d, 0), "" <> Nil{}, Laws.wf_new(U32, d, 0), B.room_from(d, n, fits), PST.lim0(n, small), {==})(PST.ehyp0(d, a, Array.new(U32, d, 0), "" <> Nil{}))(Laws.dict_empty_wf())(probes))
 #|   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#|66 | 
+#|72 | 

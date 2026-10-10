@@ -2,10 +2,14 @@ BEND ?= $(HOME)/.bend/bin/bend
 SOURCES := $(shell find src tests -name '*.bend' -type f 2>/dev/null | LC_ALL=C sort)
 EXAMPLES := frame.bend $(wildcard examples/*.bend) $(wildcard bench/*.bend)
 
-.PHONY: ci test runner-check check proofs verdict bench bench-check toolchain-check clean
+.PHONY: ci test runner-check check proofs verdict bench bench-check toolchain-check clean mutation-check consumer-check diff-driver-check diff-smoke
 
 # The full gate, in CI order. Needs the pinned toolchain (TOOLCHAIN): `make toolchain-check` first.
-ci: toolchain-check check runner-check test proofs verdict bench-check
+# Beyond the unit gates: the differential drivers' exit-status regression, a bounded strict
+# differential smoke (Raw and Dictionary strings, then the F32 reduction check), the proof mutation
+# check and the clean-consumer check (needs the work committed: it clones HEAD). Larger differential
+# runs (make diff N=..., make diff-reduce REDUCE_N=...) are the scheduled/release gate.
+ci: toolchain-check check runner-check diff-driver-check test proofs verdict mutation-check bench-check diff-smoke consumer-check
 	@echo "ci: all gates passed"
 
 test:
@@ -30,6 +34,15 @@ proofs:
 
 verdict:
 	$(BEND) PROOF.bend --verdict
+
+# Mutates the PRODUCTION functions in a temp copy and requires `bend PROOF.bend` to fail for each
+# (scripts/mutation_check.sh); the unmutated copy must pass. Complements tests/proof_negative/.
+mutation-check:
+	@scripts/mutation_check.sh
+
+# Clean clone of HEAD: check, build and run the quickstart and a relative/absolute-import consumer.
+consumer-check:
+	@scripts/consumer_check.sh
 
 # Correctness only, at 1k and 100k rows (scripts/bench.sh, BENCH_MODE=check).
 bench-check:
@@ -57,8 +70,9 @@ clean:
 # make diff [SEED=1] [N=1000] [DIFF_ARGS="--backend both --features noreductions,noselfjoin"]
 # Runs N seeded cases: eager vs raw-lazy vs optimised-lazy (T2.1) and vs the Polars-based oracle
 # (T2.2); failures are shrunk, classified against DESIGN.md 15.10 and written to
-# build/diff/seed<SEED>/failures.json. Exits 1 on a failure no known defect explains (NEW), a crash
-# or an oracle error; DIFF_ARGS=--strict also fails on known defects. See bench/diff/README.md.
+# build/diff/seed<SEED>/failures.json. Exits 1 on any failure (a mismatch, a crash
+# or an oracle error), whether or not a known-defect rule labels it (classification never excuses a
+# failure; --strict is a no-op kept for old command lines). See bench/diff/README.md.
 .PHONY: diff diff-lib
 SEED ?= 1
 N ?= 1000
@@ -74,7 +88,8 @@ diff-lib:
 # Sum/mean (eager, grouped, lazy) and describe (mean/std/quantiles) of generated F32 vectors against
 # the exactly rounded value, the contract's step model and the derived error bound; reports how
 # often Bend equals the correctly rounded f32. Exits 1 on a numerical defect (a bound or IEEE-special
-# violation, a null where none is due, lazy != eager, a wrong group order). `make diff-reduce-selftest`
+# violation, a null where none is due, lazy != eager, a wrong group order); any finding fails, there
+# is no allowlist. `make diff-reduce-selftest`
 # checks the reference itself and that weaker summations (naive, Kahan, no guard) are flagged.
 .PHONY: diff-reduce diff-reduce-selftest
 REDUCE_N ?= 2000
@@ -83,3 +98,18 @@ diff-reduce:
 
 diff-reduce-selftest:
 	cd bench && uv run python diff/reduce.py --selftest
+
+# ---- the differential drivers inside `make ci` (bounded; larger runs: make diff / diff-reduce) ----
+# diff-driver-check: bench/diff/tests/test_exit.py drives the real run.py and reduce.py with a mocked
+# Bend and injects a mismatch (classified as a known defect or not), a crash and an oracle error: each
+# must exit 1, a clean run 0. diff-smoke: fixed seeds, Raw then Dictionary (--dict) strings, then the
+# F32 reduction check. DIFF_SMOKE_N / DIFF_SMOKE_REDUCE_N size it.
+DIFF_SMOKE_N ?= 200
+DIFF_SMOKE_REDUCE_N ?= 200
+diff-driver-check:
+	cd bench && uv run python diff/tests/test_exit.py
+
+diff-smoke:
+	cd bench && uv run python diff/run.py --seed 20261001 --n $(DIFF_SMOKE_N) --strict
+	cd bench && uv run python diff/run.py --seed 20261002 --n $(DIFF_SMOKE_N) --strict --dict
+	cd bench && uv run python diff/reduce.py --seed 20261003 --n $(DIFF_SMOKE_REDUCE_N)

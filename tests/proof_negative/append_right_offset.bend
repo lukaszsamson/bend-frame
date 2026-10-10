@@ -7,6 +7,10 @@
 # and the production Kernel.append's offset na in `observed`. The positive control append_cells_copy
 # states the theorem over the real kernel with the same term and checks, so only the mutation is
 # reported.
+# Scope: this fixture checks the production proof term against a MUTATED, RENAMED disposable copy, so it shows that
+# term is refused for that copy; it is not a rejection of a mutated production function.
+# That stronger claim, a wrong PRODUCTION function is rejected, is checked by scripts/mutation_check.sh
+# (make mutation-check): it patches the production source in place and re-runs bend PROOF.bend.
 import Base
 import ./../../src/kernels.bend as K
 import ./../../LAWS.bend as Laws
@@ -60,7 +64,7 @@ def append_cells_mutated(na, nb, d, a, b, z, fits):
 #|- z    : U32
 #|- fits : {Cmp.is_le(Nat.cmp(Nat.add(U32.to_nat(na), U32.to_nat(nb)), U32.to_nat(U32.shln(1, d)))) == True{} : Bool}
 #|Location: append_cells_mutated
-#|47 | def append_cells_mutated(na, nb, d, a, b, z, fits):
-#|48>|   PA.append_w(~U32, na, nb, d, a, b, z, fits)
+#|51 | def append_cells_mutated(na, nb, d, a, b, z, fits):
+#|52>|   PA.append_w(~U32, na, nb, d, a, b, z, fits)
 #|   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#|49 | 
+#|53 | 

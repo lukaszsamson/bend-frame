@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Self-test of scripts/test.sh (review of M0): runs it over throwaway fixtures with a fake `bend`
 # (prints the file's `#>` lines, exits with its `#>exit N`, sleeps `#>sleep N`), and checks the
-# verdicts, the summary, the exit status and the report order under TEST_JOBS. Takes ~3 s.
+# verdicts, the summary, the exit status and the report order under TEST_JOBS. Takes ~15 s.
+# Timing margins are generous on purpose (this gate runs on loaded machines): the one fixture that
+# must time out sleeps 10x longer than the limit, and every fixture that must NOT time out finishes
+# in about a second, so a process that is merely starved for several seconds still passes.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
@@ -28,7 +31,7 @@ fix b_fail       $'#> got\n#| want'
 fix c_xfail      $'#! xfail B99\n#> got\n#| want'
 fix d_xpass      $'#! xfail B98\n#> want\n#| want'
 fix e_empty      $'#|\n#|'
-fix f_timeout    $'#>sleep 5\n#| never'
+fix f_timeout    $'#>sleep 60\n#| never'
 fix g_noexp_rc   $'#> boom\n#>exit 3'
 fix h_errexp     $'#> SOME PROOFS FAIL\n#>exit 1\n#| SOME PROOFS FAIL'
 fix i_xfail_rc   $'#! xfail B97\n#>exit 2\n#| want'
@@ -38,13 +41,15 @@ expect() { # label pattern text
   if ! printf '%s\n' "$3" | grep -q -- "$2"; then echo "runner check FAILED: $1 (no line matching '$2')"; fail=1; fi
 }
 
+LIMIT=6   # seconds: the timeout fixture sleeps 60, the others at most 1
 for jobs in 1 4; do
   t0=$SECONDS
-  out=$(BEND="$d/bend" TEST_DIR="$d/t" TEST_TIMEOUT=2 TEST_JOBS=$jobs scripts/test.sh 2>&1)
+  out=$(BEND="$d/bend" TEST_DIR="$d/t" TEST_TIMEOUT=$LIMIT TEST_JOBS=$jobs scripts/test.sh 2>&1)
   rc=$?
-  # the timeout kills f_timeout's `sleep 5` child too (it used to hold the pipe open for 5 s)
-  if [ "$jobs" -eq 4 ] && [ $((SECONDS - t0)) -ge 5 ]; then
-    echo "runner check FAILED: the 2 s timeout took $((SECONDS - t0)) s"; fail=1
+  # the timeout kills f_timeout's `sleep 60` child too (it used to hold the pipe open until it ended);
+  # a run that waited for the sleep would take 60 s, so anything under 30 s shows the kill worked
+  if [ $((SECONDS - t0)) -ge 30 ]; then
+    echo "runner check FAILED: the $LIMIT s timeout took $((SECONDS - t0)) s (the sleeping child was not killed)"; fail=1
   fi
   [ "$rc" -eq 1 ] || { echo "runner check FAILED: jobs=$jobs exit $rc, want 1"; fail=1; }
   expect "pass"            "^PASS .*a_pass.bend$" "$out"

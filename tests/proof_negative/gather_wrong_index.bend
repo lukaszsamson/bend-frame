@@ -6,6 +6,12 @@
 # `expected` and the production Kernel.gather.go in `observed`. The positive control
 # gather_contents_copy states the theorem over the real kernel with the same term and checks,
 # so only the mutation is reported.
+# Scope: this fixture checks the production proof term against a MUTATED, RENAMED disposable copy, so it shows that
+# term is refused for that copy. The term is tied to the production function's NAME (the error compares the renamed copy
+# with the production function), so an UNMUTATED renamed copy is refused too: on its own this fixture does NOT show that
+# a wrong copy is rejected.
+# That stronger claim, a wrong PRODUCTION function is rejected, is checked by scripts/mutation_check.sh
+# (make mutation-check): it patches the production source in place and re-runs bend PROOF.bend.
 import Base
 import ./../../src/kernels.bend as K
 import ./../../LAWS.bend as Laws
@@ -72,7 +78,7 @@ def gather_contents_mutated(d, n, src, perm, z, k, fits, hk):
 #|- fits : {Cmp.is_le(U32.cmp(n, U32.shln(1, d))) == True{} : Bool}
 #|- hk   : {Cmp.is_lt(U32.cmp(k, n)) == True{} : Bool}
 #|Location: gather_contents_mutated
-#|58 | def gather_contents_mutated(d, n, src, perm, z, k, fits, hk):
-#|59>|   PC.gather_fin(d, n, src, perm, z, k, hk, PC.gather_go(U32.to_nat(n), 0, d, src, Array.new(U32, d, z), perm, Laws.wf_new(U32, d, z), B.room_from(d, n, fits))(PC.ghyp0(d, src, Array.new(U32, d, z), perm)))
+#|64 | def gather_contents_mutated(d, n, src, perm, z, k, fits, hk):
+#|65>|   PC.gather_fin(d, n, src, perm, z, k, hk, PC.gather_go(U32.to_nat(n), 0, d, src, Array.new(U32, d, z), perm, Laws.wf_new(U32, d, z), B.room_from(d, n, fits))(PC.ghyp0(d, src, Array.new(U32, d, z), perm)))
 #|   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#|60 | 
+#|66 | 

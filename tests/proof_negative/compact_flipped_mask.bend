@@ -6,6 +6,12 @@
 # answers SOME PROOFS FAIL with the mutated kernel in `expected` and the production
 # Kernel.compact_keep.go in `observed`. The positive control compact_contents_copy states the
 # theorem over the real kernel with the same term and checks, so only the mutation is reported.
+# Scope: this fixture checks the production proof term against a MUTATED, RENAMED disposable copy, so it shows that
+# term is refused for that copy. The term is tied to the production function's NAME (the error compares the renamed copy
+# with the production function), so an UNMUTATED renamed copy is refused too: on its own this fixture does NOT show that
+# a wrong copy is rejected.
+# That stronger claim, a wrong PRODUCTION function is rejected, is checked by scripts/mutation_check.sh
+# (make mutation-check): it patches the production source in place and re-runs bend PROOF.bend.
 import Base
 import ./../../src/kernels.bend as K
 import ./../../LAWS.bend as Laws
@@ -64,7 +70,7 @@ def compact_contents_mutated(d, n, a, mask, z, room):
 #|- z    : U32
 #|- room : Laws.CRoom(U32.to_nat(n), 0, 0, d, mask)
 #|Location: compact_contents_mutated
-#|52 | def compact_contents_mutated(d, n, a, mask, z, room):
-#|53>|   PC.cspec_run(~U32, U32.to_nat(n), 0, 0, d, a, Array.new(U32, d, z), mask, Laws.wf_new(U32, d, z), a, mask, {==}, {==}, room)
+#|58 | def compact_contents_mutated(d, n, a, mask, z, room):
+#|59>|   PC.cspec_run(~U32, U32.to_nat(n), 0, 0, d, a, Array.new(U32, d, z), mask, Laws.wf_new(U32, d, z), a, mask, {==}, {==}, room)
 #|   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#|54 | 
+#|60 | 
