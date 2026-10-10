@@ -1,0 +1,247 @@
+bend-frame review: performance, ownership and parallelism
+2026-10-11. Reviewed commit 3612482, Bend 2.0.36 on Apple M2 Pro.
+
+The Bend author's criticism applies to several important paths here. It does not
+accurately describe the entire implementation: numeric columns, group ids, join
+permutations and radix sorting already use arrays; Dictionary strings are a real
+improvement. The next gains should come from representation and ownership choices,
+not simply adding more parallel lets. I found a concrete linked-list bottleneck,
+full-buffer copies where ownership transfer would suffice, an avoidable join-table
+copy, and a parallel array-lowering cost that makes the obvious "parallel map"
+replacement slower.
+
+No production code was changed during this review. Reproducible microbenchmarks and
+raw observations are in plans/perf_review_20261011/. Findings below distinguish
+measured behavior from source-level analysis and proposed work.
+
+1. Measured: global n_unique takes an unnecessarily expensive list path
+
+src/eval.bend:1239-1262,1397-1458; src/kernels.bend:181-198.
+
+Numeric global n_unique converts the array to a linked list, uses generic List.sort,
+then counts adjacent unequal values. F32 first maps to canonical words, then uses
+the same list route; Raw strings also take it. Dictionary n_unique is already
+specialized to codes (Eval.ds.nu), so this criticism does NOT apply to that path.
+
+Native probe, 1,048,576 distinct U32 values, one thread, three fresh processes:
+  select(n_unique(x))       202, 261, 200 ms; median 202 ms
+  unique([x]) then len      15,  17,  16 ms; median  16 ms
+Both answer 1,048,576. The second operation even materializes the unique rows and
+still wins by about 12.6x on the medians. This is a data-structure/algorithm issue,
+not a missing thread flag. This workload is absent from q1-q6.
+
+Recommended first fix: reuse array-based encoding/radix/run-count machinery for
+numeric n_unique; use a small presence set for Bool and bounded small ranges.
+Keep the shared F32 total-order policy, null-as-one semantics, all-null/empty cases
+and scalar/reduction cardinality. For Raw strings, benchmark direct code encoding
+against generic string-list sort. Do not merely parallelize List.sort.
+
+2. Measured: simple projections copy, and head does not bound the copy
+
+src/eval.bend:1876-1894 (ICol -> Frame.get_cloned), 2070-2160 (many/select);
+src/column.bend:195-207,521-532,932-958,970-1007.
+
+Every evaluated column reference obtains a clone while keeping the input frame.
+select then discards that original frame. This copies a column even for
+select([col("x")]), although Frame.select_names already moves it with Frame.take.
+Repeated references can clone the same column repeatedly; with_columns needs the
+original snapshot, but that does not justify unconditional copying at every read.
+Strict fallible casts add another Column.clone before try_cast/checking.
+
+The clone uses physical array capacity, not logical column length. head changes
+len only; it keeps depth and buffers. Repeating a one-column projection 64 times:
+  full 1,048,576-row column       11,12,11 ms; median 11 ms
+  same backing column, head(1)   11,13,12 ms; median 12 ms
+  move-based select_names         0, 0, 0 ms; below the 1 ms clock resolution
+The first two medians are indistinguishable at this noise level. Reducing the
+logical result to one row does not reduce the projection's copying work. Retaining
+a parent allocation in a head/view is not itself unusual; cloning the whole parent
+again for a tiny result is the avoidable problem.
+
+Start with a proven move-only fast path for plain column/alias projections. Preserve
+all upfront validation, duplicate/error precedence, output names/order and empty-
+selection cardinality. Extend the existing Source last-use idea to expression
+column uses, or evaluate read-only operands without materializing clones. Do not
+replace cloning globally: self joins, repeated expressions and with_columns need
+correct ownership. A compact/rechunk policy can bound retained buffers and stale
+Dictionary entries after slicing. One-pass strict conversion can retain the first
+bad row/value instead of cloning a complete source just to locate an error later.
+
+3. Measured: naive array parallelization is slower; persistent chunks can scale
+
+src/kernels.bend:23-53,83-126,220-223; native C emitted by Bend 2.0.36.
+
+map, zip, fold, gather and compact are sequential state-threading loops. The
+Kernel.fork_depth function returns zero AND has no callers: changing that constant
+will not enable any parallel kernel. Ordinary calls do not create parallel work.
+The local Bend guide's parallel primitive is a balanced two-call let.
+
+The less obvious constraint is native representation. Generated C explicitly lowers
+ANode matching to blk_half and ANode construction to blk_node. Both allocate and
+copy the buffers; Array.clone lowers to blk_copy. Numeric Array.get/set are native
+buffer accesses, so it would also be wrong to claim every access traverses a tree.
+But structurally splitting/rebuilding an Array is NOT a zero-copy slice/concatenation.
+
+I compared 128 increment maps over 2^20 U32s. Six split levels make 64 owned chunks.
+Times below are medians of three fresh processes, milliseconds:
+                           1 thread    4 threads    12 threads
+  flat full-buffer loops       129          128           150
+  split/rejoin on EVERY map    277          203           261
+  split ONCE, 128 maps/chunk   122           40            32
+
+All recorded runs exit zero and give the expected U32 sum. A subsequent untimed
+full-cell comparison with iota+128 also passed for all three variants. The chunk
+pipeline is about 3.8x faster on 12 threads than its own one-thread run. The naive
+parallel version loses even with 12 threads. This is a synthetic scheduling and
+allocation experiment, not a claim that q1-q6 or the complete engine will gain 3.8x.
+The machine was shared and CI ran concurrently; use the raw samples, not fine-grained
+ranking of noisy cells. The 128 maps are deliberately an amortization stress case.
+
+Design direction: construct owned chunks once, keep them through compatible chains
+of operators, and schedule balanced coarse tasks over them. Fuse row-wise expression
+work within a chunk to avoid complete intermediate columns and repeated split/join
+copies. Use a measured grain size and a sequential path for small inputs. For
+same-type consuming map/zip, also test reusing an operand's allocation in place;
+today map/zip allocate a fresh output despite consuming inputs.
+
+Do not scatter parallel lets over the current representation. Do not silently use
+Base Array.fork as a cheap clone: its handles share writable cells and the primitive
+is @unsafe. That is a different ownership/trust boundary from the current safe,
+proved kernels.
+
+4. Source-confirmed: join probing copies a table even when no fork occurs
+
+src/join.bend:381-413,448-464,588-592,630-635.
+
+Both Raw and Dictionary probe entry paths unconditionally call Dict.clone before
+Probe.fork. At fork depth zero, Probe.fork receives DD{d1,d2}, uses d1, and discards
+d2. Dict.clone walks the entire table and explicitly copies each key string. This
+is not an O(1) duplicate handle. In the forked case each leaf also gets a pair and
+uses only one member. The extra copy is structurally unnecessary, including the
+large-table case where Probe.levels deliberately disables forking to avoid copying.
+
+Change the fork helper to accept one owned Dict. Only clone when actually splitting
+into two branches; a leaf probes its existing table. This can retain the deliberate
+private-table strategy (avoiding shared string-reference-count contention) while
+removing discarded copies. Benchmark small/large build sides, duplicates, Raw/Dict,
+and several thread counts. I did not measure this isolated change, so no percentage
+speedup is claimed. On the Raw build path table capacity is chosen from row count,
+which also makes capacity-based fork eligibility pessimistic for many duplicate
+keys. Treat distinct-count sizing as a separate experiment, not a correctness fix.
+
+5. Source-confirmed: CSV still allocates character/row/cell lists, and its fork is skewed
+
+src/csvparse.bend:49-56,106-118,183 onward;
+src/csv.bend:1062-1068,1348-1365,1922-1943.
+
+CSV parsing runs over a String (linked code points), builds/reverses field strings,
+cell lists and row records, then supplies column builders. A Dictionary at the end
+does not remove those transient parser allocations. The default chunk is 64 MiB;
+the 41 MB benchmark fits in one piece. The existing note says smaller chunks were
+slower with the allocator, so "just reduce chunk size" is not an evidence-based fix.
+
+CBs.feed forks ONE column against ALL REMAINING columns recursively. That is an
+unbalanced work tree, and column costs also differ by dtype/string length. Bend's
+installed guide explicitly requires similarly sized parallel calls and describes a
+scheduler without task migration. The current fork shape does not meet that goal.
+Raw string coding has a balanced split, but its serial dictionary merge and array
+reassembly can dominate as distinct cardinality grows.
+
+First measure parser allocation, conversion and final assembly separately. Test a
+balanced column work tree, weighted by estimated cost where useful. Longer-term,
+use buffered code-point/packed-byte storage or direct typed builders so every
+numeric field need not become a separately allocated String/CsvCell. Parallel file
+chunks require quote-aware record boundaries, UTF-8 handling and deterministic
+physical error lines; splitting on arbitrary newlines is incorrect. These are
+engineering changes with fresh correctness obligations, not a flag switch.
+
+6. Other worthwhile performance work, with semantic constraints
+
+- sort(...).head(k) sorts and gathers the complete frame before head truncates it
+  (src/sort.bend:418-450). First avoid gathering discarded rows by computing the
+  existing exact permutation and gathering only k. Top-k selection is a later,
+  larger change: preserve stable ties, null placement, multi-key order and errors.
+- GroupBy evaluates each aggregate's input separately and scatters separately
+  (src/groupby.bend:898-960). Repeated sum/mean/count over one expression can share
+  expression evaluation and accumulators. Preserve input-row order for F32.
+- Dictionary ranks are rebuilt through a Map and Map.to_list on every ranks request
+  (src/strs.bend:356-389). Cache ranks for repeated string ordering only if measurements
+  justify extra storage and an explicit invalidation/preservation invariant.
+- Lists of column names, expressions, plans and small evaluator stacks are generally
+  reasonable. They scale with schema/query size, not rows. Converting every such
+  list to an Array is not the priority. Exec.mark's repeated suffix lookup could
+  matter for exceptionally large plans, but is not the million-row bottleneck.
+
+Parallel reductions cannot all be reassociated safely. Modular U32 sums/counts have
+associative combines; min/max require the documented NaN/zero policy. F32 sums are
+specified as row-ordered Neumaier accumulation, which is not associative. For an
+unchanged contract, partition work by complete groups while preserving each group's
+row order, or leave those reductions sequential. Hot/skewed groups limit that
+strategy. Stable filtering needs local counts, ordered offsets and disjoint output
+ranges; joins need explicit duplicate/order rules. Arbitrary atomics would change
+the semantics and weaken the existing proof story.
+
+7. Benchmark honesty and proof implications
+
+bench/main.bend:138-163 prepares both the used and kept frames with dup/fclone before
+round starts the timer at lines 310-315. Query-internal copies ARE timed, but the
+initial input-preservation copies, parsing and most output handling are not. This
+is a legitimate compute-only benchmark if labelled that way, not complete application
+cost. Report parse + preparation/copy + compute + output separately, and an end-to-end
+mode. Peak RSS of the whole benchmark includes parser temporaries and kept inputs;
+it is not solely the size of a materialized dataframe.
+
+Existing content proofs can be reused as leaf lemmas for chunk kernels. The new work
+is the bridge from chunked storage to logical cells, valid rows/padding, deterministic
+errors and ordered concatenation. Move-based projections need an ownership/observation
+lemma. In-place loops need old-input/new-output invariants. Changing n_unique needs
+an equivalence argument for null and F32 canonicalization. No existing proof is a
+performance guarantee, and the passing suite cannot establish absence of redundant
+allocation. Add performance/allocation probes alongside correctness gates.
+
+8. Release assessment and order of work
+
+The previous release blockers have been addressed in source: unnamed Env.scans,
+unconditional differential failure exits, CI smoke/consumer/mutation gates, truthful
+q3 reference wording, public-API coverage matrix, and explicit experimental scope.
+The new scan regressions cover the original aliasing case plus multiple scans and
+all lazy verbs. The coverage matrix is usefully explicit and correctly describes
+its static def-call report as an approximation, not runtime branch coverage.
+
+I have not found a new wrong-result blocker in this pass. The performance issues
+above are real, but need not prevent an honestly positioned experimental v0.1.
+They do prevent presenting this as an efficiently parallel dataframe engine.
+The remaining proof scope reductions are still scope reductions, not completed
+R2-R5 or unconditional dictionary verification.
+
+Recommended sequence:
+  1. Replace numeric global n_unique's list path; add a representative large test.
+  2. Move plain projected columns; eliminate the discarded join-table copy; measure
+     clone bytes and retained capacity, including head(1) and self-join workloads.
+  3. Prototype owned chunk pipelines and expression fusion behind an experimental
+     executor. Require observed thread scaling and lower allocation, with exact
+     differential checks. Keep the current executor as the reference until proven.
+  4. Restructure CSV work/allocation and string storage using separate parsing and
+     compute benchmarks; do not claim dictionary encoding fixes high-cardinality text.
+
+Do not expand the API first, and do not spend the next milestone on a blanket
+"parallelize all kernels" rewrite. The measured split-copy trap shows why.
+
+9. Checks completed in this review
+
+UV_CACHE_DIR=/tmp/bend-v01-uv-cache make ci completed with exit 0 on commit 3612482:
+  toolchain-check and check; runner-check; differential-driver failure regression;
+  tests 158/158, XFAIL 0; proofs and independent --verdict; all 14 production mutation
+  checks rejected with the unmutated control accepted; q1-q6 bench-check; Raw and
+  Dictionary differential smoke with zero failures; numerical smoke with no findings;
+  clean-clone relative/absolute imports, native/interpreter consumer; coverage matrix
+  727 covered, 47 justified n/a, zero missing/problems.
+The complete log is plans/perf_review_20261011/ci.log. The consumer clone used HEAD;
+untracked review artifacts did not change production code or the tested library.
+Hosted CI, Linux and hub upload were not exercised.
+
+The 42 plain native timing processes exited zero. All three map variants passed
+an additional full-cell equality check after timing. Three process samples on a
+shared machine are enough to expose these large structural effects, not to publish
+precise engine-level speedups. No replacement production kernels or proof changes
+were made. Existing unrelated review_tmp/ files were left alone.

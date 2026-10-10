@@ -1,0 +1,20 @@
+[
+  {
+    "mode": "flat",
+    "rc": 0,
+    "out": "flat ms=508\nsum=133693440 cells_ok=True\n",
+    "err": ""
+  },
+  {
+    "mode": "par",
+    "rc": 0,
+    "out": "par ms=624\nsum=133693440 cells_ok=True\n",
+    "err": ""
+  },
+  {
+    "mode": "pipeline",
+    "rc": 0,
+    "out": "pipeline ms=63\nsum=133693440 cells_ok=True\n",
+    "err": ""
+  }
+]

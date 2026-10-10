@@ -1,0 +1,380 @@
+[
+  {
+    "rep": 0,
+    "bench": "ops",
+    "mode": "select",
+    "threads": 1,
+    "rc": 0,
+    "out": "select ms=11\nframe\nheight\t1\nwidth\t2\ncol\tu32\t\"sum\"\ncol\tu32\t\"rows\"\nrow\t4294443008\t1048576\n\n",
+    "err": ""
+  },
+  {
+    "rep": 0,
+    "bench": "ops",
+    "mode": "headselect",
+    "threads": 1,
+    "rc": 0,
+    "out": "headselect ms=11\nframe\nheight\t1\nwidth\t2\ncol\tu32\t\"sum\"\ncol\tu32\t\"rows\"\nrow\t0\t1\n\n",
+    "err": ""
+  },
+  {
+    "rep": 0,
+    "bench": "ops",
+    "mode": "move",
+    "threads": 1,
+    "rc": 0,
+    "out": "move ms=0\nframe\nheight\t1\nwidth\t2\ncol\tu32\t\"sum\"\ncol\tu32\t\"rows\"\nrow\t4294443008\t1048576\n\n",
+    "err": ""
+  },
+  {
+    "rep": 0,
+    "bench": "ops",
+    "mode": "nunique",
+    "threads": 1,
+    "rc": 0,
+    "out": "nunique ms=202\nframe\nheight\t1\nwidth\t2\ncol\tu32\t\"sum\"\ncol\tu32\t\"rows\"\nrow\t1048576\t1\n\n",
+    "err": ""
+  },
+  {
+    "rep": 0,
+    "bench": "ops",
+    "mode": "unique",
+    "threads": 1,
+    "rc": 0,
+    "out": "unique ms=15\nframe\nheight\t1\nwidth\t2\ncol\tu32\t\"sum\"\ncol\tu32\t\"rows\"\nrow\t1048576\t1\n\n",
+    "err": ""
+  },
+  {
+    "rep": 0,
+    "bench": "maps",
+    "mode": "flat",
+    "threads": 1,
+    "rc": 0,
+    "out": "flat ms=126\nsum=133693440\n",
+    "err": ""
+  },
+  {
+    "rep": 0,
+    "bench": "maps",
+    "mode": "par",
+    "threads": 1,
+    "rc": 0,
+    "out": "par ms=262\nsum=133693440\n",
+    "err": ""
+  },
+  {
+    "rep": 0,
+    "bench": "maps",
+    "mode": "pipeline",
+    "threads": 1,
+    "rc": 0,
+    "out": "pipeline ms=120\nsum=133693440\n",
+    "err": ""
+  },
+  {
+    "rep": 0,
+    "bench": "maps",
+    "mode": "flat",
+    "threads": 4,
+    "rc": 0,
+    "out": "flat ms=125\nsum=133693440\n",
+    "err": ""
+  },
+  {
+    "rep": 0,
+    "bench": "maps",
+    "mode": "par",
+    "threads": 4,
+    "rc": 0,
+    "out": "par ms=176\nsum=133693440\n",
+    "err": ""
+  },
+  {
+    "rep": 0,
+    "bench": "maps",
+    "mode": "pipeline",
+    "threads": 4,
+    "rc": 0,
+    "out": "pipeline ms=36\nsum=133693440\n",
+    "err": ""
+  },
+  {
+    "rep": 0,
+    "bench": "maps",
+    "mode": "flat",
+    "threads": 12,
+    "rc": 0,
+    "out": "flat ms=150\nsum=133693440\n",
+    "err": ""
+  },
+  {
+    "rep": 0,
+    "bench": "maps",
+    "mode": "par",
+    "threads": 12,
+    "rc": 0,
+    "out": "par ms=261\nsum=133693440\n",
+    "err": ""
+  },
+  {
+    "rep": 0,
+    "bench": "maps",
+    "mode": "pipeline",
+    "threads": 12,
+    "rc": 0,
+    "out": "pipeline ms=32\nsum=133693440\n",
+    "err": ""
+  },
+  {
+    "rep": 1,
+    "bench": "ops",
+    "mode": "select",
+    "threads": 1,
+    "rc": 0,
+    "out": "select ms=12\nframe\nheight\t1\nwidth\t2\ncol\tu32\t\"sum\"\ncol\tu32\t\"rows\"\nrow\t4294443008\t1048576\n\n",
+    "err": ""
+  },
+  {
+    "rep": 1,
+    "bench": "ops",
+    "mode": "headselect",
+    "threads": 1,
+    "rc": 0,
+    "out": "headselect ms=13\nframe\nheight\t1\nwidth\t2\ncol\tu32\t\"sum\"\ncol\tu32\t\"rows\"\nrow\t0\t1\n\n",
+    "err": ""
+  },
+  {
+    "rep": 1,
+    "bench": "ops",
+    "mode": "move",
+    "threads": 1,
+    "rc": 0,
+    "out": "move ms=0\nframe\nheight\t1\nwidth\t2\ncol\tu32\t\"sum\"\ncol\tu32\t\"rows\"\nrow\t4294443008\t1048576\n\n",
+    "err": ""
+  },
+  {
+    "rep": 1,
+    "bench": "ops",
+    "mode": "nunique",
+    "threads": 1,
+    "rc": 0,
+    "out": "nunique ms=261\nframe\nheight\t1\nwidth\t2\ncol\tu32\t\"sum\"\ncol\tu32\t\"rows\"\nrow\t1048576\t1\n\n",
+    "err": ""
+  },
+  {
+    "rep": 1,
+    "bench": "ops",
+    "mode": "unique",
+    "threads": 1,
+    "rc": 0,
+    "out": "unique ms=17\nframe\nheight\t1\nwidth\t2\ncol\tu32\t\"sum\"\ncol\tu32\t\"rows\"\nrow\t1048576\t1\n\n",
+    "err": ""
+  },
+  {
+    "rep": 1,
+    "bench": "maps",
+    "mode": "flat",
+    "threads": 1,
+    "rc": 0,
+    "out": "flat ms=133\nsum=133693440\n",
+    "err": ""
+  },
+  {
+    "rep": 1,
+    "bench": "maps",
+    "mode": "par",
+    "threads": 1,
+    "rc": 0,
+    "out": "par ms=287\nsum=133693440\n",
+    "err": ""
+  },
+  {
+    "rep": 1,
+    "bench": "maps",
+    "mode": "pipeline",
+    "threads": 1,
+    "rc": 0,
+    "out": "pipeline ms=123\nsum=133693440\n",
+    "err": ""
+  },
+  {
+    "rep": 1,
+    "bench": "maps",
+    "mode": "flat",
+    "threads": 4,
+    "rc": 0,
+    "out": "flat ms=129\nsum=133693440\n",
+    "err": ""
+  },
+  {
+    "rep": 1,
+    "bench": "maps",
+    "mode": "par",
+    "threads": 4,
+    "rc": 0,
+    "out": "par ms=203\nsum=133693440\n",
+    "err": ""
+  },
+  {
+    "rep": 1,
+    "bench": "maps",
+    "mode": "pipeline",
+    "threads": 4,
+    "rc": 0,
+    "out": "pipeline ms=40\nsum=133693440\n",
+    "err": ""
+  },
+  {
+    "rep": 1,
+    "bench": "maps",
+    "mode": "flat",
+    "threads": 12,
+    "rc": 0,
+    "out": "flat ms=131\nsum=133693440\n",
+    "err": ""
+  },
+  {
+    "rep": 1,
+    "bench": "maps",
+    "mode": "par",
+    "threads": 12,
+    "rc": 0,
+    "out": "par ms=217\nsum=133693440\n",
+    "err": ""
+  },
+  {
+    "rep": 1,
+    "bench": "maps",
+    "mode": "pipeline",
+    "threads": 12,
+    "rc": 0,
+    "out": "pipeline ms=27\nsum=133693440\n",
+    "err": ""
+  },
+  {
+    "rep": 2,
+    "bench": "ops",
+    "mode": "select",
+    "threads": 1,
+    "rc": 0,
+    "out": "select ms=11\nframe\nheight\t1\nwidth\t2\ncol\tu32\t\"sum\"\ncol\tu32\t\"rows\"\nrow\t4294443008\t1048576\n\n",
+    "err": ""
+  },
+  {
+    "rep": 2,
+    "bench": "ops",
+    "mode": "headselect",
+    "threads": 1,
+    "rc": 0,
+    "out": "headselect ms=12\nframe\nheight\t1\nwidth\t2\ncol\tu32\t\"sum\"\ncol\tu32\t\"rows\"\nrow\t0\t1\n\n",
+    "err": ""
+  },
+  {
+    "rep": 2,
+    "bench": "ops",
+    "mode": "move",
+    "threads": 1,
+    "rc": 0,
+    "out": "move ms=0\nframe\nheight\t1\nwidth\t2\ncol\tu32\t\"sum\"\ncol\tu32\t\"rows\"\nrow\t4294443008\t1048576\n\n",
+    "err": ""
+  },
+  {
+    "rep": 2,
+    "bench": "ops",
+    "mode": "nunique",
+    "threads": 1,
+    "rc": 0,
+    "out": "nunique ms=200\nframe\nheight\t1\nwidth\t2\ncol\tu32\t\"sum\"\ncol\tu32\t\"rows\"\nrow\t1048576\t1\n\n",
+    "err": ""
+  },
+  {
+    "rep": 2,
+    "bench": "ops",
+    "mode": "unique",
+    "threads": 1,
+    "rc": 0,
+    "out": "unique ms=16\nframe\nheight\t1\nwidth\t2\ncol\tu32\t\"sum\"\ncol\tu32\t\"rows\"\nrow\t1048576\t1\n\n",
+    "err": ""
+  },
+  {
+    "rep": 2,
+    "bench": "maps",
+    "mode": "flat",
+    "threads": 1,
+    "rc": 0,
+    "out": "flat ms=129\nsum=133693440\n",
+    "err": ""
+  },
+  {
+    "rep": 2,
+    "bench": "maps",
+    "mode": "par",
+    "threads": 1,
+    "rc": 0,
+    "out": "par ms=277\nsum=133693440\n",
+    "err": ""
+  },
+  {
+    "rep": 2,
+    "bench": "maps",
+    "mode": "pipeline",
+    "threads": 1,
+    "rc": 0,
+    "out": "pipeline ms=122\nsum=133693440\n",
+    "err": ""
+  },
+  {
+    "rep": 2,
+    "bench": "maps",
+    "mode": "flat",
+    "threads": 4,
+    "rc": 0,
+    "out": "flat ms=128\nsum=133693440\n",
+    "err": ""
+  },
+  {
+    "rep": 2,
+    "bench": "maps",
+    "mode": "par",
+    "threads": 4,
+    "rc": 0,
+    "out": "par ms=482\nsum=133693440\n",
+    "err": ""
+  },
+  {
+    "rep": 2,
+    "bench": "maps",
+    "mode": "pipeline",
+    "threads": 4,
+    "rc": 0,
+    "out": "pipeline ms=59\nsum=133693440\n",
+    "err": ""
+  },
+  {
+    "rep": 2,
+    "bench": "maps",
+    "mode": "flat",
+    "threads": 12,
+    "rc": 0,
+    "out": "flat ms=220\nsum=133693440\n",
+    "err": ""
+  },
+  {
+    "rep": 2,
+    "bench": "maps",
+    "mode": "par",
+    "threads": 12,
+    "rc": 0,
+    "out": "par ms=440\nsum=133693440\n",
+    "err": ""
+  },
+  {
+    "rep": 2,
+    "bench": "maps",
+    "mode": "pipeline",
+    "threads": 12,
+    "rc": 0,
+    "out": "pipeline ms=36\nsum=133693440\n",
+    "err": ""
+  }
+]

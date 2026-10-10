@@ -1,0 +1,791 @@
+ok     bend 2.0.36
+ok     lean 4.34.0
+ok     uv 0.12.23
+ok     polars 2.0.0
+ok     numpy 2.5.3
+ok     python 3.14.3
+toolchain-check: ok
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+skip tests/proof_negative/append_right_offset.bend (expects a failure; scripts/test.sh checks it)
+skip tests/proof_negative/choose_inverted_mask.bend (expects a failure; scripts/test.sh checks it)
+skip tests/proof_negative/compact_flipped_mask.bend (expects a failure; scripts/test.sh checks it)
+skip tests/proof_negative/encode_reuses_code.bend (expects a failure; scripts/test.sh checks it)
+skip tests/proof_negative/fit_no_broadcast.bend (expects a failure; scripts/test.sh checks it)
+skip tests/proof_negative/gather_wrong_index.bend (expects a failure; scripts/test.sh checks it)
+skip tests/proof_negative/head_rule_outer_wins.bend (expects a failure; scripts/test.sh checks it)
+skip tests/proof_negative/head_sink_below_select.bend (expects a failure; scripts/test.sh checks it)
+skip tests/proof_negative/mask_not_slots_doubled.bend (expects a failure; scripts/test.sh checks it)
+skip tests/proof_negative/remap_wrong_slot.bend (expects a failure; scripts/test.sh checks it)
+skip tests/proof_negative/un_neg_wrong_dtype.bend (expects a failure; scripts/test.sh checks it)
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+runner check: ok
+cd bench && uv run python diff/tests/test_exit.py
+PASS run.py clean: exit 0
+PASS run.py clean --strict: exit 0
+PASS run.py clean --no-shrink: exit 0
+PASS run.py classified mismatch, default: exit 1
+PASS run.py classified mismatch, --strict: exit 1
+PASS run.py classified mismatch, --no-shrink: exit 1
+PASS run.py unclassified mismatch: exit 1
+PASS run.py shrinker raises: exit 1
+PASS run.py crash: exit 1
+PASS run.py crash, --no-shrink: exit 1
+PASS run.py oracle error: exit 1
+PASS run.py oracle error, --no-shrink: exit 1
+PASS reduce.py clean: exit 0
+PASS reduce.py finding bound: exit 1
+PASS reduce.py finding special: exit 1
+PASS reduce.py finding null: exit 1
+PASS reduce.py finding err: exit 1
+PASS reduce.py finding lazy: exit 1
+PASS reduce.py finding order: exit 1
+PASS reduce.py finding shape: exit 1
+PASS reduce.py finding model: exit 1
+PASS reduce.py finding tight: exit 1
+PASS reduce.py finding minmax: exit 1
+PASS reduce.py finding infra: exit 1
+PASS reduce.py finding a-kind-added-later: exit 1
+PASS reduce.py crash: exit 1
+
+test_exit: ok
+scripts/test.sh
+PASS tests/agg_std_var_median.bend
+PASS tests/column_from_scalars.bend
+PASS tests/column_ops.bend
+PASS tests/coverage/agg.bend
+PASS tests/coverage/api_frames.bend
+PASS tests/coverage/api_plans.bend
+PASS tests/coverage/csv_read.bend
+PASS tests/coverage/csv_storage.bend
+PASS tests/coverage/csv_write.bend
+PASS tests/coverage/expr_arith.bend
+PASS tests/coverage/expr_cmp.bend
+PASS tests/coverage/expr_cond.bend
+PASS tests/coverage/expr_lit.bend
+PASS tests/coverage/expr_str_cast.bend
+PASS tests/coverage/verbs_basic.bend
+PASS tests/coverage/verbs_sort_join.bend
+PASS tests/csv_cells.bend
+PASS tests/csv_chunks.bend
+PASS tests/csv_edge.bend
+PASS tests/csv_file.bend
+PASS tests/csv_fixtures.bend
+PASS tests/csv_golden.bend
+PASS tests/csv_parse.bend
+PASS tests/csv_scan.bend
+PASS tests/csv_scan_edge.bend
+PASS tests/csv_scan_schema.bend
+PASS tests/diff/d0001.bend
+PASS tests/diff/d0002.bend
+PASS tests/diff/d0003.bend
+PASS tests/diff/d0004.bend
+PASS tests/diff/d0005.bend
+PASS tests/diff/d0006.bend
+PASS tests/diff/d0007.bend
+PASS tests/diff/d0008.bend
+PASS tests/diff/d0009.bend
+PASS tests/diff/d0010.bend
+PASS tests/diff/r0001.bend
+PASS tests/diff/r0002.bend
+PASS tests/diff/r0003.bend
+PASS tests/diff/r0004.bend
+PASS tests/diff/r0005.bend
+PASS tests/diff/r0006.bend
+PASS tests/dtype_err.bend
+PASS tests/dump_basic.bend
+PASS tests/dump_malformed.bend
+PASS tests/eval_agg.bend
+PASS tests/eval_arith.bend
+PASS tests/eval_cast.bend
+PASS tests/eval_errors.bend
+PASS tests/eval_null.bend
+PASS tests/examples_m3.bend
+PASS tests/expr_clip_between.bend
+PASS tests/expr_is_in.bend
+PASS tests/expr_strings.bend
+PASS tests/expr_type.bend
+PASS tests/expr_when.bend
+PASS tests/facade.bend
+PASS tests/facade_m3.bend
+PASS tests/facade_m4.bend
+PASS tests/fmt_describe.bend
+PASS tests/fmt_fixed.bend
+PASS tests/frame_ops.bend
+PASS tests/frame_show.bend
+PASS tests/golden_q1.bend
+PASS tests/golden_q2.bend
+PASS tests/golden_q3.bend
+PASS tests/golden_q4.bend
+PASS tests/golden_q5.bend
+PASS tests/golden_q6.bend
+PASS tests/groupby_agg.bend
+PASS tests/groupby_edge.bend
+PASS tests/i32.bend
+PASS tests/join_cases.bend
+PASS tests/join_inner_left.bend
+PASS tests/kernels_basic.bend
+PASS tests/kernels_m2.bend
+PASS tests/lazy_collect.bend
+PASS tests/plan_m3_exprs.bend
+PASS tests/plan_optimize.bend
+PASS tests/plan_release_bench.bend
+PASS tests/plan_schema.bend
+PASS tests/proof_negative/append_right_offset.bend
+PASS tests/proof_negative/choose_inverted_mask.bend
+PASS tests/proof_negative/compact_flipped_mask.bend
+PASS tests/proof_negative/encode_reuses_code.bend
+PASS tests/proof_negative/fit_no_broadcast.bend
+PASS tests/proof_negative/gather_wrong_index.bend
+PASS tests/proof_negative/head_rule_outer_wins.bend
+PASS tests/proof_negative/head_sink_below_select.bend
+PASS tests/proof_negative/mask_not_slots_doubled.bend
+PASS tests/proof_negative/remap_wrong_slot.bend
+PASS tests/proof_negative/un_neg_wrong_dtype.bend
+PASS tests/regress/B01_a_head_literal_select.bend
+PASS tests/regress/B01_b_empty_select.bend
+PASS tests/regress/B01_c_zero_column_height.bend
+PASS tests/regress/B01_c_zero_column_m3.bend
+PASS tests/regress/B01_d_constant_predicate.bend
+PASS tests/regress/B01_e_zero_row_inputs.bend
+PASS tests/regress/B01_f_head_sink_kinds.bend
+PASS tests/regress/B02_a_read_quoted_empty.bend
+PASS tests/regress/B02_b_write_empty_string.bend
+PASS tests/regress/B02_c_scan_prefix.bend
+PASS tests/regress/B02_d_write_quoting.bend
+PASS tests/regress/B02_e_csv_opts.bend
+PASS tests/regress/B02_f_blank_lines.bend
+PASS tests/regress/B02_g_ragged_rows.bend
+PASS tests/regress/B02_h_text_fields.bend
+PASS tests/regress/B02_i_read_csv_schema.bend
+PASS tests/regress/B02_i_schema_count_src.bend
+PASS tests/regress/B02_j_trim_numeric.bend
+PASS tests/regress/B02_k_inference_roundtrip.bend
+PASS tests/regress/B02_m_sep_lead_blank_empty_schema.bend
+PASS tests/regress/B03_a_group_mean_inf.bend
+PASS tests/regress/B03_b_eager_fsum_inf.bend
+PASS tests/regress/B03_c_f32_compare.bend
+PASS tests/regress/B03_d_floor_div.bend
+PASS tests/regress/B03_d_int_mod_by_zero.bend
+PASS tests/regress/B03_e_cast_f32_u32.bend
+PASS tests/regress/B03_e_try_cast.bend
+PASS tests/regress/B03_f_int_div_refused.bend
+PASS tests/regress/B03_g_int_mean_f32.bend
+PASS tests/regress/B03_h_group_sum_compensated.bend
+PASS tests/regress/B03_i_checked_i32.bend
+PASS tests/regress/B03_i_lit_i32_range.bend
+PASS tests/regress/B03_j_u32_wrap.bend
+PASS tests/regress/B03_k_n_unique_nan.bend
+PASS tests/regress/B03_l_i32_min_mod.bend
+PASS tests/regress/B03_m_cast_int_ranges.bend
+PASS tests/regress/B03_n_f32_min_max.bend
+PASS tests/regress/B03_o_i32_mod_sign.bend
+PASS tests/regress/B03_p_cast_str_strict.bend
+PASS tests/regress/B03_q_cast_str_no_trim.bend
+PASS tests/regress/B04_a_lazy_reductions.bend
+PASS tests/regress/B04_b_self_join.bend
+PASS tests/regress/B04_c_add_source.bend
+PASS tests/regress/B04_d_bindings.bend
+PASS tests/regress/B04_d_validate_bindings.bend
+PASS tests/regress/B04_e_frozen_scan_schema.bend
+PASS tests/regress/B04_g_join_right_key.bend
+PASS tests/regress/B04_h_group_agg_shape.bend
+PASS tests/regress/B04_i_concat_cap.bend
+PASS tests/regress/B04_i_row_cap.bend
+PASS tests/regress/B04_j_cast_barrier.bend
+PASS tests/regress/B04_k_maintain_order_false.bend
+PASS tests/regress/B05_g_optimizer_traps.bend
+PASS tests/regress/NEW_1_static_checks_first.bend
+PASS tests/regress/NEW_2_interp_csv_large.bend
+PASS tests/regress/NEW_2_interp_large_results.bend
+PASS tests/regress/V01_a_scan_source_identity.bend
+PASS tests/regress/V01_b_scan_verbs.bend
+PASS tests/schema_ops.bend
+PASS tests/smoke.bend
+PASS tests/sort_edge.bend
+PASS tests/sort_multi.bend
+PASS tests/sort_strcodes.bend
+PASS tests/strs_decode.bend
+PASS tests/table_concat_cap.bend
+PASS tests/table_verbs.bend
+PASS: 158 / 158, XFAIL: 0
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+/Users/lukaszsamson/.bend/bin/bend PROOF.bend --verdict
+ALL PROOFS CHECK
+control   ok      unmutated copy: ALL PROOFS CHECK (1.3 s)
+CAUGHT    Kernel.gather: reads src at the wrong index  (0.8 s)
+          Location: gather_step_k
+CAUGHT    Kernel.compact_keep: flipped mask  (1.0 s)
+          Location: ckeep_s1
+CAUGHT    Kernel.compact: flipped mask  (0.8 s)
+          Location: compact_step_k
+CAUGHT    Opt.hmin: the outer limit wins  (1.0 s)
+          Location: two_heads
+CAUGHT    Opt.hmerge: Head merge drops the pending limit  (1.0 s)
+          Location: Laws.hmerge_keeps_schema
+CAUGHT    Opt.hmerge: the limit sinks below Select  (1.1 s)
+          Location: Laws.hmerge_keeps_schema
+CAUGHT    Kernel.choose: inverted mask  (2.5 s)
+          Location: ch_step3
+CAUGHT    Kernel.append: b copied one slot too far right  (2.5 s)
+          Location: append_w1
+CAUGHT    Kernel.copy_into: ignores the offset  (2.3 s)
+          Location: cp_step1
+CAUGHT    Dict.code: a new entry answers an old code  (2.4 s)
+          Location: code_p
+CAUGHT    Enc.put: every row reuses code 0  (2.4 s)
+          Location: enc_step6
+CAUGHT    Dict.rc.put: map entry written at the wrong slot  (2.4 s)
+          Location: mstep6
+CAUGHT    Eval.un: Neg over i32 answers a u32 column  (1.4 s)
+          Location: Laws.eval_un_typed
+CAUGHT    Eval.fit: does not broadcast  (1.5 s)
+          Location: fit_w
+mutation-check: ok, 14 of 14 mutations rejected, unmutated copy accepted (10 s)
+== comparator self-test (bench/tests/test_check.py) ==
+28 / 28 passed
+== correctness vs Polars (build/q<k>_<n>.csv vs golden) ==
+q1 n=1000: identical
+q2 n=1000: identical
+q3 n=1000: identical
+q4 n=1000: identical
+q5 n=1000: identical
+q6 n=1000: identical
+q1 n=100000: identical
+q2 n=100000: identical
+q3 n=100000: identical
+q4 n=100000: identical
+q5 n=100000: identical
+q6 n=100000: ok (1 float cells differ within tolerance)
+cd bench && uv run python diff/run.py --seed 20261001 --n 200 --strict
+{
+ "main": "3612482 src-sha1 289095d1f7",
+ "seed": 20261001,
+ "n": 200,
+ "backend": "interp",
+ "features": [],
+ "failing_cases": 0,
+ "by_class": {},
+ "oracle_uncertain": 0,
+ "oracle_errors": 0,
+ "inadmissible_for_T2.1": 0,
+ "invalid_cases": 23,
+ "runtime_s": {
+  "gen": 0.0,
+  "bend": 2.3,
+  "oracle+bend": 2.3
+ },
+ "backends": {
+  "interp": {
+   "runs": 1,
+   "wall": 2.3,
+   "crashes": 0
+  }
+ }
+}
+total 2.4s; failures: /Users/lukaszsamson/claude_fun/bend-frame/build/diff/seed20261001/failures.json
+cd bench && uv run python diff/run.py --seed 20261002 --n 200 --strict --dict
+{
+ "main": "3612482 src-sha1 289095d1f7",
+ "seed": 20261002,
+ "n": 200,
+ "backend": "interp",
+ "features": [],
+ "failing_cases": 0,
+ "by_class": {},
+ "oracle_uncertain": 0,
+ "oracle_errors": 0,
+ "inadmissible_for_T2.1": 0,
+ "invalid_cases": 28,
+ "runtime_s": {
+  "gen": 0.0,
+  "bend": 2.5,
+  "oracle+bend": 2.5
+ },
+ "backends": {
+  "interp": {
+   "runs": 1,
+   "wall": 2.5,
+   "crashes": 0
+  }
+ }
+}
+total 2.6s; failures: /Users/lukaszsamson/claude_fun/bend-frame/build/diff/seed20261002/failures.json
+cd bench && uv run python diff/reduce.py --seed 20261003 --n 200
+{
+ "seed": 20261003,
+ "n": 200,
+ "extra_aggs": [
+  "std",
+  "var",
+  "median"
+ ],
+ "bend_s": 19.9,
+ "classes": {
+  "cancel": 31,
+  "zeros": 11,
+  "uniform": 44,
+  "tinyhuge": 25,
+  "special": 21,
+  "wide": 32,
+  "ordered": 10,
+  "equal": 9,
+  "ints": 11,
+  "subnormal": 6
+ },
+ "rows_total": 128981,
+ "max_rows": 10000,
+ "crashes": 0
+}
+
+== exactness and ulp (finite answers within bound) ==
+category  q       path       n    ==RN  %exact  max ulp  max err/bound      0/1/2/3-8/>8 ulp  bad model!=
+cancel    mean    desc      32      18    56.2   535846          0.429  18/8/1/2/           3    0       0
+cancel    mean    grp      173     161    93.1        4          0.737  161/10/1/1/           0    0       0
+cancel    mean    sel       32      18    56.2   535846          0.429  18/8/1/2/           3    0       0
+cancel    median  grp      173     173   100.0        0          0.454  173/0/0/0/           0    0       0
+cancel    median  sel       33      33   100.0        0          0.415  33/0/0/0/           0    0       0
+cancel    std     desc      31      24    77.4        1          0.224  24/7/0/0/           0    0       0
+cancel    std     grp      170     108    63.5        1          0.231  108/62/0/0/           0    0       0
+cancel    std     sel       31      24    77.4        1          0.224  24/7/0/0/           0    0       0
+cancel    sum     grp      173     171    98.8        5          0.736  171/0/1/1/           0    0       0
+cancel    sum     sel       32      24    75.0   401884          0.679  24/2/1/2/           3    0       0
+cancel    var     grp      170      95    55.9        2          0.489  95/68/7/0/           0    0       0
+cancel    var     sel       31      20    64.5        1          0.344  20/11/0/0/           0    0       0
+describe-vs-AggOp max     desc     169       0     0.0        0              0  0/0/0/0/           0    0       0
+describe-vs-AggOp min     desc     169       0     0.0        0              0  0/0/0/0/           0    0       0
+empty     mean    grp     3321       0     0.0        0              0  0/0/0/0/           0    0       0
+empty     mean    sel       31       0     0.0        0              0  0/0/0/0/           0    0       0
+empty     median  grp     3321       0     0.0        0              0  0/0/0/0/           0    0       0
+empty     median  sel       31       0     0.0        0              0  0/0/0/0/           0    0       0
+empty     std     grp     3321       0     0.0        0              0  0/0/0/0/           0    0       0
+empty     std     sel       31       0     0.0        0              0  0/0/0/0/           0    0       0
+empty     sum     grp     3321    3321   100.0        0              0  3321/0/0/0/           0    0       0
+empty     sum     sel       31      31   100.0        0              0  31/0/0/0/           0    0       0
+empty     var     grp     3321       0     0.0        0              0  0/0/0/0/           0    0       0
+empty     var     sel       31       0     0.0        0              0  0/0/0/0/           0    0       0
+order     25%     desc     169       0     0.0        0              0  0/0/0/0/           0    0       0
+order     50%     desc     169       0     0.0        0              0  0/0/0/0/           0    0       0
+order     75%     desc     169       0     0.0        0              0  0/0/0/0/           0    0       0
+overflow  mean    desc       2       0     0.0        0              0  0/0/0/0/           0    0       0
+overflow  mean    grp       54       0     0.0        0              0  0/0/0/0/           0    0       0
+overflow  mean    sel        2       0     0.0        0              0  0/0/0/0/           0    0       0
+overflow  std     desc      36       0     0.0        0              0  0/0/0/0/           0    0       0
+overflow  std     grp      209       0     0.0        0              0  0/0/0/0/           0    0       0
+overflow  std     sel       36       0     0.0        0              0  0/0/0/0/           0    0       0
+overflow  sum     grp       54       0     0.0        0              0  0/0/0/0/           0    0       0
+overflow  sum     sel        2       0     0.0        0              0  0/0/0/0/           0    0       0
+overflow  var     grp      209       0     0.0        0              0  0/0/0/0/           0    0       0
+overflow  var     sel       36       0     0.0        0              0  0/0/0/0/           0    0       0
+plain     mean    desc     120     101    84.2        1           0.71  101/19/0/0/           0    0       0
+plain     mean    grp     5806    5721    98.5        1          0.757  5721/85/0/0/           0    0       0
+plain     mean    sel      120     101    84.2        1           0.71  101/19/0/0/           0    0       0
+plain     median  grp     5860    5856    99.9        1          0.495  5856/4/0/0/           0    0       0
+plain     median  sel      121     120    99.2        1           0.49  120/1/0/0/           0    0       0
+plain     std     desc      87      62    71.3  4857006          0.249  62/16/0/0/           2    0       0
+plain     std     grp     5654    1285    22.7 1090558891              1  1285/248/0/1/          31    0       0
+plain     std     sel       87      62    71.3  4857006          0.249  62/16/0/0/           2    0       0
+plain     sum     grp     5806    5805   100.0        1          0.991  5805/1/0/0/           0    0       0
+plain     sum     sel      120     120   100.0        0          0.775  120/0/0/0/           0    0       0
+plain     var     grp     5654    1258    22.2 1115764756              1  1258/290/13/0/           4    0       0
+plain     var     sel       87      59    67.8        2           0.44  59/20/1/0/           0    0       0
+special   mean    desc      15       0     0.0        0              0  0/0/0/0/           0    0       0
+special   mean    grp       18       0     0.0        0              0  0/0/0/0/           0    0       0
+special   mean    sel       15       0     0.0        0              0  0/0/0/0/           0    0       0
+special   median  grp       18       0     0.0        0              0  0/0/0/0/           0    0       0
+special   median  sel       15       0     0.0        0              0  0/0/0/0/           0    0       0
+special   std     desc      15       0     0.0        0              0  0/0/0/0/           0    0       0
+special   std     grp       18       0     0.0        0              0  0/0/0/0/           0    0       0
+special   std     sel       15       0     0.0        0              0  0/0/0/0/           0    0       0
+special   sum     grp       18       0     0.0        0              0  0/0/0/0/           0    0       0
+special   sum     sel       15       0     0.0        0              0  0/0/0/0/           0    0       0
+special   var     grp       18       0     0.0        0              0  0/0/0/0/           0    0       0
+special   var     sel       15       0     0.0        0              0  0/0/0/0/           0    0       0
+
+tightest bound uses (err/bound, case, key): [(1.0, 'c00054', ('plain', 'std', 'grp')), (1.0, 'c00054', ('plain', 'var', 'grp')), (0.9909, 'c00134', ('plain', 'sum', 'grp')), (0.7755, 'c00161', ('plain', 'sum', 'sel')), (0.7568, 'c00009', ('plain', 'mean', 'grp')), (0.7365, 'c00091', ('cancel', 'mean', 'grp'))]
+
+findings by kind: none
+
+total 22.8s; findings: /Users/lukaszsamson/claude_fun/bend-frame/build/diff/reduce/seed20261003/findings.json
+note: /Users/lukaszsamson/claude_fun/bend-frame has uncommitted changes; the clone below is HEAD only
+clone of /Users/lukaszsamson/claude_fun/bend-frame at 3612482 in /private/tmp/bend-frame-consumer-G8FImW
+ok     bend frame.bend --check-only
+ok     quickstart native build
+ok     quickstart (native) output
+ok     consumer (rel import) --check-only
+ok     consumer (rel import) native build
+ok     consumer (rel import, native) output
+ok     consumer (abs import) --check-only
+ok     consumer (abs import) native build
+ok     consumer (abs import, native) output
+ok     consumer (rel import, interpreter) output
+consumer_check: ok (clone 3612482; no publish; bend --publish has no dry-run mode)
+python3 scripts/coverage_matrix.py
+coverage: 129 rows x 6 kinds = 774 cells: 727 covered, 47 n/a, 0 missing; 0 problems
+ci: all gates passed

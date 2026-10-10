@@ -1,0 +1,242 @@
+PERFORMANCE REVIEW of bend-frame (HEAD 3612482) -- Fable 5.1, 2026-10-11
+=========================================================================
+Prompt from the Bend author: "models are extremely good at writing correct Bend
+code and proofs, but they suck at writing fast Bend. They use linked lists for
+everything, clone unnecessarily, and are utterly incapable of parallelizing the
+right way." This pass checks the code against exactly those three charges.
+
+Method: I read src/kernels.bend and the three existing parallel lets myself, ran a
+micro-benchmark of kernel shapes natively (1, 4, 12 threads), and delegated three
+module audits (csv/strs/fmt/dump; eval/column/kernels/exec/table; sort/groupby/
+join) that each timed scratch probes over a copy of src/ and read the emitted C.
+Machine load was 10-200 throughout; every number is a minimum of repeats and
+should be read as +-30 %. Nothing in the repo was modified except this file.
+
+--------------------------------------------------------------------------
+0. Verdict against the three charges
+--------------------------------------------------------------------------
+Linked lists for everything: GUILTY on the input side, acquitted on the engine.
+  The engine's hot paths are flat U32/F32 buffers with no per-row boxing (verified
+  in the C: radix passes, scatter, densify, PT tables, map/zip loops all allocate
+  nothing per row). The CSV reader is the opposite: the whole 41 MB file becomes
+  one cons String (702 MB RSS by itself), then one list of records of lists of
+  cells, then a transposition, before any column exists. One more list offender
+  in the engine: n_unique builds a 1M-element cons list and List.sorts it.
+
+Cloning unnecessarily: GUILTY, but cheap where it is guilty and catastrophic in
+  two places. A 1M-row Array.clone is 0.2 ms, so the per-Col clones in eval and
+  the three-passes-per-key copies in sort cost 5-10 % of q1-q4. The two bad ones:
+  join deep-copies its whole string hash table (Str.copy per char) on every run
+  and then never uses the copy (1.4 s of the 5.1 s distinct-key join); describe
+  clones each numeric column five times.
+
+Parallelizing the wrong way: GUILTY, in three distinct ways.
+  (a) Nothing forks on the q1-q6 paths. Kernel.fork_depth is a constant 0 that
+      nothing reads; eval, column, kernels, exec, table contain no parallel let.
+  (b) The three forks that exist are shaped wrong: the CSV column fork is a chain
+      down a list (1 vs rest, capped at 7 columns); Sort.pcodes splits the array
+      in half but its merge re-inserts every distinct right-side key sequentially,
+      so for distinct keys the "parallel" coder is 2.5x SLOWER than the sequential
+      one at 1 thread and still slower at 12; Probe.fork deep-copies the hash
+      table per lane and is therefore gated off above 4096 slots.
+  (c) The natural-looking fix is a trap: a parallel let over the halves of a
+      matched ANode copies both halves on the way down (blk_half) and again when
+      rebuilt (blk_node). Measured: a 4-level ANode-split map costs 2.0 ms per
+      pass against 0.75 flat, at 1 and 12 threads alike. My own run agrees: on a
+      1 ms pass the split tripled the time; it only paid off when the per-element
+      work was ~100 ms per pass (then 3.3x at 12 threads under load 20).
+
+Net: the implementers wrote fast flat kernels and the right algorithms (radix,
+open addressing, dictionary codes, branch-free compaction) but assembled them
+into too many passes, never forked them, and left the input path and the
+raw-string path on cons lists. The three audits agree on the ranking below.
+
+--------------------------------------------------------------------------
+1. Where the time goes (1M rows, 1 thread)
+--------------------------------------------------------------------------
+Kernel cost model (measured): one flat pass over 1M words 0.7 ms; clone 0.2 ms;
+Array.new fill 0.1 ms; compact_keep 0.7-0.9 ms; a map through a per-row boxed
+Maybe 4.9 ms (7x the branch-free form).
+
+  q1 filter + select (11 ms vs Polars 1.4): about 14 passes. The release
+     optimizer does no projection pushdown, so the filter compacts all 7 columns
+     plus a mask (8 compactions, ~6 ms); the predicate clones ok and qty, fills a
+     1M-row array for the literal 50, two zips, a separate popcount. A fused
+     prototype (predicate + count in one pass, one 3-wide compaction) ran in
+     1.8-2.3 ms.
+  q2 with_columns revenue (15 ms vs 0.9): about 11 passes. Each binary op
+     allocates a fresh output; a masked operand costs mask_and + zip + fix (3
+     passes); literals are materialised to n rows; fill_null(discount, 0.0) costs
+     clone + fill + choose although 0.0 is the dtype default and the null-slot
+     invariant already makes it a no-op. A single 4-input loop ran in ~1 ms.
+  q3 group_by (23 ms vs 11.5): group_by itself 13 ms; every aggregation input is
+     get_cloned although group_by consumes the frame; a single key is combined
+     with a constant code and densified twice (2-3 redundant passes).
+  q4 3-key sort + head 10 (47 ms vs 13): argsort 31 ms (three full passes per
+     key before any radix pass: get_cloned, an identity xmap, a gather that is a
+     pure copy for the first key; two fresh zeroed 4 MB arrays per radix pass);
+     then all 7 columns are gathered for all 1M rows although 10 are kept (11
+     ms). `id` is already sorted and sorted input runs the radix 2x slower.
+  q5 join + group_by (19 ms, beats Polars 22): dictionary codes make the probe
+     per entry, not per row. This is the one query where the design wins.
+  q6 describe (108 ms vs 34): five clones per numeric column, six separate
+     passes plus a full sort; the comment claiming "clone = refcount bump" is
+     wrong (Column.clone is O(n)).
+  CSV parse (4.4 s / 2.0 s at 12 threads; Polars < 0.1 s): read into a cons
+     String 0.13-0.28 s; parse to records 0.7-1.3 s; transpose 1.3 s; column
+     builders 1.6 s. Per numeric byte about 5 allocations and 5 frees (input
+     node, accumulator, a String.reverse per field, two more reversals from
+     String.trim); per cell 8-15 boxed allocations. Bool cells run 6 String.eq
+     through String.cmp, which rebuilds both operands. Only the column builders
+     fork (chain, 7-way), hence the 2.0 s floor at 12 threads.
+  Distinct-key group_by / unique (17-18 s vs 0.15): 95 % is one function. Raw
+     keys are coded through Base's Map, a crit-bit trie over cons strings that
+     rebuilds the walked prefix at every node (4.4 us/key at 100k, 7.3 at 1M,
+     hence superlinear), and the parallel merge adds 1.5M sequential re-inserts.
+     The repo's own join hash table does the same job in ~1 s, presized.
+  Distinct-key join (5.1 s): 1.4 s is the unused table deep-copy; the rest is
+     pointer-chasing over cons strings (288 ns just to hash one key).
+  RSS 1.3 GB: the parse, not the engine (parse alone peaks at 1.28 GB).
+
+Two platform facts the implementers did not know, both verified in the C:
+  - A type that is `+`-shared ANYWHERE in the program is refcounted everywhere
+    ("hot"). String, List, Char and the CSV cell types are hot in bench/main, so
+    every Array.get(String) is an atomic keep and every cons walk pays a bump
+    and a drop. Measured on the parser: read + parse 0.83 s with cold types,
+    1.62 s with the hot ones. This is a 2x tax on the hottest loop caused by
+    code elsewhere.
+  - Arrays are flat blocks. Matching ANode copies (see 0.c). Base has
+    `@unsafe Array.fork` (O(1) aliased handles) but using it makes --verdict
+    refuse the file ("defs rely on unsafe or foreign code"), so it is
+    incompatible with the project's proof policy.
+
+--------------------------------------------------------------------------
+2. The right parallel shape for this code base
+--------------------------------------------------------------------------
+The shaders guide's rule applies unchanged: one fork tree that ends in flat
+loops, balanced, with enough work per leaf. What to fork OVER is the question,
+because the array tree itself cannot be split for free.
+
+Recommended: a chunked column representation, user-defined and therefore O(1)
+to match and verdict-safe:
+    type Chunks is Type: CLeaf{n: U32, a: Array<U32>} | CNode{l: Chunks, r: Chunks}
+balanced, leaves of 2^14 rows (64 leaves at 1M). Every kernel becomes
+    CNode: x y = k(l) k(r); CNode{x, y}        CLeaf: today's flat loop
+Measured by the eval audit (mb/t.bend): a 1M map 1.1 ms -> 0.25-0.3 ms at 12
+threads under heavy load, `bend --verdict` green. Compaction becomes per-leaf
+(each leaf keeps its own n, no prefix sum; rechunk when leaves shrink);
+reductions combine at the node; gather for sort/join flattens first (0.2 ms).
+This is the one change that turns "12 threads = 1.0x" into real scaling for
+every kernel at once. Caveat: a tree-shaped Neumaier sum changes the "ascending
+i" order of DESIGN 15.5.3 (still deterministic; a contract change). U32 sum,
+count, min, max are safe to split.
+
+Cheaper fork points that need no layout change, all balanced binary parallel
+lets at a coarser grain: the independent aggregations of one group_by (bit-
+exact, each stays one sequential pass); per-column gathers after a sort or
+join; the columns of a filter's compaction (over halves of the column list,
+not 1-vs-rest); the expressions of one with_columns; CSV pieces (section 3).
+
+Do fusion before forking: a 0.3 ms job loses to pool wake-up (the guide's
+0.4-0.5 ms per fork iteration). Fewer, fatter passes first.
+
+--------------------------------------------------------------------------
+3. Ranked fixes (expected gain at 1M rows)
+--------------------------------------------------------------------------
+P1 Distinct-string coder: replace the Map coder (Sort.str_codes / pcodes /
+   pmerge, called from groupby.bend:305,345 and unique) with a presized flat
+   open-addressing table modelled on join.bend's J.Dict.go: three Array<U32>
+   (hash, first row + 1, id), 2^ceil(log2 2n) slots, compare hashes first and
+   call Str.eq only on a hash hit, store no strings in the table (no refcount
+   traffic, no rehash walks). First-appearance codes come out identical. Delete
+   pcodes/pmerge. Group_by / unique over 1M distinct strings: 17-18 s -> 1.2-2 s,
+   linear in n. Hash-partition by top bits for a parallel version later.
+P2 Join: clone the table only when Probe.levels > 0 (join.bend:592, 635):
+   5.1 s -> 3.4 s for free. Then share the table across lanes instead of deep-
+   copying it; with P1's table and a forked probe ~2 s.
+P3 CSV reader: (i) read the file in 2^k pieces of 1-2 MB with File.read_at, cut
+   at the last LF (Csv.rd.cut exists), hold them in a balanced piece tree and
+   fork over it; parse the header + infer_rows sequentially first; a piece that
+   ends inside a quoted field flags itself and the reader falls back to the
+   sequential path; each piece gets its own dictionary, merged at the end with
+   Dict.merge (exists). (ii) once dtypes are known, each piece runs ONE flat
+   loop over chars with scalar state (column index, acc, sign, quoted flag,
+   pending spaces, FNV hash) writing straight into per-column word buffers plus
+   validity, no CsvCell/CsvRec/transpose/reverse/trim, F32.read called once on
+   the field text only for f32 columns, line numbers recovered only on error.
+   (iii) give the parser private, never-shared char-list and cell types so they
+   stay cold. Expected: 1 thread 4.4 s -> 1.5-2 s; 12 threads 2.0 s -> 0.3-0.5 s;
+   RSS down ~0.5 GB. The structural end state is a flat byte-buffer string
+   storage (SFlat{off, bytes}) filled directly by the piece loop: ~15 B/row
+   instead of ~200 B/row for short strings, hashing and comparison as flat
+   loops, and that is what fixes the 1.3 GB and the distinct-string join.
+P4 Evaluator fusion (q2 15 -> 2 ms, q1 11 -> 2 ms): peepholes in Eval.compile:
+   Bin{op, e, Lit} -> Kernel.map_p with the scalar (no broadcast array); a
+   masked zip kernel that computes (ma & mb) ? f(a, b) : z and the ANDed mask in
+   one loop (replaces vand + zip + fix); fill_null(c, lit) free when lit is the
+   dtype default, one masked map otherwise; cast feeding arithmetic folded into
+   the zip lambda; kernels hand their inputs back instead of eval cloning per
+   Col (compact_keep already does). Filter: one kernel that borrows the inputs,
+   writes the mask and counts kept in the same loop; compact 3-4 columns per
+   pass with a record state (every dtype is a 32-bit buffer); and either ship
+   projection pushdown in the release optimizer (then it needs the R5 proof) or
+   let Exec run Filter+plain Select as mask, select_names (moves), compact.
+P5 Per-row boxed Maybe: Kernel.map_maybe / zip_maybe allocate a Some per row
+   (casts, floor_div, mod, Kleene and/or, strict-cast check). Return a single-
+   constructor record R{v, ok} (unboxed in the C) or two branch-free templates.
+   4.9 -> 0.7 ms per pass; cast u32->i32 3.7 -> 1.2 ms.
+P6 n_unique: radix-sort the order words (Radix.sort exists, median uses it) and
+   count runs in one fold: ~1 s -> ~25 ms. Raw strings: encode, count entries.
+P7 Sort pipeline: build words by reading the column in place (take/replace, no
+   get_cloned), skip the identity xmap and the gather when perm is iota; one
+   read pass for vary + sortedness + every digit histogram; two ping-pong
+   buffers instead of two Array.new per pass; skip the radix for sorted words.
+   q4 argsort 31 -> 12-15 ms. Top-k: thread the limit into Sort.frame and gather
+   h = k rows (gcols already accepts it): -11 ms on q4. Together q4 47 -> 15-20.
+P8 Group_by: move aggregation inputs instead of get_cloned; drop the
+   combine-with-constant + second densify for a single key; fuse aggregation
+   scatters or fork them. 13 -> ~8 ms.
+P9 describe: borrow-and-return instead of five clones; one fused pass for
+   count/sum/min/max. 108 -> 50-60 ms. Fix the comment at fmt.bend:198.
+P10 Chunked columns (section 2): the scaling fix, after P4 so the passes are
+   fat enough to be worth a fork.
+Minor: Eval.when.valid materialises AllValid as a full ones array (a 1-slot
+array wraps and does the job); Column.slice is iota + gather with a 4 MB index
+where a range copy is one pass; writer and dump copy each char ~3 times and
+render columns sequentially (not on any benchmark); masks as U32 per row cost
+<= 1 ms on q1/q2, bit-packing is a v0.3 item, not a v0.2 one.
+
+Dependency note for the proof chain: P4, P5, P7, P8 change kernels that have
+content theorems (compact, gather, map/zip at the mask instances, fold,
+mask_data/choose, fix_cell). Each fused kernel needs its own law or the old
+one re-stated over it; P10 changes the WFColumn predicate. Budget the proof
+work with the kernel work, or the verdict gate becomes the brake. P1, P2, P3,
+P6, P9 touch only tested-not-proven code (sort/group/join coding, CSV, describe).
+
+--------------------------------------------------------------------------
+4. What is already done well
+--------------------------------------------------------------------------
+Dense 32-bit buffers for every dtype including F32 bits and dictionary codes;
+template kernels that compile to tight C tail loops with the read-next pattern;
+no Scalar on hot paths; a single filter mask handed back across columns; moves
+for plain selects and last-use sources; O(1) head; stable LSD radix on
+order-preserving words with digit skipping; branch-free densify, the 1-slot
+wrap and DEAD-index tricks; a presized Fibonacci-hashed join table; dictionary
+strings worked per entry (why q5 beats Polars); EncAuto falling back to Raw for
+distinct columns; the CSV state machine itself (one match per char, resumable
+across pieces, reversed accumulator instead of O(n^2) append).
+
+--------------------------------------------------------------------------
+5. Suggested order for a v0.2 performance milestone
+--------------------------------------------------------------------------
+  1. P2 (one-line), P6, P9, P5: a day, no layout change, big ratios on the worst
+     cells.
+  2. P1 (the distinct-key coder) and P7/P8: sort, group_by, unique, join all
+     linear and 2-10x faster.
+  3. P4 fusion in the evaluator with the matching laws.
+  4. P3 the reader, in its three steps; measure RSS after each.
+  5. P10 chunked columns, then forks at the coarse grain first.
+Gates to carry: bench-check and the differential suite after every step; the
+--verdict policy decides P10's shape (user-defined chunk nodes, never
+Array.fork); re-measure thread scaling on an idle machine, since every ratio in
+this review was taken at load 10-200.

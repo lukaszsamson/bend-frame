@@ -1,0 +1,42 @@
+Native microbenchmarks for REVIEW_PERF_ASTRA.txt; Bend 2.0.36, commit 3612482.
+Run from the repository root. These are diagnostic probes, not replacement kernels.
+
+mkdir -p build/perf-review
+~/.bend/bin/bend plans/perf_review_20261011/ops.bend -o build/perf-review/ops
+~/.bend/bin/bend plans/perf_review_20261011/maps.bend -o build/perf-review/maps
+
+build/perf-review/ops --threads 1 select
+build/perf-review/ops --threads 1 headselect
+build/perf-review/ops --threads 1 move
+build/perf-review/ops --threads 1 nunique
+build/perf-review/ops --threads 1 unique
+
+build/perf-review/maps --threads 1 flat
+build/perf-review/maps --threads 1 par
+build/perf-review/maps --threads 1 pipeline
+# Repeat maps with --threads 4 and --threads 12.
+
+ops: input 2^20 distinct consecutive U32 values. Input construction occurs before
+IO.now. select/move/headselect run 64 times; headselect first limits logical height
+to one. nunique and unique+len run once. Summary outside timing prints sum and rows.
+
+maps: input 2^20 consecutive U32 values, 128 increment maps, six fork levels for
+the parallel variants. flat does full-buffer maps sequentially. par splits/rejoins
+for every map. pipeline splits once, applies all 128 maps within each leaf chunk,
+then rejoins once. Neither source uses unsafe Array.fork or changes production.
+
+results.json: three fresh processes per cell, order repeated, no warmup, shared
+machine while make ci was running. IO.now is millisecond-resolution. Every process
+exited zero. Report medians and all samples, not production-query speedups.
+The 42 recorded results used sum checks. Afterwards maps.bend gained an untimed
+full cell-by-cell comparison to iota_from(...,128); cell_checks.json records all
+three modes passing that check with four threads. That validation run had higher
+load and is not pooled with the original timing samples.
+
+The earlier /usr/bin/time -l exploratory runs are excluded: process-stat access
+was denied by the sandbox, making the wrapper exit 1. No RSS numbers were obtained
+for these probes. The reported measurements are plain executable runs (exit 0).
+
+To inspect the native array lowering:
+~/.bend/bin/bend plans/perf_review_20261011/maps.bend -o build/perf-review/maps.c
+Search blk_half, blk_node, blk_copy. They allocate/copy; ANode is not a zero-copy view.

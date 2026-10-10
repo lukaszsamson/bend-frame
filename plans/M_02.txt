@@ -1,0 +1,348 @@
+M_02: bend-frame v0.2, the performance milestone (combined plan)
+2026-10-11. Merged from plans/REVIEW_PERF_FABLE.txt and plans/REVIEW_PERF_ASTRA.txt
+by Fable 5.1; revised by Astra after cross-reading both reviews.
+Baseline: HEAD 3612482 (v0.1 release candidate; make ci green, 158 tests, 149 laws). The Bend author's charge ("linked lists for everything, needless
+clones, parallelizing the wrong way") is the brief; both reviews found it true on
+specific paths and false on others, and agree on where.
+
+=====================================================================================
+0. Objective and gates
+=====================================================================================
+Make bend-frame fast the Bend way, without giving up what v0.1 established: one
+data semantics, the exact differential suite, the proof chain and --verdict.
+
+Candidate release claim (only publish the parts demonstrated by the final gates):
+"Owned chunks and fused kernels reduce copying and improve measured throughput;
+parallel execution preserves the documented semantics on the supported paths."
+Do not promise that every kernel forks, or that hashing/CSV is unconditionally
+linear. Small inputs, skew, long records, hash collisions and F32 ordering matter.
+
+Gates (W0 freezes the workloads, measurement procedure and thresholds):
+  G1  Correctness: make ci green; old/new executor differential on Raw, Dictionary,
+      deep, joinstress and CSV cases; at least 10,000 release cases across seeds,
+      plus interpreter/native comparison. Compare typed values, validity, ordered
+      names, height, row order and errors. F32 is bit-equal to v0.1 except the
+      EXISTING documented NaN-payload relaxation; no new tolerance or exclusions.
+  G2  Scaling: target >=3x compute speedup at 12 vs 1 thread on q1-q6, and >=4x
+      parse speedup. W0 must establish per-query feasibility, including serial
+      fractions. If a serial fraction exceeds 1/3, even infinite parallelism
+      cannot provide 3x. Freeze justified per-workload release thresholds before
+      implementation; do not silently relax them at W8. Report every query,
+      including regressions; a geometric mean cannot hide a failing required cell.
+      Balanced compute-bound chunk probes should demonstrate >=3x; serial F32,
+      radix/scatter stages, bandwidth-bound and skewed work may scale less.
+  G3  Aspirational 1-thread targets, confirmed or revised explicitly at W0:
+      q1 <=3 ms, q2 <=3 ms, q3 <=12 ms, q4 <=20 ms, q6 <=60 ms; q5 no >10% regression
+      from the controlled baseline. n_unique over 1M distinct U32 <=30 ms;
+      distinct-string group_by/unique/join <=2 s each; 41 MB parse <=2 s at 1 thread,
+      <=0.6 s at 12. Keep small-input/control medians within 10% where above clock
+      resolution. Test growth at 100k/300k/1M with fixed key-length distributions;
+      report time per row AND byte, rather than claim worst-case linear hashing.
+  G4  Peak process RSS <=600 MB on the frozen 1M workload, including input
+      preservation and output mode as specified at W0. Also measure live/retained
+      storage and allocations per phase. RSS high-water marks are not subtractable
+      phase costs; use isolated phase runs or interval/live-memory instrumentation.
+  G5  Every changed proved production path retains its theorem/refinement chain;
+      new chunked/fused kernels have content laws and --verdict passes. No @unsafe,
+      foreign workaround or assumed equivalence. Existing dictionary hypotheses
+      remain explicitly conditional; they are not discharged by changing layout.
+  G6  Report parse, preparation copies, compute and output separately plus end-to-end
+      results; record allocated/copied bytes and instrument overhead separately.
+      Performance gates run in a controlled benchmark job, not noisy correctness CI.
+
+Out of scope for v0.2: new API surface (none in this milestone), GPU, bit-packed
+masks (a v0.3 item; <= 1 ms on q1/q2 today), R2-R5 as theorems (unchanged from
+v0.1: optimize_full stays opt-in), F64.
+
+=====================================================================================
+1. Reconciliation of the two reviews
+=====================================================================================
+Agreed by both, with the same evidence: primary column storage and the group/sort
+loops use flat buffers, while some nullable helpers still box per-row results;
+the CSV reader is cons-list bound end to end; n_unique
+takes a list path; eval clones per column reference; the join deep-copies its
+table and discards the copy; the CSV column fork is a 1-vs-rest chain; nothing
+forks on q1-q6; matching ANode copies both halves (blk_half / blk_node), so
+naive repeated splitting/reassembly lost to the flat loop in the probes; owned
+chunks amortize that cost (both reviews report about 3.8x in different synthetic
+workloads). Astra measured 128 maps after one split, not a single-map engine gain.
+Fable reports --verdict acceptance of its prototype; this alone is not a proved
+content-equivalence theorem for a future chunk executor. F32 sums are row-ordered
+and must not be reassociated silently.
+
+Where they differ, and what this plan does:
+  Topic                    Fable                      Astra                      Decision
+  -----------------------  -------------------------  -------------------------  --------------------------------
+  n_unique cost            ~1 s (from IMPLEMENTING)   202 ms measured            Astra's number; still 12x off
+  Distinct-string coder    found: Base Map crit-bit   not isolated               Fable: W2 tests a replacement coder
+                           trie is 95 % of 17 s                                  with a presized flat table
+  Hot (refcounted) types   measured 2x tax on parse   not covered                W0: test private cold types in situ
+  Fusion in the evaluator  prototypes: q1 2 ms, q2    "fuse within a chunk"      Both: fusion first, inside the
+                           1 ms                                                  chunk leaf loop
+  F32 parallel sums        contract change caveat     keep contract, partition   Astra: contract kept in v0.2; the
+                                                      by whole groups            chunk tree combines only U32 sum,
+                                                                                 count, min, max; F32 reductions
+                                                                                 stay one sequential pass
+  String storage end state flat bytes (SFlat)         "don't claim dictionaries  Both: dictionaries stay; SFlat is
+                                                      fix high-cardinality"      a measured experiment (W7), gated
+  Executor rollout         rewrite kernels in place   experimental executor      Astra: chunked path behind a flag
+                                                      behind a flag, current     until all release gates pass; keep
+                                                      one stays the reference    a pinned regression reference
+  Benchmark reporting      per-phase RSS              per-phase time, end-to-end Both (G6)
+  Order                    cheap wins, coder, fusion, n_unique, moves/join,       Merged below (section 3)
+                           reader, chunks             chunks, reader
+
+=====================================================================================
+2. Design decisions (validated in W0, then frozen)
+=====================================================================================
+D1 Owned chunks; prove the layout choice in W0 before freezing it. The sketch
+     Chunks<T> = CLeaf{n, capacity/depth, Array<T>} | CNode{rows, left, right}
+   covers numeric payloads, validity and Str codes; Raw strings and dictionary
+   ownership also need explicit representations. Choose grain from 2^13..2^16.
+   Chunk nodes are user datatypes, not ANode, so navigation does not copy arrays.
+   Frame columns and validity share LOGICAL ROW BOUNDARIES. Zip/when/filter cannot
+   pair arbitrary leaves by tree position. Normalize or align different chunk
+   partitions, including concat, slice, literal broadcast, joins and empty leaves.
+   Compaction applies one per-chunk mask to every column and retains row order;
+   outputs may stay ragged but keep aligned logical boundaries. Rebalance jointly,
+   by measured occupancy/work, with amortized bounds; avoid flatten/rebuild per op.
+   Specify empty frames, zero-column height and padding exclusion. Legacy branchless
+   compaction writes even dropped rows: if reusing it, prove cursor capacity and
+   the kept+1 scratch-slot condition, or use a new guarded-write kernel. Fixed leaf
+   capacity alone does not discharge CRoom. Count sums/offsets obey the row cap.
+   Sort/join may flatten at a measured boundary initially; include all copies in
+   timing/RSS, with a bound of one conversion per boundary, not per expression.
+   Do not promise a constant 0.2 ms conversion for all dtypes/sizes.
+D2 Ownership. Borrow-and-return helpers permit sequential reuse, not simultaneous
+   access to one affine buffer. Plain Col/Alias projections move after static
+   validation. A use/liveness analysis includes all expressions, duplicate references,
+   self-join branches and with_columns' INPUT snapshot. Same-type map/zip can reuse
+   a dead operand. Parallel consumers need disjoint owned chunks or costed copies;
+   define that ownership before scheduling. Track copy bytes and retained capacity,
+   including head(1) over a large buffer and sliced dictionaries.
+D3 Fusion. Specialize scalar operands without materializing broadcasts; fuse ordinary
+   null-propagating arithmetic/comparison zip with validity/reset; keep separate
+   Kleene and/or rules (false AND null and true OR null remain valid). Filling nulls
+   with a non-null dtype default can reuse payload bytes, but MUST set validity:
+   it is not a semantic no-op. Other fills use one masked map. Fuse casts only under
+   their real strict/lenient semantics and F32 rounding points; no reassociation or
+   FMA contraction. Predicates can produce mask+count together, and several aligned
+   columns can compact in one pass. Unboxed R{value,valid} is an experiment checked
+   in emitted C, not an assumed compiler guarantee.
+   Initially fuse total row-wise fragments. Preserve instruction/expression/row
+   error precedence for fallible fragments: row-major fusion or task completion
+   order must not choose a different strict-cast error. Add explicit counterexamples
+   with competing errors in different rows, operands and chunks. Static checks run
+   before effects/data work just as in v0.1. Any certified Filter+Select or Sort+Head
+   physical shortcut needs its own production equivalence law, even if R2-R5 remain
+   outside the release optimizer.
+D4 F32 policy unchanged: one Neumaier pass in row order per column/group, including
+   intermediate rounding. Fork across independent aggregates or complete groups
+   only with an explicit ownership plan and preserved per-group order; skewed hot
+   groups may remain serial. U32 modular sums/counts/popcount can combine by a tree.
+   Min/max need proven combines under the exact NaN, signed-zero, null/all-null and
+   tie policies. Preserve error ordering across parallel aggregates. Do not imply
+   that node-wise combines work for all reductions or guarantee q3/q6 speedups.
+D5 Strings. First-appearance HASH IDS and lexical SORT RANKS are different products.
+   A common Raw coder can use presized arrays of hashes, representative-row+1 and
+   id. Keep the owned backing strings alive and hand them back; hash matches MUST
+   compare actual strings. Specify capacity/overflow, load factor, probe exhaustion,
+   collisions and empty/null behavior. Sequential insertion establishes first-row
+   ids; a parallel coder needs deterministic global first-occurrence remapping.
+   Sorting still needs lexical ordering of distinct entries and a rank map; never
+   use first-appearance ids as sort words. Benchmark that stage separately.
+   Parallel probes cannot share a mutable affine table simply by handing it back.
+   W0 must demonstrate a safe architecture: sequential borrowed probe, bounded
+   per-worker copies, or owned hash partitions plus deterministic output assembly.
+   Choose by measured copying, skew and throughput. No Array.fork workaround.
+   Parser-private cold types and SFlat are gated by emitted-C and integration tests:
+   conversion from public hot String may itself copy, so charge the full bridge.
+D6 Reader. Establish globally valid record boundaries BEFORE parallel parsing. A
+   chunk-local quote flag initialized outside quotes cannot tell whether its start
+   is inside a quoted field. Use a sequential boundary/state scan or associative
+   lexical-state summaries with prefix composition; cover doubled quotes, CRLF,
+   UTF-8 splits, malformed input, and records longer than a piece. Carry physical
+   line counts and offsets for deterministic errors. A fallback is entered from
+   known global state, not a guessed chunk-local ending state.
+   Freeze dtypes from the documented prefix; infer_rows=0 (whole input), explicit
+   schemas, headerless/empty files and later conflicting values keep their contracts.
+   Preserve the existing ordering among malformed/ragged/type/capacity/value errors,
+   not earliest task completion. Avoid an entire second read just to report an error.
+   Validate the installed File API and independent-handle ownership; do not assume
+   a concurrent File.read_at primitive. A producer of owned pieces is acceptable.
+   A 1-2 MB file piece can contain many 2^14-row leaves: allocate leaf builders by
+   row counts/capacity, not one fixed-capacity leaf per byte-sized piece. A legacy
+   per-piece parser still transposes rows; only the direct typed-builder step removes
+   that cost. Merge dictionaries/remap codes in source-piece order, charge serial
+   merges, test collisions/uneven cardinality, and retain conditional proof premises.
+   Differential CSV tests vary piece/leaf boundaries and compete errors, not only
+   happy-path files or a single quoted-newline fixture.
+D7 Rollout. Freeze a runnable baseline at 3612482 and preserve its oracle artifacts.
+   Define the engine selector and representation boundary in W0; the new layout and
+   fusion remain opt-in until G1-G6 and clean-consumer checks pass. Compare old/new
+   eager, raw lazy, default and full optimized paths across thread/chunk counts.
+   Flip the default separately from removal. Remove duplicated production code only
+   after a documented stabilization period, two independently reproduced full gate
+   runs with the new default, and a reproducible final baseline run. Retain a pinned
+   external reference runner/goldens for regression testing. W8 does
+   not automatically delete the reference before the new default is validated.
+
+=====================================================================================
+3. Work packages, in order
+=====================================================================================
+Estimates below are provisional engineering budgets, not completion commitments;
+include proof, test and benchmark work in each package.
+W0 Feasibility and controlled baseline (before architecture freeze).
+   Re-run the review probes and q1-q6/end-to-end at the pinned baseline on a quiet
+   machine; freeze inputs/expected outputs and G2-G4 thresholds with justification.
+   Measure serial fractions and copy/allocation cost. Demonstrate aligned chunk
+   zip/filter, one safe parallel probe ownership design, cold-parser conversion,
+   lexical ranks after hash coding, and a quote-boundary scanner with adversarial
+   input. These are disposable spikes, not a second engine. Stop/revise the design
+   if ownership, proof or memory assumptions fail. G6 instrumentation lands here.
+W1 Cheap wins, no layout change (~2 days). Gate: ci, diff and before/after probes.
+   a. join.bend:592, 635: clone the table only when Probe.levels > 0; the fork
+      helper takes one owned Dict and clones only at a split. (5.1 s -> ~3.4 s on
+      the distinct-key join.)
+   b. n_unique: radix-sort the order words and count runs in one fold; Bool and
+      small ranges via a presence array; Raw strings via W2's coder. (~200 ms ->
+      ~15 ms; add a 1M-distinct test.)
+   c. describe: borrow-and-return, one fused count/sum/min/max pass; fix the
+      wrong clone comment. (108 -> ~55 ms.)
+   d. Kernel.map_maybe / zip_maybe: unboxed R{v, ok}. (casts, floor_div, mod,
+      Kleene: 4.9 -> 0.7 ms per pass.)
+   e. Eval.when.valid: a 1-slot ones array instead of a materialised AllValid.
+   f. Column.slice: one range copy instead of iota + gather.
+   g. Sort+Head: retain the exact full argsort, gather min(k,height) rows only;
+      validate keys/errors even for k=0. This is bounded gathering, NOT a top-k
+      selection algorithm. Add production equivalence and stability/NaN/null tests.
+   h. Extend W0 reporting with per-workload copy/allocation regressions (G6).
+   All parenthesized speedups in W1-W4 are hypotheses from review probes, not gates
+   already achieved; attribute reported versus independently reproduced evidence.
+W2 The distinct-key coder (~3 days). Implement D5's coder and separate lexical-rank
+   stage; use them in group_by/unique, Sort.str_words and join as appropriate. Verify
+   first-appearance order, collision resolution and rank mapping against the baseline
+   before removing pcodes/pmerge. Add long shared-prefix keys, all-equal/distinct,
+   skewed cardinalities and forced-collision tests. Use W0's proven-safe ownership
+   design for probes; copying cost is included. Gate: frozen G3 time/growth targets.
+W3 Ownership and the sort pipeline (~3 days). D2 moves in eval and exec; sort
+   builds words by reading the column in place, skips the identity xmap and the
+   iota gather, computes vary + sortedness + all digit histograms in one read
+   pass, ping-pongs two buffers, skips the radix for sorted words; group_by moves
+   only dead aggregation inputs, and removes single-key redundant passes only after
+   checking sparse ids, nulls and first-appearance order. Interim targets: q3 <=15,
+   q4 <=25 ms at 1 thread; clone bytes on q1-q5 down >=50%. W0 freezes these
+   alongside G3; all correctness/proof gates apply.
+W4 Fusion (~4 days). D3 peepholes with their laws (see section 4). Gate: frozen G3
+   q1/q2 thresholds; every fused kernel has a content law; --verdict green.
+W5 Chunked columns (~6 days). D1 and D7: the type, WFChunks, the kernels'
+   CNode/CLeaf wrappers (leaf lemmas reused), per-leaf compaction and rechunk,
+   flatten/rebuild for sort and join, the coarse-grain forks of D4 (aggregations,
+   per-column gathers, columns of a compaction, expressions of a with_columns).
+   Gate: frozen G2 compute thresholds, boundary/partition differential tests, G5.
+   Measure flatten/rechunk/dictionary-merge costs; no hidden copy outside the clock.
+W6 The reader (~5 days). D6 in three steps: (i) piece tree + fork with today's
+   per-piece parser and bounded aligned leaves (parallel, still transposes);
+   (ii) the one-loop typed parser with scalar state and cold private types;
+   (iii) dictionary merge across pieces in the join. Gate: G2 for parse, G3 parse
+   targets, G4 RSS, CSV coverage tests and the B02 regressions green, the quoted-
+   LF fallback tested with a fixture that has a newline inside quotes in every
+   piece, plus all D6 boundary/error/inference tests.
+W7 SFlat experiment (~3 days, may be deferred). Compare total parse+conversion+
+   query time and RSS, Unicode correctness and proof cost. Adopt only for >=2x on
+   the frozen distinct-key cells with <=10% Dictionary/control regression and no
+   unsafe bridge; otherwise document/defer. Do not change code-point semantics.
+W8 Close (~2 days, excluding stabilization). Re-measure the full table at 1/4/12
+   threads and verify G1-G6 before flipping the default. Keep the reference per D7;
+   removal is a later explicit gate. Update README/bench README/DESIGN 8 and 14/
+   CHANGELOG with measured scope, unsupported paths and conditional proof premises.
+   Re-run consumer, mutation and hosted-platform checks (or disclose unavailable
+   platforms). Preserve the baseline and reproducible results. No publish implied.
+
+Order rationale: W1-W3 remove major costs, but are NOT risk-free: each change must
+audit transitive theorem callers and invariants, even when its leaf is tested-only.
+W4 makes the passes fat enough that W5's forks pay (a 0.3 ms job loses to pool wake-up); W6 is
+the biggest absolute win but the most new correctness obligations, so it comes
+after the engine is stable; W7 is optional.
+
+Execution guidance: do not spawn agents from this plan alone. Delegation requires
+current user authorization. Every change carries reproducible before/after data,
+a differential run and an audit of affected proof dependencies. Correctness and
+proof gates are never weakened to recover a performance target.
+
+=====================================================================================
+4. Proof obligations created by this milestone
+=====================================================================================
+  - WFChunks/WFFrame: shape/occupancy, logical sizes, aligned column/validity
+    boundaries, row-cap-safe sums, valid padding and dictionary ownership. Smart
+    constructors establish these; transformations and adapters preserve them.
+  - Bridge: logical cell addressing, flatten/rebuild round-trip and validity/order
+    equality, including ragged/empty chunks and dictionaries with different codes.
+  - Kernel proofs: pointwise map is a simple node congruence; zip needs alignment,
+    compact needs logical concatenation and cursor bounds, gather needs arbitrary
+    cross-chunk addressing, reductions need lawful combines, and scatter needs
+    exclusive ownership or ordered updates. Do not treat all wrappers as congruence.
+  - Fused kernels: production equivalence to unfused evaluation, including cardinality,
+    masks, F32 rounding and permitted errors. Kleene logic and fill_null get their
+    own validity laws. Error-prone fusion remains disabled until its ordering proof.
+  - Projection/moves/in-place kernels: observation equivalence plus no mutation of
+    live input snapshots; exact alias/name validation; old-input/new-output invariant.
+  - Sort+Head gathering: equivalence to full sort then head for values, stable order,
+    schema, k=0 and deterministic failures. This is not an exemption from G5.
+  - n_unique/coder/reader remain tested-only where v0.1 was, explicitly listed in the
+    assurance matrix; new low-level kernels still need G5 laws. Preserve conditional
+    Dict.merge/decode laws and identify each runtime invariant supporting premises.
+  - Discharge CRoom/CatFits at actual callers using fit, cursor and row-cap proofs;
+    fixed leaf capacity alone is insufficient. No new assumptions may replace a
+    previously proved fact, and no Probe/EncProbe obligation disappears by omission.
+  - Require in-place mutation controls for new kernel/bridge rules; --verdict passing
+    a well-typed prototype alone is not evidence of semantic equivalence.
+
+=====================================================================================
+5. Measurement protocol
+=====================================================================================
+Accept gate samples only with a quiet PRE-RUN machine (target load <2 and no known
+competing jobs). A 12-thread measurement itself raises load: do not require in-run
+load <2 or reject slow samples after seeing results. Predeclare acceptance/retry
+rules; record all samples, CPU activity/load and thermal/power conditions. If the
+host cannot be quiet, report provisional observations and leave gates unevaluated.
+
+Pin compiler/runtime/flags, machine, datasets, string length/cardinality/skew and
+thread counts. Use at least five fresh processes, interleave baseline/candidate
+and 1/4/12-thread runs, report medians, dispersion and raw values. Predefine warmup
+and input-preservation mode equally. For sub-ms cells batch above clock resolution
+without hiding setup or inflating retained inputs; measure cold end-to-end too.
+Thread scaling compares the SAME candidate workload, including its serial work,
+not a microkernel with sequential preprocessing omitted.
+
+Store command, commit+dirty/source hash, toolchain, workload hash, engine/grain,
+timing boundaries, result validation and allocation/RSS method in each JSONL record
+under bench/results/m2/. Timed results must remain live and be validated afterwards.
+Include rows around chunk boundaries, selectivities 0/1/50/100%, narrow/wide schemas,
+all-equal/distinct/skewed and long-prefix strings, many tiny chunks and repeated
+queries. Limits and memory-capacity errors get separate correctness tests.
+
+Preserve/reproduce the audits' source-backed probes under bench/micro/; do not turn
+reported exploratory estimates into verified baseline facts. Include the hot-type
+probe in the real imported program: separate cold microprogram wins may disappear
+when a representation becomes shared through an integration boundary. Inspect
+specific hot loops in emitted C and allocation counters; a global term_keep grep
+is not an adequate performance or correctness gate.
+
+=====================================================================================
+6. Risks
+=====================================================================================
+  - The chunk grain is a guess (2^14): too small loses to scheduling, too large
+    loses balance on 12 threads. Measure before committing WFChunks.
+  - The reader needs globally established lexical state at every cut; local quote
+    parity is insufficient. Test the boundary scan, long records and fallback; keep
+    the sequential reference covered.
+  - Hot-type/refcount behavior is compiler-version and whole-program dependent.
+    Keep parser-private types private and charge conversion costs; verify the
+    actual lowering after integration, not just a source annotation.
+  - Fusion multiplies kernel variants; cap the peephole set to the list in D3 and
+    require a law per variant, or the proof chain becomes the brake.
+  - Dictionary merge across pieces changes codes; every consumer must go through
+    the remap, and the Dictionary laws must be re-checked under per-piece build.
+  - Both reviews' ratios were measured under load 10-200; G2-G4 may move once the
+    machine is idle, in either direction.
