@@ -57,7 +57,7 @@ SECTIONS = [
     ("Columns, literals and builders", [
         ("col", ["col"]),
         ("lit_*", ["lit_u32", "lit_f32", "lit_str", "lit_bool"]),
-        ("lit_i32", ["lit_i32", "lit_i32_neg"]),
+        ("lit_i32*", ["lit_i32", "lit_i32_neg"]),
         ("lit_null", ["lit_null"]),
         ("alias", ["alias"]),
         ("cast", ["cast"]),
@@ -65,7 +65,7 @@ SECTIONS = [
         ("try_cast", ["try_cast"]),
         ("t_*", ["t_bool", "t_u32", "t_i32", "t_f32", "t_str"]),
         ("s_*", ["s_null", "s_bool", "s_u32", "s_i32", "s_f32", "s_str"]),
-        ("i32", ["i32", "i32_neg"]),
+        ("i32*", ["i32", "i32_neg"]),
         ("named", ["named"]),
         ("column", ["column"]),
         ("from_columns", ["from_columns"]),

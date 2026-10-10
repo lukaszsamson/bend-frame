@@ -8,7 +8,7 @@
 # directions unless nulls_last, a missing key / mismatched key dtype is an error (Polars coerces some).
 #@ cover sort,lazy_sort,sort_key,asc,desc success null empty invalid eager lazy zerocol
 #@ cover inner_join,left_join,semi_join,anti_join,lazy_inner_join,lazy_left_join,lazy_semi_join,lazy_anti_join success null empty invalid eager lazy
-#@ cover col,select,drop,rename,lazy_drop,lazy_rename success null empty invalid eager lazy
+#@ cover drop,rename,lazy_drop,lazy_rename success null empty invalid eager lazy
 #@ na inner_join,left_join,semi_join,anti_join,lazy_inner_join,lazy_left_join,lazy_semi_join,lazy_anti_join zerocol -- a join needs a key column, a zero-column frame has none (the key-list refusal is covered)
 import Base
 import ./../../frame.bend as DF

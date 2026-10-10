@@ -11,8 +11,8 @@
 #@ cover sum,mean,min,max,count,len,first,last,n_unique,std,var,median success null empty invalid eager lazy
 #@ cover group_by,lazy_group_by success null empty invalid eager lazy
 #@ cover select,lazy_select,with_columns,lazy_with_columns,filter,lazy_filter success null empty eager lazy
-#@ cover col,alias,lit_u32 success null empty invalid eager lazy
-#@ na sum,mean,min,max,count,len,first,last,n_unique,std,var,median zerocol -- a zero-column frame has no column to reduce (len() over it: tests/coverage/verbs_cardinality.bend)
+#@ cover col,alias success null empty invalid eager lazy
+#@ na sum,mean,min,max,count,len,first,last,n_unique,std,var,median zerocol -- a zero-column frame has no column to reduce (len() over it: tests/coverage/verbs_basic.bend)
 import Base
 import ./../../frame.bend as DF
 import ./../../src/err.bend as E
