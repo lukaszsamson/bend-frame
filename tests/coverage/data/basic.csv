@@ -1,0 +1,6 @@
+id,name,score,ok
+1,ann,1.5,true
+2,,2.5,false
+3,"bo,b",,true
+4,dee,4.5,
+5,"",0.5,false

@@ -58,11 +58,11 @@ def show(tag, df, same=True):
     sys.stdout.write("-- %s\n" % tag)
     sys.stdout.write(canon_nan(dump(df)))
     if same:
-        sys.stdout.write(SAME)
+        sys.stdout.write(same if isinstance(same, str) else SAME)
     sys.stdout.write("\n")
 
 
-def err(tag, text, fn=None):
+def err(tag, text, fn=None, same=SAME):
     """An invalid-input case: Bend refuses with the contract's text. Polars is asked too (fn raises
     when it refuses); where it coerces or accepts, the contract departs from it (DESIGN 15) and the
     note goes to stderr."""
@@ -76,5 +76,5 @@ def err(tag, text, fn=None):
     sys.stderr.write("%s: %s\n" % (tag, note))
     sys.stdout.write("-- %s\n" % tag)
     sys.stdout.write(dump_error(text))
-    sys.stdout.write(SAME)
+    sys.stdout.write(same)
     sys.stdout.write("\n")
