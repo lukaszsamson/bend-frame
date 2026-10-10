@@ -2569,6 +2569,15 @@ consequences are these.
    the grouped scatter invariant, Dictionary completeness and rank order). The plan section 0
    release claim is unchanged.
 
+### W0 engine spikes (v0.2, plans/M_02.txt W0)
+- Section 16 freezes D1-D4 and D7 from the disposable spikes under `bench/spikes/w0_engine/` (nothing in `src/`,
+  `LAWS.bend` or `tests/` changed). Two revisions of the plan's assumptions, both measured: (1) chunks are born at the
+  source and converted at most once per boundary, because chunking a flat 7-column frame (6.3 ms) costs more than the
+  fused q1 (3.3 ms); (2) the G2 >= 3x target is proposed for q1/q2 only, with q3 >= 2x, q4 >= 1.3x, q5 >= 1.5x,
+  q6 >= 2x justified by the serial fractions of section 16.8 (radix scatter passes have one owner per output array;
+  F32 reductions stay one sequential pass). One open issue: the sequential F32 in-order walk over chunk leaves measured
+  2.5x the flat fold with the same compiled loop (section 16.4); the fallback is costed.
+
 ## 15. v0.1 contract (frozen)
 
 The exact semantics every M1-M6 agent codes and tests against. Tables over prose;
@@ -3313,3 +3322,261 @@ applicable) and loses the marker when fixed.
 ### M0 review (dump location)
 - The §15.1 oracle lives in `src/dump.bend` (`Dump.frame`, `Dump.frame_k` which hands the frame back, `Dump.result`), not `Fmt.dump` in `src/fmt.bend`; `DF.dump(r: ResT(Frame))` and `DF.dump_frame(f)` (consumes `f`). A frame whose columns are longer than its height dumps an extra `excess` line; shorter columns print `?` cells. Both are outside the §15.1 grammar, so `bench/check.py --dump` rejects them.
 - `scripts/test.sh` skips `tests/**/lib/*.bend` (helper modules imported by tests).
+
+
+## 16. v0.2 performance design (engine) [W0, frozen for W3-W5]
+
+Written by the W0 engine design lead (plans/M_02.txt W0; D1-D4 and D7 are this section's; D5/D6 belong to
+the strings/reader design). Evidence: the disposable spikes under `bench/spikes/w0_engine/` (README there:
+build lines, raw samples with the 1-minute load per process, emitted-C audit). Every number in this section
+is PROVISIONAL: shared machine, load 17-33 during the sweeps, medians of 5 fresh processes, 1 ms clock.
+The gate numbers are taken by the orchestrator on a quiet machine with the W0 harness.
+
+### 16.0 The shape, in one paragraph
+
+One balanced binary fork tree over a USER-DEFINED tree of owned chunks, ending in today's flat leaf
+loops; fuse first, fork second; move or borrow buffers, clone only the second reference; U32 reductions
+combine at the nodes, F32 reductions stay one sequential in-order pass; the chunked executor is opt-in
+behind an engine flag with today's executor as the reference, and chunks are born at the source (the
+reader, `from_scalars`, or an explicit conversion whose cost is charged), never rebuilt per operator.
+Measured (S1): fusion alone 2.6-3x at one thread (q1 8.7 -> 3.3 ms, q2' 5.7 -> 1.9 ms); the chunk tree
+costs nothing at one thread (q1 3.5, q2' 2.1); 12 threads 3.5-4.4x over the chunked one-thread time
+(q1 0.8-0.9 ms, q2' 0.5-0.6 ms); grain 2^13..2^16 indistinguishable at 1M rows; building chunks for a
+7-column flat frame 6.3 ms, more than the fused query, hence the boundary rule.
+
+### 16.1 D1: owned chunks (frozen)
+
+Type (src/chunks.bend, W5), one tree per 32-bit payload kind, monomorphic (templates would not cross the
+`Type`-kinded constructors cleanly, and the leaf loops are per element type anyway):
+
+```python
+type CW is Type:                      # words: Bool / U32 / I32 payloads, validity masks, dictionary codes
+  WL{n: U32, d: Nat, a: Array<U32>}   # n rows in 2^d slots (n <= 2^d); slots past n are padding, never read
+  WN{rows: U32, lrows: U32, l: CW, r: CW}   # rows = lrows + rows(r); lrows = rows(l) (addressing without a second read)
+type CF is Type:                      # F32 payloads: FL{n, d, a: Array<F32>} | FN{rows, lrows, l, r}
+type CS is Type:                      # Raw strings: SL{n, d, a: Array<String>} | SN{..}  (Dictionary: codes in a CW, one Dict per column)
+type CValid is Type:  CAllValid{} | CMask{m: CW}
+type CColumn is Type: CBool{len, valid: CValid, data: CW} | CU32{..} | CI32{..} | CF32{.., data: CF} | CStr{.., data: CStrs}
+type CFrame is Type:  CFrame{height: U32, cols: List<&1, CNamed>}
+```
+
+Invariants (`WFChunks`, Type-valued, smart constructors establish them, every kernel wrapper preserves
+them; the spike's `laws_spike.bend` has the predicate and two of its preservation proofs):
+
+- leaf: `n <= 2^d`, `WFArray(d, a)`; words 0/1 for Bool and masks; null slots hold the dtype default
+  (the P0 invariants of section 9, per leaf);
+- node: `lrows == rows(l)`, `rows == lrows + rows(r)`, no wrap (`lrows <= rows` as words; the row cap
+  2^23 makes every sum of row counts wrap-free: smart constructors call `Kernel.check_rows` on the sum
+  before building a node whose rows are not bounded by an existing frame);
+- a frame's columns and every validity mask share the partition: the same shape, the same `n` at every
+  leaf position. `WFCFrame` = equal heights, equal shapes (checked by one O(leaves) lockstep walk at the
+  executor boundary, never per kernel), unique names, the zero-column convention of section 9.
+
+Grain: leaves of `2^G` rows, `G = 14` (16K rows, 64 KB per U32 leaf; S1: grains 13..16 within noise at
+1M rows, the fixed fork cost of ~0.3-0.5 ms dominates, so the grain is the memory knob, not the speed
+knob). A frame of fewer than `2^G` rows is one leaf (= today's flat column exactly, so small inputs run
+today's loops with no fork). Builders fold leaves into a balanced tree with a binary-counter stack
+(`US.merge`: leaf i merges `tz(i+1)` times; the last leaf may be partial; a final collapse handles a
+non-power-of-two leaf count). Flatten is an explicit-stack walk of `Kernel.copy_into` per leaf (0.6 ms
+per 1M). Both are sequential per column and FORK ACROSS COLUMNS (independent owners).
+
+Alignment (D1's question): columns of one frame never need alignment work because every row-changing
+operator applies the same per-leaf decision to every column: filter compacts each leaf of each column
+with the leaf's mask (outputs ragged, `n` per leaf, still aligned: S2 `ragged_zip`); head/slice cut the
+tree (drop whole leaves, shorten the boundary leaf: O(leaves), no copy); concat is one node over the two
+inputs (O(1), partitions compose: S2 `concat_zip`); literals never materialise (D3 F1) and a 1-row
+aggregate broadcasts per leaf; sort/join/group_by outputs are built fresh with the output partition.
+Different partitions arise only ACROSS frames (a column from another frame put into this one, horizontal
+operations between frames chunked differently); then B is re-cut to A's partition by flatten + chunk-by-
+partition (`UBP`, two passes, 2-3 ms per 1M column; S2 `misaligned`), once, at the frame boundary. A
+lockstep walk that meets two different shapes is a bug in the engine, not a runtime path: `WFCFrame` is
+checked at the boundary.
+
+Rechunk policy: after an operator that drops rows, if `rows < leaves * 2^G / 2` (occupancy under a half)
+rechunk every column of the frame: merge sibling leaves whose `n1 + n2 <= 2^G` into one leaf
+(`Kernel.append`), bottom-up, forked over the tree, deciding by row counts only, so all columns take the
+same shape with no shared plan (S2 `rechunk`: 64 -> 32 leaves, ~0.1 ms). Amortised bound: a rechunk copies
+at most the current rows and runs only when the row count has at least halved since the frame's last
+(re)chunk, so the total rechunk copying over any operator chain is at most 2x the chain's input rows.
+Empty leaves (n = 0) vanish by the same merge. Never rebuild chunks per operator.
+
+Empty frames: height 0 is one empty leaf per column (`WL{0, 0n, [0]}`, one slot: every leaf loop runs with
+fuel 0 after one harmless read of slot 0); zero-column frames carry `height` with no trees (section 9).
+Row-cap sums: node rows are checked at construction (above); a compaction never grows rows; concat checks
+the saturating sum before building the node (as `TV.Concat.two` does today).
+
+Compaction: per leaf, into a leaf of the SAME capacity `2^d` (not `depth_for(kept + 1)`): the legacy
+branchless write lands every dropped row at the cursor `k`, and `k <= i < n <= 2^d` at every step, so
+the cursor fits and no scratch slot is needed. That inequality is the `croom_of_cap` lemma (16.6); it
+discharges `CRoom` at the leaf, which LAWS section 11 leaves as a hypothesis today. Ragged outputs keep
+their `d`; the rechunk policy restores occupancy.
+
+Sort/join boundary (initially): flatten the key and payload columns (one pass per column, forked across
+columns), run today's flat kernels, build the outputs as chunks (one pass per column, forked across
+columns); ONE conversion per boundary, every copy inside the clock (G6 reports "flatten/rebuild bytes"
+per query). The F32 reduction path has its own boundary note in 16.4.
+
+### 16.2 D2: ownership (frozen)
+
+1. Moves at the operator level: `Exec.mark` already takes a Source on its last use. Inside an operator, a
+   column referenced by expressions is MOVED out of the frame (`Frame.take`) when the operator consumes
+   its input (select, filter + select, group_by, sort keys) and the column has exactly one reference in
+   the operator's expression list; it is BORROWED (take, use a kernel that hands the buffer back, put back
+   with `Frame.replace`) when the frame survives (with_columns, the filter's non-selected columns, a Source
+   that is not on its last use); it is CLONED only for the second and later references of the same column
+   within one operator (the liveness pass counts references over ALL expressions of the operator,
+   including duplicates, aggregate inputs and key expressions). S4: a clone is 0.2 ms per 4 MB column, a
+   take/replace is unmeasurable. The analysis is static and runs with the existing `Eval.static` checks,
+   before any data work (error precedence unchanged).
+2. Kernels allocate fresh outputs. In-place reuse of a dead operand measured identical to a fresh output
+   (S4 `mapinplace` = `mapfresh` 0.8 ms; both loops are the same tight `spin`), so in place is used only
+   where semantics want it (`mask_data`, `choose`) and never as an optimisation obligation.
+3. with_columns evaluates every expression against the INPUT snapshot (borrowing), then replaces/appends;
+   a self join clones the Source (today's rule) and the clone is counted.
+4. Parallel lanes own disjoint leaves; a read-only input several lanes need (a permutation, gids, a
+   dictionary) is cloned once per split point and the bytes are counted (S3: 2 perm clones per node). No
+   `+` Array shared across lanes; no `Array.fork`.
+5. Retained capacity: head/slice keep the parent leaves (as today); the rechunk policy bounds padding after
+   drops; G6 reports copied bytes and retained-vs-logical rows per query (W1h, extended to chunk/flatten
+   bytes in W5).
+
+### 16.3 D3: fusion peepholes (the whole list; each carries a law in W4)
+
+| id | peephole (Eval.compile / exec) | kernel | law (G5) |
+|---|---|---|---|
+| F1 | `Bin{op, e, Lit}` / `Bin{op, Lit, e}`: the literal as a scalar parameter, no broadcast array | `Kernel.map_p` instance | map_p cell = f(lit, a[k]) (template proof `map_cell`'s shape) |
+| F2 | null-propagating arithmetic/comparison zip with validity: `out = both valid ? f(a, b) : default`, `vout = va & vb`, one loop (replaces vand + zip + fix) | new `Kernel.zipv` (4 inputs, 2 outputs; AllValid sides as a 1-slot ones array) | `zipv_cell`: value and validity slot by slot (`mask_and_cell` + zip cell + `fix_cell`) |
+| F3 | a TOTAL cast feeding arithmetic (u32/i32/bool -> f32, bool -> u32/i32): the cast inside the zip template | the F2 kernel with a composed template | the cast's total-pair law composed (15.5.5) |
+| F4 | `fill_null(e, lit)`: lit == dtype default: validity := AllValid, payload untouched (the null-slot invariant); other lit: one masked map with a scalar | none / `Kernel.map_p` + mask | `fix_cell` (slots are the default) + a validity law: it is NOT a no-op |
+| F5 | filter predicate: mask AND kept count in one loop; written in place into a dead Bool operand when the predicate's leaf is a Col (else fresh) | new `Kernel.pred_count` | `popcount_sum` + the mask cell laws |
+| F6 | compaction of k aligned columns with one mask in one loop (k <= 4 per loop by arity; chained) | new `Kernel.compact3/4` | `compact_contents` per column (same mask, same cursor) |
+| F7 | Kleene and/or, floor_div/mod, strict casts: NOT fused (separate rules; W1d's `R{v, ok}` unboxed record replaces the per-row `Maybe`) | existing | existing; strict-cast row-major error precedence kept by evaluating fallible fragments as their own pass |
+| F8 | `Select(plain cols, Filter(p, x))` at the exec level: compact only the selected columns | F5 + F6 | `filter_select_run`: production equivalence against `Exec.run_pure` of the two nodes |
+| F9 | with_columns of k expressions: one tree walk evaluating all k per leaf (fusing the walks, not the loops) | tree congruence | congruence (16.6) |
+
+Rules: fuse only total row-wise fragments; a fallible fragment (strict cast, str parse) keeps its own pass
+and its row index; no reassociation, no FMA, F32 rounding points as written; `R{value, valid}` unboxing
+is verified in the C (S1/S4: single-constructor records ride in registers, `spin_33`), not assumed.
+
+### 16.4 D4: reductions (frozen)
+
+- U32 modular sum, count, popcount: per-leaf fold, `U32.add` at the nodes (S3: 0.7 -> 0.2 ms at 12
+  threads; law: `u32_fold_sum` per leaf + associativity). U32/I32 min/max: per-leaf fold, lawful combine
+  at the node (associative, commutative, first-appearance irrelevant for words). F32 min/max: combine with
+  `Kernel.fmin/fmax` only after the law that the 15.5.2 policy (NaN skipped, -0.0/0.0 tie) is associative
+  and commutative; until then sequential.
+- F32 sum/mean/std/var: ONE sequential pass in ascending row order, eager and grouped (15.5.3 unchanged).
+  Over chunks that is an explicit-stack in-order leaf walk carrying `NS{s, c}` (S3 `fsum_leafwalk`).
+  OPEN ISSUE: the walk measured 2.5x the flat fold (4.7 vs 1.9 ms per 1M) with the SAME compiled loop,
+  at every grain including one leaf, in either run order; the C shows no per-row difference. W5 re-measures
+  in situ; the fallback is to reduce F32 columns from a flattened copy (one 0.6 ms pass) or to keep F32
+  reduction inputs single-leaf, both inside the clock.
+- Forks across reductions: independent aggregates of one group_by run 2x2 balanced (each lane with its own
+  gids clone), the columns of `describe` in halves, the columns of a gather in a balanced column tree
+  (perm cloned per node). Aggregate INPUTS are evaluated sequentially first (errors in expression order),
+  then the scatters fork (they cannot fail): error ordering preserved. Hot/skewed groups stay serial by
+  construction (no per-group lanes in v0.2).
+
+### 16.5 D7: the engine selector and the representation boundary (frozen)
+
+- `Exec.run_with(engine, p, env)`, `engine: Engine = Reference{} | Chunked{grain: Nat}`; `Exec.run` =
+  `Reference` until W8 flips the default (a separate commit from removal; the reference stays as the
+  pinned oracle through v0.2). `bench/main.bend` reads `BF_ENGINE=chunked` and reports the engine in its
+  JSON; the differential driver runs both engines on every case (G1).
+- The boundary: `CFrame` exists only inside `src/cexec.bend` (the chunked runner: the same postfix code,
+  `Exec.compile`/`Exec.mark` unchanged, a second step function over `CFrame`). Sources are converted at
+  `ISource`/`IScan` (`CFrame.of_frame`: one pass per column, forked across columns, the bytes counted and
+  the time INSIDE the clock) and the result converted back at the end (`CFrame.to_frame`). In W6 the
+  reader produces leaves directly and `DF.dump`/`collect` accept a `CFrame` through the facade, which
+  removes both conversions for scan_csv plans; for env-bound flat frames the conversion stays and is
+  reported as "preparation" (G6) next to the compute number. No optimizer change: the chunked runner
+  consumes the same plans (`release_run` keeps holding for `Exec.run_pure`; the chunked runner gets its own
+  differential evidence, not a proof, in v0.2).
+- Sort, join, unique, n_unique run today's flat code behind the boundary note of 16.1; group_by runs
+  chunked for codes/count/max and flat (serial) for the F32 scatters.
+
+### 16.6 Proof obligations (G5) and leaf-lemma reuse
+
+Proven in the spike (`bench/spikes/w0_engine/laws_spike.bend`, bend and --verdict; a wrong claim is refused):
+`cmap_shape` (the chunked map keeps counts and shape) and `cmap_leafwise` (the chunked map is the flat map
+leaf by leaf, a node congruence whose leaf lemma is PROOF_contents' `map_cell`, 8 lines). Obligations for
+W5, with the reusable leaf lemmas and the budget (lines of proof, estimated from the spike and from the
+M5 proofs' sizes):
+
+| obligation | leaf lemma reused | new work | budget |
+|---|---|---|---|
+| `WFChunks` / `WFCFrame`, smart constructors, preservation by every wrapper | `wf_new`, `wf_array_set` | the two predicates, one bundled induction per wrapper (counts come back with the shape: a live child goes to ONE lemma) | 30-60 each |
+| flatten / of_frame bridge: logical cells (offset form `rdN(o, U32.add(off, k))`, Nat `CatFits`, no subtraction) | `append_cells`, `copy_into_w` (PROOF_append) | one offset lemma per leaf position, by induction over the tree | 150-250 |
+| map / zip / zipv / map_p congruence per instance | `mask_not_cell`, `mask_and_cell`, `mask_or_cell`, `map_cell`/zip templates | one `Leafwise` predicate per kernel, 8-15 lines each | 10-20 each |
+| per-leaf compaction (F5/F6) | `compact_contents`, `compact_keeps_mask`, `popcount_sum` | `croom_of_cap` (0/1 words and n <= 2^d give `CRoom`: the cursor k <= i < n, invariant by induction) + `CompactLeafwise` congruence | 80-150 + 20 |
+| rechunk | `append_cells` | congruence + counts | 40-80 |
+| reductions | `u32_fold_sum`, `popcount_sum` | `U32.add` associativity at nodes (trivial); min/max combine laws (U32 trivial; F32 fmin/fmax assoc/comm under 15.5.2: new, 100-200) | 20 / 100-200 |
+| gather by leaf (join/sort outputs) | `gather_contents` (leaf-local index arrays) | congruence | 20 |
+| fused kernels (16.3) | the composed cell laws | one content law per kernel variant | 30-80 each |
+| `filter_select_run` (F8) | `release_run`'s style | production equivalence over `Exec.run_pure` | 100-200 |
+| moves (16.2): take/replace observes as get_cloned | `get_cloned_typed`, `cell_pure` | an observation lemma over `Frame.take`/`Frame.replace` | 60-120 |
+| mutation controls | `scripts/mutation_check.sh` | one patch per new kernel/bridge | tests |
+
+Not needed if the congruence form is used: `sub_lt_of_lt_add` (subtraction-addressed cells; stated open in
+the spike as the measured gap of the `ccell` model: 60-150 lines of new word arithmetic, the toolkit has
+`B.cmp_nat_u`/`B.le_nat_u`/`PST.lt_nat_of_u`/`B.add_sub` but no `to_nat` of `U32.add`/`U32.sub`).
+
+### 16.7 Work breakdown (single-agent tasks; tier)
+
+W3 ownership and sort (~3 days):
+- T3.1 [opus] liveness analysis and moves/borrows in Eval/Exec (16.2 rule 1), the observation law, copy-byte
+  counters (G6), diff + tests (duplicate references, self join, with_columns snapshot).
+- T3.2 [sonnet] sort pipeline: words built reading the column in place, no identity xmap / iota gather,
+  one read pass for vary + sortedness + all histograms, two ping-pong buffers, sorted-skip; tests + bench.
+- T3.3 [sonnet] group_by: move dead aggregation inputs, drop the single-key constant combine + second
+  densify after checking sparse ids/nulls/first appearance; tests.
+- T3.4 [sonnet kernel + opus law] Sort+Head bounded gather (W1g) with its equivalence law.
+W4 fusion (~4 days):
+- T4.1 [opus] kernels `zipv`, `pred_count`, `compact3/4`, `R{v, ok}` variants + content laws + mutation
+  patches.
+- T4.2 [sonnet] Eval.compile peepholes F1/F3/F4 and the F5/F6 wiring; tests with competing errors in
+  different rows/operands; diff. [opus review for error precedence.]
+- T4.3 [opus] F8 exec shortcut + `filter_select_run`.
+W5 chunks (~6 days):
+- T5.1 [opus] `src/chunks.bend`: types, WFChunks, builders, flatten, rechunk, lockstep walkers,
+  smart constructors; the shape/bridge/`croom_of_cap` laws.
+- T5.2 [sonnet kernels + opus laws] chunked wrappers for map/zip/zipv/pred_count/compactN/gather/fold/
+  the F32 walk; `Leafwise` laws; the in-situ F32 walk measurement (16.4 open issue) with the fallback.
+- T5.3 [opus] `src/cexec.bend` chunked runner behind `Engine`, boundary conversions forked across columns,
+  G1 old/new differential across thread/grain counts, boundary-row tests (rows around 2^G, selectivities
+  0/1/50/100%, many tiny chunks, empty frames).
+- T5.4 [sonnet] coarse forks: describe columns, 2x2 aggregates, column-tree gathers; bench cells.
+- T5.5 [sonnet] `bench/m2` harness cells for chunk/flatten bytes and per-phase times (G6).
+
+### 16.8 G2 / G3 thresholds per query (proposed at W0; the orchestrator freezes them on a quiet machine)
+
+Serial fractions from the code and the spikes (1M rows, after W3/W4, the chunked engine, inputs already
+chunked; Amdahl at 12 threads = 1 / (s + (1 - s) / 12)):
+
+| query | forkable stages | serial stages | s | Amdahl(12) | G2 proposed (12 vs 1 thr) | G3 1-thread (ms) |
+|---|---|---|---|---|---|---|
+| q1 | fused predicate+count, 3-column compaction per leaf | fork iteration (~0.4 ms), result assembly | ~0.1 | 5x | **>= 3x** (measured 3.5-4.4x) | <= 3 (keep; 3.3 under load) |
+| q2 | one fused 4-input loop per leaf | fork iteration | ~0.15 | 4.6x | **>= 3x** (measured 3.4-4x) | <= 3 (keep; 1.9-2.1) |
+| q3 | q2 loop, region codes/densify per leaf, count, max | two F32 Neumaier scatters (1.3 ms each, run as 2 lanes: critical path 1.3), the 8-row sort | ~0.3 (0.5 if the walk anomaly stands) | 2.6x (1.7x) | **>= 2x**; 3x aspirational, conditional on the F32 walk | <= 12 (keep, conditional on W3) |
+| q4 | key words per leaf (3 passes), per-leaf histograms, the 10-row gather | every radix scatter pass (one owner per output array: ~8 passes after digit skipping, 8-10 ms) | ~0.75 | 1.3x | **>= 1.3x**; >= 2x only with a partitioned parallel sort (serial top-digit partition into owned buckets, sorted in parallel, concatenated as a tree), proposed for W5 only if T5.1-T5.3 land early | <= 20 (keep, conditional on W3's argsort <= 15) |
+| q5 | the code probe per leaf (a gather), the 7 output gathers across columns, category codes + U32 sum | the build (64 rows), the CSR count/offset pass, the row-cap check | ~0.45 | 2x | **>= 1.5x** | no > 10% regression (keep) |
+| q6 | the 4 columns in parallel (2x2) | each column's own F32 passes and its full sort are serial per column | bounded by the heaviest column | <= 4x | **>= 2x** | <= 60 (keep; W1c) |
+
+The G3 one-thread numbers stay as the plan's aspirational values, now with the measured support above;
+q3/q4 are conditional on W3 landing first. Every compute number is reported next to its preparation
+(chunk build / flatten bytes and time) and end-to-end (G6); a flat env-bound Source pays the conversion
+inside the end-to-end number, a chunked scan does not. Small-input/control medians within 10% as planned
+(a frame under 2^G rows is one leaf running today's loops).
+
+### 16.9 Risks and open issues
+
+1. The F32 in-order leaf walk (16.4): unexplained 2.5x; re-measure in situ (T5.2); fallback costed.
+2. Conversion cost at the boundary: 0.8-0.9 ms per 1M-row column to chunk, 0.6 ms to flatten; forked
+   across columns; charged. The G2 ratio is measured on chunked inputs; the end-to-end number carries the
+   conversion for flat Sources.
+3. All W0 ratios were taken at load 17-33; the 12-thread cells could not have 12 free cores. The fused
+   one-thread numbers are robust (variance < 10%), the thread ratios are lower bounds.
+4. The fork tree's fixed cost (~0.3-0.5 ms per iteration) caps 12-thread gains for operators under ~2 ms
+   of work; fusion before forking (W4 before W5) is load-bearing, not optional.
+5. Forking across 7 gathers and across 4 aggregates showed no gain on the loaded machine; the design keeps
+   these coarse forks but does not count on them for G2.
