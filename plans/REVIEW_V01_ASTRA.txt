@@ -1,0 +1,183 @@
+bend-frame v0.1 delivery review
+2026-10-10; reviewed commit 3196845
+
+Verdict: hold publication. This is a substantial and useful improvement, with real
+production-code proofs and a reasonable small ETL API. It does not complete the
+agreed plan, and I reproduced a silent wrong-result bug. The final message's
+"done except publish" and "eight fully met" are too strong.
+
+1. Release-blocking findings
+
+[P1] Scan materialization can silently replace a user source.
+src/exec.bend:348,428-433,518-536; DESIGN.md:1936.
+
+Exec.validate checks the original environment, then Exec.mat.add prepends the
+CSV frame under #scan0, #scan1, etc. Exec.unscan uses those same names. A public
+DF.source("#scan0", ...) is accepted but can now resolve to the CSV's frame.
+
+Reproduction: source #scan0 holds a U32 column x=[1]; a CSV scan holds x=[2].
+DF.collect(DF.lazy_concat_vertical([source, scan]), env) returns x=[2,2].
+Changing only the source name to user_source returns the correct x=[1,2].
+Both were executed in the interpreter against this commit. Reproducers are in
+build/review-v01/scan_collision.bend and scan_safe.bend, with a.csv and b.csv.
+
+The design explicitly calls this reserved and "Documented, not checked".
+Disclosure does not make silent data substitution an acceptable public-API
+failure mode. Use a distinct internal source identity or generate fresh names
+against the environment. At minimum reject reserved user names before execution.
+Add raw/default/full lazy regressions, multiple scans, and both equal/different
+schemas. This happens before run_pure: the optimizer theorem does not prevent it.
+
+[P2] The default differential command can succeed despite a correctness failure.
+bench/diff/run.py:181-185; Makefile:8,58-69; plans/STATUS.md:175.
+
+Without --strict or --no-shrink, the exit status depends on whether the shrinker
+classified the failure as a known defect. Old defect classifiers remain active.
+A reintroduced known bug can therefore produce exit 0. I injected one classified
+mismatch into the real driver with mocks: default returned 0; --strict returned 1.
+Reproducer: build/review-v01/check_diff_exit.py. This is a harness test, not a
+second demonstrated dataframe bug.
+
+Make correctness failures unconditionally fail the default command; classification
+should describe a failure, not excuse it. Add a permanent driver regression.
+make ci does not run either differential suite or the consumer check. The plan's
+T7 list likewise omitted them, but T3 required per-change generated checks. Add
+bounded strict Raw/Dictionary and reduction smoke tests to the actual release/CI
+gate, with larger scheduled/release runs. Do not mark "correctness failures fail
+the build" fully complete while the default driver suppresses known regressions.
+
+[P2] Benchmark and completion claims are inconsistent with the implementation.
+README.md:200,213; bench/golden.py:7-14,42-70; CHANGELOG.md Testing.
+
+README says every benchmark result is identical to Polars except q6 tolerance.
+q3 deliberately uses a separate exact-rational reference, rounded to F32, rather
+than Polars' grouped accumulation. golden.py even documents tiny.csv's differing
+inland sum: Polars 96373.4141 versus reference 96373.4062. The numerical change is
+reasonable; the equivalence claim is false. README's differences section correctly
+explains it, so this is an internal contradiction, not evidence that all results
+were fabricated. Correct README, changelog and benchmark command descriptions.
+make bench-check defaults to 1k and 100k, not the changelog's 1M as well.
+
+2. Did the implementation meet the goals?
+
+Bug fixes: extensive regressions and many substantive repairs, but G1 (no known
+wrong result in the shipped subset) is not satisfied by the source collision.
+
+API: substantially met for the intentionally bounded CSV ETL contract. The facade
+now includes global reductions, strict/lenient casts, conditionals, membership,
+slicing/tail, drop/rename, concat, unique, semi/anti joins, and basic literal string
+operations, with eager and lazy forms where specified. It is a useful minimum.
+This is still a small Polars-inspired subset, not a Polars or Explorer port with
+broad parity. Missing wide dtypes, temporal/nested types, windows, Parquet, full
+joins, etc. are explicit scope exclusions, not release defects. More API expansion
+should wait until these release issues are closed.
+
+Strings: the experiment was implemented, measured and integrated. Raw/Dictionary
+storage with an Auto threshold is sensible. The committed measurements support a
+large improvement for repeated keys and openly show bad distinct-key performance,
+high memory and poor threading. I did not repeat the performance campaign. A 0.9x
+single-thread timing on a shared machine is not strong evidence of superiority,
+especially with the reported noise and differing sampling statistics. The parse
+target was missed and is disclosed. These limits need not block an experimental
+v0.1 with accurate positioning.
+
+Tests: much stronger, but not complete. The 143 number counts test FILES, not
+assertions or measured branch/line coverage. Typed dumps, invalid cases, exact
+cross-executor comparisons, a contract-adjusted Polars oracle, numerical reference
+tests and dedicated regressions are valuable. The generated suite mostly builds
+in-memory frames, so it does not establish coverage of the IO/materialization
+boundary where the new bug lives. I did not find the promised T6 operation-by-
+operation success/null/empty/invalid/eager-lazy coverage matrix or the def-call
+coverage report. Operation presence and generated-case totals do not substitute
+for those artifacts. Nor does the generator record per-rewrite firing coverage,
+as STATUS itself admits.
+
+Optimizer: partial. M_01 section P3 and the definition of done require R1-R5.
+Only R1 (adjacent-head merging) is in the certified release optimizer. R2-R5 are
+not proved; optimize_full remains opt-in and tested. Restricting the default is
+an honest engineering choice, and R1 is a real rewrite, not an identity trick.
+It is nevertheless a scope reduction rather than completion of the original
+optimizer goal. A smaller experimental v0.1 can accept this explicitly; the
+original plan cannot be called done on this basis.
+
+3. What the proofs establish
+
+The laws are materially better than the original idealized-model proofs. Examples
+quantify over actual production array, kernel, column and executor functions.
+Read/observation bridges are proved. LAWS.bend:816 release_run equates the results
+of Exec.run_pure on the optimized and original plan, including errors, for every
+plan/environment. This is meaningful and not merely schema preservation.
+
+However, equality of two executions does not prove either execution implements
+correct dataframe semantics. The theorem covers the pure runner, not the preceding
+CSV materialization and binding interaction. Scans and the native runtime remain
+outside the full guarantee.
+
+Evaluator laws establish dtype/cardinality for successful results, with failure
+allowed when the analysis marks the expression fallible. EvalTyR (LAWS:1625) does
+not constrain the error's cause/text when total=False. These are typing laws, not
+proofs of arithmetic/comparison/cast values or complete expression semantics.
+
+Dictionary encoding has actual cell-preservation conclusions, but dict_code_spec
+and strs_encode_cells require Probe/EncProbe (LAWS:2033-2085): each production hash
+probe must reach a suitable slot. The code does not prove that premise follows
+from the dictionary builders/load-factor invariant. It is more than a numerical
+bound: the selected slot must be empty or contain the requested key. Conditional
+proofs with explicit premises are legitimate and are not axioms or tautologies;
+they are not unconditional proofs of the whole shipped dictionary implementation.
+Index completeness/absent lookup, rank/per-entry maps and grouped scatter invariant
+are still missing. The plan explicitly requested the last of these.
+
+The eleven negative fixtures are useful but should be described precisely: they
+mutate disposable copies and try existing production proof terms against the
+changed theorem. For example gather_wrong_index is rejected because its Mut.gather
+expression differs from the original kernel expression. This is narrower evidence
+than automatically mutating a fresh production checkout and rechecking the complete
+proof graph. Add the latter as a stronger maintenance check.
+
+4. Independent validation in this review
+
+- Pinned toolchain check passed after moving uv's cache to an allowed /tmp path.
+  The initial cache-access failure was an environment issue.
+- make ci completed its check phase, then failed the runner self-test (the pass
+  fixture and expected summary were missing). An immediate runner-check retry
+  passed. Its one-second sleep under a two-second timeout is load-sensitive.
+- Fresh seed 20261010, 1,000 deep interpreted differential cases, --strict
+  --no-shrink: zero failures, zero oracle errors/uncertainty, 101 invalid cases;
+  four cases excluded from eager/raw equality under the documented error-order
+  rule. This is useful evidence, not exhaustive correctness.
+- Fresh bend PROOF.bend --verdict completed with exit 0 and ALL PROOFS CHECK.
+  The independent proof gate is therefore confirmed for this commit.
+- Source collision and normal-name control reproduced as described above.
+- Differential-driver failure injection returned default=0, strict=1.
+- Clean-clone check reached facade check, native quickstart build/output and
+  relative consumer check successfully; its remaining native build did not finish
+  during the review window.
+- Additional Dictionary/joinstress and numerical runs, and a separate remaining-
+  gates run, were interrupted under severe machine load (observed >130, later
+  >190), with batch timeouts. They are NOT recorded as passes or dataframe defects.
+  I have not independently reproduced the reported full 143/143, 22,000 cases,
+  complete consumer check or full make ci pass in this review.
+
+The agent's historical pass reports may be accurate. They should remain labelled
+as reported evidence, distinct from checks independently completed here.
+
+5. Recommended release decision
+
+Do not publish this commit. First fix source-name aliasing and the default
+failure-suppression path; correct benchmark/verification claims; add the missing
+coverage matrix and IO-boundary regressions; and rerun an authoritative gate on
+a reasonably idle machine. Resolve package-local LICENSE inclusion before the
+irreversible upload. The local clone consumer test does not exercise hub-resolved
+imports. Hosted macOS/Linux CI is still unverified because there is no remote.
+
+Then choose explicitly between two outcomes:
+- An experimental v0.1 with the documented R1-only optimizer and conditional
+  dictionary assurance, recording the remaining proof work as deferred scope.
+- Completion of the original plan: R2-R5/composition, grouped accumulator invariant
+  and dictionary proof closure, then release.
+
+I recommend the first after the concrete correctness and testing fixes. The
+project is worth continuing and publishing as a bounded experimental library.
+I would not hold v0.1 for more API or competitive performance, but I would hold it
+for known silent wrong results and unreliable pass/fail reporting.

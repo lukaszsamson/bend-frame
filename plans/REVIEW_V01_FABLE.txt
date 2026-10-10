@@ -1,0 +1,205 @@
+REVIEW of the v0.1 delivery (commit 3196845) -- Fable 5.1, 2026-10-10
+=====================================================================
+Questions asked: did we meet the goals of plans/M_01.txt; is the implementation
+correct and honest; are we ready for v0.1 (the hub publish).
+
+What I did, independently of the delivering agents:
+  - re-ran `make ci` and `make test`, `bend PROOF.bend` and `--verdict`
+  - ran every example; timed q1/q3/q5 natively at 1M rows on one thread
+  - wrote two facade-only probe programs (new verbs and numeric edge cases vs
+    Polars 2.0.0; raw vs default vs full optimizer on eight trap plans)
+  - delegated two audits with their own repo copies: a proof audit (read every
+    law, re-ran the checkers, mutated production code directly, ran the mutation
+    fixtures with controls) and a harness audit (read the generator, oracle,
+    comparator, bench and consumer scripts; fresh-seed differential runs; the
+    regression tests for the known defects)
+  - read README, CHANGELOG, DESIGN 8 and 15, STATUS, bench/README
+Probe files were deleted; the repo was not modified except this file.
+
+--------------------------------------------------------------------------
+0. Verdict
+--------------------------------------------------------------------------
+Ready to publish as v0.1, after four small edits (section 6). The delivery
+meets the plan's gates G1-G5 and G7 fully and G6 partly, exactly as its own
+STATUS says. The implementation is correct on everything I and the two audits
+could reach, and the documentation is unusually honest: every claim I checked
+is either true or already qualified in the text. The remaining overstatements
+are small and listed below.
+
+Numbers measured here (machine load 60-130 during the runs, so times are
+upper bounds):
+  make ci              every gate green on rerun; one timing flake (below)
+  make test            143 / 143 pass, 0 XFAIL, 0 XPASS
+  bend PROOF.bend      ALL PROOFS CHECK;  --verdict  ALL PROOFS CHECK
+  native 1M, 1 thread  q1 13 ms, q3 21 ms, q5 20 ms (README: 11 / 23 / 19)
+  fresh-seed diff      seeds 424242/424243/424244: 0 failing in Raw, Dictionary
+                       and deep modes (50 + 1000 + 1000 + 1000 cases)
+  reduce.py, seed 9191 no findings; selftest flags naive / Kahan / unguarded sums
+
+--------------------------------------------------------------------------
+1. Did we meet the goals? Gate by gate
+--------------------------------------------------------------------------
+G1 no known wrong result ............................ MET
+  All 11 defects of the two reviews have passing regressions that assert the
+  fixed behaviour (checked 10 of them by reading and running). My own probes
+  over the new surface matched Polars cell for cell: unique with NaN/-0.0/null,
+  semi/anti with null and duplicate keys, floor_div and mod by a negative
+  divisor, NaN comparisons, when with a null condition, is_in, try_cast, strict
+  cast error, global std/median/n_unique/count/max, slice clamping, tail, rename
+  collision, concat schema mismatch, sort desc nulls_last, grouped mean/std/first
+  with NaN and all-null groups, filter against a reduction, filter(lit false)
+  over a literal select. Neither audit found a wrong result.
+G2 eager = raw-lazy = optimised-lazy; collect_schema predicts statics .. MET
+  Eight trap plans (head(0) over a literal select, select([]), filter(lit
+  false) over a literal, self-join + filter + head, strict cast after a filter,
+  head over a reduction select, unique after with_columns, tail/slice/rename)
+  agree across collect_raw, collect and collect_full. The generator compares
+  all four forms with an exact typed comparator (F32 as bits, -0.0 != 0.0).
+G3 differential suite and CI ........................ MET with two caveats
+  The suite is real and strict (no blanket ignores, no rounding on the diff
+  path; the harness audit looked for them specifically). Caveats: `make ci`
+  does not run `make diff`, `diff-reduce` or the consumer check, and the GitHub
+  workflow has never run because there is no remote.
+G4 minimum API, eager and lazy, one contract ......... MET
+  All of plan section 2.1 except the two items the plan itself deferred (full
+  join, top-k). DESIGN 15.2 is the frozen contract; the facade has every name.
+G5 string experiment with a measured decision ........ MET
+  Raw / Dictionary / Auto, gate passed (5-20x on string-keyed queries at 1M,
+  controls within 15 %). The parse target (41 MB < 1.5 s) was missed at 1.98 s
+  and the README says so.
+G6 default optimizer proven; buffer/evaluator laws ... PARTLY MET, honestly
+  Proven: `release_run` for every plan and env over Exec.run_pure, evaluator
+  typing soundness, content theorems for gather/compact/map/zip/iota/fold/
+  append/mask_data/choose and the Dictionary string path. Not proven: R2-R5
+  (they live in opt-in `optimize_full`), cell values of arithmetic/compare/
+  cast/reductions, sort/group/join, CSV, floats. The default optimizer is
+  therefore "proven" by doing one rewrite. That was the plan's own fallback and
+  the docs say it plainly. See section 3 for what the proof audit found beyond
+  this.
+G7 truthful README/limits/benchmarks ................. MET
+  The release claim is verbatim, the not-claimed list is present, numbers match
+  what I measured, the weak spots (no thread scaling, 1.3 GB RSS, 30-330x on
+  distinct string keys, parse time) are in the README, not hidden in bench/.
+
+--------------------------------------------------------------------------
+2. Is the implementation correct?
+--------------------------------------------------------------------------
+Yes, on every path reached by: 143 test files, 59 regression files, 22,000
+generated cases in the delivery's run plus 3,050 fresh-seed cases in the
+audit, the 1k/100k/1M goldens, my probes, and the two audits. Specific
+observations:
+  - Numeric policy is coherent: one F32 total order is used by comparisons,
+    sort, group_by, unique, is_in and joins (B03-c and my probe 4 and 8 agree);
+    Neumaier sums with the non-finite guard give inf for mean([inf, 1]) and the
+    reduce check finds no bound violation.
+  - Cardinality rules are consistent in all three execution forms, including
+    the cases that were wrong before (head(0) over a literal select, select([])).
+  - Self-joins and multi-source envs work; collect_schema + validate_bindings
+    now predict exactly the static and binding errors; data errors are
+    documented as collect-only.
+  - CSV: quoted "" vs null round-trips on read and write; the scan prefix is
+    bounded; the streaming reader is used by both read and scan.
+  - Performance claims reproduce: my one-thread 1M timings are within noise of
+    the README table under a load average above 60.
+Not verified by anyone: native x86-64 Linux (never run), the hub upload
+itself (no dry-run exists), frames near the 2^23 row cap (guard tested, not
+the allocation), CSV through the generator (only regressions and goldens
+cover CSV).
+
+--------------------------------------------------------------------------
+3. Is it honest? Where the text runs ahead of the evidence
+--------------------------------------------------------------------------
+The docs are honest to a degree I rarely see; these are the residual gaps.
+
+H1 Optimizer theorem vs what collect runs (proof audit). `release_run` is
+   about Exec.run_pure. DF.collect runs schema check, validate, Exec.mat (reads
+   scans), unscan, then run_pure. The glue lemmas (unscan commutes with hmerge;
+   validate agrees; mat reads the same scans) are not proven. For a plan with a
+   ScanCsv both sides of the theorem fail with "not materialised", so the
+   theorem is vacuous on scan plans until unscan is applied. True by inspection
+   (hmerge only deletes Head nodes), low risk, but DESIGN 8 says the theorem
+   "covers the validated env Exec.run hands over", which is not machine-checked.
+   Fix: one sentence in DESIGN 8 and README naming the unproven glue.
+H2 Mutation fixtures (proof audit). All 11 mutate a renamed copy of a
+   production function. For gather and compact (and by their error text,
+   choose, encode_reuses_code, remap_wrong_slot) an UNMUTATED renamed copy is
+   also rejected, because the proof term is tied to the production name. So
+   those fixtures show "a copy is rejected", not "a wrong copy is rejected".
+   The underlying claim does hold: the audit mutated production gather, compact
+   and hmerge in place and the proofs failed. Fix: say "eleven fixtures, five of
+   which are name-sensitive; direct mutation of the production functions was
+   checked by hand", or rework those five to mutate in place in a scratch copy.
+H3 Two typers. The 20 expression-typing laws of LAWS section 2 are about
+   X.Expr.type, which production uses only for group_by; select/with_columns/
+   filter type through A.Expr.analyse (the shared analysis). The P2 theorems
+   are about the analysis, so the gap is in the older laws' relevance, not in
+   soundness. Worth one line in DESIGN 8.
+H4 "Correctness failures fail the build". True for make ci's gates. The
+   differential generator, the reduction check and the consumer check are not
+   in make ci, and `make diff` without --strict exits 0 on a failure that
+   matches a known-defect classification rule, so a regression of a fixed
+   defect would be counted but not fail. Fix: `--strict` by default now that
+   the defect table is empty, and add diff (N=200) and consumer_check to ci.
+H5 CHANGELOG says goldens are checked "at 1k, 100k and 1M rows (make
+   bench-check)"; bench-check does 1k and 100k, 1M needs CHECK_MAX. Also the
+   q3 golden is the f32 contract reference, not Polars, and the tracked 1k
+   golden is regenerated on every run. Fix the sentence.
+H6 Minor: LAWS.bend comment at ~1060 says later writes are "NOT proven here",
+   now proven in section 11; the eval_full_typed comment says "frame unchanged"
+   on failure, the law only gives tot == False; B03_b has a stale marker
+   comment; bench/diff/README says ~10 s per 1000 cases, it is minutes.
+
+Things the delivery could have overclaimed and did not: it did not call
+optimize_full proven, did not call the engine verified, did not hide the
+parse-target miss or the thread-scaling result, counted inadmissible programs
+separately, and reversed the sequential-sum decision rather than keep the
+golden match.
+
+--------------------------------------------------------------------------
+4. Quality notes
+--------------------------------------------------------------------------
+  - make ci is timing-sensitive: runner-check's fixture sleeps 1 s under a 2 s
+    timeout and failed on my first run at load 60+. Raise the timeout or make
+    the fixture's sleep relative to it.
+  - The generator's mix leans small: about 60 % of cases end in an error or a
+    frame of at most one row; strings come from a 15-item pool; CSV is never
+    generated. Fine for v0.1, worth widening in v0.2.
+  - 13 stale agent worktrees are registered under .claude/worktrees (not
+    tracked; `git worktree prune` after deleting them).
+  - bench/results (2.4 MB) is tracked; acceptable, but a results/ directory
+    that grows per run should move out of git before v0.2.
+  - .github/workflows/ci.yml mentions flake.nix, which does not exist; the
+    Bend archive sha256 and layout are untested.
+  - consumer_check depends on the temp path (an absolute import under a path
+    with dots fails); documented in the script.
+
+--------------------------------------------------------------------------
+5. Performance, as delivered
+--------------------------------------------------------------------------
+Honest and large improvement: q3 327 -> 23 ms, q4 384 -> 47, q5 399 -> 19 at
+1M rows (one thread), from the Dictionary strings. Remaining: 8-17x on q1/q2
+(numeric kernels, no forking), no thread scaling at all, 1.3 GB RSS, and
+30-330x on fully distinct string keys. All stated in README. None blocks v0.1.
+
+--------------------------------------------------------------------------
+6. Ready for v0.1? Yes, with this checklist before `bend --publish`
+--------------------------------------------------------------------------
+  1. Doc edits (one commit): H1 sentence in DESIGN 8 / README laws paragraph;
+     H2 wording on the fixtures; H5 CHANGELOG sentence; the stale comments in
+     H6.
+  2. Make `make diff` strict by default and add `diff N=200` plus
+     `consumer_check` to `make ci` (H4). Raise runner-check's fixture timeout.
+  3. Put a copy of LICENSE in src/ (bend publishes only a LICENSE beside each
+     file, as the delivery itself notes), or confirm the root one suffices
+     by reading `bend --help` on publish; the delivery could not test this.
+  4. Push to a remote once so the workflow runs on macOS and Linux before the
+     publish; a Linux x86-64 failure would be embarrassing after a permanent
+     upload. If no remote is wanted, say in README that CI is untested.
+Then: `bend login` and `bend frame.bend --publish bend-frame@0.1.0.0`.
+The publish is public and permanent; nothing in this review suggests it would
+need a retraction.
+
+For v0.2, in order: R2-R5 as theorems (or keep optimize_full opt-in and say
+so), the grouped scatter invariant, Dictionary completeness and rank order,
+widen the generator (bigger frames, CSV, more strings), thread scaling in the
+numeric kernels, the distinct-string path.
