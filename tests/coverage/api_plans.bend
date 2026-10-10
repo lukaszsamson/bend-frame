@@ -10,14 +10,14 @@
 # Expectations are reasoned from DESIGN.md 15.2.2, 15.2.8, 15.7, 15.9 and the eager answers (the data of
 # these cases is the Polars-confirmed verbs of verbs_basic.bend); explain text is Bend's own format
 # (DESIGN 15.2.8 lists the node lines), so there is no Polars twin for this file.
-#@ cover empty_env,source,add_source success null empty eager lazy
+#@ cover empty_env,source,add_source success empty eager lazy
 #@ cover validate_bindings,collect_raw,collect,collect_full,collect_show,collect_schema success null empty invalid eager lazy
-#@ cover schema_show success null empty invalid eager lazy
-#@ cover explain,optimize,optimize_full success null empty invalid eager lazy
+#@ cover schema_show success empty invalid eager lazy
+#@ cover explain,optimize,optimize_full success empty invalid eager lazy
 #@ cover select,filter,head,lazy_select,lazy_filter,lazy_head,lazy_with_columns,lazy_sort,lazy_group_by,lazy_inner_join,lazy_left_join,lazy_semi_join,lazy_anti_join,lazy_drop,lazy_rename,lazy_slice,lazy_tail,lazy_unique,lazy_concat_vertical success null empty eager lazy
-#@ na empty_env,source,add_source,explain,optimize,optimize_full invalid -- building an environment, a Source plan or a plan tree cannot fail (a bad plan is reported by collect_schema / validate_bindings / collect, covered)
 #@ na empty_env,source,add_source,explain,optimize,optimize_full null -- an environment / plan tree holds no cell values: nulls are in the frames the cases bind (covered by the collect cases)
-#@ na explain,optimize,optimize_full empty -- the plan text is the same whatever rows its sources hold; the zero-row sources are collected in the collect cases and the empty concat plan is explained
+#@ na empty_env,source,add_source invalid -- building an environment or a Source plan cannot fail (a bad plan or binding is reported by collect_schema / validate_bindings / collect, covered)
+#@ na schema_show null -- a schema holds names and dtypes, no cell values
 #@ na empty_env,source,add_source,validate_bindings,collect_schema,explain,optimize,optimize_full,schema_show,collect_show,lazy_select,lazy_with_columns,lazy_filter,lazy_head,lazy_sort,lazy_group_by,lazy_inner_join,lazy_left_join,lazy_semi_join,lazy_anti_join,lazy_drop,lazy_rename,lazy_slice,lazy_tail,lazy_unique,lazy_concat_vertical zerocol -- not meaningful to count: a zero-column frame is one of the collect cases below
 import Base
 import ./../../frame.bend as DF
@@ -213,6 +213,7 @@ def main() -> IO(Unit):
     explain2("explain: table verbs", DF.lazy_unique(DF.lazy_rename(DF.lazy_drop(DF.lazy_tail(DF.lazy_slice(sp(), 1, 3), 2), ["v"]), [("g", "key")]), []))
     explain2("explain: concat", DF.lazy_concat_vertical([sp(), DF.lazy_head(sp(), 1), sp()]))
     explain2("explain: concat of no plans", DF.lazy_concat_vertical([]))
+    explain2("explain: an invalid plan (a missing column) still prints, collect reports the error", DF.lazy_select(DF.lazy_filter(sp(), DF.gt(c("nope"), DF.lit_u32(1))), [c("id")]))
     explain2("explain: a head above a row-wise select (the sink the optimiser certifies)", DF.lazy_head(DF.lazy_select(sp(), [c("id"), al(DF.mul(c("v"), DF.lit_f32(2.0)), "v2")]), 2))
     explain2("explain: a head above a literal select is a barrier", DF.lazy_head(DF.lazy_select(sp(), [al(DF.lit_u32(1), "one")]), 0))
     three("the optimised plans still collect to the eager answer: head merging", eager4(pm()), DF.lazy_head(DF.lazy_head(DF.lazy_head(sp(), 5), 3), 4), ep(), ep(), ep())
@@ -526,6 +527,20 @@ def main() -> IO(Unit):
 #|CONCAT
 #|-- optimize_full
 #|CONCAT
+#|
+#|
+#|-- explain: an invalid plan (a missing column) still prints, collect reports the error
+#|SELECT [col("id")]
+#|  FILTER (col("nope") > lit(1))
+#|    SOURCE p [id:u32, g:str, v:f32]
+#|-- optimize
+#|SELECT [col("id")]
+#|  FILTER (col("nope") > lit(1))
+#|    SOURCE p [id:u32, g:str, v:f32]
+#|-- optimize_full
+#|SELECT [col("id")]
+#|  FILTER (col("nope") > lit(1))
+#|    SOURCE p [id:u32, g:str, v:f32]
 #|
 #|
 #|-- explain: a head above a row-wise select (the sink the optimiser certifies)

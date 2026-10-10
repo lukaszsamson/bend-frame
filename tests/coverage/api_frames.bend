@@ -9,15 +9,18 @@
 # columns, which agree with the cases here (count, null_count, mean, std, min, nearest-rank quantiles,
 # max); departures: f32 statistics for numeric columns (Polars f64), bool columns described as text min /
 # max (Polars as 0/1 numbers), the std of [1,2,4] is 1.5275253 (DESIGN 15.5.4's f32 algorithm).
-#@ cover from_columns,named,column success null empty invalid eager
-#@ cover schema,height,clone,dump,dump_frame,show,describe success null empty eager
+#@ cover from_columns,column success null empty invalid eager
+#@ cover named success null empty eager
+#@ cover height,clone,dump,dump_frame,show,describe success null empty eager
+#@ cover schema success empty eager
 #@ cover then,then_io success null empty invalid eager
 #@ cover show,describe,dump,schema_show,err_show invalid eager
 #@ cover schema_show,err_show success eager
+#@ cover schema_show empty eager
 #@ na from_columns,named,column,schema,height,clone,then,then_io,dump,dump_frame,show,describe,err_show,schema_show lazy -- an eager frame function: the lazy API starts from DF.source and never builds, inspects or prints a frame (collect_show and collect_schema are covered in api_plans.bend)
-#@ na schema,height,clone,dump_frame,named invalid -- the argument is an already valid Frame / Column: no input can be refused
-#@ na schema,height,schema_show,err_show,named null -- the answer is a dtype list / a count / a text: a null cell changes none of them beyond being counted (height counts null rows, covered)
-#@ na err_show,schema_show,named,column empty -- the argument is an error value / a schema / a name: nothing zero-row to give (the zero-row column case is covered for `column`)
+#@ na schema,height,clone,dump_frame,named invalid -- the argument is an already valid Frame / Column / name: no input can be refused (a repeated name is from_columns' error, covered)
+#@ na schema,schema_show,err_show null -- the answer is a dtype list / a text: a null cell changes none of them
+#@ na err_show empty -- the argument is an error value / a name: nothing zero-row to give
 #@ na named,err_show zerocol -- a column / an error value has no frame shape
 import Base
 import ./../../frame.bend as DF
@@ -29,8 +32,6 @@ import ./../regress/lib/rx.bend as R
 import ./lib/fx.bend as FX
 
 # a nullable column of the given dtype from scalars (DF.column), failing into a named error column
-def col(+n: String, +t: D.DType, xs: List<&2, D.Scalar>) -> C.Named:
-  R.mk(n, xs, t)
 
 # a named column from DF.column (a failed column is named after its error, so the dump shows it)
 def nm(+n: String, r: E.ResT(C.Column)) -> C.Named:
@@ -39,6 +40,9 @@ def nm(+n: String, r: E.ResT(C.Column)) -> C.Named:
       C.Named{DF.err_show(e), C.CU32{0, 0n, C.AllValid{}, [0 : U32*1n]}}
     case Done{c}:
       DF.named(n, c)
+
+def col(+n: String, +t: D.DType, xs: List<&2, D.Scalar>) -> C.Named:
+  nm(n, DF.column(t, xs))
 
 def cs(r: E.ResT(C.Column)) -> String:
   match r:
@@ -50,6 +54,13 @@ def cs(r: E.ResT(C.Column)) -> String:
 # DF.column over scalars, printed as the one-column frame it builds
 def colcase(+tag: String, +t: D.DType, xs: List<&2, D.Scalar>) -> IO(Unit):
   IO.print("-- " ++ tag ++ "\n" ++ cs(DF.column(t, xs)) ++ "\n")
+
+def dframe(r: E.ResT(C.Frame)) -> String:
+  match r:
+    case Fail{e}:
+      "error\t" ++ DF.err_show(e) ++ "\n"
+    case Done{f}:
+      DF.dump_frame(f)
 
 def pr(+tag: String, r: E.ResT(C.Frame)) -> IO(Unit):
   IO.print("-- " ++ tag ++ "\n" ++ DF.dump(r) ++ "\n")
@@ -116,7 +127,9 @@ def main() -> IO(Unit):
     pr("dump of a frame with nulls", FX.t())
     pr("dump of zero rows", FX.z())
     pr("dump of zero columns", R.zcols(4))
-    IO.print("-- dump_frame\n" ++ DF.dump_frame(C.Frame{2, Nil{}}) ++ "\n")
+    IO.print("-- dump_frame of zero columns\n" ++ DF.dump_frame(C.Frame{2, Nil{}}) ++ "\n")
+    IO.print("-- dump_frame of a frame with nulls\n" ++ dframe(ds()) ++ "\n")
+    IO.print("-- dump_frame of zero rows\n" ++ dframe(FX.z()) ++ "\n")
     IO.print("-- schema and height\n" ++ schema_text(FX.t()) ++ "\n" ++ height_text(FX.t()) ++ "\n" ++ schema_text(FX.z()) ++ "\n" ++ height_text(FX.z()) ++ "\n" ++ schema_text(R.zcols(4)) ++ "\n" ++ height_text(R.zcols(4)) ++ "\n\n")
     pr("clone keeps nulls", cl(ds()))
     pr("clone of zero rows", cl(FX.z()))
@@ -291,10 +304,38 @@ def main() -> IO(Unit):
 #|width	0
 #|
 #|
-#|-- dump_frame
+#|-- dump_frame of zero columns
 #|frame
 #|height	2
 #|width	0
+#|
+#|
+#|-- dump_frame of a frame with nulls
+#|frame
+#|height	4
+#|width	4
+#|col	u32	"n"
+#|col	f32	"f"
+#|col	str	"s"
+#|col	bool	"b"
+#|row	1	0x3fc00000	"a"	true
+#|row	2	null	"b"	false
+#|row	null	0x40600000	null	true
+#|row	4	0x40a00000	"d"	null
+#|
+#|
+#|-- dump_frame of zero rows
+#|frame
+#|height	0
+#|width	8
+#|col	u32	"a"
+#|col	u32	"b"
+#|col	i32	"p"
+#|col	i32	"q"
+#|col	f32	"x"
+#|col	f32	"y"
+#|col	bool	"k"
+#|col	str	"s"
 #|
 #|
 #|-- schema and height

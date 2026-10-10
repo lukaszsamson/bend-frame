@@ -13,8 +13,10 @@
 #@ na head,lazy_head invalid -- head takes any U32 and clamps to the height: no input can be refused (DESIGN 15.2.3)
 #@ na slice,lazy_slice invalid -- an offset or length beyond the height is clamped, never an error (DESIGN 15.2.3)
 #@ na tail,lazy_tail invalid -- tail takes any U32 and clamps to the height: no input can be refused (DESIGN 15.2.3)
-#@ cover col,alias,lit_u32,lit_bool,len success null empty invalid eager lazy
-#@ na lit_u32,lit_bool,len null -- a literal and len() hold no nulls of their own (a null column beside them is in the same cases)
+#@ cover col,alias success null empty invalid eager lazy
+#@ cover lit_u32 success empty invalid eager lazy
+#@ cover lit_bool,len success empty eager lazy
+#@ na lit_u32,lit_bool,len null -- a literal and len() hold no nulls of their own (a null column beside them: tests/coverage/expr_lit.bend)
 import Base
 import ./../../frame.bend as DF
 import ./../../src/err.bend as E

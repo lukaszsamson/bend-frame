@@ -12,8 +12,8 @@
 #@ cover i32,i32_neg,s_i32 success eager
 #@ cover i32,i32_neg invalid eager
 #@ na i32,i32_neg,s_i32 null -- a checked integer has no null form (an SNull scalar is s_null, covered in expr_cond.bend)
-#@ na i32,i32_neg,s_i32 empty -- a scalar builder takes one value: there is no zero-row form
-#@ na i32,i32_neg,s_i32 lazy -- a builder, not a plan node: the scalar it builds is used by the lazy is_in below
+#@ na i32,i32_neg empty -- a scalar builder takes one value: there is no zero-row form
+#@ na i32,i32_neg lazy -- a builder, not a plan node: the scalar it builds is used by the lazy is_in below
 #@ cover s_i32 empty invalid lazy
 #@ na s_i32 null -- see above: a scalar is never null here
 #@ cover is_in,select,lazy_select,with_columns,lazy_with_columns,col,alias success null empty eager lazy

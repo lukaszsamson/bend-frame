@@ -221,6 +221,7 @@ class Test:
 def parse_annotations(tests, errors):
     """-> {(op, kind): [(kind_of_mark, Test, reason)]} with kind_of_mark cover | na."""
     marks = {}
+    per_file = {}
     n_annot = 0
     for t in tests:
         if is_lib(t.path):
@@ -263,6 +264,10 @@ def parse_annotations(tests, errors):
                     errors.append("%s: the file does not call DF.%s (or an e_%s wrapper): an annotation names an operation the test exercises" % (where, op, op))
                     continue
                 for k in kinds:
+                    seen = per_file.setdefault((t.path, op, k), set())
+                    if seen and verb not in seen:
+                        errors.append("%s: %s %s is both covered and n/a in this file" % (where, op, k))
+                    seen.add(verb)
                     marks.setdefault((MEMBER_ROW[op], k), []).append((verb, t, reason, op))
     return marks, n_annot
 
@@ -450,21 +455,29 @@ def defcall_report(tests):
                     if d in modules[p].defs:
                         entries.add((p, d))
                         break
-    seen = set(entries)
-    work = list(entries)
-    while work:
-        n = work.pop()
-        for r in graph.get(n, ()):
-            if r not in seen:
-                seen.add(r)
-                work.append(r)
+    def closure(start):
+        seen = set(start)
+        work = list(start)
+        while work:
+            n = work.pop()
+            for r in graph.get(n, ()):
+                if r not in seen:
+                    seen.add(r)
+                    work.append(r)
+        return seen
+
+    facade_path = paths[0]
+    via_facade = closure({e for e in entries if e[0] == facade_path})
+    seen = closure(entries)
     rows = []
     unreached = {}
     for p in paths:
         m = modules[p]
         total = len(m.defs)
         hit = sum(1 for d in m.defs if (p, d) in seen)
-        rows.append((rel(p), total, hit))
+        hit_f = sum(1 for d in m.defs if (p, d) in via_facade)
+        direct = sum(1 for d in m.defs if (p, d) in entries)
+        rows.append((rel(p), total, direct, hit_f, hit))
         unreached[rel(p)] = sorted(d for d in m.defs if (p, d) not in seen)
     return rows, unreached, len(entries)
 
@@ -472,21 +485,27 @@ def defcall_report(tests):
 def render_defcalls(tests):
     rows, unreached, n_entries = defcall_report(tests)
     tot = sum(r[1] for r in rows)
-    hit = sum(r[2] for r in rows)
+    hit = sum(r[4] for r in rows)
+    hit_f = sum(r[3] for r in rows)
     L = []
-    L.append("Method: a static call graph (see the script's header). Entry points: %d defs that a test (or a" % n_entries)
-    L.append("tests/**/lib helper a test imports) calls directly, `frame.bend` defs and `src/` defs alike. A def is")
-    L.append("*reached* when a path of def-body mentions leads to it. This over-approximates what runs (a branch")
-    L.append("no test takes still counts) and cannot see a def used only as a value without its name in a body;")
-    L.append("read it as \"no test can reach these\", not as line coverage. Not gated.")
+    L.append("Method: a static call graph (see the header of `scripts/coverage_matrix.py`). A def *mentions* another def")
+    L.append("when its body names it (qualified through the file's import aliases, or bare inside its own module).")
+    L.append("Entry points are the %d defs that a test (or a `tests/**/lib` helper a test imports) calls directly," % n_entries)
+    L.append("`frame.bend` defs and `src/` defs alike. A def is *reached* when a path of mentions leads to it. Two")
+    L.append("reach columns: **via facade** follows only the entries that are `frame.bend` defs (what the public API")
+    L.append("alone can reach); **reached** adds the `src/` defs the tests call directly (the proof-style and unit tests).")
+    L.append("This over-approximates what runs (a branch no test takes still counts, an error path is reached when its")
+    L.append("function is) and misses a def used only as a value without its name in a body: read it as \"no test can")
+    L.append("reach these\", not as line coverage. Reported, not gated.")
     L.append("")
-    L.append("| file | defs | reached | unreached |")
-    L.append("|---|---|---|---|")
-    for f, total, h in rows:
-        L.append("| `%s` | %d | %d | %d |" % (f, total, h, total - h))
-    L.append("| **total** | **%d** | **%d** | **%d** |" % (tot, hit, tot - hit))
+    L.append("| file | defs | called directly | reached via facade | reached | unreached |")
+    L.append("|---|---|---|---|---|---|")
+    for f, total, direct, h_f, h in rows:
+        L.append("| `%s` | %d | %d | %d | %d | %d |" % (f, total, direct, h_f, h, total - h))
+    L.append("| **total** | **%d** | **%d** | **%d** | **%d** | **%d** |" % (tot, sum(r[2] for r in rows), hit_f, hit, tot - hit))
     L.append("")
-    L.append("%.1f %% of the %d defs are reachable from the tests." % (100.0 * hit / max(tot, 1), tot))
+    L.append("%.1f %% of the %d defs are reachable from the tests (%.1f %% through the facade alone)." % (
+        100.0 * hit / max(tot, 1), tot, 100.0 * hit_f / max(tot, 1)))
     L.append("")
     any_un = {f: u for f, u in unreached.items() if u}
     if any_un:
@@ -496,6 +515,27 @@ def render_defcalls(tests):
             L.append("- `%s`: %s" % (f, ", ".join("`%s`" % d for d in u)))
         L.append("")
     return "\n".join(L), (tot, hit)
+
+
+def files_md(files):
+    """One row per annotated test file: its Polars twin (bench/coverage/<name>.py) or how its values were checked."""
+    out = ["| test | cases | Polars 2.0.0 twin |", "|---|---|---|"]
+    for p in files:
+        stem = os.path.splitext(os.path.basename(p))[0]
+        text = read(p)
+        n = sum(1 for ln in text.splitlines() if ln.startswith("#|") and ln.startswith("#|-- "))
+        twin = os.path.join(ROOT, "bench", "coverage", stem + ".py")
+        if os.path.exists(twin):
+            how = "[bench/coverage/%s.py](../bench/coverage/%s.py)" % (stem, stem)
+            if "no line-by-line" in text or "no Polars twin" in text:
+                how += " (reference values only; see the test header)"
+            else:
+                how += " (`bench/coverage/check.sh %s`: byte-for-byte after the documented departures applied in the twin)" % stem
+        else:
+            how = "none: expectation reasoned from the contract (see the test header)"
+        out.append("| [%s](../%s) | %d | %s |" % (stem, rel(p), n, how))
+    out.append("")
+    return "\n".join(out)
 
 
 def main(argv):
@@ -543,7 +583,12 @@ def main(argv):
         ]
         if xf:
             head += ["", "Cases pinning a known defect (`#! xfail`, shown `(xfail ID)` in the matrix): " + ", ".join(xf) + "."]
-        head += ["", "## Matrix", "", body, "## Def-call coverage over src/", "", defs_md]
+        head += ["", "What the gate proves and what it does not. It proves that every row has every kind accounted for by a",
+                 "case named in an annotation, that each annotation names an operation its file really calls, and that no",
+                 "facade def is outside the matrix. It cannot prove that a named case is a good one: whether the case in the",
+                 "file really holds nulls / zero rows / a refusal is the author's assertion, checked by review. The cases",
+                 "themselves are real tests (`make test` runs them and compares every dump with its expectation).",
+                 "", "## Test files", "", files_md(files), "## Matrix", "", body, "## Def-call coverage over src/", "", defs_md]
         text = "\n".join(head)
         if to_stdout:
             print(text)

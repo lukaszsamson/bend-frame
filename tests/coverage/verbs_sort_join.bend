@@ -109,6 +109,8 @@ def main() -> IO(Unit):
     srt("sort by no key is the identity", [])
     srtz("sort on zero rows", [DF.asc("v"), DF.desc("g")])
     R.four("sort on zero columns", DX.e_sort(R.zcols(3), []), DF.lazy_sort(R.src("z0", R.zcols(3)), []), R.env1("z0", R.zcols(3)), R.env1("z0", R.zcols(3)), R.env1("z0", R.zcols(3)))
+    srtz("sort_key on zero rows", [DF.sort_key("v", True{}, True{})])
+    srt("invalid sort_key on a missing column", [DF.sort_key("nope", False{}, False{})])
     srt("invalid sort missing column", [DF.asc("v"), DF.desc("nope")])
     srt("invalid sort first missing key wins", [DF.asc("nope2"), DF.asc("nope")])
     lo("on a str key", ["key"], ["key"])
@@ -280,6 +282,20 @@ def main() -> IO(Unit):
 #|frame
 #|height	3
 #|width	0
+#|raw same, opt same, full same
+#|
+#|-- sort_key on zero rows
+#|frame
+#|height	0
+#|width	4
+#|col	u32	"id"
+#|col	str	"g"
+#|col	f32	"v"
+#|col	bool	"k"
+#|raw same, opt same, full same
+#|
+#|-- invalid sort_key on a missing column
+#|error	ColumnNotFound: nope
 #|raw same, opt same, full same
 #|
 #|-- invalid sort missing column

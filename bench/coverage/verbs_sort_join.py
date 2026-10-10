@@ -39,7 +39,9 @@ srt("sort by bool", "k")
 show("sort by no key is the identity", m())  # D: sort([]) is the identity (Polars refuses an empty `by`)
 srt("sort on zero rows", ["v", "g"], [False, True], base=lambda: m().clear())
 show("sort on zero columns", m().head(3).drop("id", "g", "v", "k"))
+srt("sort_key on zero rows", ["v"], True, True, base=lambda: m().clear())
 T = "TypeMismatch in "
+err("invalid sort_key on a missing column", "ColumnNotFound: nope", lambda: m().sort(["nope"]))
 err("invalid sort missing column", "ColumnNotFound: nope", lambda: m().sort(["v", "nope"]))
 err("invalid sort first missing key wins", "ColumnNotFound: nope2", lambda: m().sort(["nope2", "nope"]))
 
