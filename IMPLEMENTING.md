@@ -1000,3 +1000,24 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
 - `bend <file> --publish` uploads the file, its transitive `./` imports and every file named
   exactly `LICENSE` beside a published file: for this repo that is `frame.bend`, the 19 files of
   `src/` and the root `LICENSE` (no `LICENSE` sits in `src/`).
+
+## v0.1 review: scan source identity
+
+- **Keep internal identities out of user namespaces structurally.** A reserved-name scheme
+  (`"#scan<k>"` bound in the same `Env` as user frames) silently aliased a user Source of that
+  name. Adding a field to the affine `Env` (`Env{frames, scans}`) cost four mechanical
+  constructor edits in plan.bend and no proof change: no proof destructures `Env`, and the
+  runner proofs treat `Exec.step(IScan ..)` as an opaque step (`rf(Q.Exec.step(i, st))`). A new
+  `Plan` / `Instr` constructor would have added a case to every proof that matches on them.
+- **A positional queue needs the producer and the consumer to walk the same order.** `Exec.mat`
+  reads `Exec.compile(p, Nil)` and the runner compiles the same `p`; both are postfix, so scan k
+  read is scan k taken. When the plan is optimised first, the two must see the SAME (optimised)
+  plan; `release_keeps_scans` additionally proves the optimiser keeps the scan sequence.
+- **Re-deriving a list lemma for another projection** (`Laws.srcs` -> `Laws.scans`) is a text
+  transform of the proofs (`srcs_app` .. `hmerge_keeps_sources`): rename the projection, its
+  element type in `List<&2, ..>` / `List.append(&2, .., ..)`, and swap the two `case` bodies in
+  the `_app` lemma (the projected constructor conses, the other recurses). It checked first time.
+- `List.reverse(&1, C.Frame, acc)` works on affine lists: accumulate frames newest-first in the
+  IO loop, reverse once at the end.
+- Show a regression catches the old defect: `git archive HEAD~1 | tar -x -C <scratch>`, copy the
+  new test and its data in, run it there and diff (here 7 cases differ).
