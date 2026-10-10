@@ -1021,3 +1021,31 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
   IO loop, reverse once at the end.
 - Show a regression catches the old defect: `git archive HEAD~1 | tar -x -C <scratch>`, copy the
   new test and its data in, run it there and diff (here 7 cases differ).
+
+## T6 coverage matrix (scripts/coverage_matrix.py, tests/coverage/)
+
+- Annotate a case with `#@ cover <ops> <kinds>` (or `#@ na <ops> <kinds> -- <reason>`) in the test
+  file; the script checks that the file calls `DF.<op>(` or `<Alias>.e_<op>(` (a `tests/**/lib`
+  wrapper). Per file, naming a (op, kind) both `cover` and `na` is an error: split the line so a
+  claim says only what the file really does (`lit_u32` has no null case of its own; the null case
+  is in the file that puts it beside a nullable column).
+- Bend checks for these test files: a helper def must sit ABOVE its caller (`schema_text.k` before
+  `schema_text`, "an unfilled law is a dead claim"); a parameter used twice needs `+` (`+tag`,
+  `+es`, and also every U32 / Expr that goes into both the eager and the lazy call, e.g. `hd(+tag, +n)`);
+  list cons is `x <> xs`, concatenation `List.append(&2, X.Expr, xs, ys)` (`++` is String only);
+  `do` blocks need `x : T <- io` with the type written.
+- `R.four` prints `raw same, opt same, full same` after the eager dump; its `R.four.text` is reusable
+  for plans with no eager twin (`lazy3`, `scanC`) and for storage comparisons (`R.agree.v`).
+  `IO.print` adds a newline after the text: end a helper's text with ONE `"\n"` at most.
+- Expectations come from `bench/coverage/<name>.py` (a Polars 2.0.0 twin printing the same text,
+  with the contract's departures patched by hand and marked `D:`), `bench/coverage/check.sh <name>`
+  diffs it with Bend's output and `bench/coverage/bless.sh <name>` then writes the `#|` lines. A file
+  with no line-by-line twin (`api_frames`, `api_plans`, `csv_storage`: Bend's own table / plan /
+  storage text) uses `FORCE=1 bench/coverage/bless.sh <name>` and says so in its header.
+- `DF.dump` prints every NaN as `0x7fc00000` (src/dump.bend); the Polars twin canonicalises NaN bits
+  in `fx.show`. `F32.show` gives `nan`, `inf`, `-0`, `4294967000` where Polars writes `NaN`, `inf`,
+  `-0.0`, `4294967000.0`: patch these by hand in a twin, nowhere else.
+- `DF.lazy_concat_vertical([])` is `Concat{0, Source "", Source ""}`: `DF.validate_bindings` on it
+  answers "source not in env: " (empty name) where `collect` / `collect_schema` answer the static
+  "concat_vertical: no inputs" first. Not reachable through collect; do not use it as "a plan with
+  no Source" (use `DF.scan_csv_schema`, which has none).

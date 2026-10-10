@@ -113,3 +113,13 @@ diff-smoke:
 	cd bench && uv run python diff/run.py --seed 20261001 --n $(DIFF_SMOKE_N) --strict
 	cd bench && uv run python diff/run.py --seed 20261002 --n $(DIFF_SMOKE_N) --strict --dict
 	cd bench && uv run python diff/reduce.py --seed 20261003 --n $(DIFF_SMOKE_REDUCE_N)
+
+# ---- T6: public-API coverage matrix (scripts/coverage_matrix.py, plans/M_01.txt T6) ----------
+# make coverage: regenerates docs/COVERAGE.md (the matrix and the def-call report over src/) and exits 1
+# when a released operation lacks a kind (success, null, empty, invalid, eager, lazy) or an annotation is
+# invalid. `make coverage` is part of `make ci` (the extra prerequisite below).
+.PHONY: coverage
+coverage:
+	python3 scripts/coverage_matrix.py
+
+ci: coverage
