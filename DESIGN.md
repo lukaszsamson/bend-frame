@@ -765,7 +765,8 @@ therefore sequential inside a column and parallel ACROSS independent work:
 
 Status (v0.1 release candidate, after M5 part 4: P1 and P2 closed as scoped, P3 by the
 fallback, both string storages in the P1 chain, the in-place kernels and concatenation
-included): `LAWS.bend` states 147 laws over `src/` in 15 sections; `PROOF.bend` imports
+included; the v0.1 review's scan laws `hmerge_keeps_scans` / `release_keeps_scans` added
+after it): `LAWS.bend` states 149 laws over `src/` in 15 sections; `PROOF.bend` imports
 `PROOF_lib`, `PROOF_schema`, `PROOF_expr`, `PROOF_plan`, `PROOF_kernels`, `PROOF_exec`,
 `PROOF_bits`, `PROOF_contents`, `PROOF_eval`, `PROOF_evalops`, `PROOF_evalrun`,
 `PROOF_strs`, `PROOF_append` and `PROOF_inplace` (one file per area; `L.*` is the shared
@@ -808,7 +809,7 @@ Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 | 5/5b Columns, kernel shape (`PROOF_kernels`) | `head_len`, `head_dtype`, `mask_not_slots`, `mask_and_slots`, `iota_slots` (2^d slots through the model `Laws.slots` of `Array.size`) |
 | 6 I32 (`PROOF_lib`) | `i32_add_comm`, `i32_bits_roundtrip` |
 | 7 Names and numbers (`PROOF_lib`) | `u32_min_comm`, `u32_min_assoc` (from Word.cmp antisymmetry and transitivity, by induction over the 32-bit word), `str_eq_refl`, `str_eq_sound` (the runtime `String.eq` is reflexive and equal names are the same string: the P0 name-equality spike closed, no local `Str.eq` was needed), `names_has_head` |
-| 8 The production runner (`PROOF_exec`) | `frame_head_head`, `head_step`, `head_merge_run` (R1 as a rule: `Exec.run_pure(Head{n, Head{m, x}}, env) == Exec.run_pure(Head{Opt.hmin(m, Some n), x}, env)` for every plan x, env, n, m), `head_pass_keeps_sources`, `head_pass_run` (R1 as the pass: `Opt.head` on the merge-only fragment, any pending limit, suffix code and runner state), `hmerge_keeps_sources`, `hmerge_run` (the release head pass `Opt.hmerge` with any pending limit, suffix code and runner state, for EVERY plan), `release_run` (`Exec.run_pure(Optimize.release(p), env) == Exec.run_pure(p, env)` for every plan p and env, no hypothesis), `release_run_obs` (the same through `DF.dump`) |
+| 8 The production runner (`PROOF_exec`) | `frame_head_head`, `head_step`, `head_merge_run` (R1 as a rule: `Exec.run_pure(Head{n, Head{m, x}}, env) == Exec.run_pure(Head{Opt.hmin(m, Some n), x}, env)` for every plan x, env, n, m), `head_pass_keeps_sources`, `head_pass_run` (R1 as the pass: `Opt.head` on the merge-only fragment, any pending limit, suffix code and runner state), `hmerge_keeps_sources`, `hmerge_keeps_scans` / `release_keeps_scans` (the release optimizer keeps every `IScan` instruction, path, options and frozen schema, in postfix order: `Exec.mat` reads the same files in the same order for `Optimize.release(p)` as for p), `hmerge_run` (the release head pass `Opt.hmerge` with any pending limit, suffix code and runner state, for EVERY plan), `release_run` (`Exec.run_pure(Optimize.release(p), env) == Exec.run_pure(p, env)` for every plan p and env, no hypothesis), `release_run_obs` (the same through `DF.dump`) |
 | 9 P0 well-formedness (`PROOF_kernels`) | `u32_min_le`, `wf_new`, `wf_new_words`, `wf_frame_empty`, `wf_column_head`, `wf_frame_head` over the Type-valued predicates `WFArray`, `WFWords`, `WFMaskedW/T`, `WFValidW/T`, `WFColumn`, `WFColumnH`, `WFCols`, `WFFrame` (len <= 2^depth, perfect trees, 0/1 mask and bool words, null slots at the default, equal heights, unique names, the zero-column convention) |
 | 10 Buffer contents (`PROOF_kernels`) | `array_get_pure` (`Array.get(a, i) == (a, rd_at(a, i))`: the real getter is pure and reads the model `rd`, which makes the production halving decisions), `array_set_get` (read-after-write at the same index through the real `Array.set`), `gather_step`, `compact_step`, `compact_step_cell` (one iteration of the production `Kernel.gather.go` / `compact.go`, at the U32 instance) |
 | 11 Buffer contents, the full theorems (`PROOF_bits`, `PROOF_contents`; plan P1, M5) | `rd_at_wf` (`rd_at` of a well-formed array reads with the slot count 2^d), `paths_distinct` (THE distinct-paths bit-vector lemma: two indices below 2^d whose halving decisions through `Array.get`/`Array.set`'s descent agree are equal, over `Word.and / shr / sub / cmp`), `array_set_other` (a write at i leaves every other slot j below 2^d alone), `wf_array_set`, `gather_contents` (`Kernel.gather` at the U32 instance: `out[k] == src[perm[k]]` for every k < n when n <= 2^d) and `gather_keeps_perm`, `mask_not_cell` / `mask_and_cell` / `mask_or_cell` (`Kernel.map` / `Kernel.zip` slot contents: the validity combinators' truth tables slot by slot), `iota_cell` (`Kernel.iota_from`: `off + k`), `u32_fold_sum` / `u32_fold_keeps` (the production U32 fold with `U32.add` is the modulo-2^32 running sum of the first n cells, `FSum`), `popcount_sum` (the kept-row / valid-cell count is the sum of the mask words), `compact_contents` (`Kernel.compact_keep` at the U32 instance writes the kept rows in order at the cursor positions, `CSpec`, under the explicit precondition `CRoom`: 0/1 words and a cursor below 2^d) and `compact_keeps_mask` (data and validity stay aligned: one mask filters every buffer) |
@@ -823,6 +824,7 @@ Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 |---|---|---|---|
 | `release_run(_obs)` | `Optimize.release` (= `Opt.hmerge`, adjacent-Head merging, the whole default optimizer), `Exec.run_pure` (= `Exec.compile`, `Exec.mark`, `Exec.loop`, `Exec.step*`, `Exec.fin`), `Frame.head`, `Column.head` | NONE: every plan p (well-typed or not, every node kind, scans included) and every env (bindings are not validated by `run_pure`; `Exec.run` validates first and feeds the same env). Result equality of `E.ResT(C.Frame)`, frames included; errors included. | bend, --verdict |
 | `hmerge_run`, `hmerge_keeps_sources` | `Opt.hmerge(p, n)` vs `p` with the pending limit `n` and a suffix in the hypothesis; `Exec.later` (the last-use marks) | suffixes with the same Sources that run alike; every plan | bend, --verdict |
+| `hmerge_keeps_scans`, `release_keeps_scans` | `Opt.hmerge`, `Optimize.release`, `Exec.compile` (the `IScan` instructions `Exec.mat` reads and the runner's `IScan` takes from `Env.scans`) | none (all plans) | bend, --verdict |
 | `head_merge_run` | the same, as the local rule, for EVERY plan x (certified or not, scans included: both sides fail alike) | none | bend, --verdict |
 | `head_pass_run` | `Opt.head(p, n)` vs `p` with the pending limit `n` and a suffix in the hypothesis | `merge_only(p)`; suffixes with the same Sources that run alike | bend, --verdict |
 | `head_pass_keeps_sources` | `Opt.head`, `Exec.compile`, `Exec.later` (the last-use marks) | none (all plans) | bend, --verdict |
@@ -870,9 +872,16 @@ What the release chain does NOT cover, stated exactly:
   `Frame.head(Eval.select(f, es), n)` only observationally (through `DF.dump` /
   `Column.cell`), which needs cell-level theorems for every `Eval` operation.
 - `Exec.run_pure` is the runner after validation and scan materialisation; the
-  theorem quantifies over any env, so it covers the validated env `Exec.run` hands over
-  and the scan frames `Exec.mat` binds. The IO reads themselves (`Csv.read_with`) are
-  outside the proof (plan M_01 section 6 "IO boundary").
+  theorem quantifies over any env, so it covers the validated env `Exec.run` hands over,
+  scan frames included: since the v0.1 review (section 14 "v0.1 review: scan source
+  identity") the scans' frames sit in env's unnamed scan namespace and `run_pure` runs the
+  plan itself (no ScanCsv -> Source rewrite), so `release_run` speaks about scan plans
+  directly, and `release_keeps_scans` proves that the optimised plan materialises the same
+  scans in the same order. Still not machine-checked between `collect` and `collect_raw`:
+  that `Plan.schema` and `Exec.validate` answer alike for `Optimize.release(p)` and p
+  (true by inspection: `Opt.hmerge` only merges Heads and keeps every Source with its
+  schema; `hmerge_keeps_sources` covers the names, not the schemas). The IO reads
+  themselves (`Csv.read_with`) are outside the proof (plan M_01 section 6 "IO boundary").
 - The evaluator typing theorems (`run_typed`, `eval_full_typed`, `eval_expr_typed`)
   state dtype, height, the frame coming back unchanged and "fails only where the
   analysis says it may". They do not state cell values, that only the `refs` columns are
@@ -1926,6 +1935,8 @@ Join.run makes first). Differences:
    `Exec.run_pure(Exec.unscan(p, 0), env)` where `Exec.unscan` replaces each `ScanCsv`
    by `Source{"#scan<k>", s}` (a Join's left scans first, as `Exec.compile` orders
    them). 4.14's "ScanCsv -> Csv.read at its position" is therefore no longer literal.
+   **Superseded** by "v0.1 review: scan source identity" below: the frames go to env's
+   unnamed scan namespace and the plan is not rewritten (no `"#scan<k>"`, no `unscan`).
 2. **Error order with scans changed**: every scan is read before any operator runs, so
    an `IoError` / `ParseError` / frozen-schema error of a scan is reported even when an
    operator that `Exec.compile` orders earlier would have failed (before M2 the earlier
@@ -1933,13 +1944,15 @@ Join.run makes first). Differences:
    binding (`Exec.validate`) errors still come first. No existing test observed the
    old order; 15.2.8's "static error first, then bindings, then execution" still holds
    with "execution" now meaning "scans, then the pure run".
-3. **Reserved names**: `"#scan0"`, `"#scan1"`, ... are the materialised scans' Source
-   names; a user frame registered under such a name is shadowed by the scan during
-   that collect (Env.add prepends). Documented, not checked.
+3. **Reserved names** (**withdrawn**, it was a silent wrong result: v0.1 review P1, see
+   "v0.1 review: scan source identity" below): `"#scan0"`, `"#scan1"`, ... were the
+   materialised scans' Source names; a user frame registered under such a name was
+   shadowed by the scan during that collect (Env.add prepends). No name is reserved now.
 4. **`Exec.run_pure` on a plan that still holds a `ScanCsv`** answers
    `InvalidOperation{"exec: scan_csv not materialised: <path>"}` (it cannot do IO);
    production never hits it (`Exec.unscan` runs first), and the R1 theorems cover it
-   trivially (both sides fail alike).
+   trivially (both sides fail alike). Since the v0.1 review this is the answer only when
+   env's scan namespace has no frame left for the `IScan` (production fills it first).
 5. **Name equality decision (P0)**: the spike CLOSED. `String.eq` reflexivity and
    soundness are proven from Base's `String.cmp` / `Char.cmp` / `Word.cmp` by
    induction over the 32-bit word (LAWS 7 `str_eq_refl`, `str_eq_sound`), so the
@@ -2430,6 +2443,64 @@ experiment"; raw runs: bench/results/m4/*.jsonl; Bend lessons: IMPLEMENTING.md "
    run, so the hub upload itself is first exercised by the real `bend-frame@0.1.0.0` publish.
 2. **CI has never run**: `.github/workflows/ci.yml` exists and `make ci` runs its gates
    locally, but the repository has no remote, so the workflow itself is untested.
+
+### v0.1 review: scan source identity
+
+plans/REVIEW_V01_ASTRA.txt [P1], a silent wrong result: `Exec.validate` checked the
+caller's env, then `Exec.mat` prepended scan k's frame under the name `"#scan<k>"` and
+`Exec.unscan` rewrote the `ScanCsv` to `Source{"#scan<k>", s}`. A user
+`DF.source("#scan0", ..)` was accepted and then read the CSV's frame:
+`concat_vertical([source "#scan0" x=[1], scan x=[2]])` collected `x=[2, 2]`; under any
+other name `x=[1, 2]`. M2 item 3 above had documented the names as reserved, unchecked.
+
+1. **Fix, by construction (no name-based scheme left)**: `Env` is
+   `Env{frames: List<&1, Named.Frame>, scans: List<&1, C.Frame>}`. `frames` is the user's
+   namespace (`Env.add`, `Env.take`, `Env.clone`, `Env.info`, so `validate_bindings`);
+   `scans` holds unnamed frames, in the postfix (`Exec.compile`) order of the plan's
+   `ScanCsv` nodes. `Exec.run` = `Plan.schema`, `Exec.validate` (unchanged: only names in
+   `frames`), `Exec.mat` (reads every scan in postfix order, first error wins, the
+   frozen-schema check as before; the frames are collected in a list, not bound), then
+   `Exec.run_pure(p, Env.set_scans(env, frames))` on the plan AS IT IS. The runner's
+   `IScan` takes the next frame off `scans` (`Env.scan_take`) and checks it against the
+   instruction's schema with the existing `"scan_csv <path>: data schema .."` text; with
+   none left it is the existing `"exec: scan_csv not materialised: <path>"`. A `Source`
+   only ever reads `frames`, so a user name can never reach a scan's frame, whatever the
+   name. `Exec.unscan`, `Exec.nscans` and `Exec.scan_name` are gone. No name is reserved;
+   `"#scan0"` is an ordinary Source name. Nothing is rejected at the public entry points,
+   so no new error text (15.9).
+2. **Why not fresh names or a reserved-name check**: fresh names (skip any name in env)
+   or rejecting `#scan*` at `source` / `add_source` / `validate_bindings` / `collect` would
+   keep the namespaces disjoint only as long as every entry point remembers the rule; a
+   separate field makes it structural. The other by-construction option, a new `Plan` or
+   `Instr` constructor for materialised scans, would add a case to every proof that
+   matches on `Plan` / `Instr` (LAWS 3, 4, 8). The `Env` field needs no proof change:
+   no proof destructures `Env` (it is opaque in `St{env, stack}`), and `head_pass_run` /
+   `hmerge_run` treat `Exec.step(IScan ..)` as an opaque step. `make proofs` / `make
+   verdict` passed unchanged.
+3. **What the proofs gain**: `Exec.run_pure` now runs the user's (optimised) plan itself,
+   scans included, so `release_run` is no longer vacuous on scan plans (before, both sides
+   failed with "not materialised" and the theorem applied only after `unscan`, an
+   unproven glue step; plans/REVIEW_V01_FABLE.txt H1). New laws `hmerge_keeps_scans` /
+   `release_keeps_scans` (LAWS 8, the `hmerge_keeps_sources` development over
+   `Laws.scans`) prove that the optimised plan holds the same `IScan` instructions in the
+   same order, so `collect` and `collect_raw` materialise the same frames. Still unproven
+   glue: `Plan.schema` and `Exec.validate` agreeing on `Optimize.release(p)` and p (section 8).
+4. **Contract changes** (15.7, 15.9): the `Env` type line; a "scans" row in 15.7 (a scan
+   binds no name; validate_bindings neither needs nor sees scan frames); the 15.9
+   "lazy error order with scans" note restated (unchanged order: static, bindings, scans
+   in postfix order with the first failing one reported, then the pure run). `DF.source`,
+   `DF.add_source`, `DF.empty_env`, `DF.validate_bindings`, `DF.collect*` keep their
+   signatures; `DF.Env()` is the same type name.
+5. **Regressions**: `tests/regress/V01_a_scan_source_identity.bend` (the repro with
+   frozen and inferred scans and its control; two and three scans, one file twice, next to
+   user Sources `"#scan0"` .. `"#scan2"`; equal and different schemas; scans in inner /
+   left / semi / anti joins, a self-join of a scan, concat; validate_bindings and
+   collect_schema of those plans; the error order; `run_pure` on a scan plan), each
+   through `collect_raw` / `collect` / `collect_full` against eager. Against the previous
+   commit 7 of its cases differ. `tests/regress/V01_b_scan_verbs.bend`: the IO boundary
+   the review found uncovered, every lazy verb over `DF.scan_csv` (filter, select,
+   with_columns, group_by, sort, head, slice, tail, unique, drop, rename, inner / left /
+   semi / anti join, concat, a pipeline) against the eager verb over `DF.read_csv`.
 
 ## 15. v0.1 contract (frozen)
 
@@ -2994,7 +3065,9 @@ read by bend-frame (dump equality, NaN payload excepted), and `""` vs null.
 
 ```
 # src/plan.bend
-type Env is Type:  Env{frames: List<&1, Named.Frame>}          # exists; names unique by contract
+type Env is Type:  Env{frames: List<&1, Named.Frame>, scans: List<&1, C.Frame>}
+                   # frames: the user's names, unique by contract; scans: unnamed, filled by
+                   # Exec.run only (v0.1 review, section 14 "v0.1 review: scan source identity")
 def Env.add(env, +name, f) -> Env & Plan                           # exists; prepends, total
 def Plan.sources(p: Plan, acc: List<&2, String>) -> List<&2, String>   # every Source name, postfix order, with repeats
 # src/exec.bend
@@ -3011,6 +3084,7 @@ def Exec.run_pure(code, env) ...                                    # M2: the pu
 | use counting | `Exec.run` computes `uses(name)` = occurrences in `Plan.sources(p)`; at each `ISource` with `remaining(name) > 1` the frame is **cloned** (`Frame.clone`, column order kept) and left in `env`, `remaining` decremented; at the last use it is **taken** (`Env.take`, no copy). A self-join `Join{.., Source{t}, Source{t}}` therefore works and sees two identical frames |
 | unused frames | frames of `env` not named by `p` stay in `env` and are dropped when `collect` returns (nothing is reported) |
 | ownership | `collect(p, env)` consumes `env`; a caller who needs the frames afterwards clones them before building the env (`DF.clone`) |
+| scans | a `ScanCsv` binds no name: `collect` reads every scan (after the binding checks) into env's separate, unnamed scan namespace, in postfix order, and the runner's scan takes the next frame from there. A `Source` reads only the user's frames, so no Source name (`"#scan0"` included) can ever resolve to a scan's frame, and no name is reserved. `validate_bindings` checks only Sources; a plan of scans alone validates against the empty env |
 | `collect_schema` | never looks at `env` (bindings are not static schema); README stops saying "collect refuses exactly what collect_schema refuses" and says "collect_schema predicts the static schema and type errors; validate_bindings predicts the binding errors; the rest is IO and data" |
 | optimizer | `Optimize.release` runs after validation conceptually but is a pure plan rewrite; it never duplicates or removes a `Source` node, so `Plan.sources` (as a multiset) is invariant under it (a lemma in M5) |
 
@@ -3055,7 +3129,7 @@ heights sum past the cap built from `Frame{h, []}` zero-column frames (no data),
 | `TypeMismatch{op, want, got}` | `op` = lowercase op name (`BinOp.name`, `UnOp.name`, `AggOp.name`, `"cast"`, `"try_cast"`, `"filter"`, `"join"`, `"when"`, `"is_in"`, `"clip"`, `"lit"`, `"from_scalars"`, `"fill_null"`) | typing (15.3); `"lit"` wants `"a typed literal"` got `"null"` for an untyped `Lit{SNull}` |
 | `ShapeMismatch{want, got}` | heights | `Frame.put/replace`, a binary op over two full columns of different length (internal; unreachable from the facade) |
 | `ParseError{line, text}` | `"malformed csv"` (line 0); `"expected <k> fields, got <g>"`; `"column <name>: cannot parse \"<text>\" as <dtype>"` | CSV |
-| `InvalidOperation{what}` | `"aggregation in select (v1: use group_by)"` and its `with_columns`/`filter` twins are **removed** (reductions are accepted); `"nested aggregation: <show>"`; `"group_by needs at least one key"`; `"group_by key is an aggregation: <show>"`; `"agg expects an aggregation: <show>"`; `"nested aggregation in agg: <show>"`; `"join: no key columns"`; `"join: left_on and right_on must have the same length"`; `"concat_vertical: no inputs"`; `"concat_vertical: input <i> schema [..] differs from input 0's [..]"`; `"cast <from> to <to>: row <i> holds <cell>"`; `"i32 out of range: <v>"`; `"csv schema: <d> dtypes for <k> columns"`; `"scan_csv <path>: data schema [..] differs from the plan's [..]"`; `"source <name>: data schema [..] differs from the plan's [..]"`; `"source not in env: <name>"` (replaces `"source not in env (or used twice): <name>"`); `"source bound twice in env: <name>"`; `"too many rows: <n> exceeds 8388608"`; `"exec: malformed plan (stack underflow)"`, `"exec: malformed plan (not one result)"`, `"eval: unexpected .."` (internal, unreachable from well-typed plans) | |
+| `InvalidOperation{what}` | `"aggregation in select (v1: use group_by)"` and its `with_columns`/`filter` twins are **removed** (reductions are accepted); `"nested aggregation: <show>"`; `"group_by needs at least one key"`; `"group_by key is an aggregation: <show>"`; `"agg expects an aggregation: <show>"`; `"nested aggregation in agg: <show>"`; `"join: no key columns"`; `"join: left_on and right_on must have the same length"`; `"concat_vertical: no inputs"`; `"concat_vertical: input <i> schema [..] differs from input 0's [..]"`; `"cast <from> to <to>: row <i> holds <cell>"`; `"i32 out of range: <v>"`; `"csv schema: <d> dtypes for <k> columns"`; `"scan_csv <path>: data schema [..] differs from the plan's [..]"`; `"source <name>: data schema [..] differs from the plan's [..]"`; `"source not in env: <name>"` (replaces `"source not in env (or used twice): <name>"`); `"source bound twice in env: <name>"`; `"too many rows: <n> exceeds 8388608"`; `"exec: malformed plan (stack underflow)"`, `"exec: malformed plan (not one result)"`, `"eval: unexpected .."` (internal, unreachable from well-typed plans); `"exec: scan_csv not materialised: <path>"` (internal: `Exec.run_pure` called directly on a scan plan with no scan frame left in env; `collect` always materialises first) | |
 | `IoError{code, text}` | OS code and message | `File.*` |
 
 Any text that embeds user data (`<show>`, `<cell>`, `<name>`, `<path>`, `<text>`) may
@@ -3094,8 +3168,10 @@ counts such programs apart (`inadmissible_for_T2.1`, bench/diff/README.md);
 
 
 **Decided after M2 (2026-10-09): lazy error order with scans.** `Exec.run` validates the plan
-(`Plan.schema`, then `Exec.validate`), then reads every `ScanCsv` in plan order, then runs the
-pure runner `Exec.run_pure`. So a scan's IO, parse or frozen-schema error is reported before
+(`Plan.schema`, then `Exec.validate`), then reads every `ScanCsv` in plan (postfix) order, the
+first failing scan's error being the result, then runs the pure runner `Exec.run_pure` (since
+the v0.1 review on the plan itself, the scans' frames held in env's unnamed scan namespace;
+the order is unchanged, `tests/regress/V01_a_scan_source_identity.bend` pins it). So a scan's IO, parse or frozen-schema error is reported before
 any runtime operator error, even one that the old postfix interleaving would have reached
 first. Eager programs read their files where the program reads them; the §15.9 admissibility
 rule already exempts such multi-verb programs from eager-vs-lazy error agreement.
@@ -3160,6 +3236,8 @@ rule already exempts such multi-verb programs from eager-vs-lazy error agreement
 | B05-i | README overclaims: "byte-identical", "48 laws" without the schema/shape caveat (Fable 8, Astra 5) | plan G7 | M6 |
 | NEW-1 | eager `select` / `group_by` evaluated data (a failing strict cast) before their static `DuplicateColumn` check, which lazy reports first; eager `sort` reported the LAST missing key; eager `group_by` checked the row cap before `DuplicateColumn` (bench/diff seed 1: tests/diff/d0001, d0002) | 15.9 order of errors | M1 (fixed) |
 | NEW-2 | the interpreter (`bend file.bend`) overflowed the host stack on results of ~2^15 rows or more: `DF.dump` and `Column.from_scalars` recursed once per row (the native binary is fine) | 15.1, 15.8 | M1 (fixed for dump / from_scalars and CSV read / write, DESIGN.md 14) |
+| V01-a | a user `Source` named `"#scan<k>"` validated and then read scan k's CSV frame (`concat([source "#scan0" x=[1], scan x=[2]])` gave `x=[2, 2]`), plans/REVIEW_V01_ASTRA.txt P1; `tests/regress/V01_a_scan_source_identity.bend` | 15.7 scans row, 15.9 scan order note | v0.1 review (fixed: scans in a separate Env namespace, section 14) |
+| V01-b | no lazy-over-`scan_csv` coverage per verb (the IO / materialisation boundary), plans/REVIEW_V01_ASTRA.txt "Tests"; `tests/regress/V01_b_scan_verbs.bend` | 15.2 (every verb eager and lazy), 15.6.4 | v0.1 review (test added) |
 
 Rows marked M0 are fixed in M0 itself (harness and tests); every other row gets an
 `#! xfail <ID>` regression in M0 (eager, raw-lazy and optimised-lazy where

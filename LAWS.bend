@@ -811,6 +811,31 @@ law hmerge_run:
   for rf: @s: Q.St -> {Q.Exec.loop(Q.Exec.mark(List.append(&2, Q.Instr, hcode(n), s1)), s) == Q.Exec.loop(Q.Exec.mark(s2), s) : Q.St}
   {Q.Exec.loop(Q.Exec.mark(List.append(&2, Q.Instr, Q.Exec.compile(P.Opt.hmerge(p, n), Nil{}), s1)), st) == Q.Exec.loop(Q.Exec.mark(List.append(&2, Q.Instr, Q.Exec.compile(p, Nil{}), s2)), st) : Q.St}
 
+# the ScanCsv instructions a code holds, in order: what Exec.mat reads (one file per
+# IScan, postfix order) and what the runner's IScans take from env's scan namespace
+def scans(code: List<&2, Q.Instr>) -> List<&2, Q.Instr>:
+  match code:
+    case Nil{}:
+      Nil{}
+    case Q.IScan{path, o, s} <> t:
+      Q.IScan{path, o, s} <> scans(t)
+    case i <> t:
+      scans(t)
+
+# LAW: Opt.hmerge never changes which scans the code holds, in which order
+law hmerge_keeps_scans:
+  for p: P.Plan
+  for +n: Maybe<&2, U32>
+  for +acc: List<&2, Q.Instr>
+  {scans(Q.Exec.compile(P.Opt.hmerge(p, n), acc)) == scans(Q.Exec.compile(P.Opt.hwrap(n, p), acc)) : List<&2, Q.Instr>}
+
+# LAW: the release optimizer keeps the scans (files, options, frozen schemas, order), so
+# collect (Optimize.release, then Exec.run) materialises exactly the frames collect_raw
+# does, in the same order, before release_run compares the two runs
+law release_keeps_scans:
+  for +p: P.Plan
+  {scans(Q.Exec.compile(P.Optimize.release(p), Nil{})) == scans(Q.Exec.compile(p, Nil{})) : List<&2, Q.Instr>}
+
 # LAW G6: the release optimizer preserves the production runner's result for EVERY
 # plan (well typed or not: an ill-typed plan comes back unchanged) and every env
 law release_run:
