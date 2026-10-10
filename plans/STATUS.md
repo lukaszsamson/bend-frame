@@ -296,3 +296,12 @@ documentation pass (this section's commit).
 - `make check`, `make proofs` (ALL PROOFS CHECK), `make verdict` (ALL PROOFS CHECK): green. Only comments changed in `LAWS.bend` and
   `tests/regress/B03_b_eager_fsum_inf.bend`; no `src/` or test expectation changed.
 - `diff/run.py --n 1000 --no-shrink`: seeds 5 (Raw), 7 (`--dict`), 6 (`--features deep`): 0 failing, 0 oracle errors; about 5 s, 3.5 s and 14 s wall.
+
+## Authoritative gate run after the v0.1 review fixes (2026-10-10)
+Commit 1ba2954, no agents running (machine load average 11–30 from other processes).
+`make ci` exit 0 in 276 s, "ci: all gates passed": toolchain-check, check, runner-check,
+diff-driver-check, test (158/158, 0 XFAIL), proofs and verdict (149 laws, ALL PROOFS CHECK),
+mutation-check (14/14 rejected, unmutated accepted), bench-check (q1–q6 at 1k/100k), diff-smoke
+(Raw and Dictionary: 0 failing; reduction: no findings), consumer-check (clean clone, relative and
+absolute imports, interpreter and native), coverage (727 covered, 47 n/a, 0 missing).
+Not run: hosted CI (no remote); Linux x86-64; the hub upload (no dry-run mode exists).
