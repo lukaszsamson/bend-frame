@@ -8,12 +8,14 @@ against what `bend` prints. Run one by hand from bench/: `uv run python coverage
 """
 import os
 import re
+import warnings
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import polars as pl  # noqa: E402
 from dump_polars import dump, dump_error  # noqa: E402
 
+warnings.filterwarnings("ignore")
 NAN = float("nan")
 INF = float("inf")
 MIN = -2147483648
