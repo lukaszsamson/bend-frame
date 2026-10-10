@@ -249,4 +249,4 @@ Design and implementation notes: [`DESIGN.md`](DESIGN.md) (goals and the Polars 
 
 ## License
 
-MIT. Copyright (c) 2026 Lukasz Samson. See [`LICENSE`](LICENSE).
+Apache License 2.0. Copyright 2026 Lukasz Samson. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). `src/csvparse.bend` is a fork of the MIT-licensed hub package `bend-csv-parser` (Copyright (c) 2026 nohzafk); its MIT notice is kept in the file.

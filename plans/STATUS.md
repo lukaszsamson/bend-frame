@@ -209,7 +209,7 @@ From the repo root, after `~/.bend/bin/bend login`:
     ~/.bend/bin/bend frame.bend --publish bend-frame@0.1.0.0
 Uploads frame.bend and its transitive `./` imports: the 19 files of src/ (analysis, column, csv, csvparse, dtype, dump, err,
 eval, exec, expr, fmt, groupby, join, kernels, plan, schema, sort, strs, table; 577 KB with frame.bend), plus every file named
-exactly `LICENSE` beside a published file: the root `LICENSE` (SPDX MIT, beside frame.bend; verified). src/ has no LICENSE of
+exactly `LICENSE` beside a published file: the root `LICENSE` (SPDX Apache-2.0 since 2026-10-10, beside frame.bend; verified). src/ has no LICENSE of
 its own. No hub dependencies (only Base). LAWS / PROOF*, tests, bench, examples are not uploaded. Public and permanent.
 
 ## In progress
@@ -224,3 +224,11 @@ its own. No hub dependencies (only Base). LAWS / PROOF*, tests, bench, examples 
 - The user decides on the `bend-frame@0.1.0.0` publish (command above). Optional, not v0.1: push to a remote so the CI workflow
   runs once; the gaps in the DoD (R2-R5 as theorems, the grouped scatter invariant, Dictionary completeness / per-entry maps /
   rank order) are v0.2 proof work.
+
+## Decisions (2026-10-10)
+- License changed from MIT to Apache-2.0 (user). `LICENSE` and `src/LICENSE` hold
+  `SPDX-License-Identifier: Apache-2.0` followed by the unmodified Apache License 2.0 text;
+  `NOTICE` names the project and the third-party MIT code (`src/csvparse.bend`, forked from
+  `bend-csv-parser@0.1.0.1`, Copyright (c) 2026 nohzafk; its MIT notice stays in the file).
+- v0.1 is positioned as an experimental release: R1-only default optimizer and conditional
+  Dictionary assurance, with the remaining proof work deferred (both v0.1 reviews recommend this).

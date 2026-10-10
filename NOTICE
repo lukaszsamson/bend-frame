@@ -1,0 +1,10 @@
+bend-frame
+Copyright 2026 Lukasz Samson
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party code:
+- src/csvparse.bend is a modified fork of the BendHub package
+  bend-csv-parser@0.1.0.1 (0x64aa7934c3659ee6a818595494b38921),
+  Copyright (c) 2026 nohzafk, licensed under the MIT License.
+  Its MIT notice is kept in the header of src/csvparse.bend.

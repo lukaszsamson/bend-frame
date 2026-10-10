@@ -202,7 +202,7 @@ tests/*.bend               one IO main each, `#|` expectations                [h
 examples/*.bend            README programs                                     [haiku]
 bench/gen.py, bench/*.bend M7 benchmark vs Polars                              [sonnet]
 scripts/test.sh            the runner (§10)                                    [haiku]
-README.md, LICENSE (SPDX-License-Identifier: MIT)                            [haiku]
+README.md, LICENSE (SPDX-License-Identifier: Apache-2.0 since 2026-10-10)   [haiku]
 ```
 
 All type definitions below are verbatim from `probes/p21_design_sigs.bend`
@@ -1117,7 +1117,7 @@ M7 benchmarks [sonnet]
    cons cells; the untimed parse keeps the comparison about the engine).
 
 M8 publish readiness [haiku]
- - `LICENSE` (`SPDX-License-Identifier: MIT` first line), `README.md` with
+ - `LICENSE` (`SPDX-License-Identifier: Apache-2.0` first line; MIT until 2026-10-10), `README.md` with
    the examples, `bend frame.bend --check-only` clean, `bend frame.bend
    --publish bend-frame@0.1.0.0` after `bend login` (a publish is permanent:
    the human runs it).

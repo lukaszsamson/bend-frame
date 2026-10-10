@@ -8,6 +8,11 @@ Not claimed: Polars compatibility, a verified engine, verified sort/group/join p
 
 Toolchain: Bend 2.0.36, Lean 4.34.0 (for `--verdict`), Polars 2.0.0 for the reference side (pins in `TOOLCHAIN`).
 
+### License
+
+Apache-2.0 (`LICENSE`, `NOTICE`). `src/csvparse.bend` is a fork of the MIT-licensed hub package
+`bend-csv-parser@0.1.0.1` and keeps its MIT notice.
+
 ### What is in it
 
 - Five nullable dtypes (`Bool`, `U32`, `I32`, `F32`, `Str`) with no implicit casts; checked column and frame builders.
