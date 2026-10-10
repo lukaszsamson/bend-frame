@@ -14,6 +14,9 @@
 #     on the merge-only fragment), hmerge_run (the release optimizer's merge-only pass,
 #     every plan), release_run (Optimize.release, every plan and env), release_run_obs
 #     (the same through DF.dump).
+#   * scans (v0.1 review): hmerge_keeps_scans / release_keeps_scans, the Sources'
+#     development over Laws.scans: the release optimizer keeps the ScanCsv instructions,
+#     so Exec.mat reads the same files in the same order for the optimised plan.
 import Base
 import ./src/dtype.bend as D
 import ./src/err.bend as E
@@ -810,3 +813,144 @@ def Laws.release_run(p, env):
 
 def Laws.release_run_obs(p, env):
   Equal.cong(E.ResT(C.Frame), String, r => DP.Dump.result(r), Q.Exec.run_pure(P.Optimize.release(p), env), Q.Exec.run_pure(p, env), Laws.release_run(p, env))
+
+# ---- the scans: Opt.hmerge keeps the ScanCsv instructions (what Exec.mat reads) ------------
+#
+# The same development as the Sources' (srcs_app .. hmerge_keeps_sources) over Laws.scans:
+# the release optimizer never adds, drops or reorders a scan, so Exec.mat reads the same
+# files, in the same order, for Optimize.release(p) as for p (release_keeps_scans), and the
+# runner's IScans take the same frames from env's scan namespace.
+
+def scans_app(a: List<&2, Q.Instr>, +b: List<&2, Q.Instr>) -> {Laws.scans(List.append(&2, Q.Instr, a, b)) == List.append(&2, Q.Instr, Laws.scans(a), Laws.scans(b)) : List<&2, Q.Instr>}:
+  match a:
+    case Nil{}:
+      {==}
+    case Q.ISource{n, s, l} <> t:
+      scans_app(t, b)
+    case Q.IScan{path, o, s} <> t:
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(List.append(&2, Q.Instr, t, b)), List.append(&2, Q.Instr, Laws.scans(t), Laws.scans(b)), scans_app(t, b)) : {Q.IScan{path, o, s} <> _ == Q.IScan{path, o, s} <> List.append(&2, Q.Instr, Laws.scans(t), Laws.scans(b)) : List<&2, Q.Instr>}
+      {==}
+    case Q.ISelect{es} <> t:
+      scans_app(t, b)
+    case Q.IWith{es} <> t:
+      scans_app(t, b)
+    case Q.IFilter{e} <> t:
+      scans_app(t, b)
+    case Q.ISort{ks} <> t:
+      scans_app(t, b)
+    case Q.ITable{op} <> t:
+      scans_app(t, b)
+    case Q.IConcat{ci} <> t:
+      scans_app(t, b)
+    case Q.IGroupBy{ks, ags, mo} <> t:
+      scans_app(t, b)
+    case Q.IJoin{how, lo, ro} <> t:
+      scans_app(t, b)
+    case Q.IHead{k} <> t:
+      scans_app(t, b)
+
+def scans_hcode(n: Maybe<&2, U32>, -s: List<&2, Q.Instr>) -> {Laws.scans(List.append(&2, Q.Instr, Laws.hcode(n), s)) == Laws.scans(s) : List<&2, Q.Instr>}:
+  match n:
+    case None{}:
+      {==}
+    case Some{k}:
+      {==}
+
+def scans_compile(+q: P.Plan, +acc: List<&2, Q.Instr>) -> {Laws.scans(Q.Exec.compile(q, acc)) == List.append(&2, Q.Instr, Laws.scans(Q.Exec.compile(q, Nil{})), Laws.scans(acc)) : List<&2, Q.Instr>}:
+  %Equal.sym(List<&2, Q.Instr>, Q.Exec.compile(q, acc), List.append(&2, Q.Instr, Q.Exec.compile(q, Nil{}), acc), compile_app(q, acc)) : {Laws.scans(_) == List.append(&2, Q.Instr, Laws.scans(Q.Exec.compile(q, Nil{})), Laws.scans(acc)) : List<&2, Q.Instr>}
+  scans_app(Q.Exec.compile(q, Nil{}), acc)
+
+def scans_hwrap(+n: Maybe<&2, U32>, +q: P.Plan, +acc: List<&2, Q.Instr>) -> {Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, q), acc)) == Laws.scans(Q.Exec.compile(q, acc)) : List<&2, Q.Instr>}:
+  %Equal.sym(List<&2, Q.Instr>, Q.Exec.compile(P.Opt.hwrap(n, q), acc), List.append(&2, Q.Instr, Q.Exec.compile(P.Opt.hwrap(n, q), Nil{}), acc), compile_app(P.Opt.hwrap(n, q), acc)) : {Laws.scans(_) == Laws.scans(Q.Exec.compile(q, acc)) : List<&2, Q.Instr>}
+  %Equal.sym(List<&2, Q.Instr>, Q.Exec.compile(P.Opt.hwrap(n, q), Nil{}), Q.Exec.compile(q, Laws.hcode(n)), compile_hwrap(n, q)) : {Laws.scans(List.append(&2, Q.Instr, _, acc)) == Laws.scans(Q.Exec.compile(q, acc)) : List<&2, Q.Instr>}
+  %Equal.sym(List<&2, Q.Instr>, Q.Exec.compile(q, Laws.hcode(n)), List.append(&2, Q.Instr, Q.Exec.compile(q, Nil{}), Laws.hcode(n)), compile_app(q, Laws.hcode(n))) : {Laws.scans(List.append(&2, Q.Instr, _, acc)) == Laws.scans(Q.Exec.compile(q, acc)) : List<&2, Q.Instr>}
+  %Equal.sym(List<&2, Q.Instr>, List.append(&2, Q.Instr, List.append(&2, Q.Instr, Q.Exec.compile(q, Nil{}), Laws.hcode(n)), acc), List.append(&2, Q.Instr, Q.Exec.compile(q, Nil{}), List.append(&2, Q.Instr, Laws.hcode(n), acc)), app_assoc(Q.Exec.compile(q, Nil{}), Laws.hcode(n), acc)) : {Laws.scans(_) == Laws.scans(Q.Exec.compile(q, acc)) : List<&2, Q.Instr>}
+  %Equal.sym(List<&2, Q.Instr>, Laws.scans(List.append(&2, Q.Instr, Q.Exec.compile(q, Nil{}), List.append(&2, Q.Instr, Laws.hcode(n), acc))), List.append(&2, Q.Instr, Laws.scans(Q.Exec.compile(q, Nil{})), Laws.scans(List.append(&2, Q.Instr, Laws.hcode(n), acc))), scans_app(Q.Exec.compile(q, Nil{}), List.append(&2, Q.Instr, Laws.hcode(n), acc))) : {_ == Laws.scans(Q.Exec.compile(q, acc)) : List<&2, Q.Instr>}
+  %Equal.sym(List<&2, Q.Instr>, Laws.scans(List.append(&2, Q.Instr, Laws.hcode(n), acc)), Laws.scans(acc), scans_hcode(n, acc)) : {List.append(&2, Q.Instr, Laws.scans(Q.Exec.compile(q, Nil{})), _) == Laws.scans(Q.Exec.compile(q, acc)) : List<&2, Q.Instr>}
+  %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(q, acc)), List.append(&2, Q.Instr, Laws.scans(Q.Exec.compile(q, Nil{})), Laws.scans(acc)), scans_compile(q, acc)) : {List.append(&2, Q.Instr, Laws.scans(Q.Exec.compile(q, Nil{})), Laws.scans(acc)) == _ : List<&2, Q.Instr>}
+  {==}
+
+def scans_unary_m(+x: P.Plan, +n: Maybe<&2, U32>, +n2: Maybe<&2, U32>, +i: Q.Instr, +acc: List<&2, Q.Instr>,
+  ih: {Laws.scans(Q.Exec.compile(P.Opt.hmerge(x, n2), i <> acc)) == Laws.scans(Q.Exec.compile(P.Opt.hwrap(n2, x), i <> acc)) : List<&2, Q.Instr>})
+  -> {Laws.scans(Q.Exec.compile(P.Opt.hmerge(x, n2), i <> acc)) == Laws.scans(Q.Exec.compile(x, i <> acc)) : List<&2, Q.Instr>}:
+  %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hmerge(x, n2), i <> acc)), Laws.scans(Q.Exec.compile(P.Opt.hwrap(n2, x), i <> acc)), ih) : {_ == Laws.scans(Q.Exec.compile(x, i <> acc)) : List<&2, Q.Instr>}
+  scans_hwrap(n2, x, i <> acc)
+
+def Laws.hmerge_keeps_scans(p, n, acc):
+  match p:
+    case P.ScanCsv{path, o, s}:
+      {==}
+    case P.Source{nm, s}:
+      {==}
+    case P.Select{+es, +x}:
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Select{es, P.Opt.hmerge(x, None{})}), acc)), Laws.scans(Q.Exec.compile(P.Select{es, P.Opt.hmerge(x, None{})}, acc)), scans_hwrap(n, P.Select{es, P.Opt.hmerge(x, None{})}, acc)) : {_ == Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Select{es, x}), acc)) : List<&2, Q.Instr>}
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Select{es, x}), acc)), Laws.scans(Q.Exec.compile(P.Select{es, x}, acc)), scans_hwrap(n, P.Select{es, x}, acc)) : {Laws.scans(Q.Exec.compile(P.Opt.hmerge(x, None{}), Q.ISelect{es} <> acc)) == _ : List<&2, Q.Instr>}
+      scans_unary_m(x, n, None{}, Q.ISelect{es}, acc, Laws.hmerge_keeps_scans(x, None{}, Q.ISelect{es} <> acc))
+    case P.WithColumns{+es, +x}:
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.WithColumns{es, P.Opt.hmerge(x, None{})}), acc)), Laws.scans(Q.Exec.compile(P.WithColumns{es, P.Opt.hmerge(x, None{})}, acc)), scans_hwrap(n, P.WithColumns{es, P.Opt.hmerge(x, None{})}, acc)) : {_ == Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.WithColumns{es, x}), acc)) : List<&2, Q.Instr>}
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.WithColumns{es, x}), acc)), Laws.scans(Q.Exec.compile(P.WithColumns{es, x}, acc)), scans_hwrap(n, P.WithColumns{es, x}, acc)) : {Laws.scans(Q.Exec.compile(P.Opt.hmerge(x, None{}), Q.IWith{es} <> acc)) == _ : List<&2, Q.Instr>}
+      scans_unary_m(x, n, None{}, Q.IWith{es}, acc, Laws.hmerge_keeps_scans(x, None{}, Q.IWith{es} <> acc))
+    case P.Filter{+e, +x}:
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Filter{e, P.Opt.hmerge(x, None{})}), acc)), Laws.scans(Q.Exec.compile(P.Filter{e, P.Opt.hmerge(x, None{})}, acc)), scans_hwrap(n, P.Filter{e, P.Opt.hmerge(x, None{})}, acc)) : {_ == Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Filter{e, x}), acc)) : List<&2, Q.Instr>}
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Filter{e, x}), acc)), Laws.scans(Q.Exec.compile(P.Filter{e, x}, acc)), scans_hwrap(n, P.Filter{e, x}, acc)) : {Laws.scans(Q.Exec.compile(P.Opt.hmerge(x, None{}), Q.IFilter{e} <> acc)) == _ : List<&2, Q.Instr>}
+      scans_unary_m(x, n, None{}, Q.IFilter{e}, acc, Laws.hmerge_keeps_scans(x, None{}, Q.IFilter{e} <> acc))
+    case P.Sort{+ks, +x}:
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Sort{ks, P.Opt.hmerge(x, None{})}), acc)), Laws.scans(Q.Exec.compile(P.Sort{ks, P.Opt.hmerge(x, None{})}, acc)), scans_hwrap(n, P.Sort{ks, P.Opt.hmerge(x, None{})}, acc)) : {_ == Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Sort{ks, x}), acc)) : List<&2, Q.Instr>}
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Sort{ks, x}), acc)), Laws.scans(Q.Exec.compile(P.Sort{ks, x}, acc)), scans_hwrap(n, P.Sort{ks, x}, acc)) : {Laws.scans(Q.Exec.compile(P.Opt.hmerge(x, None{}), Q.ISort{ks} <> acc)) == _ : List<&2, Q.Instr>}
+      scans_unary_m(x, n, None{}, Q.ISort{ks}, acc, Laws.hmerge_keeps_scans(x, None{}, Q.ISort{ks} <> acc))
+    case P.Drop{+ks, +x}:
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Drop{ks, P.Opt.hmerge(x, None{})}), acc)), Laws.scans(Q.Exec.compile(P.Drop{ks, P.Opt.hmerge(x, None{})}, acc)), scans_hwrap(n, P.Drop{ks, P.Opt.hmerge(x, None{})}, acc)) : {_ == Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Drop{ks, x}), acc)) : List<&2, Q.Instr>}
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Drop{ks, x}), acc)), Laws.scans(Q.Exec.compile(P.Drop{ks, x}, acc)), scans_hwrap(n, P.Drop{ks, x}, acc)) : {Laws.scans(Q.Exec.compile(P.Opt.hmerge(x, None{}), Q.ITable{Q.TDrop{ks}} <> acc)) == _ : List<&2, Q.Instr>}
+      scans_unary_m(x, n, None{}, Q.ITable{Q.TDrop{ks}}, acc, Laws.hmerge_keeps_scans(x, None{}, Q.ITable{Q.TDrop{ks}} <> acc))
+    case P.Rename{+ks, +x}:
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Rename{ks, P.Opt.hmerge(x, None{})}), acc)), Laws.scans(Q.Exec.compile(P.Rename{ks, P.Opt.hmerge(x, None{})}, acc)), scans_hwrap(n, P.Rename{ks, P.Opt.hmerge(x, None{})}, acc)) : {_ == Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Rename{ks, x}), acc)) : List<&2, Q.Instr>}
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Rename{ks, x}), acc)), Laws.scans(Q.Exec.compile(P.Rename{ks, x}, acc)), scans_hwrap(n, P.Rename{ks, x}, acc)) : {Laws.scans(Q.Exec.compile(P.Opt.hmerge(x, None{}), Q.ITable{Q.TRename{ks}} <> acc)) == _ : List<&2, Q.Instr>}
+      scans_unary_m(x, n, None{}, Q.ITable{Q.TRename{ks}}, acc, Laws.hmerge_keeps_scans(x, None{}, Q.ITable{Q.TRename{ks}} <> acc))
+    case P.Slice{+ks, +kl, +x}:
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Slice{ks, kl, P.Opt.hmerge(x, None{})}), acc)), Laws.scans(Q.Exec.compile(P.Slice{ks, kl, P.Opt.hmerge(x, None{})}, acc)), scans_hwrap(n, P.Slice{ks, kl, P.Opt.hmerge(x, None{})}, acc)) : {_ == Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Slice{ks, kl, x}), acc)) : List<&2, Q.Instr>}
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Slice{ks, kl, x}), acc)), Laws.scans(Q.Exec.compile(P.Slice{ks, kl, x}, acc)), scans_hwrap(n, P.Slice{ks, kl, x}, acc)) : {Laws.scans(Q.Exec.compile(P.Opt.hmerge(x, None{}), Q.ITable{Q.TSlice{ks, kl}} <> acc)) == _ : List<&2, Q.Instr>}
+      scans_unary_m(x, n, None{}, Q.ITable{Q.TSlice{ks, kl}}, acc, Laws.hmerge_keeps_scans(x, None{}, Q.ITable{Q.TSlice{ks, kl}} <> acc))
+    case P.Tail{+ks, +x}:
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Tail{ks, P.Opt.hmerge(x, None{})}), acc)), Laws.scans(Q.Exec.compile(P.Tail{ks, P.Opt.hmerge(x, None{})}, acc)), scans_hwrap(n, P.Tail{ks, P.Opt.hmerge(x, None{})}, acc)) : {_ == Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Tail{ks, x}), acc)) : List<&2, Q.Instr>}
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Tail{ks, x}), acc)), Laws.scans(Q.Exec.compile(P.Tail{ks, x}, acc)), scans_hwrap(n, P.Tail{ks, x}, acc)) : {Laws.scans(Q.Exec.compile(P.Opt.hmerge(x, None{}), Q.ITable{Q.TTail{ks}} <> acc)) == _ : List<&2, Q.Instr>}
+      scans_unary_m(x, n, None{}, Q.ITable{Q.TTail{ks}}, acc, Laws.hmerge_keeps_scans(x, None{}, Q.ITable{Q.TTail{ks}} <> acc))
+    case P.Unique{+ks, +x}:
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Unique{ks, P.Opt.hmerge(x, None{})}), acc)), Laws.scans(Q.Exec.compile(P.Unique{ks, P.Opt.hmerge(x, None{})}, acc)), scans_hwrap(n, P.Unique{ks, P.Opt.hmerge(x, None{})}, acc)) : {_ == Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Unique{ks, x}), acc)) : List<&2, Q.Instr>}
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Unique{ks, x}), acc)), Laws.scans(Q.Exec.compile(P.Unique{ks, x}, acc)), scans_hwrap(n, P.Unique{ks, x}, acc)) : {Laws.scans(Q.Exec.compile(P.Opt.hmerge(x, None{}), Q.ITable{Q.TUnique{ks}} <> acc)) == _ : List<&2, Q.Instr>}
+      scans_unary_m(x, n, None{}, Q.ITable{Q.TUnique{ks}}, acc, Laws.hmerge_keeps_scans(x, None{}, Q.ITable{Q.TUnique{ks}} <> acc))
+    case P.GroupBy{+ks, +ags, +mo, +x}:
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.GroupBy{ks, ags, mo, P.Opt.hmerge(x, None{})}), acc)), Laws.scans(Q.Exec.compile(P.GroupBy{ks, ags, mo, P.Opt.hmerge(x, None{})}, acc)), scans_hwrap(n, P.GroupBy{ks, ags, mo, P.Opt.hmerge(x, None{})}, acc)) : {_ == Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.GroupBy{ks, ags, mo, x}), acc)) : List<&2, Q.Instr>}
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.GroupBy{ks, ags, mo, x}), acc)), Laws.scans(Q.Exec.compile(P.GroupBy{ks, ags, mo, x}, acc)), scans_hwrap(n, P.GroupBy{ks, ags, mo, x}, acc)) : {Laws.scans(Q.Exec.compile(P.Opt.hmerge(x, None{}), Q.IGroupBy{ks, ags, mo} <> acc)) == _ : List<&2, Q.Instr>}
+      scans_unary_m(x, n, None{}, Q.IGroupBy{ks, ags, mo}, acc, Laws.hmerge_keeps_scans(x, None{}, Q.IGroupBy{ks, ags, mo} <> acc))
+    case P.Join{+how, +lo, +ro, +l, +r}:
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Join{how, lo, ro, P.Opt.hmerge(l, None{}), P.Opt.hmerge(r, None{})}), acc)), Laws.scans(Q.Exec.compile(P.Join{how, lo, ro, P.Opt.hmerge(l, None{}), P.Opt.hmerge(r, None{})}, acc)), scans_hwrap(n, P.Join{how, lo, ro, P.Opt.hmerge(l, None{}), P.Opt.hmerge(r, None{})}, acc)) : {_ == Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Join{how, lo, ro, l, r}), acc)) : List<&2, Q.Instr>}
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Join{how, lo, ro, l, r}), acc)), Laws.scans(Q.Exec.compile(P.Join{how, lo, ro, l, r}, acc)), scans_hwrap(n, P.Join{how, lo, ro, l, r}, acc)) : {Laws.scans(Q.Exec.compile(P.Opt.hmerge(l, None{}), Q.Exec.compile(P.Opt.hmerge(r, None{}), Q.IJoin{how, lo, ro} <> acc))) == _ : List<&2, Q.Instr>}
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hmerge(l, None{}), Q.Exec.compile(P.Opt.hmerge(r, None{}), Q.IJoin{how, lo, ro} <> acc))), Laws.scans(Q.Exec.compile(P.Opt.hwrap(None{}, l), Q.Exec.compile(P.Opt.hmerge(r, None{}), Q.IJoin{how, lo, ro} <> acc))), Laws.hmerge_keeps_scans(l, None{}, Q.Exec.compile(P.Opt.hmerge(r, None{}), Q.IJoin{how, lo, ro} <> acc))) : {_ == Laws.scans(Q.Exec.compile(l, Q.Exec.compile(r, Q.IJoin{how, lo, ro} <> acc))) : List<&2, Q.Instr>}
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(l, Q.Exec.compile(P.Opt.hmerge(r, None{}), Q.IJoin{how, lo, ro} <> acc))), List.append(&2, Q.Instr, Laws.scans(Q.Exec.compile(l, Nil{})), Laws.scans(Q.Exec.compile(P.Opt.hmerge(r, None{}), Q.IJoin{how, lo, ro} <> acc))), scans_compile(l, Q.Exec.compile(P.Opt.hmerge(r, None{}), Q.IJoin{how, lo, ro} <> acc))) : {_ == Laws.scans(Q.Exec.compile(l, Q.Exec.compile(r, Q.IJoin{how, lo, ro} <> acc))) : List<&2, Q.Instr>}
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(l, Q.Exec.compile(r, Q.IJoin{how, lo, ro} <> acc))), List.append(&2, Q.Instr, Laws.scans(Q.Exec.compile(l, Nil{})), Laws.scans(Q.Exec.compile(r, Q.IJoin{how, lo, ro} <> acc))), scans_compile(l, Q.Exec.compile(r, Q.IJoin{how, lo, ro} <> acc))) : {List.append(&2, Q.Instr, Laws.scans(Q.Exec.compile(l, Nil{})), Laws.scans(Q.Exec.compile(P.Opt.hmerge(r, None{}), Q.IJoin{how, lo, ro} <> acc))) == _ : List<&2, Q.Instr>}
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hmerge(r, None{}), Q.IJoin{how, lo, ro} <> acc)), Laws.scans(Q.Exec.compile(P.Opt.hwrap(None{}, r), Q.IJoin{how, lo, ro} <> acc)), Laws.hmerge_keeps_scans(r, None{}, Q.IJoin{how, lo, ro} <> acc)) : {List.append(&2, Q.Instr, Laws.scans(Q.Exec.compile(l, Nil{})), _) == List.append(&2, Q.Instr, Laws.scans(Q.Exec.compile(l, Nil{})), Laws.scans(Q.Exec.compile(r, Q.IJoin{how, lo, ro} <> acc))) : List<&2, Q.Instr>}
+      {==}
+    case P.Concat{+ci, +l, +r}:
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Concat{ci, P.Opt.hmerge(l, None{}), P.Opt.hmerge(r, None{})}), acc)), Laws.scans(Q.Exec.compile(P.Concat{ci, P.Opt.hmerge(l, None{}), P.Opt.hmerge(r, None{})}, acc)), scans_hwrap(n, P.Concat{ci, P.Opt.hmerge(l, None{}), P.Opt.hmerge(r, None{})}, acc)) : {_ == Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Concat{ci, l, r}), acc)) : List<&2, Q.Instr>}
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Concat{ci, l, r}), acc)), Laws.scans(Q.Exec.compile(P.Concat{ci, l, r}, acc)), scans_hwrap(n, P.Concat{ci, l, r}, acc)) : {Laws.scans(Q.Exec.compile(P.Opt.hmerge(l, None{}), Q.Exec.compile(P.Opt.hmerge(r, None{}), Q.IConcat{ci} <> acc))) == _ : List<&2, Q.Instr>}
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hmerge(l, None{}), Q.Exec.compile(P.Opt.hmerge(r, None{}), Q.IConcat{ci} <> acc))), Laws.scans(Q.Exec.compile(P.Opt.hwrap(None{}, l), Q.Exec.compile(P.Opt.hmerge(r, None{}), Q.IConcat{ci} <> acc))), Laws.hmerge_keeps_scans(l, None{}, Q.Exec.compile(P.Opt.hmerge(r, None{}), Q.IConcat{ci} <> acc))) : {_ == Laws.scans(Q.Exec.compile(l, Q.Exec.compile(r, Q.IConcat{ci} <> acc))) : List<&2, Q.Instr>}
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(l, Q.Exec.compile(P.Opt.hmerge(r, None{}), Q.IConcat{ci} <> acc))), List.append(&2, Q.Instr, Laws.scans(Q.Exec.compile(l, Nil{})), Laws.scans(Q.Exec.compile(P.Opt.hmerge(r, None{}), Q.IConcat{ci} <> acc))), scans_compile(l, Q.Exec.compile(P.Opt.hmerge(r, None{}), Q.IConcat{ci} <> acc))) : {_ == Laws.scans(Q.Exec.compile(l, Q.Exec.compile(r, Q.IConcat{ci} <> acc))) : List<&2, Q.Instr>}
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(l, Q.Exec.compile(r, Q.IConcat{ci} <> acc))), List.append(&2, Q.Instr, Laws.scans(Q.Exec.compile(l, Nil{})), Laws.scans(Q.Exec.compile(r, Q.IConcat{ci} <> acc))), scans_compile(l, Q.Exec.compile(r, Q.IConcat{ci} <> acc))) : {List.append(&2, Q.Instr, Laws.scans(Q.Exec.compile(l, Nil{})), Laws.scans(Q.Exec.compile(P.Opt.hmerge(r, None{}), Q.IConcat{ci} <> acc))) == _ : List<&2, Q.Instr>}
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hmerge(r, None{}), Q.IConcat{ci} <> acc)), Laws.scans(Q.Exec.compile(P.Opt.hwrap(None{}, r), Q.IConcat{ci} <> acc)), Laws.hmerge_keeps_scans(r, None{}, Q.IConcat{ci} <> acc)) : {List.append(&2, Q.Instr, Laws.scans(Q.Exec.compile(l, Nil{})), _) == List.append(&2, Q.Instr, Laws.scans(Q.Exec.compile(l, Nil{})), Laws.scans(Q.Exec.compile(r, Q.IConcat{ci} <> acc))) : List<&2, Q.Instr>}
+      {==}
+    case P.Head{+m, +x}:
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hmerge(x, Some{P.Opt.hmin(m, n)}), acc)), Laws.scans(Q.Exec.compile(P.Opt.hwrap(Some{P.Opt.hmin(m, n)}, x), acc)), Laws.hmerge_keeps_scans(x, Some{P.Opt.hmin(m, n)}, acc)) : {_ == Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Head{m, x}), acc)) : List<&2, Q.Instr>}
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(P.Opt.hwrap(n, P.Head{m, x}), acc)), Laws.scans(Q.Exec.compile(P.Head{m, x}, acc)), scans_hwrap(n, P.Head{m, x}, acc)) : {Laws.scans(Q.Exec.compile(x, Q.IHead{P.Opt.hmin(m, n)} <> acc)) == _ : List<&2, Q.Instr>}
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(x, Q.IHead{P.Opt.hmin(m, n)} <> acc)), List.append(&2, Q.Instr, Laws.scans(Q.Exec.compile(x, Nil{})), Laws.scans(Q.IHead{P.Opt.hmin(m, n)} <> acc)), scans_compile(x, Q.IHead{P.Opt.hmin(m, n)} <> acc)) : {_ == Laws.scans(Q.Exec.compile(x, Q.IHead{m} <> acc)) : List<&2, Q.Instr>}
+      %Equal.sym(List<&2, Q.Instr>, Laws.scans(Q.Exec.compile(x, Q.IHead{m} <> acc)), List.append(&2, Q.Instr, Laws.scans(Q.Exec.compile(x, Nil{})), Laws.scans(Q.IHead{m} <> acc)), scans_compile(x, Q.IHead{m} <> acc)) : {List.append(&2, Q.Instr, Laws.scans(Q.Exec.compile(x, Nil{})), Laws.scans(acc)) == _ : List<&2, Q.Instr>}
+      {==}
+
+def scans_release_k(r: E.Res(List<&2, S.Field>), +p: P.Plan) -> {Laws.scans(Q.Exec.compile(P.Optimize.release.k(r, p), Nil{})) == Laws.scans(Q.Exec.compile(p, Nil{})) : List<&2, Q.Instr>}:
+  match r:
+    case Fail{e}:
+      {==}
+    case Done{s}:
+      Laws.hmerge_keeps_scans(p, None{}, Nil{})
+
+def Laws.release_keeps_scans(p):
+  scans_release_k(P.Plan.schema(p), p)
