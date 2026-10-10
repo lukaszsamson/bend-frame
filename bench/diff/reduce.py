@@ -454,8 +454,12 @@ def main(argv=None):
     if a.shrink:
         import reduce_shrink
         reduce_shrink.run(cases, findings, scratch, extra, a)
-    hard = [f for f in findings if f["kind"] in DEFECT_KINDS or f["kind"] in ("crash", "infra")]
-    return 1 if hard else 0
+    # Every finding fails the run, whatever its kind (DEFECT_KINDS only names the known kinds; a kind
+    # added later must not become a silent pass). There is no known-findings allowlist.
+    if findings:
+        print(f"FAIL: {len(findings)} finding(s)")
+        return 1
+    return 0
 
 
 if __name__ == "__main__":

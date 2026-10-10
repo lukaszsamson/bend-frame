@@ -15,7 +15,9 @@ Comparisons (plans/M_01.txt T2):
 
 Bend runs many cases per program (interpreted: ~1 s per 200 cases; a native compile is ~25 s per
 200 cases, so native is for the backend comparison only). A crashing or hanging case is isolated
-by bisection. Exit status 1 when anything fails (known defects included: see classify.py).
+by bisection. Exit status: 1 when ANY case fails (a mismatch, a crash, an oracle error), whether or
+not classify.py recognises it as a known defect: classification only labels a failure in the
+report, it never excuses it. --strict is kept for old command lines and changes nothing.
 """
 from __future__ import annotations
 
@@ -70,7 +72,7 @@ def main(argv=None):
     ap.add_argument("--all", action="store_true", help="use every grammar row (the facade may not have it: those cases fail)")
     ap.add_argument("--no-oracle", action="store_true")
     ap.add_argument("--no-shrink", action="store_true")
-    ap.add_argument("--strict", action="store_true", help="exit 1 on any failure (default: only on failures no classify.py rule explains)")
+    ap.add_argument("--strict", action="store_true", help="accepted for compatibility: any failure always exits 1, classified or not")
     ap.add_argument("--shrink-secs", type=float, default=90.0, help="time budget per failure group for the minimiser")
     ap.add_argument("--keep", action="store_true", help="keep the scratch programs")
     ap.add_argument("--dict", action="store_true", help="M4: every str input column in the Dictionary storage (BEND_DIFF_DICT=1)")
@@ -171,18 +173,23 @@ def main(argv=None):
     report = []
     if not a.no_shrink and failures:
         t2 = time.time()
-        report = shrink.group_and_shrink(failures, scratch, out_json, summary, quiet=False, jobs=a.jobs, budget=a.shrink_secs)
-        print(f"shrink+classify: {time.time() - t2:.1f}s")
+        try:
+            report = shrink.group_and_shrink(failures, scratch, out_json, summary, quiet=False, jobs=a.jobs, budget=a.shrink_secs)
+            print(f"shrink+classify: {time.time() - t2:.1f}s")
+        except Exception as e:  # noqa: BLE001  a shrinker bug must not hide the failures it was handed
+            print(f"shrink+classify FAILED ({type(e).__name__}: {e}); reporting the unshrunk failures")
+            out_json.write_text(json.dumps({"summary": summary, "failures": failures}, indent=1))
     else:
         out_json.write_text(json.dumps({"summary": summary, "failures": failures}, indent=1))
     print(f"total {time.time() - t0:.1f}s; failures: {out_json}")
     if not a.keep:
         pass
-    if a.strict:
-        return 1 if failures else 0
-    if a.no_shrink:
-        return 1 if failures else 0
-    return 1 if any(g["id"] is None for g in report) else 0
+    # Any correctness failure fails the run. The shrinker's classification (known defect vs NEW) is
+    # a label in the report, never a reason to exit 0: a reintroduced known bug must fail too.
+    if failures:
+        print(f"FAIL: {len(failures)} failing case(s): " + ", ".join(f"{k}: {v}" for k, v in sorted(counts.items())))
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
