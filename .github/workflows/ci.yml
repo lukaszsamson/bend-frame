@@ -1,7 +1,12 @@
 # CI: `make ci` on macOS (arm64) and Linux (x86_64), with every tool pinned in TOOLCHAIN.
+# STATUS: THIS WORKFLOW HAS NEVER RUN (the repository has no remote), so none of it is known to work.
+# macOS arm64 (done by hand, locally) is the only platform the project has been built and tested on;
+# Linux x86-64 has never been run, and the archive URLs, sha256 values and layout assumed below are
+# untested. There is no flake.nix in this repository.
 # Pins are read from TOOLCHAIN by the first step, so changing a version there is the only edit.
-# Bend comes from the release archive named in flake.nix (sha256 checked); Lean from elan; uv from
-# astral's versioned installer; Polars and numpy from bench/uv.lock (`uv sync --locked` fails on drift).
+# Bend comes from the release archive for the runner's platform (sha256 pinned in the Bend step below,
+# never exercised by a run); Lean from elan; uv from astral's versioned
+# installer; Polars and numpy from bench/uv.lock (`uv sync --locked` fails on drift).
 name: ci
 
 on:
@@ -76,8 +81,8 @@ jobs:
           else
             echo "$sha  $archive" | shasum -a 256 -c -
           fi
-          # the archive holds bin/bend beside bend2/ and guide/, at its root or under one top-level
-          # directory (flake.nix's stdenv unpack implies the latter; not verified here): copy the
+          # the archive is ASSUMED to hold bin/bend beside bend2/ and guide/, at its root or under one
+          # top-level directory (never checked against a real run): copy the
           # directory that holds bin/bend to where install.sh puts bend
           x="$RUNNER_TEMP/bend-x"; rm -rf "$x"; mkdir -p "$x" "$HOME/.bend"
           tar -xzf "$archive" -C "$x"

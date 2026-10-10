@@ -1082,10 +1082,11 @@ law wf_frame_head:
 # array back unchanged). array_set_get is read-after-write at the same index through
 # the real Array.set. gather_step / compact_step are one iteration of the production
 # kernels: the cell read at perm[j] (resp. a[i]) is the cell written at out[j] (resp.
-# out[k]). NOT proven here (M5): that later writes leave earlier slots alone, i.e.
-# that two indices below 2^d take different paths; that bit-vector fact over
-# Word.and / shr / sub / is_lt is what separates these lemmas from the full
-# "out[i] == in[index[i]]" / subsequence theorems.
+# out[k]). These are ONE-step lemmas: that later writes leave earlier slots alone (two
+# indices below 2^d take different paths; the bit-vector fact over Word.and / shr / sub /
+# is_lt) is not used here. It is proven in section 11 (paths_distinct, array_set_other),
+# which turns these steps into the full "out[i] == in[index[i]]" / subsequence theorems
+# (gather_contents, compact_contents).
 
 def rd(-T: Data, a: Array<T>, +n: U32, +i: U32, z: Bool) -> T:
   match a z:
@@ -1645,8 +1646,9 @@ def frame_ok(+h: U32, f: C.Frame) -> Bool:
     case C.Frame{h2, cols}:
       Bool.and(U32.is_eq(h2, h), cols_ok(h, cols, Nil{}))
 
-# Eval.full / Eval.expr's answer: the frame back unchanged and a column of dtype t with n rows,
-# or a failure the analysis allowed
+# Eval.full / Eval.expr's answer: on success the frame back unchanged and a column of dtype t
+# with n rows; on failure only that the analysis allowed one (tot == False): nothing is stated
+# about the frame or the error then
 def EvalTyR(+t: D.DType, +tot: Bool, +n: U32, -f: C.Frame, f2: C.Frame, rc: E.ResT(C.Column)) -> Type:
   match rc:
     case Fail{e}:
@@ -1852,7 +1854,8 @@ law run_typed:
 # LAW (P2, the theorem the release claim names): over a well-formed frame, an expression
 # the shared analysis types as (dtype t, total tot) evaluates with Eval.full to the frame
 # unchanged and a column of dtype t with the frame's height; it fails only when tot is
-# False (a fallible strict cast), with the frame unchanged too
+# False (a fallible strict cast). The law states nothing about the frame on a failure
+# (EvalTyR's Fail case gives only tot == False)
 law eval_full_typed:
   for f: C.Frame
   for +e: X.Expr

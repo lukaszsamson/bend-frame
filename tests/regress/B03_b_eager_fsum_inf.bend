@@ -1,10 +1,9 @@
-# (B03 fixed in M1: eager and grouped runs pass; the lazy select runs still refuse the
-# reduction until B04-a lands. Remove the marker with B04-a.)
+# (B03 and B04-a are fixed: eager, grouped and lazy runs all pass; no xfail marker remains.)
 # B03-b (Astra C audit): the eager reduction (Kernel.fsum, Kahan) has the same inf - inf
 # contamination as B03-a. DESIGN.md 15.5.3 (same accumulation for every f32 sum/mean):
 #   p [inf, 1] sum inf mean inf; q [1, inf] inf, inf; r [inf, -inf] NaN, NaN;
 #   w [NaN, 1] NaN, NaN; c [1e8, 1, -1e8] sum 1, mean 1/3.
-# Polars 2.0.0 agrees (regress_expect.py). The lazy runs also need B04-a.
+# Polars 2.0.0 agrees (regress_expect.py).
 import Base
 import ./../../frame.bend as DF
 import ./../../src/dtype.bend as D

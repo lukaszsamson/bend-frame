@@ -5,9 +5,16 @@ Bend (eager, raw lazy `DF.collect_raw`, default-optimised `DF.collect`, fully op
 each other (T2.1) and with an oracle (T2.2). Failures are shrunk, classified against the defect
 table (DESIGN.md 15.10) and written to `build/diff/seed<SEED>/failures.json`.
 
+**Exit status.** The driver exits 1 when ANY case fails: a mismatch, a crash or an oracle error,
+whether or not `classify.py` labels it as a known defect (classification only labels a failure in
+the report, it never excuses it); otherwise 0. `--strict` is accepted for old command lines and
+changes nothing. `bench/diff/tests/test_exit.py` (`make diff-driver-check`, part of `make ci`) is
+the permanent regression of this rule, for `run.py` and `reduce.py`. `make ci` also runs a bounded
+`diff-smoke` (200 cases each, Raw then `--dict`, then the reduction check); larger runs are manual.
+
 ```
 cd bench
-uv run python diff/run.py --seed 1 --n 1000              # interpreter only: ~10 s (+ shrinking, ~10-30 s)
+uv run python diff/run.py --seed 1 --n 1000              # interpreter only: ~5 s wall on an idle 12-core machine (+ shrinking when a case fails)
 uv run python diff/run.py --seed 1 --n 1000 --backend both   # + native compile (5 programs, ~3 min), T2.4 interp vs native
 uv run python diff/run.py --seed 7 --n 10000 --features deep # up to 300 rows, plans up to 6 verbs
 uv run python diff/run.py --features noreductions,noselfjoin # mask B04-a / B04-b (see below)
@@ -103,8 +110,11 @@ and counted; an oracle exception is reported as `oracle error` and fails the run
 
 ## Speed
 
-Interpreted, 200 cases per program: a 1000-case run is ~5 s of Bend (a program of 1000 `do` steps
-overflows the machine stack, hence the 200-case batches). A native compile is 10-25 s per
+Interpreted, 200 cases per program, programs run in parallel: measured on the M2 Pro (12 cores) at
+a load average of 13-22, `diff/run.py --n 1000 --no-shrink` takes about 5 s wall (Raw, 29 s CPU),
+3.5 s with `--dict` and about 14 s with `--features deep` (a program of 1000 `do` steps overflows
+the machine stack, hence the 200-case batches). Under a heavily loaded machine (load average
+60-130) it takes minutes; shrinking a failing case adds time on top. A native compile is 10-25 s per
 200-case program (clang -O3 on the generated C), so `--backend both` for 1000 cases is ~3 minutes
 when the machine is idle and compiles run in parallel; the interpreter alone is the default
 (`make diff`). A crash is isolated by bisection; a program that does not compile at all aborts the
@@ -212,7 +222,7 @@ fake outputs from mutants (naive f32 sum, Kahan without Neumaier's branch, an f6
 without the guard): the faithful model produces no finding, each weaker sum is flagged, and the f64
 accumulator violates only the bit-exact model check, never the bound, as it should.
 
-Exit status is 1 on a `bound`, `special`, `null`, `err`, `lazy`, `order`, `shape`, `model`, `tight` or `minmax` finding, a
+Exit status is 1 on any finding: a `bound`, `special`, `null`, `err`, `lazy`, `order`, `shape`, `model`, `tight` or `minmax` finding, a
 crash or an infrastructure error (a `model` mismatch means Bend did not follow the contract's reduction
 order: the selftest asserts the faithful model gives none; `minmax` is describe's min/max versus 15.5.2,
-which tests/diff/r0001.bend and r0002.bend pin).
+which tests/diff/r0001.bend and r0002.bend pin). There is no allowlist of known kinds: a finding of any kind fails the run (`tests/test_exit.py`).

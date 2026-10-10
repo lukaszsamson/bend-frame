@@ -798,6 +798,21 @@ positive control in the same file that states the production theorem with the sa
 checks.
 `make check` skips these files (their expectation is a failure); `make test` runs them.
 
+How strong the mutation evidence is (v0.1 review, plans/REVIEW_V01_FABLE.txt H2 and
+plans/REVIEW_V01_ASTRA.txt section 3). The eleven fixtures mutate a RENAMED disposable copy
+of a production function and try the production proof term against it. Five of them are
+name-sensitive by their own headers (`gather_wrong_index`, `compact_flipped_mask`,
+`choose_inverted_mask`, `encode_reuses_code`, `remap_wrong_slot`): the production proof term
+is tied to the production name, so an UNMUTATED renamed copy is refused too, and those five
+show "a copy is rejected", not "a wrong copy is rejected". The stronger check is
+`make mutation-check` (`scripts/mutation_check.sh`, part of `make ci`): it copies the
+proof-relevant tree, patches ONE production function IN PLACE (14 mutations over
+`Kernel.gather`, `compact_keep`, `compact`, `choose`, `append`, `copy_into`, `Opt.hmin`,
+`Opt.hmerge` (two patches), `Dict.code`, `Enc.put`, `Dict.rc.put`, `Eval.un` and the stack
+machine's `Eval.fit`), runs `bend PROOF.bend` and requires "SOME PROOFS FAIL"; the
+unmutated copy must say ALL PROOFS CHECK first. All 14 are caught (nothing was weakened to
+make that true). It is a spot check of 14 functions, not a mutation test of every proof.
+
 Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 
 | group (file) | laws |
@@ -881,7 +896,21 @@ What the release chain does NOT cover, stated exactly:
   that `Plan.schema` and `Exec.validate` answer alike for `Optimize.release(p)` and p
   (true by inspection: `Opt.hmerge` only merges Heads and keeps every Source with its
   schema; `hmerge_keeps_sources` covers the names, not the schemas). The IO reads
-  themselves (`Csv.read_with`) are outside the proof (plan M_01 section 6 "IO boundary").
+  themselves (`Csv.read_with`) are outside the proof (plan M_01 section 6 "IO boundary"),
+  and so is the materialisation step `Exec.mat` as a whole (it reads each scan with
+  `Csv.read_with`, checks the frozen schema and hands the frames to the runner in postfix
+  order). What `release_run` covers exactly, then: `Exec.run_pure(Optimize.release(p), env)
+  == Exec.run_pure(p, env)` for every plan p and every env, scan plans included (through
+  env's `scans` field), plus `hmerge_keeps_scans` / `release_keeps_scans` (same `IScan`
+  instructions, same order). What `collect` adds around it and nothing machine-checks: the
+  `Plan.schema` / `Exec.validate` agreement just named, and `Exec.mat` (plans/REVIEW_V01_FABLE.txt
+  H1).
+- Two typers exist. The 20 expression-typing laws of LAWS section 2 (group 2 in the table
+  above) are about `X.Expr.type`, which production uses only for `group_by`; `select`,
+  `with_columns` and `filter` type their expressions through `A.Expr.analyse` (the shared
+  analysis), which the P2 theorems (`run_typed`, `eval_full_typed`, `eval_expr_typed`) cover
+  (plans/REVIEW_V01_FABLE.txt H3). The gap is in the older laws' relevance, not in the
+  soundness of the evaluator typing.
 - The evaluator typing theorems (`run_typed`, `eval_full_typed`, `eval_expr_typed`)
   state dtype, height, the frame coming back unchanged and "fails only where the
   analysis says it may". They do not state cell values, that only the `refs` columns are
@@ -2501,6 +2530,44 @@ other name `x=[1, 2]`. M2 item 3 above had documented the names as reserved, unc
    the review found uncovered, every lazy verb over `DF.scan_csv` (filter, select,
    with_columns, group_by, sort, head, slice, tail, unique, drop, rename, inner / left /
    semi / anti join, concat, a pipeline) against the eager verb over `DF.read_csv`.
+
+### v0.1 review: gates, differential exit status, wording
+
+plans/REVIEW_V01_FABLE.txt (H1-H6, notes) and plans/REVIEW_V01_ASTRA.txt (P2, sections 2-4).
+Code fixes are listed in plans/STATUS.md "v0.1 review fixes (2026-10-10)"; the contract-level
+consequences are these.
+
+1. **"Correctness failures fail the build" is now true of `make ci`.** `make ci` runs, in
+   order, `toolchain-check`, `check`, `runner-check`, `diff-driver-check`, `test`, `proofs`, `verdict`, `mutation-check`,
+   `bench-check` (1k and 100k rows), `diff-smoke`, `consumer-check` and `coverage` (the
+   operation x case matrix gate, docs/COVERAGE.md). `diff-smoke` is a
+   bounded strict differential run (200 cases each in Raw and in Dictionary storage, fixed
+   seeds) followed by the F32 reduction check; `diff-driver-check`
+   (`bench/diff/tests/test_exit.py`) is the permanent regression that the drivers exit 1 on a
+   mismatch (classified as a known defect or not), a crash, an oracle error and any reduction
+   finding. Before, `run.py` without `--strict` exited 0 on a failure the shrinker labelled
+   with a known-defect rule (`--strict` is now a no-op). Larger runs (`make diff N=...`,
+   `make diff-reduce REDUCE_N=...`) are manual; CI size is the bounded smoke only.
+2. **Benchmark correctness wording.** The goldens are Polars' output for q1, q2, q4, q5 and q6
+   (q6 within rtol 5e-5 at 100k and 1M); q3's golden is the exact-rational F32 reference of
+   15.5.3 (`bench/golden.py` `q3_reference`), because Polars' grouped f32 sum accumulates
+   sequentially and differs by an ulp or two (tiny fixture, `inland`: Polars 96373.4141,
+   reference 96373.4062). "Every result identical to Polars" was false and is not written
+   anywhere now. `make bench-check` covers 1k and 100k; 1M needs `CHECK_MAX=1000000`;
+   the tracked 1k golden (`bench/golden/n1000`) is regenerated by each run.
+3. **CI and platform.** `.github/workflows/ci.yml` has never run (no remote); its Bend
+   archive checksums and archive layout are untested (the comment that named a `flake.nix`
+   was wrong: no such file exists here). macOS arm64 is the only platform ever built and
+   tested.
+4. **Test counting.** `make test` runs 158 test programs (files; 143 at the first release candidate); one file holds many cases.
+   docs/COVERAGE.md is the operation x case matrix (774 cells: 727 covered by a named case,
+   47 n/a with a stated reason, 0 missing) and the def-call report; the gate proves each
+   case is accounted for and its file calls the operation, not that the case is a good one.
+5. **Positioning.** v0.1 is an experimental release (plans/STATUS.md Decisions, 2026-10-10):
+   R1-only default optimizer, Dictionary assurance conditional on the Probe / EncProbe
+   hypotheses (index completeness not proven), the remaining proof work deferred (R2-R5,
+   the grouped scatter invariant, Dictionary completeness and rank order). The plan section 0
+   release claim is unchanged.
 
 ## 15. v0.1 contract (frozen)
 

@@ -158,6 +158,12 @@ Gates on this tree (machine load average 15-55 during the runs, other processes;
   imports from a separate directory, interpreter output equal).
 
 ### Definition of done (plan section 8), checked against the repo
+- [x] **G1 (no known wrong result in the shipped subset)**: was NOT met at 3196845 because of the scan source collision (V01-a: a user
+  Source named `#scan0` silently read a CSV scan's frame); met after the fix (2026-10-10, scans in an unnamed Env namespace,
+  `tests/regress/V01_a_*`, `V01_b_*`).
+- [x] **T6 (public-API coverage matrix)**: absent at 3196845, present now: `scripts/coverage_matrix.py` / `make coverage` (in `make ci`),
+  `docs/COVERAGE.md` (774 operation x kind cells: 727 covered, 47 n/a with a stated reason, 0 missing; plus the def-call report), tests in
+  `tests/coverage/`, Polars twins in `bench/coverage/`.
 - [x] **Every defect from both reviews has a regression test and a disposition.** DESIGN 15.10 lists 54 rows (B01-a .. B05-i).
   Every B01-B04 row except the README row B04-f has a `tests/regress/<ID>_*.bend` (56 files incl. NEW-1 / NEW-2), all passing,
   no `#! xfail` left. The tooling / doc rows: B05-a/b/c by `bench/tests/test_check.py` (28 cases, run by bench-check); B05-d by
@@ -172,9 +178,13 @@ Gates on this tree (machine load average 15-55 during the runs, other processes;
 - [x] **Eager / raw-lazy / optimised-lazy agree on the full test matrix.** T2.1 in the differential generator compares eager,
   `collect_raw`, `collect` and `collect_full` (errors and row order included): 22,000 cases in the M6 run (Raw, Dictionary,
   join stress, interpreter vs native) and the two 1000-case runs above, 0 failing. Inadmissible programs (15.9) are counted apart.
-- [x] **Correctness failures fail the build; the benchmark cannot hide a mismatch.** `make ci` stops at the first failing gate (make prerequisites);
-  `bench-check` exits 1 on any mismatch, a missing output, or when nothing was compared; `make diff` exits 1 on an unexplained
-  failure, a crash or an oracle error. Gap: the GitHub workflow has never run (no remote), so "the build" is `make ci` locally.
+- [x] **Correctness failures fail the build; the benchmark cannot hide a mismatch.** (Was NOT fully true at 3196845: `make diff` without
+  `--strict` exited 0 on a failure the shrinker labelled with a known-defect rule, and `make ci` ran neither differential suite nor the
+  consumer check. Now true, 2026-10-10.) `make ci` stops at the first failing gate (make prerequisites): toolchain-check, check,
+  runner-check, diff-driver-check, test, proofs, verdict, mutation-check, bench-check (1k and 100k), diff-smoke (200 strict cases each in Raw
+  and Dictionary storage, then the F32 reduction check), consumer-check, coverage. `bench-check` exits 1 on any mismatch, a missing output,
+  or when nothing was compared; every differential and reduction failure exits 1, labelled or not (`bench/diff/tests/test_exit.py` is the
+  regression). Larger runs are manual. Gap: the GitHub workflow has never run (no remote), so "the build" is `make ci` locally, on macOS arm64 only.
 - [~] **Default optimizer theorem passes --verdict, with non-trivial R1-R5 applications tested and witnessed.** `release_run` /
   `release_run_obs` pass `bend` and `--verdict` for every plan and env. R1 is proven and witnessed (theorem + the
   `head_rule_outer_wins` / `head_sink_below_select` fixtures). GAP: by the P3 fallback (M5 part 2) the release optimizer is R1
@@ -209,8 +219,8 @@ From the repo root, after `~/.bend/bin/bend login`:
     ~/.bend/bin/bend frame.bend --publish bend-frame@0.1.0.0
 Uploads frame.bend and its transitive `./` imports: the 19 files of src/ (analysis, column, csv, csvparse, dtype, dump, err,
 eval, exec, expr, fmt, groupby, join, kernels, plan, schema, sort, strs, table; 577 KB with frame.bend), plus every file named
-exactly `LICENSE` beside a published file: the root `LICENSE` (SPDX Apache-2.0 since 2026-10-10, beside frame.bend; verified). src/ has no LICENSE of
-its own. No hub dependencies (only Base). LAWS / PROOF*, tests, bench, examples are not uploaded. Public and permanent.
+exactly `LICENSE` beside a published file: the root `LICENSE` (SPDX Apache-2.0 since 2026-10-10, beside frame.bend; verified). `src/LICENSE` (Apache-2.0, added 2026-10-10)
+beside the src/ files. No hub dependencies (only Base). LAWS / PROOF*, tests, bench, examples are not uploaded. Public and permanent.
 
 ## In progress
 - nothing.
@@ -232,3 +242,57 @@ its own. No hub dependencies (only Base). LAWS / PROOF*, tests, bench, examples 
   `bend-csv-parser@0.1.0.1`, Copyright (c) 2026 nohzafk; its MIT notice stays in the file).
 - v0.1 is positioned as an experimental release: R1-only default optimizer and conditional
   Dictionary assurance, with the remaining proof work deferred (both v0.1 reviews recommend this).
+
+## v0.1 review fixes (2026-10-10)
+
+Two independent reviews of the release candidate 3196845: `plans/REVIEW_V01_FABLE.txt` (Fable 5.1: "ready after four small edits") and
+`plans/REVIEW_V01_ASTRA.txt` (Astra: "hold publication"). Dispositions: **fixed** (code or gate change, with a test), **documented**
+(wording or contract text corrected), **deferred** (named, not for v0.1). Commits: e6c2a92 (Apache-2.0), 8b56d20 / fb1f6fb (scan identity,
+149 laws), 062187f (mutation check), dd9c453 / 5fe3c02 / 30651b8 (differential exit status, CI additions), T6 merge 8430fcd, then the
+documentation pass (this section's commit).
+
+### Fable review
+
+| finding | disposition |
+|---|---|
+| H1 `release_run` is about `Exec.run_pure`; the glue (`unscan` commuting with `hmerge`, `validate`, `mat`) is unproven; vacuous on scan plans | **fixed in part**: `Exec.unscan` is gone, `run_pure` runs scan plans through `Env.scans`, `hmerge_keeps_scans` / `release_keeps_scans` proven (149 laws). **documented**: still unproven are `Plan.schema` / `Exec.validate` agreeing for `release(p)` and `p`, and the IO materialisation `Exec.mat` (DESIGN 8, README Laws, CHANGELOG) |
+| H2 mutation fixtures mutate a renamed copy; five are name-sensitive | **fixed + documented**: `make mutation-check` (14 production functions mutated in place, all caught, in `make ci`); wording says 11 fixtures, five name-sensitive, plus the in-place check (DESIGN 8, README, CHANGELOG) |
+| H3 two typers: LAWS section 2 is about `X.Expr.type` (group_by only), select / with_columns / filter use `A.Expr.analyse` | **documented** (one bullet in DESIGN 8, README, CHANGELOG) |
+| H4 "correctness failures fail the build" overstated (`make diff` exit 0 on a classified failure; diff / reduce / consumer not in `make ci`) | **fixed**: every differential / reduction failure exits 1, `diff-driver-check`, `diff-smoke`, `consumer-check`, `mutation-check`, `coverage` in `make ci`; **documented**: larger runs are manual |
+| H5 CHANGELOG "goldens at 1k, 100k and 1M (make bench-check)"; q3 golden is the F32 reference; tracked 1k golden regenerated | **documented**: CHANGELOG, README, bench/README (bench-check = 1k and 100k; 1M needs `CHECK_MAX=1000000`; q3 vs the reference) |
+| H6 stale comments: LAWS.bend ~1060, `eval_full_typed` ("frame unchanged"), B03_b marker, bench/diff/README speed | **fixed** (comments / docs only): LAWS comments now say the later-writes lemma is proven (section 11) and that the law states nothing about the frame on failure; B03_b marker removed; bench/diff/README speed measured (1000 cases ~5 s wall idle, ~14 s `deep`) and exit status described |
+| Note: runner-check timing flake | **fixed**: robust margins (92c5f44) |
+| Note: generator mix leans small, no CSV generation | **deferred** (v0.2: wider generator; CSV is covered by regressions, goldens and `V01_b`) |
+| Note: 13 stale agent worktrees under `.claude/worktrees` | left to the orchestrator (not touched here) |
+| Note: `bench/results` (2.4 MB) tracked | **deferred** (move out of git before v0.2) |
+| Note: `ci.yml` mentions a nonexistent `flake.nix` | **documented**: the comment now says what is assumed and untested; the workflow still has never run |
+| Note: `consumer_check` depends on the temp path | **documented** in the script (unchanged) |
+| Checklist 3: LICENSE in src/ | **fixed**: `src/LICENSE` (Apache-2.0) beside the published src/ files |
+| Checklist 4: push to a remote so CI runs, or say CI is untested | **documented** (no remote; README, CHANGELOG, `ci.yml` header say it has never run); **deferred**: first run |
+| Not verified by anyone: Linux x86-64, the hub upload, frames near 2^23 rows, CSV through the generator | **documented** (macOS arm64 only); **deferred** |
+
+### Astra review
+
+| finding | disposition |
+|---|---|
+| P1 scan materialisation silently replaces a user source (`#scan0`) | **fixed**: scans live in `Env.scans`, no name is reserved (DESIGN 14 "v0.1 review: scan source identity", 15.7); regressions `V01_a_*`, `V01_b_*` (raw / default / full; several scans; equal and different schemas) |
+| P2 default differential command exits 0 on a classified failure; `make ci` runs no differential or consumer check; "correctness failures fail the build" | **fixed**: see Fable H4; permanent driver regression `bench/diff/tests/test_exit.py` |
+| P2 README "every benchmark result identical to Polars except q6"; changelog says bench-check covers 1M | **documented**: README, CHANGELOG, bench/README (q3 exact-rational reference; Polars 96373.4141 vs 96373.4062) |
+| 2. API: a bounded subset, not Polars parity | **documented** (unchanged: README Limits and "Not claimed") |
+| 2. Strings: Auto threshold, bad distinct-key performance, 0.9x single-thread noise | **documented** (already in README Performance; no change) |
+| 2. Tests: 143 counts files, no T6 matrix, no def-call report, no IO-boundary regressions, no per-rewrite firing coverage | **fixed**: `docs/COVERAGE.md` (727 covered, 47 n/a with reasons, 0 missing; def-call report), `V01_b`; wording says "test programs (files)"; **deferred**: per-rewrite firing counts in the generator |
+| 2. Optimizer: R1 only, R2-R5 not proven | **documented** as an explicit scope reduction (experimental v0.1); **deferred**: R2-R5 as theorems |
+| 3. Proofs: run-vs-run equality is not semantic correctness; scans and native runtime outside | **documented** (scan plans now inside `release_run`; IO / `Exec.mat` and the native runtime remain outside; "Not claimed" list) |
+| 3. `EvalTyR` gives no error cause when `total` is False | **documented** (LAWS comments say the law states only `tot == False` on failure) |
+| 3. Dictionary: `Probe` / `EncProbe` are premises, index completeness, rank / per-entry maps, grouped scatter invariant missing | **documented** (README / CHANGELOG / DESIGN positioning: conditional assurance); **deferred**: hypotheses, completeness, rank order, grouped scatter invariant |
+| 3. Negative fixtures narrower than an automatic fresh-checkout mutation | **fixed**: `make mutation-check`; wording corrected (see H2) |
+| 4. runner self-test is load-sensitive | **fixed** (92c5f44) |
+| 4. Reported evidence is not independently reproduced here | **documented**: this repository labels its historical pass reports as reported evidence (STATUS M6 sections); the gates were re-run on this tree for this pass (below) |
+| 5. LICENSE inclusion; hub-resolved imports untested; hosted CI unverified | **fixed**: `src/LICENSE`; **documented**: no hub dry run exists and CI has never run; the first real publish exercises hub imports |
+
+### Gates on this tree (documentation pass, 2026-10-10, M2 Pro, load average 12-35)
+
+- `make test`: PASS 158 / 158, XFAIL 0 (143 at the first release candidate; the rest are the review regressions and `tests/coverage/`).
+- `make check`, `make proofs` (ALL PROOFS CHECK), `make verdict` (ALL PROOFS CHECK): green. Only comments changed in `LAWS.bend` and
+  `tests/regress/B03_b_eager_fsum_inf.bend`; no `src/` or test expectation changed.
+- `diff/run.py --n 1000 --no-shrink`: seeds 5 (Raw), 7 (`--dict`), 6 (`--features deep`): 0 failing, 0 oracle errors; about 5 s, 3.5 s and 14 s wall.
