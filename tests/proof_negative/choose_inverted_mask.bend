@@ -7,6 +7,12 @@
 # kernel in `expected` and the production Kernel.choose in `observed`. The positive control
 # choose_cell_copy states the theorem over the real kernel with the same term and checks, so only
 # the mutation is reported.
+# Scope: this fixture checks the production proof term against a MUTATED, RENAMED disposable copy, so it shows that
+# term is refused for that copy. The term is tied to the production function's NAME (the error compares the renamed copy
+# with the production function), so an UNMUTATED renamed copy is refused too: on its own this fixture does NOT show that
+# a wrong copy is rejected.
+# That stronger claim, a wrong PRODUCTION function is rejected, is checked by scripts/mutation_check.sh
+# (make mutation-check): it patches the production source in place and re-runs bend PROOF.bend.
 import Base
 import ./../../src/kernels.bend as K
 import ./../../LAWS.bend as Laws
@@ -76,7 +82,7 @@ def choose_cell_mutated(n, d, m, a, b, pos, wf, fits, hpos):
 #|- fits : {Cmp.is_le(U32.cmp(n, U32.shln(1, d))) == True{} : Bool}
 #|- hpos : {Cmp.is_lt(U32.cmp(pos, n)) == True{} : Bool}
 #|Location: choose_cell_mutated
-#|61 | def choose_cell_mutated(n, d, m, a, b, pos, wf, fits, hpos):
-#|62>|   PI.ch_cell_fin(n, d, m, a, b, pos, PI.choose_w(~U32, n, d, m, a, b, pos, wf, fits, hpos))
+#|67 | def choose_cell_mutated(n, d, m, a, b, pos, wf, fits, hpos):
+#|68>|   PI.ch_cell_fin(n, d, m, a, b, pos, PI.choose_w(~U32, n, d, m, a, b, pos, wf, fits, hpos))
 #|   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#|63 | 
+#|69 | 

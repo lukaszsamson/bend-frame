@@ -7,6 +7,10 @@
 # with u32 in `expected` and i32 in `observed`. The positive control un_neg_i32_copy states
 # the claim over the real V.Eval.un with the same term and checks, so only the mutation is
 # reported.
+# Scope: this fixture checks the production proof term against a MUTATED, RENAMED disposable copy, so it shows that
+# term is refused for that copy; it is not a rejection of a mutated production function.
+# That stronger claim, a wrong PRODUCTION function is rejected, is checked by scripts/mutation_check.sh
+# (make mutation-check): it patches the production source in place and re-runs bend PROOF.bend.
 import Base
 import ./../../src/dtype.bend as D
 import ./../../src/err.bend as E
@@ -87,7 +91,7 @@ def un_neg_i32_mutated(n, d, v, x, t, hok):
 #|- t   : D.DType
 #|- hok : {Done{D.TI32{}} == Done{t} : Result<&2, &2, E.Err, D.DType>}
 #|Location: un_neg_i32_mutated
-#|75 | def un_neg_i32_mutated(n, d, v, x, t, hok):
-#|76>|   (Mut.un(X.Neg{}, C.CI32{n, d, v, x}), {==}, (L.done_inj(D.DType, D.TI32{}, t, hok), {==}))
+#|79 | def un_neg_i32_mutated(n, d, v, x, t, hok):
+#|80>|   (Mut.un(X.Neg{}, C.CI32{n, d, v, x}), {==}, (L.done_inj(D.DType, D.TI32{}, t, hok), {==}))
 #|   |                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#|77 | 
+#|81 | 

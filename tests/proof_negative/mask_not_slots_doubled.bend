@@ -4,6 +4,8 @@
 # with PROOF.bend's real proof term; Bend must answer SOME PROOFS FAIL with the observed
 # 2^d term. The same term proves the correct statement (mask_not_slots_copy, a positive
 # control: only the doubled law is reported). (The fuller T5 set, tests/proof_negative/ and mutation runs, is M2/M5 work.)
+# Scope: a falsified STATEMENT (the wrong slot count) proven with the real proof term; not a mutation of a function.
+# Mutations of the production functions themselves are checked by scripts/mutation_check.sh (make mutation-check).
 import Base
 import ./../../src/kernels.bend as K
 import ./../../LAWS.bend as Laws
@@ -38,7 +40,7 @@ def mask_not_slots_doubled(n, d, a):
 #|- d : Nat
 #|- a : Array<U32>
 #|Location: mask_not_slots_doubled
-#|29 | def mask_not_slots_doubled(n, d, a):
-#|30>|   Pf.map_go_slots(~U32, ~U32, ~(x => U32.xor(x, 1)), U32.to_nat(n), 0, Array.new(U32, d, 0), Array.get(U32, a, 0), U32.shln(1, d), Pf.new_slots(U32, d, 0))
+#|31 | def mask_not_slots_doubled(n, d, a):
+#|32>|   Pf.map_go_slots(~U32, ~U32, ~(x => U32.xor(x, 1)), U32.to_nat(n), 0, Array.new(U32, d, 0), Array.get(U32, a, 0), U32.shln(1, d), Pf.new_slots(U32, d, 0))
 #|   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#|31 | 
+#|33 | 
