@@ -305,3 +305,14 @@ mutation-check (14/14 rejected, unmutated accepted), bench-check (q1–q6 at 1k/
 (Raw and Dictionary: 0 failing; reduction: no findings), consumer-check (clean clone, relative and
 absolute imports, interpreter and native), coverage (727 covered, 47 n/a, 0 missing).
 Not run: hosted CI (no remote); Linux x86-64; the hub upload (no dry-run mode exists).
+
+## v0.2 performance milestone (plans/M_02.txt; started 2026-10-11)
+Brief: plans/AGENT_BRIEF_M2.md (the Bend author's charge turned into review rules:
+no row-sized linked structures, no copy without a reason, one balanced fork tree
+over owned user-defined chunks ending in flat loops; verify in the emitted C).
+Baseline: 3612482 (v0.1 RC). The v0.1 data contract (DESIGN §15) does not change.
+- W0 running: measurement harness + provisional baseline (bench/m2/, sonnet);
+  engine spikes and DESIGN §16 (chunks, ownership, fusion, reductions, selector; fable);
+  strings/reader spikes and DESIGN §17 (coder, ranks, probe ownership, piece reader; opus).
+- Measurement policy: agents' numbers are provisional (shared machine); gate numbers
+  are taken by the orchestrator with bench/m2/ on a quiet machine.
