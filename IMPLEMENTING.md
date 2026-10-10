@@ -1125,3 +1125,26 @@ Proof lessons (laws_spike.bend):
   (negative control: `xor 2` in `Leafwise`).
 - `CRoom` has no producer: LAWS section 11 assumes it; the leaf-capacity argument (`croom_of_cap`) is a
   real new lemma for W5.
+
+## W1b/e: n_unique by radix sort + run count, when.valid without a ones array
+
+- **n_unique (word / F32 / Bool).** `Eval.nu.words(k, ws)` = `O.Radix.sort` of `(ws, scratch)` (the sort
+  of Sort / median; the second array is a zeroed `Array.new(U32, d, 0)` the sort scatters alongside and
+  nobody reads), then `Eval.nu.runs.go`: ONE flat tail loop, `acc += (x != prev)`. Bool is a presence
+  fold (`or` of 1 + nonzero, then two bits). F32 maps `Kernel.fword` first, so every NaN is one word and
+  -0.0 == 0.0 as before. Emitted C (`bend bench/m2_nunique.bend -o x.c`, `spin_244` there): no
+  `term_keep` / `ctr_take` / `blk_copy` / `blk_half`, per row one `blk_read` and a branch-free 0/1
+  (`spin_71`); nothing allocated per row. The k = 0 case is a `Bool` helper (`Eval.nu.runs.z`), because
+  `Bool.pick` would still run the `k - 1` branch (U32 underflow = a 4-billion-iteration loop).
+- **The old path hid an input-order cost.** `List.sort` on the cons list took 0.2 s on an ASCENDING
+  1M-distinct column (the review's probe) but 1.7-2.5 s on a hashed (random-order) one; the radix path
+  is order-independent (15 ms either way, F32 23 ms with its map). Measure n_unique on shuffled data.
+- **Proofs mention `Eval.nuniq` by name**: `PROOF_evalops.aggdense_nu` states the witness per dtype; it
+  now names `V.Eval.nu.w` / `V.Eval.nu.words` (the String instance of `Eval.nuniq` stays for Raw strings
+  until W2). A replaced production term needs this one-line edit in the witness, not a new theorem: the
+  proofs only state "n_unique is `Done{unit(SU32{w})}`", not what `w` is.
+- **when.valid**: an AllValid side is the 1-slot ones array `C.Valid.materialize(C.AllValid{}, 0n)` (every
+  index wraps to slot 0), but `Kernel.choose` WRITES its `a` operand in place, so only the AllValid-b
+  position may use it; the AllValid-a case is a `Kernel.zip` of `(m[i] != 0) | mb[i]` (one fresh output
+  array, the same as choose's allocation, minus the full ones array and its fill). Never pass the 1-slot
+  array where a kernel writes it: every row would write slot 0.

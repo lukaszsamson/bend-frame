@@ -1076,13 +1076,13 @@ def aggdense_nu_s(+k: U32, x: ST.Strs) -> &w: U32 -> {V.Eval.agg.s(X.NUnique{}, 
 def aggdense_nu(c3: C.Column) -> &w: U32 -> {V.Eval.agg.dense(X.NUnique{}, c3) == Done{V.Eval.unit(D.SU32{w}, D.TU32{})} : E.ResT(C.Column)}:
   match c3:
     case C.CBool{k, d, v, x}:
-      (V.Eval.nuniq(~U32, ~(a => b => U32.is_le(a, b)), ~(a => b => U32.is_eq(a, b)), k, x), {==})
+      (V.Eval.nu.w(D.TBool{}, k, x), {==})
     case C.CU32{k, d, v, x}:
-      (V.Eval.nuniq(~U32, ~(a => b => U32.is_le(a, b)), ~(a => b => U32.is_eq(a, b)), k, x), {==})
+      (V.Eval.nu.w(D.TU32{}, k, x), {==})
     case C.CI32{k, d, v, x}:
-      (V.Eval.nuniq(~U32, ~(a => b => U32.is_le(a, b)), ~(a => b => U32.is_eq(a, b)), k, x), {==})
+      (V.Eval.nu.w(D.TI32{}, k, x), {==})
     case C.CF32{+k, d, v, x}:
-      (V.Eval.nuniq(~U32, ~(a => b => U32.is_le(a, b)), ~(a => b => U32.is_eq(a, b)), k, K.Kernel.map(~F32, ~U32, ~(w => K.Kernel.fword(w)), k, K.Kernel.depth_for(k), x, 0)), {==})
+      (V.Eval.nu.words(k, K.Kernel.map(~F32, ~U32, ~(w => K.Kernel.fword(w)), k, K.Kernel.depth_for(k), x, 0)), {==})
     case C.CStr{k, d, v, x}:
       aggdense_nu_s(k, x)
 
