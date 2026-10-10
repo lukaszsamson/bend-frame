@@ -117,8 +117,16 @@ type Plan is Data:
 type Named.Frame is Type:
   NF{name: String, frame: C.Frame}
 
+# Two disjoint namespaces (DESIGN.md 14 "v0.1 review: scan source identity"):
+#   frames  the user's named frames, read by Source{name, s} (Env.add / Env.take /
+#           Env.clone / Env.info);
+#   scans   the frames Exec.run read for the plan's ScanCsv nodes, in postfix
+#           (Exec.compile) order, read POSITIONALLY by the runner's IScan (Env.scan_take).
+#           No name is involved, so a user Source can never resolve to a scan's frame
+#           whatever its name is. Only Exec.run fills it (Env.set_scans); every user
+#           builder leaves it as it is (Env.empty: none).
 type Env is Type:
-  Env{frames: List<&1, Named.Frame>}
+  Env{frames: List<&1, Named.Frame>, scans: List<&1, C.Frame>}
 
 # a rename through a Select: output name `out` is the input column `src`
 type Ren is Data:
@@ -1131,17 +1139,17 @@ def Plan.explain(p: Plan) -> String:
 # ---- Env -------------------------------------------------------------------------------------------
 
 def Env.empty() -> Env:
-  Env{Nil{}}
+  Env{Nil{}, Nil{}}
 
-def Env.add.k(+name: String, fs: List<&1, Named.Frame>, r: C.Frame & List<&2, S.Field>) -> Env & Plan:
+def Env.add.k(+name: String, fs: List<&1, Named.Frame>, ss: List<&1, C.Frame>, r: C.Frame & List<&2, S.Field>) -> Env & Plan:
   (f, s) = r
-  (Env{NF{name, f} <> fs}, Source{name, s})
+  (Env{NF{name, f} <> fs, ss}, Source{name, s})
 
 # register a frame under a name; answers the Source plan that reads it
 def Env.add(env: Env, +name: String, f: C.Frame) -> Env & Plan:
   match env:
-    case Env{fs}:
-      Env.add.k(name, fs, S.Frame.schema(f))
+    case Env{fs, ss}:
+      Env.add.k(name, fs, ss, S.Frame.schema(f))
 
 # a one-frame environment and its Source (Polars `df.lazy()`)
 def Lazy.source(+name: String, f: C.Frame) -> Env & Plan:
@@ -1178,9 +1186,9 @@ def Env.take.miss(nf: Named.Frame, r: List<&1, Named.Frame> & Maybe<&1, C.Frame>
   (rest, m) = r
   (nf <> rest, m)
 
-def Env.take.k(r: List<&1, Named.Frame> & Maybe<&1, C.Frame>) -> Env & Maybe<&1, C.Frame>:
+def Env.take.k(ss: List<&1, C.Frame>, r: List<&1, Named.Frame> & Maybe<&1, C.Frame>) -> Env & Maybe<&1, C.Frame>:
   (fs, m) = r
-  (Env{fs}, m)
+  (Env{fs, ss}, m)
 
 # a later (older) frame of the same name is dropped when an earlier one hits:
 # Env names are meant to be unique (Env.add prepends)
@@ -1201,8 +1209,8 @@ def Env.take.go(fs: List<&1, Named.Frame>, +name: String) -> List<&1, Named.Fram
 # remove the first frame of that name (a frame is consumed by one Source)
 def Env.take(env: Env, +name: String) -> Env & Maybe<&1, C.Frame>:
   match env:
-    case Env{fs}:
-      Env.take.k(Env.take.go(fs, name))
+    case Env{fs, ss}:
+      Env.take.k(ss, Env.take.go(fs, name))
 
 def Env.clone.k(+n: String, cc: C.Frame & C.Frame, r: List<&1, Named.Frame> & Maybe<&1, C.Frame>) -> List<&1, Named.Frame> & Maybe<&1, C.Frame>:
   (a, b) = cc
@@ -1228,8 +1236,8 @@ def Env.clone.go(fs: List<&1, Named.Frame>, +name: String) -> List<&1, Named.Fra
 # frame stays in env (a Source used again later, DESIGN.md 15.7)
 def Env.clone(env: Env, +name: String) -> Env & Maybe<&1, C.Frame>:
   match env:
-    case Env{fs}:
-      Env.take.k(Env.clone.go(fs, name))
+    case Env{fs, ss}:
+      Env.take.k(ss, Env.clone.go(fs, name))
 
 def Env.info.k(+n: String, r: C.Frame & List<&2, S.Field>, rest: List<&1, Named.Frame> & List<&2, Bind>) -> List<&1, Named.Frame> & List<&2, Bind>:
   (f, s) = r
@@ -1243,15 +1251,36 @@ def Env.info.go(fs: List<&1, Named.Frame>) -> List<&1, Named.Frame> & List<&2, B
     case NF{+n, f} <> t:
       Env.info.k(n, S.Frame.schema(f), Env.info.go(t))
 
-def Env.info.fin(r: List<&1, Named.Frame> & List<&2, Bind>) -> Env & List<&2, Bind>:
+def Env.info.fin(ss: List<&1, C.Frame>, r: List<&1, Named.Frame> & List<&2, Bind>) -> Env & List<&2, Bind>:
   (fs, bs) = r
-  (Env{fs}, bs)
+  (Env{fs, ss}, bs)
 
 # the name and schema of every frame, in env order; env comes back untouched
 def Env.info(env: Env) -> Env & List<&2, Bind>:
   match env:
-    case Env{fs}:
-      Env.info.fin(Env.info.go(fs))
+    case Env{fs, ss}:
+      Env.info.fin(ss, Env.info.go(fs))
+
+# the scan namespace (Exec.run): replace the scan frames by `ss` (postfix order of the
+# plan's ScanCsv nodes); the frames env held there before are dropped
+def Env.set_scans(env: Env, ss: List<&1, C.Frame>) -> Env:
+  match env:
+    case Env{fs, old}:
+      Env{fs, ss}
+
+def Env.scan_take.k(fs: List<&1, Named.Frame>, ss: List<&1, C.Frame>) -> Env & Maybe<&1, C.Frame>:
+  match ss:
+    case Nil{}:
+      (Env{fs, Nil{}}, None{})
+    case f <> t:
+      (Env{fs, t}, Some{f})
+
+# the next scan frame (the runner's IScan): taken off the front of the scan namespace;
+# None when Exec.run materialised no (more) scan frames. The named frames are untouched
+def Env.scan_take(env: Env) -> Env & Maybe<&1, C.Frame>:
+  match env:
+    case Env{fs, ss}:
+      Env.scan_take.k(fs, ss)
 
 # ---- Lazy.scan_csv: the schema from the header + the first infer_rows rows ----------------------
 
