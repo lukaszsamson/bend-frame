@@ -1049,3 +1049,79 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
   answers "source not in env: " (empty name) where `collect` / `collect_schema` answer the static
   "concat_vertical: no inputs" first. Not reachable through collect; do not use it as "a plan with
   no Source" (use `DF.scan_csv_schema`, which has none).
+
+
+## W0 engine spikes (bench/spikes/w0_engine, DESIGN.md 16)
+
+Performance lessons (what the C showed, what was slow and why; numbers PROVISIONAL at load 17-33):
+
+- **A user-defined chunk tree is free to match.** `UL{n, d, a} | UN{rows, l, r}` over owned leaves: one
+  parallel let per node, today's flat loop at the leaf. `cstats.py` over the emitted C: every fused leaf
+  loop is one `spin_N` with zero `term_keep` / `ctr_take` / `rfc_seal`, zero `blk_copy` / `blk_half` /
+  `blk_node`, no per-row `term_ctr`; `blk_new` only where an output array is allocated. `BLK_SHR` is 0 in
+  the runtime: `blk_loc` is `term_loc`, a block read is a plain load.
+- **Fuse first, then fork.** q1 today 8.7 ms -> fused flat 3.3 -> chunked at 12 threads 0.8; q2' 5.7 ->
+  1.9 -> 0.5. The chunk tree costs nothing at one thread. Grain 2^13..2^16 is indistinguishable at 1M
+  rows: the fixed ~0.3-0.5 ms fork iteration dominates, so an operator under ~2 ms of work gains little
+  from 12 threads whatever the grain.
+- **Chunking a flat frame costs more than the fused query**: 0.8-0.9 ms per 1M-row column (a range copy)
+  plus 0.6 ms to flatten one back; 7 columns 6.3 ms vs q1 3.3 ms. Chunks are born at the source; never
+  split/rebuild per operator (the review's 3.8x lesson, confirmed).
+- **Single-constructor records are unboxed in registers**: `K.NS{s, c}` rides the F32 fold as `u32 r2,
+  u32 r3` (`spin_33`), no allocation per row. In an `Array<NS>` it is a boxed cell per group, and the
+  boxed group scatter costs the same as two F32 arrays (1.4 vs 1.3 ms): the `R{v, ok}` plan of W1d is
+  sound, the `Array<KS>` of groupby is not the problem.
+- **In-place reuse of a dead operand buys nothing**: `mapinplace` = `mapfresh` = 0.8 ms per 1M (the loop
+  is the same `spin`; the fresh block is one `blk_new`). A first 2.5x gap was load noise. D2 is about
+  moves and borrows (a column clone 0.2 ms per 4 MB, a take/replace 0), not in-place maps.
+- **The F32 in-order leaf walk is 2.5x the flat fold with the same compiled loop** (4.7 vs 1.9 ms per 1M,
+  at every grain incl. one leaf, in either run order: `build/s3 fsum 20 10`, `fsumr`). The C shows no
+  per-row difference (`spin_32` -> `spin_33` in both). Unexplained; treat as an open issue to re-measure in
+  situ before relying on chunked F32 reductions.
+- **Coarse forks need free cores**: 2x2 across the four q3 aggregates and a column tree over 7 gathers
+  showed no gain at load 30 (3.9 -> 3.3, 6.2 vs 6.9 ms); the perm/gids clones per split (0.2 ms each) are
+  the price. Do not count on them for G2; measure on a quiet machine.
+- **Measurement**: 10 reps of a 0.5-0.8 ms cell are at the 1 ms clock's resolution (+-12%); use 40 reps
+  for 12-thread cells. Interleave cells per round; record `sysctl -n vm.loadavg` per process; a single
+  sample under load can be 2x off (the `mapinplace` and `aggs_seq` first readings were).
+
+Bend lessons (shapes that compile, R3/R4 with trees of arrays):
+
+- **No helper may recurse back into the tree walker.** A recursive build/walk that must open a pair
+  result (a range copy, a leaf fold, a gather) and continue uses the READ-AHEAD idiom: the walker takes
+  the previous step's pair as a parameter, opens it itself, and makes the next call in its own argument
+  list (`UB.go`, `FSum.walk`, `G.seq.walk` with a `pend: Nat` flag for "no pending result yet"). A
+  recursive tree build cannot open the left child's result and recurse into the right one; build leaves
+  with a tail loop and fold them into a balanced tree with a binary-counter stack (`US.merge`: leaf i
+  merges `tz(i+1)` times; `US.collapse` for non-power-of-two counts). Flatten and in-order walks use an
+  explicit work stack (`UF.go`), not recursion.
+- **Match order = parameter order** also for `match f pend s:`; a later parameter cannot be matched
+  before an earlier one ("can't be matched in this position"). A bare variable pattern (`case 0n rest:`)
+  is not used anywhere in the code base; spell the constructors.
+- **A def name's components are words, not numbers** (`mis.3` is refused: "a name (words joined by dots)").
+- **Pairs as parameters, records as state.** A rep loop over Type-kinded state is a record (`FSt{f, acc}`)
+  matched with nested patterns (`case 1n+p FSt{Flat{ok, ..}, acc}`); call results that are pairs go to a
+  helper's parameter. A Sigma's LAST component cannot be `+`: carry the count FIRST (`U32 & CU`, `(+rl, l)
+  = x`). `+` is refused on a Sigma-typed parameter (pass the components).
+- **Templates**: `~f` is passed from one template def to another (as `Kernel.scatter.go` does); a
+  template def must be above its callers like any def. `Bool.show` prints `True`/`False`: not JSON.
+- **zsh**: `echo =====` fails (`=cmd` expansion); `echo '-----'`.
+- **A parallel let in a Type-kinded match** (`case UN{+rows, l, r}: x y = f(l) f(r)`) compiles and forks;
+  the join helper opens the two results as parameters.
+
+Proof lessons (laws_spike.bend):
+
+- **A live child goes to ONE lemma**: bundle what a node needs about its child (counts and shape) into one
+  induction returning a Sigma; the law is the bundle. Helper lemmas take the trees as ERASED (`-l: CU`)
+  parameters and only mention them in types; the live child is passed once to the recursive call.
+- **State kernel laws leaf-wise (a node congruence) and prove the flatten bridge once in offset form**
+  (`U32.add(off, k)`, as `append_cells`): the subtraction-addressed `ccell` model needs `k - a < b` from
+  `k < a + b` over words, which the toolkit cannot yet say (no `to_nat` of `U32.add`/`U32.sub`).
+- **The leaf lemma of the chunked map is `PC.map_cell` applied inside `k => hk => ...`**, with the template
+  lambda spelled exactly as kernels.bend (`~(x => U32.xor(x, 1))`); `Kernel.mask_not` unfolds to it by
+  conversion. `{==}` closes `{n == n}` goals after the parallel let reduces.
+- **TODO counts are the evidence when a file imports LAWS.bend**: every imported open law counts (107 from
+  PROOF_contents' closure); a filled law removes exactly one; a wrong proof is a type error, not a TODO
+  (negative control: `xor 2` in `Leafwise`).
+- `CRoom` has no producer: LAWS section 11 assumes it; the leaf-capacity argument (`croom_of_cap`) is a
+  real new lemma for W5.

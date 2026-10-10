@@ -1,0 +1,32 @@
+# start Sun Oct 11 01:25:57 CEST 2026 load=32.08
+{"spike":"s4","threads":1,"round":0,"load1":31.03,"commit":"cf69d81","mode":"colclone","rows":1048576,"grain_log2":20,"reps":10,"ms_total":3,"check_k":10485760,"check_s":0}
+{"spike":"s4","threads":1,"round":0,"load1":31.03,"commit":"cf69d81","mode":"colmove","rows":1048576,"grain_log2":20,"reps":10,"ms_total":0,"check_k":10485760,"check_s":0}
+{"spike":"s4","threads":1,"round":0,"load1":31.03,"commit":"cf69d81","mode":"mapfresh","rows":1048576,"grain_log2":20,"reps":10,"ms_total":8,"check_k":534026,"check_s":0}
+{"spike":"s4","threads":1,"round":0,"load1":31.03,"commit":"cf69d81","mode":"mapinplace","rows":1048576,"grain_log2":20,"reps":10,"ms_total":8,"check_k":534026,"check_s":0}
+{"spike":"s4","threads":1,"round":0,"load1":31.03,"commit":"cf69d81","mode":"nsboxed","rows":1048576,"grain_log2":20,"reps":10,"ms_total":14,"check_k":3957067488,"check_s":0}
+{"spike":"s4","threads":1,"round":0,"load1":31.03,"commit":"cf69d81","mode":"nsflat","rows":1048576,"grain_log2":20,"reps":10,"ms_total":13,"check_k":3957067488,"check_s":0}
+{"spike":"s4","threads":1,"round":1,"load1":31.03,"commit":"cf69d81","mode":"colclone","rows":1048576,"grain_log2":20,"reps":10,"ms_total":2,"check_k":10485760,"check_s":0}
+{"spike":"s4","threads":1,"round":1,"load1":31.03,"commit":"cf69d81","mode":"colmove","rows":1048576,"grain_log2":20,"reps":10,"ms_total":0,"check_k":10485760,"check_s":0}
+{"spike":"s4","threads":1,"round":1,"load1":31.03,"commit":"cf69d81","mode":"mapfresh","rows":1048576,"grain_log2":20,"reps":10,"ms_total":7,"check_k":534026,"check_s":0}
+{"spike":"s4","threads":1,"round":1,"load1":31.03,"commit":"cf69d81","mode":"mapinplace","rows":1048576,"grain_log2":20,"reps":10,"ms_total":8,"check_k":534026,"check_s":0}
+{"spike":"s4","threads":1,"round":1,"load1":31.03,"commit":"cf69d81","mode":"nsboxed","rows":1048576,"grain_log2":20,"reps":10,"ms_total":14,"check_k":3957067488,"check_s":0}
+{"spike":"s4","threads":1,"round":1,"load1":31.03,"commit":"cf69d81","mode":"nsflat","rows":1048576,"grain_log2":20,"reps":10,"ms_total":13,"check_k":3957067488,"check_s":0}
+{"spike":"s4","threads":1,"round":2,"load1":31.03,"commit":"cf69d81","mode":"colclone","rows":1048576,"grain_log2":20,"reps":10,"ms_total":2,"check_k":10485760,"check_s":0}
+{"spike":"s4","threads":1,"round":2,"load1":31.03,"commit":"cf69d81","mode":"colmove","rows":1048576,"grain_log2":20,"reps":10,"ms_total":0,"check_k":10485760,"check_s":0}
+{"spike":"s4","threads":1,"round":2,"load1":31.03,"commit":"cf69d81","mode":"mapfresh","rows":1048576,"grain_log2":20,"reps":10,"ms_total":8,"check_k":534026,"check_s":0}
+{"spike":"s4","threads":1,"round":2,"load1":31.03,"commit":"cf69d81","mode":"mapinplace","rows":1048576,"grain_log2":20,"reps":10,"ms_total":8,"check_k":534026,"check_s":0}
+{"spike":"s4","threads":1,"round":2,"load1":31.03,"commit":"cf69d81","mode":"nsboxed","rows":1048576,"grain_log2":20,"reps":10,"ms_total":13,"check_k":3957067488,"check_s":0}
+{"spike":"s4","threads":1,"round":2,"load1":31.03,"commit":"cf69d81","mode":"nsflat","rows":1048576,"grain_log2":20,"reps":10,"ms_total":13,"check_k":3957067488,"check_s":0}
+{"spike":"s4","threads":1,"round":3,"load1":30.07,"commit":"cf69d81","mode":"colclone","rows":1048576,"grain_log2":20,"reps":10,"ms_total":3,"check_k":10485760,"check_s":0}
+{"spike":"s4","threads":1,"round":3,"load1":30.07,"commit":"cf69d81","mode":"colmove","rows":1048576,"grain_log2":20,"reps":10,"ms_total":0,"check_k":10485760,"check_s":0}
+{"spike":"s4","threads":1,"round":3,"load1":30.07,"commit":"cf69d81","mode":"mapfresh","rows":1048576,"grain_log2":20,"reps":10,"ms_total":8,"check_k":534026,"check_s":0}
+{"spike":"s4","threads":1,"round":3,"load1":30.07,"commit":"cf69d81","mode":"mapinplace","rows":1048576,"grain_log2":20,"reps":10,"ms_total":8,"check_k":534026,"check_s":0}
+{"spike":"s4","threads":1,"round":3,"load1":30.07,"commit":"cf69d81","mode":"nsboxed","rows":1048576,"grain_log2":20,"reps":10,"ms_total":39,"check_k":3957067488,"check_s":0}
+{"spike":"s4","threads":1,"round":3,"load1":30.07,"commit":"cf69d81","mode":"nsflat","rows":1048576,"grain_log2":20,"reps":10,"ms_total":18,"check_k":3957067488,"check_s":0}
+{"spike":"s4","threads":1,"round":4,"load1":30.07,"commit":"cf69d81","mode":"colclone","rows":1048576,"grain_log2":20,"reps":10,"ms_total":2,"check_k":10485760,"check_s":0}
+{"spike":"s4","threads":1,"round":4,"load1":30.07,"commit":"cf69d81","mode":"colmove","rows":1048576,"grain_log2":20,"reps":10,"ms_total":0,"check_k":10485760,"check_s":0}
+{"spike":"s4","threads":1,"round":4,"load1":30.07,"commit":"cf69d81","mode":"mapfresh","rows":1048576,"grain_log2":20,"reps":10,"ms_total":8,"check_k":534026,"check_s":0}
+{"spike":"s4","threads":1,"round":4,"load1":30.07,"commit":"cf69d81","mode":"mapinplace","rows":1048576,"grain_log2":20,"reps":10,"ms_total":9,"check_k":534026,"check_s":0}
+{"spike":"s4","threads":1,"round":4,"load1":30.07,"commit":"cf69d81","mode":"nsboxed","rows":1048576,"grain_log2":20,"reps":10,"ms_total":17,"check_k":3957067488,"check_s":0}
+{"spike":"s4","threads":1,"round":4,"load1":30.07,"commit":"cf69d81","mode":"nsflat","rows":1048576,"grain_log2":20,"reps":10,"ms_total":14,"check_k":3957067488,"check_s":0}
+# end Sun Oct 11 01:26:07 CEST 2026 load=30.07

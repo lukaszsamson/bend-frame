@@ -1,0 +1,32 @@
+# start Sun Oct 11 01:39:06 CEST 2026 load=21.86
+{"spike":"s1","threads":1,"round":0,"load1":21.86,"mode":"q1fused","rows":1048576,"grain_log2":20,"reps":40,"ms_total":132,"acc":12647840,"check_k":316196,"check_s":2570808395}
+{"spike":"s1","threads":1,"round":0,"load1":21.86,"mode":"q2fused","rows":1048576,"grain_log2":20,"reps":40,"ms_total":84,"acc":41943040,"check_k":943718,"check_s":3766297896}
+{"spike":"s1","threads":4,"round":0,"load1":21.86,"mode":"q1chunk","rows":1048576,"grain_log2":14,"reps":40,"ms_total":62,"acc":41943040,"check_k":316196,"check_s":2570808395}
+{"spike":"s1","threads":4,"round":0,"load1":21.86,"mode":"q2chunk","rows":1048576,"grain_log2":14,"reps":40,"ms_total":34,"acc":41943040,"check_k":943718,"check_s":3766297896}
+{"spike":"s1","threads":12,"round":0,"load1":21.86,"mode":"q1chunk","rows":1048576,"grain_log2":14,"reps":40,"ms_total":119,"acc":41943040,"check_k":316196,"check_s":2570808395}
+{"spike":"s1","threads":12,"round":0,"load1":21.86,"mode":"q2chunk","rows":1048576,"grain_log2":14,"reps":40,"ms_total":36,"acc":41943040,"check_k":943718,"check_s":3766297896}
+{"spike":"s1","threads":1,"round":1,"load1":21.86,"mode":"q1fused","rows":1048576,"grain_log2":20,"reps":40,"ms_total":130,"acc":12647840,"check_k":316196,"check_s":2570808395}
+{"spike":"s1","threads":1,"round":1,"load1":21.86,"mode":"q2fused","rows":1048576,"grain_log2":20,"reps":40,"ms_total":77,"acc":41943040,"check_k":943718,"check_s":3766297896}
+{"spike":"s1","threads":4,"round":1,"load1":21.86,"mode":"q1chunk","rows":1048576,"grain_log2":14,"reps":40,"ms_total":37,"acc":41943040,"check_k":316196,"check_s":2570808395}
+{"spike":"s1","threads":4,"round":1,"load1":21.86,"mode":"q2chunk","rows":1048576,"grain_log2":14,"reps":40,"ms_total":23,"acc":41943040,"check_k":943718,"check_s":3766297896}
+{"spike":"s1","threads":12,"round":1,"load1":21.86,"mode":"q1chunk","rows":1048576,"grain_log2":14,"reps":40,"ms_total":30,"acc":41943040,"check_k":316196,"check_s":2570808395}
+{"spike":"s1","threads":12,"round":1,"load1":21.86,"mode":"q2chunk","rows":1048576,"grain_log2":14,"reps":40,"ms_total":23,"acc":41943040,"check_k":943718,"check_s":3766297896}
+{"spike":"s1","threads":1,"round":2,"load1":21.86,"mode":"q1fused","rows":1048576,"grain_log2":20,"reps":40,"ms_total":131,"acc":12647840,"check_k":316196,"check_s":2570808395}
+{"spike":"s1","threads":1,"round":2,"load1":21.86,"mode":"q2fused","rows":1048576,"grain_log2":20,"reps":40,"ms_total":85,"acc":41943040,"check_k":943718,"check_s":3766297896}
+{"spike":"s1","threads":4,"round":2,"load1":21.86,"mode":"q1chunk","rows":1048576,"grain_log2":14,"reps":40,"ms_total":47,"acc":41943040,"check_k":316196,"check_s":2570808395}
+{"spike":"s1","threads":4,"round":2,"load1":21.86,"mode":"q2chunk","rows":1048576,"grain_log2":14,"reps":40,"ms_total":26,"acc":41943040,"check_k":943718,"check_s":3766297896}
+{"spike":"s1","threads":12,"round":2,"load1":21.86,"mode":"q1chunk","rows":1048576,"grain_log2":14,"reps":40,"ms_total":37,"acc":41943040,"check_k":316196,"check_s":2570808395}
+{"spike":"s1","threads":12,"round":2,"load1":21.86,"mode":"q2chunk","rows":1048576,"grain_log2":14,"reps":40,"ms_total":21,"acc":41943040,"check_k":943718,"check_s":3766297896}
+{"spike":"s1","threads":1,"round":3,"load1":21.86,"mode":"q1fused","rows":1048576,"grain_log2":20,"reps":40,"ms_total":132,"acc":12647840,"check_k":316196,"check_s":2570808395}
+{"spike":"s1","threads":1,"round":3,"load1":21.86,"mode":"q2fused","rows":1048576,"grain_log2":20,"reps":40,"ms_total":83,"acc":41943040,"check_k":943718,"check_s":3766297896}
+{"spike":"s1","threads":4,"round":3,"load1":21.86,"mode":"q1chunk","rows":1048576,"grain_log2":14,"reps":40,"ms_total":50,"acc":41943040,"check_k":316196,"check_s":2570808395}
+{"spike":"s1","threads":4,"round":3,"load1":21.86,"mode":"q2chunk","rows":1048576,"grain_log2":14,"reps":40,"ms_total":27,"acc":41943040,"check_k":943718,"check_s":3766297896}
+{"spike":"s1","threads":12,"round":3,"load1":21.86,"mode":"q1chunk","rows":1048576,"grain_log2":14,"reps":40,"ms_total":43,"acc":41943040,"check_k":316196,"check_s":2570808395}
+{"spike":"s1","threads":12,"round":3,"load1":21.86,"mode":"q2chunk","rows":1048576,"grain_log2":14,"reps":40,"ms_total":25,"acc":41943040,"check_k":943718,"check_s":3766297896}
+{"spike":"s1","threads":1,"round":4,"load1":21.86,"mode":"q1fused","rows":1048576,"grain_log2":20,"reps":40,"ms_total":134,"acc":12647840,"check_k":316196,"check_s":2570808395}
+{"spike":"s1","threads":1,"round":4,"load1":21.86,"mode":"q2fused","rows":1048576,"grain_log2":20,"reps":40,"ms_total":78,"acc":41943040,"check_k":943718,"check_s":3766297896}
+{"spike":"s1","threads":4,"round":4,"load1":21.86,"mode":"q1chunk","rows":1048576,"grain_log2":14,"reps":40,"ms_total":44,"acc":41943040,"check_k":316196,"check_s":2570808395}
+{"spike":"s1","threads":4,"round":4,"load1":21.86,"mode":"q2chunk","rows":1048576,"grain_log2":14,"reps":40,"ms_total":29,"acc":41943040,"check_k":943718,"check_s":3766297896}
+{"spike":"s1","threads":12,"round":4,"load1":22.83,"mode":"q1chunk","rows":1048576,"grain_log2":14,"reps":40,"ms_total":36,"acc":41943040,"check_k":316196,"check_s":2570808395}
+{"spike":"s1","threads":12,"round":4,"load1":22.83,"mode":"q2chunk","rows":1048576,"grain_log2":14,"reps":40,"ms_total":65,"acc":41943040,"check_k":943718,"check_s":3766297896}
+# end Sun Oct 11 01:39:09 CEST 2026
