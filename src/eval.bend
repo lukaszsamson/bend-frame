@@ -808,15 +808,18 @@ def Eval.msnd(r: Array<U32> & Array<U32>) -> Array<U32>:
   b
 
 # the AND of two choices of validity: row i takes a's validity where m[i] is set, else b's;
-# AllValid when both are (one pass otherwise, AllValid again when every row is valid)
+# AllValid when both are (one pass otherwise, AllValid again when every row is valid). An AllValid
+# side is the 1-slot ones array (indices wrap, so it reads 1 at every row, allocates nothing and
+# is never written): Kernel.choose writes into its `a` array, so the AllValid-a case is the
+# zip (m[i] != 0) | mb[i] over the 0/1 masks instead (one output array, like choose's).
 def Eval.when.valid(+n: U32, +d: Nat, va: C.Valid, vb: C.Valid, m: Array<U32>) -> C.Valid:
   match va vb:
     case C.AllValid{} C.AllValid{}:
       C.AllValid{}
     case C.AllValid{} C.Mask{mb}:
-      Eval.cast.allv(n, K.Kernel.popcount(n, Eval.msnd(K.Kernel.choose(~U32, n, m, C.Valid.materialize(C.AllValid{}, d), mb))))
+      Eval.cast.allv(n, K.Kernel.popcount(n, K.Kernel.zip(~U32, ~U32, ~U32, ~(x => y => U32.or(Bool.to_u32(U32.is_ne(x, 0)), y)), n, d, m, mb, 0)))
     case C.Mask{ma} C.AllValid{}:
-      Eval.cast.allv(n, K.Kernel.popcount(n, Eval.msnd(K.Kernel.choose(~U32, n, m, ma, C.Valid.materialize(C.AllValid{}, d)))))
+      Eval.cast.allv(n, K.Kernel.popcount(n, Eval.msnd(K.Kernel.choose(~U32, n, m, ma, C.Valid.materialize(C.AllValid{}, 0n)))))
     case C.Mask{ma} C.Mask{mb}:
       Eval.cast.allv(n, K.Kernel.popcount(n, Eval.msnd(K.Kernel.choose(~U32, n, m, ma, mb))))
 
@@ -1261,6 +1264,55 @@ def Eval.nuniq.l(~T: Data, ~le: T -> T -> Bool, ~eq: T -> T -> Bool, r: Array<T>
 def Eval.nuniq(~T: Data, ~le: T -> T -> Bool, ~eq: T -> T -> Bool, +k: U32, a: Array<T>) -> U32:
   Eval.nuniq.l(~T, ~le, ~eq, K.Kernel.to_list(~T, k, a))
 
+# n_unique over WORDS (Bool / U32 / I32 as they are, F32 as its 15.5.2 order words): a stable radix
+# sort of the words (the sort of Sort / median; the pair's second array is a scratch perm that is
+# never read), then ONE flat loop counting the positions that differ from their predecessor. No
+# cons list, nothing allocated per row. The words' order does not matter, only their equality.
+
+# 1 + the number of i in [1, k) with ws[i] != ws[i-1] (k >= 1); the loop reads ws[i] as `x` and
+# carries the previous word, so it is one native tail loop (Radix.vary.go's shape)
+def Eval.nu.runs.go(n: Nat, +i: U32, +prev: U32, acc: U32, r: Array<U32> & U32) -> U32:
+  match n:
+    case 0n:
+      (ws, x) = r
+      acc
+    case 1n+p:
+      (ws, +x) = r
+      Eval.nu.runs.go(p, U32.inc(i), x, U32.add(acc, Bool.to_u32(U32.is_ne(x, prev))), Array.get(U32, ws, U32.inc(i)))
+
+def Eval.nu.runs.b(+k: U32, r: Array<U32> & U32) -> U32:
+  (ws, +w0) = r
+  Eval.nu.runs.go(U32.to_nat(U32.sub(k, 1)), 1, w0, 1, Array.get(U32, ws, 1))
+
+def Eval.nu.runs.z(z: Bool, +k: U32, ws: Array<U32>) -> U32:
+  match z:
+    case True{}:
+      0
+    case False{}:
+      Eval.nu.runs.b(k, Array.get(U32, ws, 0))
+
+def Eval.nu.sorted(+k: U32, st: Array<U32> & Array<U32>) -> U32:
+  (ws, perm) = st
+  Eval.nu.runs.z(U32.is_zero(k), k, ws)
+
+# the number of distinct words among ws[0..k)
+def Eval.nu.words(+k: U32, ws: Array<U32>) -> U32:
+  Eval.nu.sorted(k, O.Radix.sort(k, K.Kernel.depth_for(k), (ws, Array.new(U32, K.Kernel.depth_for(k), 0))))
+
+# a Bool column has at most two values: presence bits (1 = some false, 2 = some true)
+def Eval.nu.bits(+m: U32) -> U32:
+  U32.add(U32.and(m, 1), U32.and(U32.shrn(m, 1n), 1))
+
+def Eval.nu.bool(+k: U32, x: Array<U32>) -> U32:
+  Eval.nu.bits(Eval.snd(~U32, ~U32, K.Kernel.fold(~U32, ~U32, ~(a => w => U32.or(a, U32.add(1, Bool.to_u32(U32.is_ne(w, 0))))), k, x, 0)))
+
+def Eval.nu.w(t: D.DType, +k: U32, x: Array<U32>) -> U32:
+  match t:
+    case D.TBool{}:
+      Eval.nu.bool(k, x)
+    case _:
+      Eval.nu.words(k, x)
+
 # ---- std / var / median (DESIGN.md 15.5.4): shared by Eval.agg, GroupBy and describe -------
 
 # one term of the second pass: (x - m)^2, each step in f32
@@ -1409,7 +1461,7 @@ def Eval.agg.w(op: X.AggOp, +t: D.DType, +k: U32, x: Array<U32>) -> E.ResT(C.Col
     case X.Last{}:
       Done{Eval.unit(Eval.nz(k, C.Column.cell.word(t, Eval.at(~U32, x, U32.sub(k, 1)))), t)}
     case X.NUnique{}:
-      Done{Eval.unit(D.SU32{Eval.nuniq(~U32, ~(a => b => U32.is_le(a, b)), ~(a => b => U32.is_eq(a, b)), k, x)}, D.TU32{})}
+      Done{Eval.unit(D.SU32{Eval.nu.w(t, k, x)}, D.TU32{})}
     case X.Std{}:
       Done{Eval.unit(Eval.agg.stat(X.Std{}, k, Eval.wf32(t, k, x)), D.TF32{})}
     case X.Var{}:
@@ -1434,7 +1486,7 @@ def Eval.agg.f(op: X.AggOp, +k: U32, x: Array<F32>) -> E.ResT(C.Column):
     case X.Last{}:
       Done{Eval.unit(Eval.nz(k, D.SF32{Eval.at(~F32, x, U32.sub(k, 1))}), D.TF32{})}
     case X.NUnique{}:
-      Done{Eval.unit(D.SU32{Eval.nuniq(~U32, ~(a => b => U32.is_le(a, b)), ~(a => b => U32.is_eq(a, b)), k, K.Kernel.map(~F32, ~U32, ~(w => K.Kernel.fword(w)), k, K.Kernel.depth_for(k), x, 0))}, D.TU32{})}
+      Done{Eval.unit(D.SU32{Eval.nu.words(k, K.Kernel.map(~F32, ~U32, ~(w => K.Kernel.fword(w)), k, K.Kernel.depth_for(k), x, 0))}, D.TU32{})}
     case X.Std{}:
       Done{Eval.unit(Eval.agg.stat(X.Std{}, k, x), D.TF32{})}
     case X.Var{}:
