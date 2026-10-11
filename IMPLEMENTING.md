@@ -1353,6 +1353,14 @@ PROVISIONAL, 1 thread, shared machine, see the commit report for load and raw sa
   list with the columns before it reversed and the ones after it, put back in place): no `get_cloned`, no
   identity xmap, no iota gather. A Raw string key still clones (its v0.1 coder consumes the strings; W2's).
 - `U32.shrn(x, sh)` with a `Nat` shift compiles to a native `>>` (with a `sh >= 32` guard): no loop.
+- **16-bit digits beat 11/11/10-bit digits here** (tried and reverted): over 1M random U32 words, 1 thread,
+  load ~10, interleaved: 16-bit 2 passes 9-12 ms, 11-bit 3 passes 16-18 ms; words below 2^16: 16-bit
+  1 pass 6-8 ms, 11-bit 2 passes 18-21 ms; the read pass alone (sorted / constant words) 3 ms either way.
+  With 8 MB of (word, row) pairs resident in the M2's L2, the pass count dominates the cursor count;
+  a 16-bit scatter pass costs ~4 ms per 1M random words, the 11-bit one measured ~2x that (unexplained:
+  the loops are the same `spin` shape with zero allocation). q4's keys are cheap because their words
+  are not random: `id` is sorted (0 passes), `region` ranks are below 8 (1 pass, 8 live cursors),
+  `price` has few high-digit values.
 - Small things that did not matter: the second histogram increment per row when only the low digit varies
   (always counted: the read pass decides before it knows), and the iota array for the first key (one
   sequential pass); both left as they are.
