@@ -9,7 +9,7 @@ EXAMPLES := frame.bend $(wildcard examples/*.bend) $(wildcard bench/*.bend)
 # differential smoke (Raw and Dictionary strings, then the F32 reduction check), the proof mutation
 # check and the clean-consumer check (needs the work committed: it clones HEAD). Larger differential
 # runs (make diff N=..., make diff-reduce REDUCE_N=...) are the scheduled/release gate.
-ci: toolchain-check check runner-check diff-driver-check test proofs verdict mutation-check bench-check diff-smoke csv-fuzz-smoke consumer-check
+ci: toolchain-check check runner-check diff-driver-check test proofs verdict mutation-check bench-check diff-smoke csv-fuzz-smoke fork-audit consumer-check
 	@echo "ci: all gates passed"
 
 test:
