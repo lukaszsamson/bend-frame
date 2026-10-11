@@ -766,11 +766,12 @@ therefore sequential inside a column and parallel ACROSS independent work:
 Status (v0.1 release candidate, after M5 part 4: P1 and P2 closed as scoped, P3 by the
 fallback, both string storages in the P1 chain, the in-place kernels and concatenation
 included; the v0.1 review's scan laws `hmerge_keeps_scans` / `release_keeps_scans` added
-after it; v0.2 W1f added `range_cell`, the range copy behind `Column.slice`): `LAWS.bend` states 150
-laws over `src/` in 15 sections; `PROOF.bend` imports
+after it; v0.2 W1f added `range_cell`, the range copy behind `Column.slice`; v0.2 T3.1 added section 16,
+the moves of the liveness pass): `LAWS.bend` states 155
+laws over `src/` in 16 sections; `PROOF.bend` imports
 `PROOF_lib`, `PROOF_schema`, `PROOF_expr`, `PROOF_plan`, `PROOF_kernels`, `PROOF_exec`,
 `PROOF_bits`, `PROOF_contents`, `PROOF_eval`, `PROOF_evalops`, `PROOF_evalrun`,
-`PROOF_strs`, `PROOF_append` and `PROOF_inplace` (one file per area; `L.*` is the shared
+`PROOF_strs`, `PROOF_append`, `PROOF_inplace` and `PROOF_moves` (one file per area; `L.*` is the shared
 toolkit, `B.*` the word-level toolkit) and proves all of them: `bend PROOF.bend` prints ALL
 PROOFS CHECK in 1.7-2.3 s wall (3.3-3.6 s CPU, `make proofs`), `bend PROOF.bend --verdict`
 prints it again under the independent BendTT kernel in 5.1-5.5 s wall (`make verdict`);
@@ -807,13 +808,17 @@ name-sensitive by their own headers (`gather_wrong_index`, `compact_flipped_mask
 is tied to the production name, so an UNMUTATED renamed copy is refused too, and those five
 show "a copy is rejected", not "a wrong copy is rejected". The stronger check is
 `make mutation-check` (`scripts/mutation_check.sh`, part of `make ci`): it copies the
-proof-relevant tree, patches ONE production function IN PLACE (17 mutations over
+proof-relevant tree, patches ONE production function IN PLACE (21 mutations over
 `Kernel.gather`, `compact_keep`, `compact`, `choose`, `append`, `copy_into`, `Kernel.range`
 (two patches: the write slot, the read offset; W1f), `Valid.range` (the slice's mask not
 shifted; W1f), `Opt.hmin`, `Opt.hmerge` (two patches), `Dict.code`, `Enc.put`, `Dict.rc.put`,
-`Eval.un` and the stack machine's `Eval.fit`), runs `bend PROOF.bend` and requires "SOME
-PROOFS FAIL"; the unmutated copy must say ALL PROOFS CHECK first. All 17 are caught (nothing
-was weakened to make that true). It is a spot check of 15 functions, not a mutation test of
+`Eval.un`, the stack machine's `Eval.fit`, and since T3.1 `Frame.lend` (two patches: it
+answers the stand-in, it lends the wrong columns) and `Eval.mark` (two patches: a move although a
+later expression reads the column, a move of a column the operator keeps; the proof of `mark_reads`
+spells the production condition and fails first, restating it to the mutated one moves the failure
+to `mark_moves_ok`'s own requirement, checked by hand)), runs `bend PROOF.bend` and requires "SOME
+PROOFS FAIL"; the unmutated copy must say ALL PROOFS CHECK first. All 21 are caught (nothing
+was weakened to make that true). It is a spot check of 17 functions, not a mutation test of
 every proof.
 
 Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
@@ -835,6 +840,7 @@ Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 | 13 Evaluator typing (`PROOF_eval`, `PROOF_evalops`, `PROOF_evalrun`; plan P2, M5 part 2) | models `cdtype` / `clen` / `klen` / `skind` / `fschema` / `frame_ok` and the Type-valued `ColTy` / `ResTy` / `StkTy` / `RunTy` / `EvalTy`; purity of the readers (`len_w`, `dtype_w`, `cell_w`, `frame_height_w`, `frame_schema_w`), the P0 bridge `wf_frame_ok` (a `WFFrame` satisfies the shape facts the typing theorems assume), `get_cloned_typed` (`Frame.get_cloned` answers the frame unchanged and a copy of the column `Schema.find` names, of its dtype and h rows), `bcast_typed`, `unit_typed`; the operation laws `eval_un_typed`, `eval_bin_typed`, `eval_cast_typed` (fails exactly when `X.Cast.total` is False), `eval_try_cast_typed`, `eval_fill_typed`, `eval_when_typed`, `eval_isin_typed`, `eval_clip_typed`, `eval_strpred_typed`, `eval_agg_typed` (every operation answers a column of the dtype its typing rule in `expr.bend` gives, as long as its operand, never a failure except the strict cast); and the stack machine: `run_typed` (the postfix code `Eval.compile(e, acc)` of an expression the shared analysis `A.Expr.analyse` accepts with record (t, k, tot), run by `Eval.run` from a frame of h rows with that schema and a stack whose slots have shapes `sh`, leaves the frame unchanged and pushes one slot of dtype t and kind `skind(k)` with `klen` rows, or fails only when tot is False; by induction over the expression with the stack invariant, every Expr node), `eval_full_typed` (`Eval.full(f, e)` over a well-formed frame answers the frame unchanged and a column of the analysis' dtype with the frame's height, or a failure the analysis allowed), `eval_expr_typed` (`Eval.expr`: the same with one row for a reduction, `elen`) |
 | 14 Dictionary strings (`PROOF_strs`; plan section 5 last paragraph and section 6 P1, M5 part 3) | the entry-list model `WFDictE(d, es)` (k = |es| entries fitting 2^dd slots, entry 0 `""`, every slot below k its list entry, a sound index `WFIx`: every slot empty or naming a code in range whose entry is its key); `decode_cell` (`Strs.decode` reads row i as `scell(s, i)`: decode(Dictionary) is the Raw column), `strs_gather_cells`, `strs_compact_cells` (both storages: the codes gathered / compacted read as the Raw operation's cells; the gather / compact loops of section 11 as template proofs at the String and U32 instances), `strs_clone_w` / `dict_clone_w`; `str_same_sound` / `str_same_complete` (the index's key comparison); `dict_empty_wf`; `dict_code_spec` (`Dict.code` keeps `WFDictE`, extends the entries by at most s, answers a code in range that decodes to s, and every old code keeps its entry (`Keep`), through `Dict.add` / `Dict.fit` / `Dict.room` / `Ix.seek` / `Ix.grow`); `strs_encode_cells` / `strs_encode_cell` (`Strs.encode` of a Raw column: a well-formed code array and dictionary, every row's code naming the row's string: `EncRows`; per row `scell(encode(s), i) == scell(s, i)`); `strs_raw_cell`, `column_encode_cell` / `column_decode_cell` / `column_recode_cell`, `cols_encode_cells`, `frame_encode_cells` (`DF.encode_strings` keeps the height, the names and every cell); `dict_miss_not_code`; `dict_merge_spec` (`Dict.merge`: src back, dst extended and well formed, dst's old codes keep their entries, the map re-codes every entry of src: `nthd(es2, m[c]) == dentry(src, c)`); `dict_same_sound` (`Dict.same` True only for equal entry lists); `dict_find_spec` (`Dict.find`: a miss or a sound code naming s, the dictionary back); `dict_recode_spec` (`Dict.recode`: per entry of src a miss or a code of dst naming it) |
 | 15 Concatenation and the in-place kernels (`PROOF_append`, `PROOF_inplace`; plan section 6 P1, M5 part 4) | `append_cells` (`Kernel.append` = two `Kernel.copy_into` loops writing at `U32.add(off, i)`, U32 instance: a's rows below na, b's row k at na + k, the output well formed, when na + nb <= 2^d as natural numbers: `CatFits`); `strs_append_cells` (`Strs.append`, the Str storage of `Cat.col` / `concat_vertical`, both storages: two Dictionaries merge b's entries into a's and append a's codes to b's re-coded ones, any other pair decodes and appends the strings; a's cell below na, b's cell k at na + k, through `scell`); `mask_data_cell` / `mask_data_keeps_mask` (`Kernel.mask_data`, in place, U32 instance: at every pos < n the old cell where the mask word is set, z where it is 0; the mask handed back unchanged); `choose_cell` / `choose_keeps_mask` (`Kernel.choose`, in place into a, U32 instance: a's cell where the mask word is set, b's where it is 0; the mask back); `fix_cell` (`Eval.fix`, the null slots back to the default, for every column kind: Bool / U32 / I32 words, F32, Str Raw and Dictionary: `ccell` of every row is unchanged, so the reset never touches a valid slot); `fill_str_cell` (`Eval.fill` = fill_null on two Str columns, both storages: row i is a's cell where a is valid, b's cell otherwise, the Polars cell); `when_str_data` (`Eval.when.str`, the Str case of `when`: the string STORED at row i is a's where the condition mask word is set, b's where it is 0, both storages; the row's validity is not stated) |
+| 16 Moves (`PROOF_moves`; v0.2 T3.1, DESIGN 16.2 rule 1, plan M_02 section 4 "projection/moves") | models `lastm` / `fcol` (the column a frame holds under a name), `hollowm` / `holed` / `holedf` (the frame with a hollow stand-in in the column's place), `nomove`, `moves_ok`; `lend_observes` (over a frame with unique names whose column named n is c: `Frame.lend(f, n) == (holedf(f, n), Done{c})`, `Frame.get_cloned(f, n) == (f, Done{c})` and `Frame.replace(holedf(f, n), n, c) == Done{f}`: the moved column IS the column the copy reproduces, and a borrow puts the frame back as it was); `mark_reads` (`Eval.mark` changes no read: the same names in the same order), `mark_moves_ok` (every `IMove{n}` it makes in move-free code is allowed, n in `dead` or `all`, and is the last read of n: no later instruction of the code and no name in `later` reads it), `compile_nomove` (`Eval.compile` emits no move), `compile_reads` (the code of e reads exactly `X.Expr.refs(e)`, in order: the list the operators pass as `later` through `Eval.refs`) |
 
 ### 8.1 Assurance matrix (plan M_01 section 6: theorem -> production function -> assumptions -> checker)
 
@@ -864,7 +870,8 @@ Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 | `get_cloned_typed` | `Frame.get_cloned` (= `Cols.cg.go`, `Column.clone`, `Schema.find`) | `frame_ok(h, f)` (every column h rows, unique names) and `Schema.find(fschema f, n) == Some t` | bend, --verdict |
 | `eval_un_typed` .. `eval_agg_typed` (10 laws) | `Eval.un`, `Eval.bin`, `Eval.cast`, `Eval.try_cast`, `Eval.fill`, `Eval.when`, `Eval.isin`, `Eval.clip`, `Eval.strpred`, `Eval.agg` and everything they call (`Column.mk_w`, `Eval.fix`, the kernels, `Kernel.depth_for`) | the operand dtypes are accepted by the operation's rule in `expr.bend` (`Expr.type.un.ok`, `bin.ok`, `Cast.ok`, `fill`, `when.ok`, `isin.ok`, `clip.ok`, `strpred.ok`, `agg.ok`); the claims are dtype, length and totality (`ResW`): not the cells | bend, --verdict |
 | `run_typed` | `Eval.compile`, `Eval.run` (= `Eval.step`, `Eval.exec`, `Eval.app1/2/3`, `Eval.do1/2/3`, `Eval.fit`, `Eval.fit_agg`, `Eval.push`, `Eval.wrap`, `Eval.unit`, `Eval.bcast`, `Frame.get_cloned`), `A.Expr.analyse` | `fschema(f) == s`, `frame_ok(h, f)`, a stack satisfying `StkTy(h, sh, stk)`, `A.Expr.analyse(e, s) == Done{Ana{t, rs, k, tot, loc}}`; every Expr node (Col, Lit, Alias, Cast, TryCast, Un, Bin, FillNull, Agg, When, IsIn, Clip, StrPred). Claims: frame unchanged, one new slot of dtype t and kind `skind(k)` with `klen` rows, failure only when tot is False. NOT claimed: cell values, that only the columns `rs` are read, the locality field `loc` | bend, --verdict |
-| `eval_full_typed`, `eval_expr_typed` | `Eval.full`, `Eval.expr` (= `Eval.slot`, `Eval.slot.s/t/h`, `Eval.fin`, `Eval.mode.a/b`, `Eval.unslot`) | `WFFrame(f)` (P0) and `A.Expr.analyse(e, fschema f) == Done{..}`: the production type check `A.Ana.type` is the same analysis, so a Done answer is exactly what `Eval.select` / `with_columns` / `filter` evaluate; the column has the frame's height (`Eval.full`) or `elen` (`Eval.expr`: 1 for a reduction) | bend, --verdict |
+| `eval_full_typed`, `eval_expr_typed` | `Eval.full`, `Eval.expr` (= `Eval.slot`, `Eval.slot.s/t/h`, `Eval.fin`, `Eval.mode.a/b`, `Eval.unslot`) | `WFFrame(f)` (P0) and `A.Expr.analyse(e, fschema f) == Done{..}`: the production type check `A.Ana.type` is the same analysis, so a Done answer is exactly what `Eval.filter` evaluates and, up to the moves of section 16, what `Eval.select` / `with_columns` evaluate (since T3.1 they run `Eval.slot.mv`: the same type check and `Eval.compile`'s code after `Eval.mark`; that marked code is NOT what `run_typed` is stated over, see the next row); the column has the frame's height (`Eval.full`) or `elen` (`Eval.expr`: 1 for a reduction) | bend, --verdict |
+| `lend_observes`, `mark_reads`, `mark_moves_ok`, `compile_nomove`, `compile_reads` | `Frame.lend` (= `Cols.lend.go/step/k`, `Column.hollow`, `Frame.lend.k`), `Frame.get_cloned` (= `Cols.cg.go`, `Column.clone`), `Frame.replace` (= `Frame.info`, `Cols.names`, `FInfo.shape`, `Cols.replace.go/step/pick`, `Frame.replace.d`), `Eval.mark` (= `mark.i`, `mark.c`), `Eval.reads`, `Eval.compile` | lend: `frame_ok(h, f)` (unique names, every column h rows) and `fcol(f, n) == Some{c}`; mark: move-free code (what `Eval.compile` emits). NOT claimed: that the marked code computes the same stack as the unmarked one, i.e. a typing / equivalence theorem for `Eval.slot.mv` (`select`, `with_columns`, `Eval.full_mv` / `expr_mv`). The argument is the composition of these laws (a move answers the very column the copy reproduces, stand-ins keep `fschema` and `frame_ok`, and nothing reads a stand-in) plus tests and the differential; the step-by-step equivalence over `Eval.run` is open | bend, --verdict |
 | `decode_cell`, `strs_gather_cells`, `strs_compact_cells`, `strs_clone_w`, `dict_clone_w` | `Strs.decode` / `Dict.decode`, `Strs.gather`, `Strs.compact`, `Strs.clone` / `Dict.clone` (= `Strs.out.r/d`, `Strs.clone.r/d`, `Dict.clone.k`, `Kernel.gather` / `Kernel.compact_keep` at the String and U32 instances), i.e. the Str case of `Column.gather.data`, `Column.compact.data`, `Column.clone.s` (since W1f `Column.slice` range copies a Raw array or a Dictionary's codes directly, `Column.slice.s`: the template loop of `range_cell`, the Str instance not separately stated) | `n <= 2^d` (gather / decode), `CRoom` (compact, as section 11); no dictionary invariant needed (codes move unchanged) | bend, --verdict |
 | `str_same_sound`, `str_same_complete`, `dict_empty_wf`, `dict_code_spec` | `Str.same`, `Dict.empty`, `Dict.code` (= `Dict.code.h/k/p`, `Dict.add`, `Dict.fit`, `Dict.fit.k`, `Dict.room`, `Dict.dd`, `Dict.mix`, `Ix.seek` / `Ix.seek.go` / `Ix.look` / `Ix.id`, `Ix.grow` / `Ix.grow.go` / `Ix.move` / `Ix.move.k`), the index's `Array.set` / `Array.get` | `WFDictE(d, es)`; fewer than 2^30 entries (the row cap keeps every dictionary far below); the PROBE HYPOTHESIS `Probe(d, s)`: the hash probe for s stops at a slot that is empty or holds s (production guarantees it by the load factor <= 1/2 and the pairwise distinct entries; this termination argument is not proven: the probe's answer is taken as given and shown sound). `Str.hash` is only used as a deterministic function | bend, --verdict |
 | `strs_encode_cells`, `strs_encode_cell`, `strs_raw_cell`, `column_encode_cell`, `column_decode_cell`, `column_recode_cell`, `cols_encode_cells`, `frame_encode_cells` | `Strs.encode` (= `Strs.encode.raw`, `Enc.go`, `Enc.step`, `Enc.put`, `Enc.fin` over `Dict.code` from `Dict.empty`), `Strs.raw`, `Column.encode` / `decode` / `recode`, `Cols.encode`, `Frame.encode` (= `DF.encode_strings`) | `n <= 2^d`, `n < 2^30`, the probe hypotheses along the loop (`EncProbe`: row i against the dictionary built so far); claims: the Dictionary's code array and dictionary are well formed and every row below n decodes to the Raw row (`EncRows`; per row `scell`, hence `ccell` with validity untouched) | bend, --verdict |
@@ -2600,6 +2607,56 @@ here so W2 / W6 do not rediscover them. Evidence: bench/spikes/w0_strings/, sect
    words are identical to v0.1's; the coder and ranks stay tested-only, as the code they replace.
 5. **Dictionary laws**: unchanged unless W2.6 migrates `ST.Dict`'s index, in which case the
    Probe-family hypotheses are restated over the new seek (still hypotheses), never dropped.
+
+### v0.2 T3.1 (liveness pass, moves and borrows; section 16.2 rule 1)
+
+No change of the data contract (section 15): values, validity, names, order, F32 bits, errors and
+error precedence are v0.1's (tests/eval_moves.bend: every case not using a new entry point gives the
+v0.1 build's text; `make test`, `make diff-smoke`). What was implemented and where it departs from
+16.2 rule 1 / 16.7 T3.1:
+
+1. **Moves.** `Eval.mark` (a post-pass over `Eval.compile`'s postfix code, run after the static
+   checks and before any data work) turns the last reference of a column the operator does not keep
+   into `IMove` (`Frame.lend`: the column itself, a hollow stand-in of the same dtype and length stays
+   in its place, so schemas, heights and with_columns' in-place `Frame.replace` are unchanged).
+   select: every column (it consumes its input); with_columns: the inputs an output overwrites;
+   group_by: `Eval.full_mv` / `Eval.expr_mv` with `later = Eval.refs(the keys / aggregations still to
+   evaluate)`, for T3.3 to call inside groupby.bend (group_by itself is unchanged here: that file is
+   T3.3's). Earlier references of the same column copy, so duplicates and aliases read equal columns.
+2. **Borrows: only where a kernel hands the buffer back.** `unique` lends its key columns, `G.Grp.codes`
+   hands them back and `Frame.replace` puts them in place (a repeated subset name copies all but its
+   last reference). DEVIATION: the expression operands of filter (all input columns survive) and of
+   with_columns' untouched inputs are still COPIED (`Frame.get_cloned`, commented in `Eval.filter.t` /
+   `Eval.wc.b`): every Eval operation consumes its operands (`Kernel.map` / `zip` drop their
+   inputs), so a borrow needs operation variants that hand the operand back. The fused kernels of W4
+   (F2 zipv, F5 pred_count, F1 map_p) are where that belongs; until then q1's 8.4 MB and q2's 16.8 MB
+   of predicate / with_columns copies stay (G6, copy bytes below).
+3. **Sort keys** are a borrow of T3.2's (sort.bend): `Frame.lend` + `Frame.replace` with the law
+   `lend_observes` are the tool; T3.1 does not touch sort.bend. **A Source not on its last use** still
+   copies the whole frame (`Env.clone`, 15.7) and a self join's copy is counted (16.2 rule 3);
+   narrowing that copy to the columns the consumer reads needs plan-level liveness across operators
+   (and an edit of `Exec.mark` the R1 proofs are stated over): not done.
+4. **head / slice then project**: a single reference now moves the parent buffer (no copy, the
+   retained capacity of 16.2 rule 5); a second reference still copies the parent's FULL capacity
+   (`Column.clone` is a physical copy; a logical-rows copy needs a range copy that hands its source
+   back, i.e. a new kernel in kernels.bend: not done). Measured with the review's probe `bench/micro/ops.bend` (64 eager
+   `select([col x])` of a 2^20-row column, native, 1 thread, 7 interleaved processes, load 13-24,
+   provisional): `select` 13 ms -> 0 ms, `headselect` (after `head(1)`) 11 ms -> 0 ms (median; raw
+   base 14,14,12,12,14,13,11 / 12,11,11,11,14,11,11, candidate all 0), same check lines.
+5. **Proof scope.** `lend_observes` (the observation law of 16.6) and the four `Eval.mark` laws
+   (section 8, group 16) are proven; the P2 theorems still cover `Eval.full` / `Eval.expr` and the
+   stack machine over `Eval.compile`'s code (they checked unchanged with the new `IMove` case of
+   `Eval.exec`). `select` and `with_columns` now run MARKED code (`Eval.slot.mv`), which `run_typed`
+   is not stated over: their typing rests on the composition argument of the 8.1 row, not on a
+   theorem (open: an equivalence of `Eval.run` over marked and unmarked code).
+6. **G6 copy bytes** are measured by instrumenting the emitted C (a byte counter in the runtime's
+   `blk_copy`, printed at every `IO.now` of `bench/m2/driver.bend`), not by a counter threaded through
+   Bend code: threading one through eval, group_by, sort and join would change four modules' types
+   (two of them other tasks' files). Exact, deterministic, 1M rows, compute phase: q1 8.39 MB, q2
+   16.78 MB, q3 37.75 MB, q4 12.58 MB, q5 16.78 MB at baseline (3612482), at HEAD before T3.1 and after
+   T3.1 alike (lazy q1's projection was already a move); the eager stage `select_q1` 3.15 MB -> 0. The
+   W3 target (q1-q5 clone bytes -50%) therefore depends on T3.3 (group_by 33.6 MB of the 92.3) and T3.2
+   (sort 12.6 MB) using these entry points, and on W4 for the 25.2 MB of filter / with_columns copies.
 
 ## 15. v0.1 contract (frozen)
 

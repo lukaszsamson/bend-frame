@@ -267,17 +267,43 @@ def Uniq.get.k(+n: String, acc: List<&1, C.Named>, r: C.Frame & E.ResT(C.Column)
     case Done{c}:
       (f, C.Named{n, c} <> acc)
 
-def Uniq.get.step(+n: String, st: C.Frame & List<&1, C.Named>) -> C.Frame & List<&1, C.Named>:
-  (f, acc) = st
-  Uniq.get.k(n, acc, C.Frame.get_cloned(f, n))
+# a name repeated later in the subset is copied here (the later one borrows it)
+def Uniq.get.c(again: Bool, f: C.Frame, +n: String) -> C.Frame & E.ResT(C.Column):
+  match again:
+    case True{}:
+      C.Frame.get_cloned(f, n)
+    case False{}:
+      C.Frame.lend(f, n)
 
-# a clone of every key column (newest first, as G.Grp.codes takes them); the frame stays
+def Uniq.get.step(+n: String, +rest: List<&2, String>, st: C.Frame & List<&1, C.Named>) -> C.Frame & List<&1, C.Named>:
+  (f, acc) = st
+  Uniq.get.k(n, acc, Uniq.get.c(C.Names.has(rest, n), f, n))
+
+# every key column (newest first, as G.Grp.codes takes them), BORROWED (DESIGN.md 16.2 rule 1):
+# the last reference of a name is lent out of the frame (Frame.lend, no copy; Tbl.back puts it
+# back after G.Grp.codes hands it back), an earlier repeat of the same name is copied
 def Uniq.get(keys: List<&2, String>, st: C.Frame & List<&1, C.Named>) -> C.Frame & List<&1, C.Named>:
   match keys:
     case Nil{}:
       st
-    case k <> t:
-      Uniq.get(t, Uniq.get.step(k, st))
+    case k <> +t:
+      Uniq.get(t, Uniq.get.step(k, t, st))
+
+def Tbl.back.one(r: E.ResT(C.Frame), name: String, c: C.Column) -> E.ResT(C.Frame):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{f}:
+      C.Frame.replace(f, name, c)
+
+# the borrowed key columns back into their frame (Frame.replace: in place, the frame's height);
+# of a repeated name the last one put back stays (all copies are equal)
+def Tbl.back(cols: List<&1, C.Named>, r: E.ResT(C.Frame)) -> E.ResT(C.Frame):
+  match cols:
+    case Nil{}:
+      r
+    case C.Named{n, c} <> t:
+      Tbl.back(t, Tbl.back.one(r, n, c))
 
 # the first row of every group, in first-appearance order (= ascending row order)
 def Uniq.out(g: G.Groups, f: C.Frame) -> E.ResT(C.Frame):
@@ -287,11 +313,18 @@ def Uniq.out(g: G.Groups, f: C.Frame) -> E.ResT(C.Frame):
         case C.Frame{h, cols}:
           Done{Tbl.gather.fin(ng, Tbl.gather(cols, ng, (first, Nil{})))}
 
+def Uniq.group.e(g: G.Groups, r: E.ResT(C.Frame)) -> E.ResT(C.Frame):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{f}:
+      Uniq.out(g, f)
+
 def Uniq.group.c(+n: U32, +d: Nat, f: C.Frame, r: List<&1, C.Named> & G.Codes) -> E.ResT(C.Frame):
   (kc, cd) = r
   match cd:
     case G.Codes{+k, c}:
-      Uniq.out(G.Grp.densify(n, d, k, c), f)
+      Uniq.group.e(G.Grp.densify(n, d, k, c), Tbl.back(kc, Done{f}))
 
 def Uniq.group.h(kc: List<&1, C.Named>, r: C.Frame & U32) -> E.ResT(C.Frame):
   (f, +n) = r

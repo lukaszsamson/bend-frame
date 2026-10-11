@@ -2583,3 +2583,154 @@ law when_str_data:
   for +i: U32
   for hyp: WhenHyp(n, d, xa, xb, i)
   WhenDataW(n, d, m, va, vb, xa, xb, i)
+
+# =====================================================================================
+# 16. Moves (v0.2 T3.1, DESIGN.md 16.2 rule 1): Frame.lend observes as Frame.get_cloned
+# =====================================================================================
+#
+# The liveness pass (Eval.mark) turns a column reference that copies (ICol: Frame.get_cloned)
+# into one that takes the column out of its frame (IMove: Frame.lend) when no later reference
+# of the operator reads it and the operator's output does not keep it; a borrow (unique's key
+# columns) lends a column and puts it back with Frame.replace after a kernel hands it back.
+# The law: over a frame whose names are unique (frame_ok) and whose column named n is c (the
+# model fcol: the last column of that name, the one Cols.cg.go and Cols.lend.go pick), Frame.lend
+# answers that very column c (no copy) and leaves the frame with a hollow stand-in in its place
+# (holedf); Frame.get_cloned answers the same column c with the frame unchanged; and
+# Frame.replace of c into the lent frame gives back the input frame. A moved column is therefore
+# equal, as a value, to the copy the reference read before (every observer agrees: dtype,
+# length, validity, cells, F32 bits), and a borrow leaves the frame as it found it.
+
+# the last column named n in cols, sl when there is none
+def lastm.k(b: Bool, c: C.Column, sl: Maybe<&1, C.Column>) -> Maybe<&1, C.Column>:
+  match b:
+    case True{}:
+      Some{c}
+    case False{}:
+      sl
+
+def lastm(cols: List<&1, C.Named>, +n: String, sl: Maybe<&1, C.Column>) -> Maybe<&1, C.Column>:
+  match cols:
+    case Nil{}:
+      sl
+    case C.Named{+nj, c} <> rest:
+      lastm(rest, n, lastm.k(String.eq(n, nj), c, sl))
+
+# the frame's column named n
+def fcol(f: C.Frame, +n: String) -> Maybe<&1, C.Column>:
+  match f:
+    case C.Frame{h, cols}:
+      lastm(cols, n, None{})
+
+# the hollow stand-in Column.hollow leaves: the constructor (dtype) and length, one empty slot
+def hollowm(c: C.Column) -> C.Column:
+  match c:
+    case C.CBool{len, depth, valid, data}:
+      C.CBool{len, 0n, C.AllValid{}, Array.new(U32, 0n, 0)}
+    case C.CU32{len, depth, valid, data}:
+      C.CU32{len, 0n, C.AllValid{}, Array.new(U32, 0n, 0)}
+    case C.CI32{len, depth, valid, data}:
+      C.CI32{len, 0n, C.AllValid{}, Array.new(U32, 0n, 0)}
+    case C.CF32{len, depth, valid, data}:
+      C.CF32{len, 0n, C.AllValid{}, Array.new(F32, 0n, 0.0)}
+    case C.CStr{len, depth, valid, data}:
+      C.CStr{len, 0n, C.AllValid{}, ST.SRaw{Array.new(String, 0n, "")}}
+
+def holed.k(b: Bool, nj: String, c: C.Column) -> C.Named:
+  match b:
+    case True{}:
+      C.Named{nj, hollowm(c)}
+    case False{}:
+      C.Named{nj, c}
+
+# the columns with every column named n replaced by its hollow stand-in
+def holed(cols: List<&1, C.Named>, +n: String) -> List<&1, C.Named>:
+  match cols:
+    case Nil{}:
+      Nil{}
+    case C.Named{+nj, c} <> rest:
+      holed.k(String.eq(n, nj), nj, c) <> holed(rest, n)
+
+def holedf(f: C.Frame, +n: String) -> C.Frame:
+  match f:
+    case C.Frame{h, cols}:
+      C.Frame{h, holed(cols, n)}
+
+def LendObs(-f: C.Frame, +n: String, -c: C.Column) -> Type:
+  {C.Frame.lend(f, n) == (holedf(f, n), Done{c}) : C.Frame & E.ResT(C.Column)} & {C.Frame.get_cloned(f, n) == (f, Done{c}) : C.Frame & E.ResT(C.Column)} & {C.Frame.replace(holedf(f, n), n, c) == Done{f} : E.ResT(C.Frame)}
+
+# LAW (the move / borrow observation law; plan M_02 section 4 "projection/moves"): over a frame of
+# h rows with unique names whose column named n is c, Frame.lend answers c itself and the frame
+# with c's hollow stand-in; Frame.get_cloned answers the same c and the frame unchanged; and
+# Frame.replace(lent frame, n, c) is the input frame again
+law lend_observes:
+  for f: C.Frame
+  for +n: String
+  for +h: U32
+  for c: C.Column
+  for +hf: {frame_ok(h, f) == True{} : Bool}
+  for +hc: {fcol(f, n) == Some{c} : Maybe<&1, C.Column>}
+  LendObs(f, n, c)
+
+# ---- the liveness pass (Eval.mark): a move is the last read of its column ----------------------------
+#
+# Eval.mark runs over the postfix code of one expression with the operator's facts: `all` (the
+# operator keeps none of its input columns: select, group_by) or `dead` (the input columns its
+# output does not keep: with_columns' overwritten names), and `later` (the references of the
+# expressions the operator evaluates after this one, Eval.refs). The laws: marking changes no read
+# (the names read, in order: mark_reads); every IMove{n} it makes is allowed (n in dead, or all) and
+# is the last read of n (no later instruction of the code reads n, and n is not in later:
+# mark_moves_ok, for code with no move yet, which is what Eval.compile emits: compile_nomove); and
+# the reads of compiled code are the expression's X.Expr.refs (compile_reads), the list the
+# operators pass as `later`. With lend_observes: a moved column is the copy the reference would have
+# read, and nothing reads its stand-in afterwards.
+
+# no instruction of the code is a move
+def nomove(code: List<&2, V.Instr>) -> Bool:
+  match code:
+    case Nil{}:
+      True{}
+    case V.IMove{n} <> t:
+      False{}
+    case i <> t:
+      nomove(t)
+
+# every IMove{n} of the code is allowed and is the last read of n
+def moves_ok(code: List<&2, V.Instr>, +all: Bool, +dead: List<&2, String>, +later: List<&2, String>) -> Bool:
+  match code:
+    case Nil{}:
+      True{}
+    case V.IMove{+n} <> +t:
+      Bool.and(Bool.and(Bool.or(all, C.Names.has(dead, n)), Bool.not(Bool.or(C.Names.has(later, n), C.Names.has(V.Eval.reads(t), n)))), moves_ok(t, all, dead, later))
+    case i <> t:
+      moves_ok(t, all, dead, later)
+
+# LAW: marking changes no read: the same names, in the same order
+law mark_reads:
+  for +code: List<&2, V.Instr>
+  for +all: Bool
+  for +dead: List<&2, String>
+  for +later: List<&2, String>
+  {V.Eval.reads(V.Eval.mark(code, all, dead, later)) == V.Eval.reads(code) : List<&2, String>}
+
+# LAW: every move Eval.mark makes in move-free code is allowed and is the last read of its column
+law mark_moves_ok:
+  for +code: List<&2, V.Instr>
+  for +all: Bool
+  for +dead: List<&2, String>
+  for +later: List<&2, String>
+  for h: {nomove(code) == True{} : Bool}
+  {moves_ok(V.Eval.mark(code, all, dead, later), all, dead, later) == True{} : Bool}
+
+# LAW: Eval.compile emits no move
+law compile_nomove:
+  for +e: X.Expr
+  for +acc: List<&2, V.Instr>
+  for +h: {nomove(acc) == True{} : Bool}
+  {nomove(V.Eval.compile(e, acc)) == True{} : Bool}
+
+# LAW: the code of an expression reads exactly the expression's column references (X.Expr.refs), in
+# order, then the reads of what follows
+law compile_reads:
+  for +e: X.Expr
+  for +acc: List<&2, V.Instr>
+  {V.Eval.reads(V.Eval.compile(e, acc)) == X.Expr.refs.go(e, V.Eval.reads(acc)) : List<&2, String>}
