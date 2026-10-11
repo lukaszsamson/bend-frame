@@ -165,3 +165,18 @@ m2-freeze: m2-baseline
 
 m2-micro:
 	uv run --project bench python bench/m2/run.py micro --label $(LABEL)
+
+# ---- W2.1 / W2.2: the flat string coder (src/hcode.bend) and the rank stage (src/ranks.bend) ------
+# make w2-diff     native differential vs v0.1 (bench/w2/diff.sh): every shape up to 20000 rows, including
+#                  the code points above U+10FFFF that the interpreter refuses (tests/ cannot build them)
+# make w2-mutation the mutation controls of the tests (bench/w2/mutation.py; each mutant must be killed
+#                  except the documented equivalent ones)
+# bench/w2/campaign.sh + tables.py: the provisional measurements (not part of ci)
+# The probes are also compiled by `make check` (EXAMPLES below).
+EXAMPLES += $(wildcard bench/w2/*.bend)
+.PHONY: w2-diff w2-mutation
+w2-diff:
+	bench/w2/diff.sh
+
+w2-mutation:
+	python3 bench/w2/mutation.py
