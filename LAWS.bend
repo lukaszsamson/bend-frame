@@ -3166,3 +3166,77 @@ law compact4_contents:
   for +z4: U32
   for room: CRoom(U32.to_nat(n), 0, 0, d, m)
   CSpec(U32, U32.to_nat(n), 0, 0, d, a1, m, c4_o1(U32, U32, U32, U32, K.Kernel.compact4(~U32, ~U32, ~U32, ~U32, n, d, m, a1, a2, a3, a4, z1, z2, z3, z4))) & CSpec(U32, U32.to_nat(n), 0, 0, d, a2, m, c4_o2(U32, U32, U32, U32, K.Kernel.compact4(~U32, ~U32, ~U32, ~U32, n, d, m, a1, a2, a3, a4, z1, z2, z3, z4))) & CSpec(U32, U32.to_nat(n), 0, 0, d, a3, m, c4_o3(U32, U32, U32, U32, K.Kernel.compact4(~U32, ~U32, ~U32, ~U32, n, d, m, a1, a2, a3, a4, z1, z2, z3, z4))) & CSpec(U32, U32.to_nat(n), 0, 0, d, a4, m, c4_o4(U32, U32, U32, U32, K.Kernel.compact4(~U32, ~U32, ~U32, ~U32, n, d, m, a1, a2, a3, a4, z1, z2, z3, z4)))
+
+# =====================================================================================
+# 20. Filter + Select (v0.2 T4.3, DESIGN.md 16.3 F8): the physical step of src/exec.bend
+#     (Exec.fs: Eval.filter's predicate, then Frame.select_names on the UNFILTERED frame, then
+#     only the selected columns compacted by Exec.fc's compact3 / compact4 groups) against
+#     Eval.filter then Exec.select, and Exec.run_phys against Exec.run_pure
+# =====================================================================================
+#
+# The first four claims are TERM equalities over the production functions (the same arrays, not
+# only the same cells); filter_select_run is their robs form (section 17), the form run_phys_obs
+# and collect_obs (which now cover the Select root too) are stated in.
+
+# a filter's result, then the row filter / the select, as functions of it
+def fmres(r: E.ResT(C.Frame), m: Array<U32>, +kept: U32) -> E.ResT(C.Frame):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{g}:
+      Done{C.Frame.filter_mask(g, m, kept)}
+
+def fsres(r: E.ResT(C.Frame), +es: List<&2, X.Expr>) -> E.ResT(C.Frame):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{g}:
+      Q.Exec.select(g, es)
+
+# LAW (F6 + F8's projection): Exec.fc, which compacts AllValid columns of one length four or three
+# at a time in one Kernel.compact4 / compact3 loop and every other column with Column.compact, IS
+# Frame.filter_mask, for every frame (any dtypes, validity, string storage, lengths), mask and count
+law fc_filter_mask:
+  for g: C.Frame
+  for m: Array<U32>
+  for +kept: U32
+  {Q.Exec.fc(g, m, kept) == C.Frame.filter_mask(g, m, kept) : C.Frame}
+
+# LAW: selecting by name commutes with the row filter: the same error (DuplicateColumn, then the
+# first missing name), or the selected columns compacted (the others are never compacted)
+law select_filter_mask:
+  for f: C.Frame
+  for m: Array<U32>
+  for +kept: U32
+  for +ns: List<&2, String>
+  {C.Frame.select_names(C.Frame.filter_mask(f, m, kept), ns) == fmres(C.Frame.select_names(f, ns), m, kept) : E.ResT(C.Frame)}
+
+# LAW: the fused step IS Eval.filter then Exec.select, for a non-empty list of plain columns (the
+# lists Exec.select gives to Frame.select_names): the predicate's errors first (typing, then data),
+# then the select's, else the same frame
+law filter_select_step:
+  for f: C.Frame
+  for +pred: X.Expr
+  for +es: List<&2, X.Expr>
+  for hp: {Q.Exec.plain(es) == True{} : Bool}
+  {Q.Exec.fs(f, pred, es) == fsres(V.Eval.filter(f, pred), es) : E.ResT(C.Frame)}
+
+# LAW (production equivalence, plan M_02 D3): the runner collect executes, on Select{es, Filter{pred,
+# x}}, gives exactly Exec.run_pure's result, for every column list (plain or not), predicate, plan x
+# and environment
+law filter_select_run_eq:
+  for +es: List<&2, X.Expr>
+  for +pred: X.Expr
+  for +x: P.Plan
+  for env: P.Env
+  {Q.Exec.run_phys(P.Select{es, P.Filter{pred, x}}, env) == Q.Exec.run_pure(P.Select{es, P.Filter{pred, x}}, env) : E.ResT(C.Frame)}
+
+# LAW: the same, observed (section 17's robs: the error, or the height and per column name / dtype /
+# length / cell at every row k)
+law filter_select_run:
+  for +es: List<&2, X.Expr>
+  for +pred: X.Expr
+  for +x: P.Plan
+  for env: P.Env
+  for +k: U32
+  {robs(Q.Exec.run_phys(P.Select{es, P.Filter{pred, x}}, env), k) == robs(Q.Exec.run_pure(P.Select{es, P.Filter{pred, x}}, env), k) : RObs}

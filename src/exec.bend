@@ -400,8 +400,9 @@ def Exec.run_phys.h(+n: U32, x: P.Plan, env: P.Env) -> E.ResT(C.Frame):
 # with Column.compact as Frame.filter_mask does. The columns the select drops are never compacted.
 # Root only, like the Sort + Head step: under any other operator the general path runs. Aliases
 # (Eval.select) take the general path too (DESIGN.md 14 "v0.2 T4.3"). LAWS.bend section 20
-# (filter_select_run, run_phys_obs, collect_obs): the same error, height, names, dtypes, lengths and
-# cells as Exec.run_pure, for every plan, predicate, column list and env.
+# (fc_filter_mask, select_filter_mask, filter_select_step, filter_select_run_eq / _run; with
+# run_phys_obs, collect_obs): the SAME result term as Exec.run_pure (same error, or the same frame:
+# names, dtypes, validity, cells, buffers), for every plan, predicate, column list and env.
 
 # a column's one buffer, by element type (the template dispatch of compact3 / compact4)
 type Buf is Type:
@@ -880,7 +881,7 @@ def Exec.run.k(r: E.Res(List<&2, S.Field>), +p: P.Plan, env: P.Env, +eng: R.CsvE
 # schema is resolved first and its error, if any, is the result; then the
 # bindings (Exec.validate); then every scan is read (Exec.mat, the IO
 # boundary) into env's scan namespace; then the physical runner (Exec.run_phys:
-# Exec.run_pure with the Sort + Head step at the root) on the plan as it is. env is
+# Exec.run_pure with the Sort + Head and Filter + Select steps at the root) on the plan as it is. env is
 # consumed (frames the plan does not name are dropped).
 def Exec.run(+p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
   Exec.run.k(P.Plan.schema(p), p, env, R.CsvV01{})

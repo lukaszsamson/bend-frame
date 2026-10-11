@@ -76,6 +76,22 @@ MUTATIONS = [
      "      Done{C.Frame.head(f, n)}", "      Done{f}"),
     ("Exec.run_phys.h: the Sort+Head step keeps one row too many", "src/exec.bend",
      "Exec.fin(Exec.sorthead(ks, n, Exec.loop(", "Exec.fin(Exec.sorthead(ks, U32.inc(n), Exec.loop("),
+    # T4.3 (LAWS section 20: fc_filter_mask, select_filter_mask, filter_select_step, filter_select_run):
+    # the Filter + Select step must keep every selected column, its validity, its name, the kept
+    # count, and fire only on lists of plain columns
+    ("Exec.fc.k3: the fused group drops a selected column", "src/exec.bend",
+     "(m, C.Named{n3, Exec.mk(s3, o3, kept, d, C.AllValid{})} <> C.Named{n2, Exec.mk(s2, o2, kept, d, C.AllValid{})} <> ",
+     "(m, C.Named{n3, Exec.mk(s3, o3, kept, d, C.AllValid{})} <> "),
+    ("Exec.fz.v: a column with a validity mask joins a group (its mask is lost)", "src/exec.bend",
+     "FzNo{Exec.mk(sh, b, len, depth, C.Mask{v})}", "FzOk{len, depth, sh, b}"),
+    ("Exec.fc.k4: an output column loses its name", "src/exec.bend",
+     "(m, C.Named{n4, Exec.mk(s4, o4, kept, d, C.AllValid{})}", "(m, C.Named{\"literal\", Exec.mk(s4, o4, kept, d, C.AllValid{})}"),
+    ("Exec.fs.p: the kept count is the predicate's length", "src/exec.bend",
+     "Exec.fs.q(f, es, K.Kernel.popcount(n, m))", "Exec.fs.q(f, es, (m, n))"),
+    ("Exec.run_phys.s: the step fires on non-plain selects (aliases: the output name is lost)", "src/exec.bend",
+     "Exec.run_phys.f(Exec.plain(es), es, pred, y, env)", "Exec.run_phys.f(Bool.not(Exec.plain(es)), es, pred, y, env)"),
+    ("Exec.run_phys.s: the step fires on every select (computed expressions, select([]))", "src/exec.bend",
+     "Exec.run_phys.f(Exec.plain(es), es, pred, y, env)", "Exec.run_phys.f(True{}, es, pred, y, env)"),
     ("Eval.fit: does not broadcast", "src/eval.bend",
      "def Eval.fit(k: SKind, c: C.Column, +n: U32) -> C.Column:\n  match k:\n    case KFull{}:\n      c\n    case _:\n      Eval.bcast(c, n)",
      "def Eval.fit(k: SKind, c: C.Column, +n: U32) -> C.Column:\n  match k:\n    case KFull{}:\n      c\n    case _:\n      c"),
