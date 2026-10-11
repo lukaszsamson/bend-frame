@@ -2805,3 +2805,67 @@ What the next agents need to know:
 - W6: hand the reader's leaves to the runner as a pre-chunked source (`CX.run(g, p, env, pre)` with
   `PNF{name, CFrame}`) or through a scan; the facade does not take a CFrame yet.
 - W8: `Engine.chunked()` is grain 14; small frames (<= 2^14 rows) run the reference path exactly.
+
+## group_by fused scatter (T5.4b: borrowed key encoding, one-pass Dictionary / Bool key; the fused scatter measured and removed)
+
+Performance lessons (numbers PROVISIONAL, load 5-11; details in DESIGN.md 14 T5.4b, bench/w5/results/t54b_groupby.txt):
+
+- **Measure where the stage goes before fusing.** q3's eager group_by (1M rows, 1 thread, ~9 ms) = key coding
+  1.1 + densify 1.9 + len scatter and wrapping 0.9 + three more aggregates ~5. bench/w5/t54.bend with stages
+  that call the internals (`Grp.encode_keep` alone, + `Grp.densify`, + the key gather: a scratch copy of
+  t54.bend with `G.Grp.*` calls, not committed) gave that table with 20-rep runs. Report MEANS over all reps
+  of all processes next to the medians: the 1 ms `IO.now` makes a 9.2 vs 8.2 ms difference invisible in a
+  median of integers.
+- **The fused scatter does not pay here, and the reason is in the C.** One loop, four lanes, one read of the
+  group id: built (runtime op per lane, so one loop serves every aggregate combination) and 47% SLOWER at q3
+  (9.2 -> 13.6 ms). A `match op:` on a U32 parameter with literal cases compiles to compares plus ~30 bit
+  extractions (`(_op >> k) & 1`) per branch; the compiler removes the dead ones only partly, and the op sits in
+  the per-row path of every lane. Even with the dispatch removed (every lane a fixed update) the fused loop
+  took 9.48 ms against 9.25 ms for four separate loops: the separate loops are not bound by the repeated read
+  of the ids (4 MiB, 3 streams each) but by the accumulator read-modify-write and the Neumaier arithmetic. Do
+  not fuse scatters unless a probe with the dispatch removed shows the gap first (build the dead-simple
+  wrong-result version, it takes ten minutes).
+- **`Array.clone` of a key is a 0.1 ms memcpy; the win was the pass, not the copy.** Removing the 4 MiB clone
+  from `Grp.encode_keep` moved the stage by ~0 ms (copy bytes 4,194,496 -> 192); fusing the code map INTO the
+  densify (`Grp.kd.go`: the loop reads the key's buffer and mask and applies `x + 1` / null -> 0 on the fly) took
+  the 4 MiB write and read of the codes array away and the stage 9.6 -> 8.2 ms (-15%); key + len 4.1 -> 2.9.
+  Count bytes AND time; the byte counter says "done" long before the time moves.
+- **Borrow-and-return a data buffer with a `match` on the validity first.** `Grp.vm` takes the mask out of a
+  `C.Valid` (a 1-slot array of ones for `AllValid`, the real mask otherwise) and `Grp.vback` rebuilds the
+  validity from it, so a pass can read buffer and mask in place and return both (`Grp.bw.go`: out + x + mask).
+  A 1-slot mask reads the same slot for every row (indices wrap), which also removes the 2^d-slot array of
+  ones `Valid.materialize(v, d)` filled for every numeric key.
+- **`Bool.pick` on U32 is a call in the C, and replacing it with arithmetic is NOT faster.** `Bool.pick(U32, c,
+  a, b)` compiles to `spin_N(.., c, a, blk_loc(a), b, blk_loc(b))` (both operands probed for a block pointer),
+  which looks wasteful; `min` / `and` / `sub` formulations of the densify step (id = min(next, t - 1)) measured
+  3-13% slower than the picks. Check by measuring, not by reading the C.
+
+Bend lessons:
+
+- **Only leading binders take `~`**: `def f(t: DType, ~g: ..)` is refused ("expected a plain binder (only leading
+  binders take ~)"): put the template parameters first. A template forwarded through helpers keeps its `~`.
+- **A `match` cannot scrutinise a computed value** also in tests: `match U32.mod(i, 6):` needs its own def
+  (`fk(i) = fk.b(U32.mod(i, 6))`). A parameter used twice needs `+`, also a Bool (`dict` in a recursive test
+  helper) but not a Type (`+f0: C.Frame` is "must be Data").
+- **No forward references** (again): a helper that builds on another is defined after it; a recursive loop that
+  must open a pair result goes through its own argument (`Grp.fz.all(k, n, dg, fx, wx, st)` took the pair of
+  next lanes as a parameter and counted chunks with a Nat fuel instead of matching the lane lists).
+- **`DF.dump` takes the `E.ResT(C.Frame)`** that `C.Frame.select_names` returns; do not wrap that in `Done`.
+
+Emitted C (`bend tests/groupby_borrow.bend -o x.c`, the real imported program): the one-pass key loop
+`Grp.kd.go` is `spin_934` (n, i, next, table, gids, first, codes + current word, mask + current flag: 17
+arguments), calling `spin_781` (`Grp.dens.put`) and `spin_11` (`Bool.pick`); per row 3 `blk_read` (codes, mask, table) and the
+three `blk_write` of `Grp.dens.put`, zero `term_keep` / `ctr_take` / `rfc_seal` / `blk_copy` / `blk_half` /
+`blk_node` / `heap_alloc`: nothing allocated per row. The densify it replaces (`Grp.dens.go`, `spin_780`) is the same
+loop minus the map. The borrowed word pass `Grp.bw.go` has the same shape (codes + mask reads, one write).
+The fused scatter's loop (`Grp.fz.go`, `spin_820` in that build) was flat too: 43 arguments, 19 `blk_read`, no
+`term_keep` / copies, a call per lane into the op dispatcher (`spin_710`, 8 compare / bit-extraction arms) and
+one for the W lanes: flat, but the dispatch alone costs the 4 ms.
+
+What the next agent needs: the removed fused scatter is bench/w5/t54b_groupby_fused.patch (applies to
+src/groupby.bend after T5.4b; every aggregate equal to its lone run, tests/groupby_agg_equiv). What is left in
+a q3-like group_by is the Neumaier scatters (~1.5 ms each: 1M rows x (3-word record read, step, write)) and
+the densify (1.9 ms); a cheaper F32 step must keep the 15.5.3 bits (K.Kernel.nm.add is kernels.bend's) and a
+cheaper densify would take a conditional store of `first` (a branch that only mispredicts on new codes).
+`Grp.sv` / `Grp.med` / `Grp.agg.nu` still clone row-sized arrays and the `Grp.wrap.*` result maps the
+accumulator (group sized); `Grp.agg.len` / `count` over a 1M-group key are the same loop as today.

@@ -3073,6 +3073,69 @@ decisions:
    clones: the 1 ms clock on a 4-10 ms stage needs many samples) and bench/w5/t54.py (interleaved
    baseline / candidate, load recorded per process). q3 / q4 / q5 in the m2 harness are unchanged code
    paths (group_by, sort, join untouched): their baseline / candidate differences (0.90-1.29) are noise.
+### v0.2 T5.4b (group_by: the key without a copy, one pass for a Dictionary / Bool key; the fused scatter measured and removed; section 16.4 D4)
+
+Follow-up on T5.4 item 3's "a fused single-pass scatter is the better next step". The data contract (15) is
+untouched: same values, validity, names, first-appearance order, F32 bits, errors. src/groupby.bend only.
+
+1. **`Grp.encode_keep` no longer clones the key column.** The key column is kept for the output gather at
+   `first` (`Grp.kout`), so the encoder used to run on `Column.clone`; but every encoder only READS the key's
+   data buffer and writes a fresh word array (`Sort.xmap` allocated one and dropped the clone). One borrowed
+   pass (`Grp.bw.go` / `Grp.bk`) writes `f(x[i])` (null rows 0: the order word of `Sort.words.z`, `x + 1` for a
+   Dictionary / Bool key) and hands the data buffer and the mask back. Only a key WITH nulls copies its
+   validity mask (the min / max and `zipk` / rank stages consume their copy); a numeric key without nulls also
+   stops filling a 2^d-slot mask of ones (`Grp.enc.num` reads a 1-slot mask, as every other mask here).
+   Copy bytes (C counter on `blk_copy`, 1M rows, 1 thread): q3 compute phase 4,194,496 -> 192, the eager
+   `groupby_q3` stage 4,194,496 -> 192, `groupby_q5` 4,194,304 -> 0. The 192 B are `Grp.wrap.mean`'s clone of the
+   8-group accumulator (group-count sized, not row sized).
+2. **A single Dictionary or Bool key is coded and densified in one pass** (`Grp.kd.go`, `Grp.key1`; the
+   multi-key path and `unique` / `n_unique`, which use `Grp.codes` / `Grp.densify`, are unchanged). The codes
+   array `x + 1` (null 0) that `Grp.densify` read straight back is never built: the densify applies the same
+   map to the key's own buffers, with the same table, `Grp.dens.put` and `first`, so the groups, their
+   numbering and the key output are the same objects (T3.3's argument that a single key skips the combine and
+   the second densify stands). Raw strings, numeric keys and several keys keep `Grp.encode_keep` + densify.
+3. **The fused scatter was built, measured and REMOVED.** Shape: with >= 2 aggregations and <= 65536 groups,
+   every aggregate input evaluated first (moves as T3.3, errors in aggregate order), then ONE loop
+   (`Grp.fz.go`, spin loop) reading the group id once per row and updating four lanes (two F32 lanes with the
+   Neumaier `KS` state, two word lanes with `MW`), each lane with a runtime op code (sum, mean, min, max,
+   count, len, last over U32 / I32 / F32; the rest through the per-aggregate code) so that one compiled loop
+   serves every combination; the accumulators per group are exactly today's, in row order (D4: no
+   reassociation). It was correct (the 17-aggregate x 6-key-dtype equivalence test, tests/groupby_agg_equiv,
+   every aggregate equal to its lone run to the F32 bit) and slower: q3's group_by stage 9.2 -> 13.6 ms,
+   sum + mean 6.9 -> 13.9 ms, key + len 3.9 -> 4.0 (1 thread, means of 4 interleaved processes x 19 reps,
+   load 6-9; bench/w5/results/t54b_groupby.txt). The cost is the op dispatch inside the loop (the emitted C
+   decomposes a `match` on a U32 into a chain of compares and bit extractions per lane per row). A
+   dispatch-free probe with the same memory pattern and a flat 4-lane loop (every F lane `Grp.nm`, every W
+   lane an add: wrong results, a bound) took 9.48 ms against 9.25 ms for four separate scatters: the per-
+   aggregate loops are already as cheap as the fused one, because the stage's cost is the Neumaier arithmetic
+   and the accumulator read-modify-write, not the second to fourth read of the 4 MiB id array (each separate
+   aggregate costs ~1 ms (len, max) to ~1.5 ms (F32 sum / mean); the stage is key coding 1.1 + densify 1.9 +
+   len and wrapping 0.9 + three more aggregates ~5). The bar was >= 10% on the stage: +2.5% (slower) in the
+   best case, +47% as built. The exact patch (applies to src/groupby.bend after T5.4b) is
+   bench/w5/t54b_groupby_fused.patch.
+4. **Rejected: `Bool.pick` -> arithmetic** in `Grp.dens.put` (`id = min(next, t - 1)`, `new = 1 - min(t, 1)`),
+   `Grp.bw.go` and `Grp.kd.go` (`x & -mask`): the C of `Bool.pick(U32, ..)` is a call with a `blk_loc`
+   probe per operand, but replacing it measured 3-13% SLOWER (q3 stage 8.16 -> 8.39 ms, encode + densify
+   2.79 -> 3.16, key + len 2.85 -> 3.21; same table). The picks stay.
+5. **Numbers (PROVISIONAL, shared machine, load 7-11, native, 1 thread, 7 fresh interleaved processes, results
+   validated against bench/m2/expected.json, bench/m2/results/t54b-final.jsonl)**: q3_1m compute_ms baseline
+   (master cd4da62) [35, 16, 15, 13, 15, 16, 14] median 15, candidate [14, 12, 15, 13, 12, 13, 12] median 13;
+   stage groupby_q3 baseline [10, 10, 10, 10, 9, 10, 10] median 10, candidate [8, 8, 8, 8, 9, 8, 8] median 8
+   (-20%); groupby_q5 [4, 4, 4, 4, 5, 5, 4] -> [3, 3, 3, 6, 4, 3, 3] (median 4 -> 3); q5_1m compute [15, 14, 16,
+   12, 13, 12, 13] median 13 -> [11, 10, 11, 12, 11, 10, 11] median 11. Raw string group_by (str_group_300k /
+   1m) and unique (unchanged code on Raw keys): equal within noise (bench/m2/results/t54b-regr.jsonl). Not a
+   gate number: G3 (q3 <= 12 ms) is taken by the orchestrator on a quiet machine; this change takes ~2 ms
+   from q3's 15.
+6. **What is left in group_by** (1M rows, 1 thread): the F32 Neumaier scatters (~1.5 ms each: the 15.5.3 step
+   per row on a three-word record), the densify (1.9 ms: a table read and three stores per row), the id /
+   value / mask reads of every scatter. Not touched and not on q3's path: `Grp.sv` clones the mask and values
+   (row sized), `Grp.med` three row-sized arrays, `Grp.agg.nu` the ids, and the `Grp.wrap.*` result maps clone
+   the accumulator array (group sized, so row sized for a 1M-group aggregation).
+7. Tests: tests/groupby_borrow.bend (new: single-key one-pass vs the two-key route for every key dtype with
+   nulls, hand-derived frames for bool / Dictionary / i32 / f32 (NaN, -0.0 = 0.0) / wide u32 keys, empty
+   frames; its output is byte-identical on the pre-T5.4b build), tests/groupby_agg_equiv.bend (the contract
+   the removed fused scatter had to meet), tests/groupby_own.bend / groupby_edge.bend unchanged and green.
+
 ### v0.2 T5.2 (chunked kernel wrappers, src/ckernels.bend; sections 16.3 / 16.4)
 
 1. **The F32 in-order walk is NOT 2.5x the flat fold (16.4's open issue, closed): the anomaly was the shape
