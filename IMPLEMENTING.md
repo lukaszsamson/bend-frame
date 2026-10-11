@@ -1997,3 +1997,46 @@ cons-list `Eval.nuniq`; the v0.1 text is kept byte-identical as the test referen
   zeroing pass then hides (k counts it, as v0.1's did: identical `Codes`); `Eval.dropnull` runs before
   `Eval.nu.str`, so n_unique counts only valid rows. tests/strwire.bend pins this, real FNV-1a
   collisions (k32004 / k261338) and empty / all-null frames, and passes on the pre-W2.3 build too.
+
+## W6.4 (CSV fuzz harness: bench/diff/csvgen.py, csvfuzz.py, csvfuzz.bend)
+
+The v0.2 reader against the v0.1 reader on random files. `make csv-fuzz SEED=.. N=..` (bench/diff/README.md "W6.4"). One
+native runner (`build/csvfuzz/runner`, bench/diff/csvfuzz.bend, ~7 s to build) reads a manifest of cases (path, dtype
+letters or `-`, header, separator code point, infer_rows, storage rule, row cap, piece list) and prints one line per case
+through tests/lib/v02cmp.bend's `Run.file` (DF.dump + the Str storage signature, v0.1 as reference, v0.2 at each piece):
+the same comparison as tests/csv_v02_*.bend, now over generated files. The Python side generates, batches (100 cases per
+process, 8 processes), isolates a crashing batch by rerunning its cases one by one, shrinks and reports.
+
+Results (provisional, loaded machine, load 20-40): seeds 21..25 x 2,000 = 10,000 cases, 69,908 reads (case x piece
+size 1, 2, 3, 7, 64, 4096, 245760; the 23 `big` files 4096, a mid size, 245760), 0 failures, ~35 s per 2,000 cases on 8
+jobs (3:05 for all five, runner build included); before the last generator changes seeds 1 and 11..15 (11,000 more cases)
+were clean as well. Outcome mix of the v0.1 reader over the 10,000: 3,688 frames and 624 empty frames, ~1,900 bad cells
+(u32 / i32 / f32 / bool), 1,477 ragged, 1,360 malformed quoting, 389 dtype-count errors, 168 row-cap errors, ~250
+duplicate names, 41 refused separators. No v0.2 defect found: the W6.3 differential tests already cover the contract
+surface; the harness adds the random combinations (options x file shape x piece size) and the byte-level mutations.
+
+Detection power (`make csv-fuzz-mutants`, bench/diff/csvfuzz_mut.py: mutants applied to a COPY of src/ and built into a
+mutant runner, each must make `csvfuzz.py --n 1500..2000` fail): bench/w6/mut63.py's 18 mutants: 17 killed, 1 survived
+(the documented equivalent "odd parity ignored"); 8 more of the producer and lane (cut at an LF inside quotes, trim keeps
+CR / space, i32 min rejected, overlong E0 accepted, no capital `True`, f32 fast path mantissa and fraction-digit limits):
+8 killed, but only after two generator fixes the first run asked for: the overlong 3- and 4-byte UTF-8 forms were
+missing from the invalid-byte pool (E0 80 80, F0 80 80 80, ED 9F BF ...), and no f32 text had a small mantissa behind
+11-14 fraction digits (the fast path ends at 10 because 10^11 is not exact in f32). Lesson: a mutation run of the
+HARNESS tells which generator pools are too thin; do it whenever a pool is edited.
+
+Harness lessons:
+- Generator pitfalls that made most files useless: a CR after a closing quote is malformed and a lone CR inside a bare
+  field merges two records, so a mixed-ending file with any CR was ~50 % `malformed`; CR now appears in a mixed file only
+  for 15 % of the files, and error events (ragged, malformed, bad cells) are rare unless the case is a "competing" one
+  (explicit schema forced 80 % of the time, or the bad cell would be inferred away). The report prints the outcome mix so
+  a run shows how many cases reached typed values.
+- Files above one default piece (245,760 bytes) are needed to get several regions at the default piece size; they
+  are 0.3 % of the cases (22-36k rows, 0.3-1.5 MB, ~4 s each) with a short piece list (a piece of 1 on 1 MB is hopeless).
+- A `.bend` runner that parses its own manifest: `+x` on a `List<String>` from `IO.args()` is refused ("must be Data");
+  `tests/lib/v02cmp.bend`'s `promote` gives a `List<&2, String>` that may be duplicated. `bend --check-only` of the runner takes
+  0.4 s, the native build 7 s, so one binary serves every case (no per-batch generated program, unlike bench/diff's
+  interpreted batches).
+- Do not leave another agent's `bisect.py` in a scratch directory you run Python scripts from: it shadows the stdlib
+  (`python3 -I script.py` ignores the script directory).
+- A shrink needs no oracle: the predicate is "the runner still prints DIFF"; candidates of a round run as one parallel
+  batch and the smallest failing one wins (lines, then bytes, then the spec to defaults, to a fixed point).

@@ -101,6 +101,12 @@ def norm_outcome(text: str) -> str:
     if t.startswith("frame"):
         m = re.search(r"height (\d+)", t)
         return "frame" + (" (0 rows)" if m and m.group(1) == "0" else "")
+    m = re.match(r"error ParseError at line \d+: column ", t)
+    if m:  # the cell text and the column name are arbitrary, even multi-line: keep the dtype when it is visible
+        d = re.search(r' as (u32|i32|f32|bool)$', t)
+        return "error ParseError at line #: column X: cannot parse as " + (d.group(1) if d else "?")
+    if t.startswith("error DuplicateColumn"):
+        return "error DuplicateColumn"
     t = re.sub(r'"[^"]*"', '"..."', t)
     t = re.sub(r"\[[^\]]*\]", "[...]", t)
     t = re.sub(r"\d+", "#", t)
