@@ -1029,38 +1029,66 @@ def CX.p1.j(x: W1, y: W1) -> W1:
         case W1{fb, mb, kb}:
           W1{CX.fj(fa, fb), MN{ma, mb}, Bool.and(ka, kb)}
 
+# ---- the frame tree: a chunked frame transposed into a tree of leaf-sized flat frames, built
+# SEQUENTIALLY before a walk forks (DESIGN.md 16.10, the T5.3 scaling ceiling). A forking def must do
+# nothing but match and fork before its parallel let: a non-flat fork-free helper called there (the cuts
+# `CX.cut(a)`, the Dict copies `CX.dclone(ra)` the old walks had in their branch arguments) becomes a task
+# the scheduler's grow pass does not run, and the drain then runs the helper's continuation, the fork
+# included, in sequential mode: the whole subtree below ran on one thread, so every walk was two
+# sequential halves (~1.6-1.9x at 4 and 12 threads alike). The transpose costs the same cuts and the
+# same Dict copies (one per split point, D2 rule 4) as the old walks, O(leaves x columns), once. ----
+
+type FT is Type:
+  FTL{f: C.Frame, rd: List<&1, DN>}
+  FTB{f: CH.CFrame}
+  FTN{rows: U32, lrows: U32, l: FT, r: FT}
+
 # sk: the frame's skeleton (the recursion's measure; a cut that disagrees with it, which WFCFrame
-# excludes, answers the input with ok = False: the flat path then runs)
-# rr: the Dicts the predicate reads, two copies (one per lane of a node; a leaf uses the first)
-def CX.p1(+pred: X.Expr, sk: CH.Skel, c: Cut, rr: List<&1, DN> & List<&1, DN>) -> W1:
+# excludes, gives an FTB leaf holding the input: the walk answers ok = False and the flat path runs)
+# rr: the Dicts the walk's expressions read, two copies (one per lane of a node; a leaf keeps the first)
+def CX.ft(sk: CH.Skel, c: Cut, rr: List<&1, DN> & List<&1, DN>) -> FT:
   match sk c:
     case CH.KLeaf{n} CutL{f}:
       (ra, rb) = rr
-      CX.p1.leaf(pred, ra, f)
-    case CH.KNode{rows, lrows, sl, sr} CutN{r2, l2, a, b}:
+      FTL{f, ra}
+    case CH.KNode{+rows, +lrows, sl, sr} CutN{r2, l2, a, b}:
       (ra, rb) = rr
-      x y = CX.p1(pred, sl, CX.cut(a), CX.dclone(ra)) CX.p1(pred, sr, CX.cut(b), CX.dclone(rb))
-      CX.p1.j(x, y)
+      FTN{rows, lrows, CX.ft(sl, CX.cut(a), CX.dclone(ra)), CX.ft(sr, CX.cut(b), CX.dclone(rb))}
     case CH.KLeaf{n} CutN{r2, l2, a, b}:
-      W1{CX.fj(a, b), MX{}, False{}}
+      FTB{CX.fj(a, b)}
     case CH.KNode{rows, lrows, sl, sr} CutL{f}:
-      W1{CX.lframe(f), MX{}, False{}}
+      FTB{CX.lframe(f)}
+
+# walk 1 over the frame tree: ONE balanced parallel let per node and nothing else before it; the leaf
+# function and the joins (CX.fj) run as tasks of their own, after the fork
+def CX.p1(+pred: X.Expr, t: FT) -> W1:
+  match t:
+    case FTL{f, rd}:
+      CX.p1.leaf(pred, rd, f)
+    case FTB{f}:
+      W1{f, MX{}, False{}}
+    case FTN{rows, lrows, l, r}:
+      x y = CX.p1(pred, l) CX.p1(pred, r)
+      CX.p1.j(x, y)
 
 # ==== walk 2 of a filter: every leaf compacted by its mask (Q.Exec.fc: compact4 / compact3 groups of
 # AllValid columns, Column.compact for the rest; the same answer as Frame.filter_mask, LAWS fc_filter_mask) ====
 
-# (the frame and the masks have the shape walk 1 found: the mismatch arms are unreachable)
-def CX.p2(sk: CH.Skel, c: Cut, m: MT) -> CH.CFrame:
-  match sk c m:
-    case CH.KLeaf{n} CutL{f} ML{mm, +kept}:
+# (the frame tree and the masks have the shape walk 1 found: the mismatch arms are unreachable; the
+# tree is built with no Dicts, so a leaf's rd is empty)
+def CX.p2(t: FT, m: MT) -> CH.CFrame:
+  match t m:
+    case FTL{f, rd} ML{mm, +kept}:
       CX.lframe(Q.Exec.fc(f, mm, kept))
-    case CH.KNode{rows, lrows, sl, sr} CutN{r2, l2, a, b} MN{ml, mr}:
-      x y = CX.p2(sl, CX.cut(a), ml) CX.p2(sr, CX.cut(b), mr)
+    case FTN{rows, lrows, l, r} MN{ml, mr}:
+      x y = CX.p2(l, ml) CX.p2(r, mr)
       CX.fj(x, y)
-    case _ CutL{f} _:
+    case FTL{f, rd} _:
       CX.lframe(f)
-    case _ CutN{r2, l2, a, b} _:
-      CX.fj(a, b)
+    case FTB{f} _:
+      f
+    case FTN{rows, lrows, l, r} _:
+      CX.fj(CX.p2(l, MX{}), CX.p2(r, MX{}))
 
 # ==== the walk of a with_columns / select: all k expressions per leaf (F9), the input borrowed ====
 
@@ -1117,19 +1145,16 @@ def CX.w2.j(x: W2, y: W2) -> W2:
         case W2{fb, ob, kb}:
           W2{CX.fj(fa, fb), CX.fj(oa, ob), Bool.and(ka, kb)}
 
-def CX.w2(+es: List<&2, X.Expr>, sk: CH.Skel, c: Cut, rr: List<&1, DN> & List<&1, DN>) -> W2:
-  match sk c:
-    case CH.KLeaf{n} CutL{f}:
-      (ra, rb) = rr
-      CX.w2.leaf(es, ra, f)
-    case CH.KNode{rows, lrows, sl, sr} CutN{r2, l2, a, b}:
-      (ra, rb) = rr
-      x y = CX.w2(es, sl, CX.cut(a), CX.dclone(ra)) CX.w2(es, sr, CX.cut(b), CX.dclone(rb))
+# over the frame tree (CX.ft): one parallel let per node and nothing else before it
+def CX.w2(+es: List<&2, X.Expr>, t: FT) -> W2:
+  match t:
+    case FTL{f, rd}:
+      CX.w2.leaf(es, rd, f)
+    case FTB{f}:
+      W2{f, CH.CFrame{0, Nil{}}, False{}}
+    case FTN{rows, lrows, l, r}:
+      x y = CX.w2(es, l) CX.w2(es, r)
       CX.w2.j(x, y)
-    case CH.KLeaf{n} CutN{r2, l2, a, b}:
-      W2{CX.fj(a, b), CH.CFrame{0, Nil{}}, False{}}
-    case CH.KNode{rows, lrows, sl, sr} CutL{f}:
-      W2{CX.lframe(f), CH.CFrame{0, Nil{}}, False{}}
 
 # ==== frame-level column operations on the trees ====
 
@@ -1878,7 +1903,7 @@ def CX.hoist(+es: List<&2, X.Expr>, st: CStats, x: XF) -> HO:
 def CX.filter.w2(+g: Nat, st: CStats, ds: List<&1, DN>, +sk: CH.Skel, w: W1) -> XR:
   match w:
     case W1{f, m, ok}:
-      CX.pushc(CStats.walk(st, 2), CX.redictf(CX.p2(sk, CX.cut(f), m), ds))
+      CX.pushc(CStats.walk(st, 2), CX.redictf(CX.p2(CX.ft(sk, CX.cut(f), (Nil{}, Nil{})), m), ds))
 
 def CX.filter.w1(+g: Nat, +pred: X.Expr, st: CStats, ds: List<&1, DN>, +sk: CH.Skel, w: W1) -> XR:
   match w:
@@ -1894,7 +1919,7 @@ def CX.filter.wi(+g: Nat, +pred: X.Expr, +p2: X.Expr, w: WI) -> XR:
     case WI{st, f, ds, rd, ok, +sk}:
       match ok:
         case True{}:
-          CX.filter.w1(g, pred, st, ds, sk, CX.p1(p2, sk, CX.cut(f), CX.dclone(rd)))
+          CX.filter.w1(g, pred, st, ds, sk, CX.p1(p2, CX.ft(sk, CX.cut(f), CX.dclone(rd))))
         case False{}:
           CX.bail(FUn{Q.IFilter{pred}}, st, f, ds)
 
@@ -1941,7 +1966,7 @@ def CX.fsel.w2(+g: Nat, +es: List<&2, X.Expr>, st: CStats, ds: List<&1, DN>, +sk
     case W1{f, m, ok}:
       match f:
         case CH.CFrame{h, cols}:
-          CX.pushc(CStats.walk(st, 2), CX.redictf(CX.p2(sk, CX.cut(CH.CFrame{h, CX.pick(cols, V.Eval.names(es))}), m), ds))
+          CX.pushc(CStats.walk(st, 2), CX.redictf(CX.p2(CX.ft(sk, CX.cut(CH.CFrame{h, CX.pick(cols, V.Eval.names(es))}), (Nil{}, Nil{})), m), ds))
 
 def CX.fsel.w1(+g: Nat, +pred: X.Expr, +es: List<&2, X.Expr>, st: CStats, ds: List<&1, DN>, +sk: CH.Skel, w: W1) -> XR:
   match w:
@@ -1957,7 +1982,7 @@ def CX.fsel.wi(+g: Nat, +pred: X.Expr, +p2: X.Expr, +es: List<&2, X.Expr>, w: WI
     case WI{st, f, ds, rd, ok, +sk}:
       match ok:
         case True{}:
-          CX.fsel.w1(g, pred, es, st, ds, sk, CX.p1(p2, sk, CX.cut(f), CX.dclone(rd)))
+          CX.fsel.w1(g, pred, es, st, ds, sk, CX.p1(p2, CX.ft(sk, CX.cut(f), CX.dclone(rd))))
         case False{}:
           CX.bail(FFs{pred, es}, st, f, ds)
 
@@ -2031,7 +2056,7 @@ def CX.ws.wi(+k: WK, +es: List<&2, X.Expr>, op: FOp, w: WI) -> XR:
     case WI{st, f, ds, rd, ok, sk}:
       match ok:
         case True{}:
-          CX.ws.w(k, op, st, ds, CX.w2(es, sk, CX.cut(f), CX.dclone(rd)))
+          CX.ws.w(k, op, st, ds, CX.w2(es, CX.ft(sk, CX.cut(f), CX.dclone(rd))))
         case False{}:
           CX.bail(op, st, f, ds)
 

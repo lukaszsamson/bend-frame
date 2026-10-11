@@ -1474,36 +1474,67 @@ def Lst.split(-A: Type, xs: List<&1, A>, +k: U32, z: Bool) -> List<&1, A> & List
     case x <> rest False{}:
       Lst.split.k(A, x, Lst.split(A, rest, U32.sub(k, 1), U32.is_zero(U32.sub(k, 1))))
 
-def Lst.pmap.seq(~A: Type, ~B: Type, ~P: Data, ~f: P -> A -> B, +p: P, xs: List<&1, A>) -> List<&1, B>:
+# The elements as a balanced binary tree, built BEFORE the fork (sequentially), so that the forking def
+# below does nothing but match and fork. SCALING RULE (DESIGN.md 16.10, the T5.3 ceiling): a forking def
+# that calls a non-flat fork-free helper (a segmented recursion such as Lst.split, CX.cut, Dict.clone,
+# List.append) between its entry and its parallel let hands the runtime a helper TASK; the scheduler's
+# grow pass does not run fork-free tasks, so the row stops growing there, and in the drain the helper's
+# continuation (the rest of the def, parallel let included) runs in sequential mode: the whole subtree
+# below runs on one thread. The old Lst.pmap.go had `Lst.split(..)` in its branch arguments: every walk
+# built on it ran as exactly two sequential halves (~2x at any thread count, bench/w5/scale/).
+type LT<-A: Type> is Type:
+  LTE{}
+  LTL{x: A}
+  LTN{l: LT<A>, r: LT<A>}
+
+# a list of at most one element as a leaf (the empty list as the empty tree)
+def Lst.lt.one(-A: Type, xs: List<&1, A>) -> LT<A>:
   match xs:
     case Nil{}:
-      Nil{}
+      LTE{}
     case x <> rest:
-      f(p, x) <> Lst.pmap.seq(~A, ~B, ~P, ~f, p, rest)
+      LTL{x}
 
-# r: a list of k elements split at k / 2; the halves go to the two sides of a parallel let
-def Lst.pmap.go(~A: Type, ~B: Type, ~P: Data, ~f: P -> A -> B, fl: Nat, small: Bool, +p: P, +k: U32, r: List<&1, A> & List<&1, A>) -> List<&1, B>:
+# r: a list of k elements split at k / 2 (small: k <= 1, so the first half is empty); the halves become
+# the two subtrees. The same recursion shape as the old Lst.pmap.go, WITHOUT the parallel let: this def
+# is sequential, so its split calls are harmless. fl bounds the depth (32 levels cover any U32 length).
+def Lst.lt.go(-A: Type, fl: Nat, small: Bool, +k: U32, r: List<&1, A> & List<&1, A>) -> LT<A>:
   match fl small:
     case _ True{}:
       (a, b) = r
-      List.append(&1, B, Lst.pmap.seq(~A, ~B, ~P, ~f, p, a), Lst.pmap.seq(~A, ~B, ~P, ~f, p, b))
+      Lst.lt.one(A, List.append(&1, A, a, b))
     case 0n False{}:
       (a, b) = r
-      List.append(&1, B, Lst.pmap.seq(~A, ~B, ~P, ~f, p, a), Lst.pmap.seq(~A, ~B, ~P, ~f, p, b))
+      Lst.lt.one(A, List.append(&1, A, a, b))
     case 1n++q False{}:
       (a, b) = r
       +h1 = U32.shr(k)
       +h2 = U32.sub(k, h1)
-      x y = Lst.pmap.go(~A, ~B, ~P, ~f, q, U32.is_le(h1, 1), p, h1, Lst.split(A, a, U32.shr(h1), U32.is_zero(U32.shr(h1)))) Lst.pmap.go(~A, ~B, ~P, ~f, q, U32.is_le(h2, 1), p, h2, Lst.split(A, b, U32.shr(h2), U32.is_zero(U32.shr(h2))))
-      List.append(&1, B, x, y)
+      LTN{Lst.lt.go(A, q, U32.is_le(h1, 1), h1, Lst.split(A, a, U32.shr(h1), U32.is_zero(U32.shr(h1)))), Lst.lt.go(A, q, U32.is_le(h2, 1), h2, Lst.split(A, b, U32.shr(h2), U32.is_zero(U32.shr(h2))))}
 
-def Lst.pmap.k(~A: Type, ~B: Type, ~P: Data, ~f: P -> A -> B, +p: P, r: List<&1, A> & U32) -> List<&1, B>:
+def Lst.lt.len(-A: Type, r: List<&1, A> & U32) -> LT<A>:
   (xs, +k) = r
-  Lst.pmap.go(~A, ~B, ~P, ~f, 32n, U32.is_le(k, 1), p, k, Lst.split(A, xs, U32.shr(k), U32.is_zero(U32.shr(k))))
+  Lst.lt.go(A, 32n, U32.is_le(k, 1), k, Lst.split(A, xs, U32.shr(k), U32.is_zero(U32.shr(k))))
+
+# the elements of xs, in order, as a balanced tree (sequential)
+def Lst.lt(-A: Type, xs: List<&1, A>) -> LT<A>:
+  Lst.lt.len(A, Lst.len(A, xs, 0, Nil{}))
+
+# f(p, x) at every leaf, ONE balanced parallel let per node and nothing else before it; the results
+# appended in order at the joins (List.append runs in the join's continuation, after the fork)
+def Lst.pmap.t(~A: Type, ~B: Type, ~P: Data, ~f: P -> A -> B, +p: P, t: LT<A>) -> List<&1, B>:
+  match t:
+    case LTE{}:
+      Nil{}
+    case LTL{x}:
+      f(p, x) <> Nil{}
+    case LTN{l, r}:
+      x y = Lst.pmap.t(~A, ~B, ~P, ~f, p, l) Lst.pmap.t(~A, ~B, ~P, ~f, p, r)
+      List.append(&1, B, x, y)
 
 # f(p, x) for every element, in order, the elements forked in a balanced tree
 def Lst.pmap(~A: Type, ~B: Type, ~P: Data, ~f: P -> A -> B, +p: P, xs: List<&1, A>) -> List<&1, B>:
-  Lst.pmap.k(~A, ~B, ~P, ~f, p, Lst.len(A, xs, 0, Nil{}))
+  Lst.pmap.t(~A, ~B, ~P, ~f, p, Lst.lt(A, xs))
 
 # ==== frames ====
 

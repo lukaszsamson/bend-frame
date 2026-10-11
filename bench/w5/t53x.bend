@@ -122,7 +122,7 @@ def walk.w(w: QC.W1) -> U32:
       Bool.to_u32(ok)
 
 def walk(f: CH.CFrame, sk: CH.Skel) -> U32:
-  walk.w(QC.CX.p1(pred(), sk, QC.CX.cut(f), (Nil{}, Nil{})))
+  walk.w(QC.CX.p1(pred(), QC.CX.ft(sk, QC.CX.cut(f), (Nil{}, Nil{}))))
 
 def run.l(+m: U32, fs: List<&1, C.Frame>) -> U32:
   match m:

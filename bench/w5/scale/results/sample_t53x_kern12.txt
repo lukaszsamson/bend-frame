@@ -1,0 +1,440 @@
+Analysis of sampling t53x (pid 46589) every 1 millisecond
+Process:         t53x [46589]
+Path:            /Users/USER/*/t53x
+Load Address:    0x104a3c000
+Identifier:      t53x
+Version:         0
+Code Type:       ARM64
+Platform:        macOS
+Parent Process:  Python [46588]
+Target Type:     live task
+
+Date/Time:       2026-10-11 16:45:54.282 +0200
+Launch Time:     2026-10-11 16:45:54.143 +0200
+OS Version:      macOS 26.7 (25G229)
+Report Version:  7
+Analysis Tool:   /usr/bin/sample
+
+Physical footprint:         47.0M
+Physical footprint (peak):  47.0M
+Idle exit:                  untracked
+----
+
+Call graph:
+    2444 Thread_344981561   DispatchQueue_1: com.apple.main-thread  (serial)
+    + 2444 start  (in dyld) + 6992  [0x182eec4e4]
+    +   2444 main  (in t53x) + 992  [0x104a3cfb4]
+    +     2444 main.cold.1  (in t53x) + 228  [0x104b01088]
+    +       2444 io_loop  (in t53x) + 556  [0x104afe1fc]
+    +         2444 io_step  (in t53x) + 152  [0x104aff020]
+    +           1777 corpus_eval  (in t53x) + 144  [0x104afe718]
+    +           ! 1596 WL_FID_PREP  (in t53x) + 524,1100,...  [0x104aba318,0x104aba558,...]
+    +           ! 48 WL_FID_PREP  (in t53x) + 160  [0x104aba1ac]
+    +           ! : 48 __bzero  (in libsystem_platform.dylib) + 68,64  [0x1832c1074,0x1832c1070]
+    +           ! 48 WL_FID_PREP  (in t53x) + 784  [0x104aba41c]
+    +           ! : 48 __bzero  (in libsystem_platform.dylib) + 68,64  [0x1832c1074,0x1832c1070]
+    +           ! 33 WL_FID_PREP  (in t53x) + 412  [0x104aba2a8]
+    +           ! : 33 __bzero  (in libsystem_platform.dylib) + 68,64  [0x1832c1074,0x1832c1070]
+    +           ! 30 WL_FID_PREP  (in t53x) + 1012  [0x104aba500]
+    +           ! : 30 __bzero  (in libsystem_platform.dylib) + 68,64,...  [0x1832c1074,0x1832c1070,...]
+    +           ! 13 WL_FID_STRING_APPEND  (in t53x) + 140,160,...  [0x104abb0f8,0x104abb10c,...]
+    +           ! 1 WL_FID_PREP  (in t53x) + 384  [0x104aba28c]
+    +           ! : 1 OUTLINED_FUNCTION_19  (in t53x) + 12  [0x104afdb30]
+    +           ! 1 WL_FID_PREP  (in t53x) + 580  [0x104aba350]
+    +           ! : 1 term_drop  (in t53x) + 336  [0x104a3d590]
+    +           ! 1 WL_FID_PREP  (in t53x) + 1744  [0x104aba7dc]
+    +           ! : 1 rfc_wrap  (in t53x) + 140  [0x104afe52c]
+    +           ! :   1 heap_alloc_miss  (in t53x) + 476  [0x104afe470]
+    +           ! 1 WL_FID_PREP  (in t53x) + 1908  [0x104aba880]
+    +           ! : 1 rfc_wrap  (in t53x) + 140  [0x104afe52c]
+    +           ! :   1 heap_alloc_miss  (in t53x) + 476  [0x104afe470]
+    +           ! 1 WL_FID_PREP  (in t53x) + 1948  [0x104aba8a8]
+    +           ! : 1 rfc_wrap  (in t53x) + 16  [0x104afe4b0]
+    +           ! 1 WL_FID_STRING_APPEND_K2543  (in t53x) + 164  [0x104abb438]
+    +           ! : 1 rfc_wrap  (in t53x) + 52  [0x104afe4d4]
+    +           ! 1 WL_FID_______SRC_CHUNKS_LST_PMAP_5  (in t53x) + 160  [0x104ab4ee0]
+    +           ! : 1 spin_1230  (in t53x) + 252  [0x104afcd14]
+    +           ! 1 rfc_wrap  (in t53x) + 108  [0x104afe50c]
+    +           ! 1 term_drop  (in t53x) + 800  [0x104a3d760]
+    +           656 corpus_eval  (in t53x) + 820  [0x104afe9bc]
+    +           ! 611 pool_turn  (in t53x) + 212  [0x104b00ef8]
+    +           ! : 611 pool_rows  (in t53x) + 380  [0x104afd1fc]
+    +           ! :   611 monk_step  (in t53x) + 224  [0x104afd7c0]
+    +           ! :     576 WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 852,968,...  [0x104aa1a20,0x104aa1a94,...]
+    +           ! :     23 WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 740  [0x104aa19b0]
+    +           ! :     | 23 __bzero  (in libsystem_platform.dylib) + 68,64,...  [0x1832c1074,0x1832c1070,...]
+    +           ! :     2 WL_FID_______SRC_CHUNKS_LST_SPLIT  (in t53x) + 60  [0x104aacf6c]
+    +           ! :     2 WL_FID_______SRC_CHUNKS_LST_SPLIT_K2366  (in t53x) + 24,48  [0x104aad3a0,0x104aad3b8]
+    +           ! :     1 WL_FID_LIST_APPEND  (in t53x) + 216  [0x104aa7c44]
+    +           ! :     1 WL_FID_LIST_APPEND_K2298  (in t53x) + 0  [0x104aa7e84]
+    +           ! :     1 WL_FID_______SRC_CHUNKS_LST_PMAP_GO_5_K2310  (in t53x) + 12  [0x104aa86c4]
+    +           ! :     1 WL_FID_______SRC_CHUNKS_LST_PMAP_GO_5_K2311  (in t53x) + 0  [0x104aa87e4]
+    +           ! :     1 WL_FID_______SRC_CHUNKS_LST_PMAP_GO_5_K2312  (in t53x) + 0  [0x104aa8968]
+    +           ! :     1 WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 528  [0x104aa18dc]
+    +           ! :     | 1 term_drop  (in t53x) + 48  [0x104a3d470]
+    +           ! :     1 WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 656  [0x104aa195c]
+    +           ! :     | 1 term_drop  (in t53x) + 656  [0x104a3d6d0]
+    +           ! :     1 heap_alloc_miss  (in t53x) + 8  [0x104afe29c]
+    +           ! :       1 heap_alloc_miss  (in t53x) + 8  [0x104afe29c]
+    +           ! :         1 OUTLINED_FUNCTION_36  (in t53x) + 0  [0x104afdc68]
+    +           ! 32 pool_turn  (in t53x) + 284  [0x104b00f40]
+    +           ! : 32 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x1832b8128]
+    +           ! :   32 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x18327750c]
+    +           ! 13 pool_turn  (in t53x) + 236  [0x104b00f10]
+    +           !   13 cthread_yield  (in libsystem_pthread.dylib) + 36  [0x1832b4c28]
+    +           !     13 swtch_pri  (in libsystem_kernel.dylib) + 8  [0x183273c88]
+    +           11 corpus_eval  (in t53x) + 800  [0x104afe9a8]
+    +             8 pool_turn  (in t53x) + 184  [0x104b00edc]
+    +             : 8 pthread_cond_broadcast  (in libsystem_pthread.dylib) + 696  [0x1832b2fbc]
+    +             :   8 __psynch_cvbroad  (in libsystem_kernel.dylib) + 8  [0x183277538]
+    +             1 pool_turn  (in t53x) + 212  [0x104b00ef8]
+    +             : 1 pool_rows  (in t53x) + 1552  [0x104afd690]
+    +             :   1 _pthread_mutex_firstfit_lock_slow  (in libsystem_pthread.dylib) + 216  [0x1832b28e0]
+    +             :     1 _pthread_mutex_firstfit_lock_wait  (in libsystem_pthread.dylib) + 84  [0x1832b4e9c]
+    +             :       1 __psynch_mutexwait  (in libsystem_kernel.dylib) + 8  [0x1832769dc]
+    +             1 pool_turn  (in t53x) + 236  [0x104b00f10]
+    +             : 1 cthread_yield  (in libsystem_pthread.dylib) + 36  [0x1832b4c28]
+    +             :   1 swtch_pri  (in libsystem_kernel.dylib) + 8  [0x183273c88]
+    +             1 pool_turn  (in t53x) + 256  [0x104b00f24]
+    +               1 _pthread_mutex_firstfit_lock_slow  (in libsystem_pthread.dylib) + 216  [0x1832b28e0]
+    +                 1 _pthread_mutex_firstfit_lock_wait  (in libsystem_pthread.dylib) + 84  [0x1832b4e9c]
+    +                   1 __psynch_mutexwait  (in libsystem_kernel.dylib) + 8  [0x1832769dc]
+    2444 Thread_344981563
+    + 2444 thread_start  (in libsystem_pthread.dylib) + 8  [0x1832b2c1c]
+    +   2444 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x1832b7c58]
+    +     2275 pool_work  (in t53x) + 172  [0x104afd070]
+    +     ! 2271 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x1832b8128]
+    +     ! : 2271 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x18327750c]
+    +     ! 3 _pthread_cond_wait  (in libsystem_pthread.dylib) + 1120  [0x1832b81b4]
+    +     ! : 3 _pthread_mutex_firstfit_lock_slow  (in libsystem_pthread.dylib) + 216  [0x1832b28e0]
+    +     ! :   3 _pthread_mutex_firstfit_lock_wait  (in libsystem_pthread.dylib) + 84  [0x1832b4e9c]
+    +     ! :     3 __psynch_mutexwait  (in libsystem_kernel.dylib) + 8  [0x1832769dc]
+    +     ! 1 _pthread_cond_wait  (in libsystem_pthread.dylib) + 596  [0x1832b7fa8]
+    +     !   1 _pthread_mutex_droplock  (in libsystem_pthread.dylib) + 464  [0x1832b4bd4]
+    +     87 pool_work  (in t53x) + 132  [0x104afd048]
+    +     ! 87 cthread_yield  (in libsystem_pthread.dylib) + 36  [0x1832b4c28]
+    +     !   87 swtch_pri  (in libsystem_kernel.dylib) + 8  [0x183273c88]
+    +     81 pool_work  (in t53x) + 108  [0x104afd030]
+    +     ! 79 pool_rows  (in t53x) + 380  [0x104afd1fc]
+    +     ! : 79 monk_step  (in t53x) + 224  [0x104afd7c0]
+    +     ! :   73 WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 852,968,...  [0x104aa1a20,0x104aa1a94,...]
+    +     ! :   5 WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 740  [0x104aa19b0]
+    +     ! :   | 5 __bzero  (in libsystem_platform.dylib) + 68  [0x1832c1074]
+    +     ! :   1 WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 656  [0x104aa195c]
+    +     ! :     1 term_drop  (in t53x) + 148  [0x104a3d4d4]
+    +     ! 1 pool_rows  (in t53x) + 1568  [0x104afd6a0]
+    +     ! : 1 _pthread_mutex_firstfit_unlock_slow  (in libsystem_pthread.dylib) + 220  [0x1832b2b94]
+    +     ! :   1 _pthread_mutex_firstfit_wake  (in libsystem_pthread.dylib) + 28  [0x1832b4f0c]
+    +     ! :     1 __psynch_mutexdrop  (in libsystem_kernel.dylib) + 8  [0x183276ba8]
+    +     ! 1 pool_rows  (in t53x) + 148  [0x104afd114]
+    +     1 pool_work  (in t53x) + 92  [0x104afd020]
+    +       1 _pthread_mutex_firstfit_unlock_slow  (in libsystem_pthread.dylib) + 220  [0x1832b2b94]
+    +         1 _pthread_mutex_firstfit_wake  (in libsystem_pthread.dylib) + 28  [0x1832b4f0c]
+    +           1 __psynch_mutexdrop  (in libsystem_kernel.dylib) + 8  [0x183276ba8]
+    2444 Thread_344981564
+    + 2444 thread_start  (in libsystem_pthread.dylib) + 8  [0x1832b2c1c]
+    +   2444 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x1832b7c58]
+    +     2281 pool_work  (in t53x) + 172  [0x104afd070]
+    +     ! 2279 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x1832b8128]
+    +     ! : 2279 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x18327750c]
+    +     ! 2 _pthread_cond_wait  (in libsystem_pthread.dylib) + 1120  [0x1832b81b4]
+    +     !   2 _pthread_mutex_firstfit_lock_slow  (in libsystem_pthread.dylib) + 216  [0x1832b28e0]
+    +     !     2 _pthread_mutex_firstfit_lock_wait  (in libsystem_pthread.dylib) + 84  [0x1832b4e9c]
+    +     !       2 __psynch_mutexwait  (in libsystem_kernel.dylib) + 8  [0x1832769dc]
+    +     88 pool_work  (in t53x) + 132  [0x104afd048]
+    +     ! 88 cthread_yield  (in libsystem_pthread.dylib) + 36  [0x1832b4c28]
+    +     !   88 swtch_pri  (in libsystem_kernel.dylib) + 8  [0x183273c88]
+    +     73 pool_work  (in t53x) + 108  [0x104afd030]
+    +     ! 73 pool_rows  (in t53x) + 380  [0x104afd1fc]
+    +     !   73 monk_step  (in t53x) + 224  [0x104afd7c0]
+    +     !     72 WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 852,968,...  [0x104aa1a20,0x104aa1a94,...]
+    +     !     1 WL_FID_LIST_APPEND_K2298  (in t53x) + 208  [0x104aa7f54]
+    +     !       1 rfc_wrap  (in t53x) + 68  [0x104afe4e4]
+    +     2 pool_work  (in t53x) + 132,148  [0x104afd048,0x104afd058]
+    2444 Thread_344981565
+    + 2444 thread_start  (in libsystem_pthread.dylib) + 8  [0x1832b2c1c]
+    +   2444 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x1832b7c58]
+    +     2279 pool_work  (in t53x) + 172  [0x104afd070]
+    +     ! 2278 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x1832b8128]
+    +     ! : 2278 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x18327750c]
+    +     ! 1 _pthread_cond_wait  (in libsystem_pthread.dylib) + 1120  [0x1832b81b4]
+    +     !   1 _pthread_mutex_firstfit_lock_slow  (in libsystem_pthread.dylib) + 216  [0x1832b28e0]
+    +     !     1 _pthread_mutex_firstfit_lock_wait  (in libsystem_pthread.dylib) + 84  [0x1832b4e9c]
+    +     !       1 __psynch_mutexwait  (in libsystem_kernel.dylib) + 8  [0x1832769dc]
+    +     105 pool_work  (in t53x) + 132  [0x104afd048]
+    +     ! 105 cthread_yield  (in libsystem_pthread.dylib) + 36  [0x1832b4c28]
+    +     !   105 swtch_pri  (in libsystem_kernel.dylib) + 8  [0x183273c88]
+    +     57 pool_work  (in t53x) + 108  [0x104afd030]
+    +     ! 55 pool_rows  (in t53x) + 380  [0x104afd1fc]
+    +     ! : 55 monk_step  (in t53x) + 224  [0x104afd7c0]
+    +     ! :   53 WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 968,852,...  [0x104aa1a94,0x104aa1a20,...]
+    +     ! :   2 WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 740  [0x104aa19b0]
+    +     ! :     2 __bzero  (in libsystem_platform.dylib) + 64,68  [0x1832c1070,0x1832c1074]
+    +     ! 1 pool_rows  (in t53x) + 1560  [0x104afd698]
+    +     ! : 1 pthread_cond_signal  (in libsystem_pthread.dylib) + 428  [0x1832b6e70]
+    +     ! 1 pool_rows  (in t53x) + 148  [0x104afd114]
+    +     2 pool_work  (in t53x) + 92  [0x104afd020]
+    +     ! 2 _pthread_mutex_firstfit_unlock_slow  (in libsystem_pthread.dylib) + 220  [0x1832b2b94]
+    +     !   2 _pthread_mutex_firstfit_wake  (in libsystem_pthread.dylib) + 28  [0x1832b4f0c]
+    +     !     2 __psynch_mutexdrop  (in libsystem_kernel.dylib) + 8  [0x183276ba8]
+    +     1 pool_work  (in t53x) + 132  [0x104afd048]
+    2444 Thread_344981566
+    + 2444 thread_start  (in libsystem_pthread.dylib) + 8  [0x1832b2c1c]
+    +   2444 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x1832b7c58]
+    +     2277 pool_work  (in t53x) + 172  [0x104afd070]
+    +     ! 2273 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x1832b8128]
+    +     ! : 2273 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x18327750c]
+    +     ! 4 _pthread_cond_wait  (in libsystem_pthread.dylib) + 1120  [0x1832b81b4]
+    +     !   4 _pthread_mutex_firstfit_lock_slow  (in libsystem_pthread.dylib) + 216  [0x1832b28e0]
+    +     !     4 _pthread_mutex_firstfit_lock_wait  (in libsystem_pthread.dylib) + 84  [0x1832b4e9c]
+    +     !       4 __psynch_mutexwait  (in libsystem_kernel.dylib) + 8  [0x1832769dc]
+    +     102 pool_work  (in t53x) + 132  [0x104afd048]
+    +     ! 102 cthread_yield  (in libsystem_pthread.dylib) + 36  [0x1832b4c28]
+    +     !   102 swtch_pri  (in libsystem_kernel.dylib) + 8  [0x183273c88]
+    +     64 pool_work  (in t53x) + 108  [0x104afd030]
+    +     ! 64 pool_rows  (in t53x) + 380  [0x104afd1fc]
+    +     !   64 monk_step  (in t53x) + 224  [0x104afd7c0]
+    +     !     63 WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 852,968,...  [0x104aa1a20,0x104aa1a94,...]
+    +     !     1 WL_FID_______SRC_CHUNKS_LST_SPLIT_K2366  (in t53x) + 256  [0x104aad488]
+    +     !       1 rfc_wrap  (in t53x) + 68  [0x104afe4e4]
+    +     1 pool_work  (in t53x) + 92  [0x104afd020]
+    +       1 _pthread_mutex_firstfit_unlock_slow  (in libsystem_pthread.dylib) + 220  [0x1832b2b94]
+    +         1 _pthread_mutex_firstfit_wake  (in libsystem_pthread.dylib) + 28  [0x1832b4f0c]
+    +           1 __psynch_mutexdrop  (in libsystem_kernel.dylib) + 8  [0x183276ba8]
+    2444 Thread_344981567
+    + 2444 thread_start  (in libsystem_pthread.dylib) + 8  [0x1832b2c1c]
+    +   2444 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x1832b7c58]
+    +     2275 pool_work  (in t53x) + 172  [0x104afd070]
+    +     ! 2273 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x1832b8128]
+    +     ! : 2273 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x18327750c]
+    +     ! 2 _pthread_cond_wait  (in libsystem_pthread.dylib) + 1120  [0x1832b81b4]
+    +     !   2 _pthread_mutex_firstfit_lock_slow  (in libsystem_pthread.dylib) + 216  [0x1832b28e0]
+    +     !     2 _pthread_mutex_firstfit_lock_wait  (in libsystem_pthread.dylib) + 84  [0x1832b4e9c]
+    +     !       2 __psynch_mutexwait  (in libsystem_kernel.dylib) + 8  [0x1832769dc]
+    +     120 pool_work  (in t53x) + 132  [0x104afd048]
+    +     ! 120 cthread_yield  (in libsystem_pthread.dylib) + 36  [0x1832b4c28]
+    +     !   120 swtch_pri  (in libsystem_kernel.dylib) + 8  [0x183273c88]
+    +     48 pool_work  (in t53x) + 108  [0x104afd030]
+    +     ! 48 pool_rows  (in t53x) + 380  [0x104afd1fc]
+    +     !   48 monk_step  (in t53x) + 224  [0x104afd7c0]
+    +     !     45 WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 968,852,...  [0x104aa1a94,0x104aa1a20,...]
+    +     !     2 WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 740  [0x104aa19b0]
+    +     !     : 2 __bzero  (in libsystem_platform.dylib) + 64,68  [0x1832c1070,0x1832c1074]
+    +     !     1 WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5  (in t53x) + 340  [0x104aa12fc]
+    +     1 pool_work  (in t53x) + 92  [0x104afd020]
+    +       1 _pthread_mutex_firstfit_unlock_slow  (in libsystem_pthread.dylib) + 220  [0x1832b2b94]
+    +         1 _pthread_mutex_firstfit_wake  (in libsystem_pthread.dylib) + 28  [0x1832b4f0c]
+    +           1 __psynch_mutexdrop  (in libsystem_kernel.dylib) + 8  [0x183276ba8]
+    2444 Thread_344981568
+    + 2444 thread_start  (in libsystem_pthread.dylib) + 8  [0x1832b2c1c]
+    +   2444 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x1832b7c58]
+    +     2280 pool_work  (in t53x) + 172  [0x104afd070]
+    +     ! 2278 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x1832b8128]
+    +     ! : 2278 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x18327750c]
+    +     ! 2 _pthread_cond_wait  (in libsystem_pthread.dylib) + 1120  [0x1832b81b4]
+    +     !   2 _pthread_mutex_firstfit_lock_slow  (in libsystem_pthread.dylib) + 216  [0x1832b28e0]
+    +     !     2 _pthread_mutex_firstfit_lock_wait  (in libsystem_pthread.dylib) + 84  [0x1832b4e9c]
+    +     !       2 __psynch_mutexwait  (in libsystem_kernel.dylib) + 8  [0x1832769dc]
+    +     100 pool_work  (in t53x) + 132  [0x104afd048]
+    +     ! 100 cthread_yield  (in libsystem_pthread.dylib) + 36  [0x1832b4c28]
+    +     !   100 swtch_pri  (in libsystem_kernel.dylib) + 8  [0x183273c88]
+    +     64 pool_work  (in t53x) + 108  [0x104afd030]
+    +       64 pool_rows  (in t53x) + 380  [0x104afd1fc]
+    +         63 monk_step  (in t53x) + 224  [0x104afd7c0]
+    +         : 61 WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 968,852,...  [0x104aa1a94,0x104aa1a20,...]
+    +         : 1 WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 656  [0x104aa195c]
+    +         : | 1 term_drop  (in t53x) + 488  [0x104a3d628]
+    +         : 1 WL_FID_______SRC_CHUNKS_LST_SPLIT_K2366  (in t53x) + 108  [0x104aad3f4]
+    +         1 monk_step  (in t53x) + 400  [0x104afd870]
+    +           1 WL_FID_LIST_APPEND_K2298  (in t53x) + 208  [0x104aa7f54]
+    +             1 rfc_wrap  (in t53x) + 16  [0x104afe4b0]
+    2444 Thread_344981569
+    + 2444 thread_start  (in libsystem_pthread.dylib) + 8  [0x1832b2c1c]
+    +   2444 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x1832b7c58]
+    +     2284 pool_work  (in t53x) + 172  [0x104afd070]
+    +     ! 2283 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x1832b8128]
+    +     ! : 2283 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x18327750c]
+    +     ! 1 _pthread_cond_wait  (in libsystem_pthread.dylib) + 1120  [0x1832b81b4]
+    +     !   1 _pthread_mutex_firstfit_lock_slow  (in libsystem_pthread.dylib) + 216  [0x1832b28e0]
+    +     !     1 _pthread_mutex_firstfit_lock_wait  (in libsystem_pthread.dylib) + 84  [0x1832b4e9c]
+    +     !       1 __psynch_mutexwait  (in libsystem_kernel.dylib) + 8  [0x1832769dc]
+    +     93 pool_work  (in t53x) + 132  [0x104afd048]
+    +     ! 93 cthread_yield  (in libsystem_pthread.dylib) + 36  [0x1832b4c28]
+    +     !   93 swtch_pri  (in libsystem_kernel.dylib) + 8  [0x183273c88]
+    +     65 pool_work  (in t53x) + 108  [0x104afd030]
+    +     ! 64 pool_rows  (in t53x) + 380  [0x104afd1fc]
+    +     ! : 64 monk_step  (in t53x) + 224  [0x104afd7c0]
+    +     ! :   63 WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 968,852,...  [0x104aa1a94,0x104aa1a20,...]
+    +     ! :   1 WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 740  [0x104aa19b0]
+    +     ! :     1 __bzero  (in libsystem_platform.dylib) + 68  [0x1832c1074]
+    +     ! 1 pool_rows  (in t53x) + 1560  [0x104afd698]
+    +     !   1 pthread_cond_signal  (in libsystem_pthread.dylib) + 708  [0x1832b6f88]
+    +     !     1 __psynch_cvsignal  (in libsystem_kernel.dylib) + 8  [0x183278a64]
+    +     2 pool_work  (in t53x) + 92  [0x104afd020]
+    +       2 _pthread_mutex_firstfit_unlock_slow  (in libsystem_pthread.dylib) + 220  [0x1832b2b94]
+    +         2 _pthread_mutex_firstfit_wake  (in libsystem_pthread.dylib) + 28  [0x1832b4f0c]
+    +           2 __psynch_mutexdrop  (in libsystem_kernel.dylib) + 8  [0x183276ba8]
+    2444 Thread_344981570
+    + 2444 thread_start  (in libsystem_pthread.dylib) + 8  [0x1832b2c1c]
+    +   2444 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x1832b7c58]
+    +     2293 pool_work  (in t53x) + 172  [0x104afd070]
+    +     ! 2292 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x1832b8128]
+    +     ! : 2292 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x18327750c]
+    +     ! 1 _pthread_cond_wait  (in libsystem_pthread.dylib) + 1120  [0x1832b81b4]
+    +     !   1 _pthread_mutex_firstfit_lock_slow  (in libsystem_pthread.dylib) + 216  [0x1832b28e0]
+    +     !     1 _pthread_mutex_firstfit_lock_wait  (in libsystem_pthread.dylib) + 84  [0x1832b4e9c]
+    +     !       1 __psynch_mutexwait  (in libsystem_kernel.dylib) + 8  [0x1832769dc]
+    +     105 pool_work  (in t53x) + 132  [0x104afd048]
+    +     ! 105 cthread_yield  (in libsystem_pthread.dylib) + 36  [0x1832b4c28]
+    +     !   105 swtch_pri  (in libsystem_kernel.dylib) + 8  [0x183273c88]
+    +     45 pool_work  (in t53x) + 108  [0x104afd030]
+    +     ! 45 pool_rows  (in t53x) + 380  [0x104afd1fc]
+    +     !   45 monk_step  (in t53x) + 224  [0x104afd7c0]
+    +     !     44 WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 852,968,...  [0x104aa1a20,0x104aa1a94,...]
+    +     !     1 WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 656  [0x104aa195c]
+    +     !       1 term_drop  (in t53x) + 684  [0x104a3d6ec]
+    +     1 pool_work  (in t53x) + 92  [0x104afd020]
+    +       1 _pthread_mutex_firstfit_unlock_slow  (in libsystem_pthread.dylib) + 220  [0x1832b2b94]
+    +         1 _pthread_mutex_firstfit_wake  (in libsystem_pthread.dylib) + 28  [0x1832b4f0c]
+    +           1 __psynch_mutexdrop  (in libsystem_kernel.dylib) + 8  [0x183276ba8]
+    2444 Thread_344981571
+    + 2444 thread_start  (in libsystem_pthread.dylib) + 8  [0x1832b2c1c]
+    +   2444 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x1832b7c58]
+    +     2274 pool_work  (in t53x) + 172  [0x104afd070]
+    +     ! 2273 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x1832b8128]
+    +     ! : 2273 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x18327750c]
+    +     ! 1 _pthread_cond_wait  (in libsystem_pthread.dylib) + 1120  [0x1832b81b4]
+    +     !   1 _pthread_mutex_firstfit_lock_slow  (in libsystem_pthread.dylib) + 216  [0x1832b28e0]
+    +     !     1 _pthread_mutex_firstfit_lock_wait  (in libsystem_pthread.dylib) + 84  [0x1832b4e9c]
+    +     !       1 __psynch_mutexwait  (in libsystem_kernel.dylib) + 8  [0x1832769dc]
+    +     113 pool_work  (in t53x) + 132  [0x104afd048]
+    +     ! 113 cthread_yield  (in libsystem_pthread.dylib) + 36  [0x1832b4c28]
+    +     !   113 swtch_pri  (in libsystem_kernel.dylib) + 8  [0x183273c88]
+    +     57 pool_work  (in t53x) + 108  [0x104afd030]
+    +       57 pool_rows  (in t53x) + 380  [0x104afd1fc]
+    +         57 monk_step  (in t53x) + 224  [0x104afd7c0]
+    +           56 WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 852,968,...  [0x104aa1a20,0x104aa1a94,...]
+    +           1 WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 740  [0x104aa19b0]
+    +             1 __bzero  (in libsystem_platform.dylib) + 64  [0x1832c1070]
+    2444 Thread_344981572
+    + 2444 thread_start  (in libsystem_pthread.dylib) + 8  [0x1832b2c1c]
+    +   2444 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x1832b7c58]
+    +     2281 pool_work  (in t53x) + 172  [0x104afd070]
+    +     ! 2281 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x1832b8128]
+    +     !   2281 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x18327750c]
+    +     91 pool_work  (in t53x) + 132  [0x104afd048]
+    +     ! 91 cthread_yield  (in libsystem_pthread.dylib) + 36  [0x1832b4c28]
+    +     !   91 swtch_pri  (in libsystem_kernel.dylib) + 8  [0x183273c88]
+    +     72 pool_work  (in t53x) + 108  [0x104afd030]
+    +       72 pool_rows  (in t53x) + 380  [0x104afd1fc]
+    +         72 monk_step  (in t53x) + 224  [0x104afd7c0]
+    +           68 WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 852,968,...  [0x104aa1a20,0x104aa1a94,...]
+    +           4 WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 740  [0x104aa19b0]
+    +             4 __bzero  (in libsystem_platform.dylib) + 68  [0x1832c1074]
+    2444 Thread_344981573
+      2444 thread_start  (in libsystem_pthread.dylib) + 8  [0x1832b2c1c]
+        2444 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x1832b7c58]
+          2293 pool_work  (in t53x) + 172  [0x104afd070]
+          ! 2291 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x1832b8128]
+          ! : 2291 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x18327750c]
+          ! 2 _pthread_cond_wait  (in libsystem_pthread.dylib) + 1120  [0x1832b81b4]
+          !   2 _pthread_mutex_firstfit_lock_slow  (in libsystem_pthread.dylib) + 216  [0x1832b28e0]
+          !     2 _pthread_mutex_firstfit_lock_wait  (in libsystem_pthread.dylib) + 84  [0x1832b4e9c]
+          !       2 __psynch_mutexwait  (in libsystem_kernel.dylib) + 8  [0x1832769dc]
+          96 pool_work  (in t53x) + 132  [0x104afd048]
+          ! 96 cthread_yield  (in libsystem_pthread.dylib) + 36  [0x1832b4c28]
+          !   96 swtch_pri  (in libsystem_kernel.dylib) + 8  [0x183273c88]
+          55 pool_work  (in t53x) + 108  [0x104afd030]
+            55 pool_rows  (in t53x) + 380  [0x104afd1fc]
+              55 monk_step  (in t53x) + 224  [0x104afd7c0]
+                53 WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 968,852,...  [0x104aa1a94,0x104aa1a20,...]
+                1 WL_FID_LIST_APPEND  (in t53x) + 424  [0x104aa7d14]
+                1 WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 740  [0x104aa19b0]
+                  1 __bzero  (in libsystem_platform.dylib) + 68  [0x1832c1074]
+
+Total number in stack (recursive counted multiple, when >=5):
+        13       cthread_yield  (in libsystem_pthread.dylib) + 36  [0x1832b4c28]
+        13       swtch_pri  (in libsystem_kernel.dylib) + 0  [0x183273c80]
+        12       WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 0  [0x104aa16cc]
+        12       __bzero  (in libsystem_platform.dylib) + 0  [0x1832c1030]
+        12       __psynch_cvwait  (in libsystem_kernel.dylib) + 0  [0x183277504]
+        12       __psynch_mutexwait  (in libsystem_kernel.dylib) + 0  [0x1832769d4]
+        12       _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x1832b8128]
+        12       _pthread_mutex_firstfit_lock_slow  (in libsystem_pthread.dylib) + 216  [0x1832b28e0]
+        12       _pthread_mutex_firstfit_lock_wait  (in libsystem_pthread.dylib) + 84  [0x1832b4e9c]
+        12       monk_step  (in t53x) + 224  [0x104afd7c0]
+        12       pool_rows  (in t53x) + 380  [0x104afd1fc]
+        11       _pthread_start  (in libsystem_pthread.dylib) + 136  [0x1832b7c58]
+        11       pool_work  (in t53x) + 108  [0x104afd030]
+        11       pool_work  (in t53x) + 132  [0x104afd048]
+        11       pool_work  (in t53x) + 172  [0x104afd070]
+        11       thread_start  (in libsystem_pthread.dylib) + 8  [0x1832b2c1c]
+        10       _pthread_cond_wait  (in libsystem_pthread.dylib) + 1120  [0x1832b81b4]
+        8       WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x) + 740  [0x104aa19b0]
+        7       __psynch_mutexdrop  (in libsystem_kernel.dylib) + 0  [0x183276ba0]
+        7       _pthread_mutex_firstfit_unlock_slow  (in libsystem_pthread.dylib) + 220  [0x1832b2b94]
+        7       _pthread_mutex_firstfit_wake  (in libsystem_pthread.dylib) + 28  [0x1832b4f0c]
+        7       term_drop  (in t53x) + 0  [0x104a3d440]
+        6       pool_work  (in t53x) + 92  [0x104afd020]
+        6       rfc_wrap  (in t53x) + 0  [0x104afe4a0]
+
+Sort by top of stack, same collapsed (when >= 5):
+        __psynch_cvwait  (in libsystem_kernel.dylib)        25104
+        WL_FID_PREP  (in t53x)        1596
+        WL_FID_______SRC_CHUNKS_LST_PMAP_SEQ_5_K2248  (in t53x)        1227
+        swtch_pri  (in libsystem_kernel.dylib)        1114
+        __bzero  (in libsystem_platform.dylib)        198
+        __psynch_mutexwait  (in libsystem_kernel.dylib)        21
+        WL_FID_STRING_APPEND  (in t53x)        13
+        __psynch_mutexdrop  (in libsystem_kernel.dylib)        9
+        __psynch_cvbroad  (in libsystem_kernel.dylib)        8
+        term_drop  (in t53x)        7
+        rfc_wrap  (in t53x)        6
+
+Binary Images:
+       0x104a3c000 -        0x104b05caf +t53x (0) <15AF2CD6-8097-30A5-98DB-BB8EFD78225B> /Users/*/t53x
+       0x182e44000 -        0x182e96b4b  libobjc.A.dylib (951.7) <1D62B376-2303-376A-B993-9432A2004EB6> /usr/lib/libobjc.A.dylib
+       0x182e97000 -        0x182ecbd58  libdyld.dylib (1387) <70073E6E-4CDD-314F-BBDF-EC7FF6CE2DFC> /usr/lib/system/libdyld.dylib
+       0x182ecc000 -        0x182f7f4ff  dyld (1.0.0 - 1387) <0263B88E-0B22-3B33-BBC0-483BE879B513> /usr/lib/dyld
+       0x182f80000 -        0x182f83228  libsystem_blocks.dylib (96) <B33F1440-9364-38E4-AF85-8A21BFF24324> /usr/lib/system/libsystem_blocks.dylib
+       0x182f84000 -        0x182fd855f  libxpc.dylib (3102.160.5) <E26A36A6-4B8F-321C-AE17-54353F9EEE84> /usr/lib/system/libxpc.dylib
+       0x182fd9000 -        0x182ff99ff  libsystem_trace.dylib (1861.160.4) <314A8A89-4715-32B9-ABC2-B3087149C8B7> /usr/lib/system/libsystem_trace.dylib
+       0x182ffa000 -        0x1830a85f7  libcorecrypto.dylib (1922.160.10) <057A41E9-2A2E-39CD-B198-387734EED870> /usr/lib/system/libcorecrypto.dylib
+       0x1830a9000 -        0x1830f9257  libsystem_malloc.dylib (812.160.5) <B7ED74D2-5A24-3F39-9296-EE5688FF4B63> /usr/lib/system/libsystem_malloc.dylib
+       0x1830fa000 -        0x18314123f  libdispatch.dylib (1542.160.2) <80E75F3F-333F-38A8-A3DD-6279FCDB771B> /usr/lib/system/libdispatch.dylib
+       0x183142000 -        0x183144ffb  libsystem_featureflags.dylib (103) <5725BCFE-07F3-3629-9B44-551A435E2DE2> /usr/lib/system/libsystem_featureflags.dylib
+       0x183145000 -        0x1831c61e7  libsystem_c.dylib (1752.160.4) <3498CA79-EF40-3587-AD44-75187CEE7D95> /usr/lib/system/libsystem_c.dylib
+       0x1831c7000 -        0x183257ae7  libc++.1.dylib (2100.43) <32327062-C3A2-389E-ABFE-68A9942422E3> /usr/lib/libc++.1.dylib
+       0x183258000 -        0x18327275f  libc++abi.dylib (2100.43) <CCDE1614-20B7-354C-B201-99C5C4CC589D> /usr/lib/libc++abi.dylib
+       0x183273000 -        0x1832b02f7  libsystem_kernel.dylib (12377.161.15.700.19) <EE805B14-29F2-360D-9A2C-3221A1211833> /usr/lib/system/libsystem_kernel.dylib
+       0x1832b1000 -        0x1832bdb3b  libsystem_pthread.dylib (539.100.4) <A58BEABD-7AC0-35F8-BCFF-E4FFBD79E938> /usr/lib/system/libsystem_pthread.dylib
+       0x1832be000 -        0x1832c6963  libsystem_platform.dylib (375.120.2) <3AF14164-15FE-3623-9EE3-46DE29FD5B5A> /usr/lib/system/libsystem_platform.dylib
+       0x1832c7000 -        0x1832f66eb  libsystem_info.dylib (600) <0037F576-2C50-36F0-9F36-6CB7A049D5B1> /usr/lib/system/libsystem_info.dylib
+       0x187297000 -        0x1872a0e5f  libsystem_darwin.dylib (1752.160.4) <B808D04B-2798-36C9-96F6-35534BDFCF11> /usr/lib/system/libsystem_darwin.dylib
+       0x187702000 -        0x1877141b6  libsystem_notify.dylib (348.160.3) <922BDCF4-CD33-3EEB-BC56-9DCAE54F8F65> /usr/lib/system/libsystem_notify.dylib
+       0x1899d3000 -        0x1899edf7b  libsystem_networkextension.dylib (2226.161.1.700.2) <83F224A4-40C4-3106-A97B-788D1D961DCB> /usr/lib/system/libsystem_networkextension.dylib
+       0x189a70000 -        0x189a87fdf  libsystem_asl.dylib (406) <FF6BE113-1093-3D23-8A55-E0A5B327CA8E> /usr/lib/system/libsystem_asl.dylib
+       0x18b629000 -        0x18b631387  libsystem_symptoms.dylib (2169.160.3.701.1) <7F0D4E31-268A-3EBB-8A2C-30CCC771A5A5> /usr/lib/system/libsystem_symptoms.dylib
+       0x18f8ce000 -        0x18f906373  libsystem_containermanager.dylib (725.160.3.701.2) <118BC21E-B17D-32A2-9B65-16256131974F> /usr/lib/system/libsystem_containermanager.dylib
+       0x190ce0000 -        0x190ce45d7  libsystem_configuration.dylib (1405.160.3.701.3) <7725D903-1D37-33E7-82AF-2260661C81A8> /usr/lib/system/libsystem_configuration.dylib
+       0x190ce5000 -        0x190ceb99f  libsystem_sandbox.dylib (2680.160.6.700.3) <7B54AAA3-EB32-3853-8F0E-EB956EC957A1> /usr/lib/system/libsystem_sandbox.dylib
+       0x192340000 -        0x1923431fb  libquarantine.dylib (196.160.2.700.3) <45146171-F0C1-3104-AE01-6AAD841A70B5> /usr/lib/system/libquarantine.dylib
+       0x192adf000 -        0x192ae5d03  libsystem_coreservices.dylib (191.5.1) <BF51842C-BC69-3725-9EB2-7A52804963F8> /usr/lib/system/libsystem_coreservices.dylib
+       0x19306e000 -        0x1930aba77  libsystem_m.dylib (3312.100.1) <A2858495-5B01-3D11-955D-FF6F25E88A6E> /usr/lib/system/libsystem_m.dylib
+       0x1930ad000 -        0x1930b0527  libmacho.dylib (1387) <95DEC6C1-4480-3303-8A52-9AFC3D8C9219> /usr/lib/system/libmacho.dylib
+       0x1930ca000 -        0x1930d73a7  libcommonCrypto.dylib (600035) <EBA6E4D0-4DD2-33BB-BF95-48A58591AAAD> /usr/lib/system/libcommonCrypto.dylib
+       0x1930d8000 -        0x1930e1ca3  libunwind.dylib (2100.2) <201827AE-90B0-38B1-9729-50455B607293> /usr/lib/system/libunwind.dylib
+       0x1930ea000 -        0x1930f4c1f  libcopyfile.dylib (240.160.2.702.1) <BA7266A8-BF4B-32BF-A323-F4B2EBCDC0B0> /usr/lib/system/libcopyfile.dylib
+       0x1930f5000 -        0x1930f8987  libcompiler_rt.dylib (103.3) <9EE26D98-97BF-3BE0-B6BE-425284AB2D24> /usr/lib/system/libcompiler_rt.dylib
+       0x1930f9000 -        0x1930fd78b  libsystem_collections.dylib (1752.160.4) <34CEFA68-1E15-32F2-A5B1-97C0170A77C5> /usr/lib/system/libsystem_collections.dylib
+       0x1930fe000 -        0x1931014cf  libsystem_secinit.dylib (168.100.7) <B6B286B6-6E08-3578-8AFC-E4C55697C760> /usr/lib/system/libsystem_secinit.dylib
+       0x193102000 -        0x193104bf7  libremovefile.dylib (85.100.6) <33530415-3DB6-3556-A59A-24C22681D632> /usr/lib/system/libremovefile.dylib
+       0x193105000 -        0x193105f27  libkeymgr.dylib (31) <AD45B9EE-CE2B-3E1F-B96B-15F7F9FA3712> /usr/lib/system/libkeymgr.dylib
+       0x193106000 -        0x19310ee3f  libsystem_dnssd.dylib (2881.160.4.700.1) <71833E65-58B3-3C06-A4F3-D69D476CCC3C> /usr/lib/system/libsystem_dnssd.dylib
+       0x19310f000 -        0x19311409b  libcache.dylib (95) <A13AF0DC-5928-38BE-97FF-E04C29EF96AF> /usr/lib/system/libcache.dylib
+       0x193115000 -        0x193116ce3  libSystem.B.dylib (1356) <E9E4C9A6-16BB-392C-96AA-07797764E2A1> /usr/lib/libSystem.B.dylib
+       0x286ded000 -        0x286df4349  libRosetta.dylib (367.9) <3DBB2990-262D-3776-8FAC-B88C0373DCF0> /usr/lib/libRosetta.dylib
+       0x288a00000 -        0x288a03a4b  libsystem_darwindirectory.dylib (122) <6246210A-5279-391D-8F58-E62A87CAB309> /usr/lib/system/libsystem_darwindirectory.dylib
+       0x288a04000 -        0x288a0e39b  libsystem_eligibility.dylib (319.160.17) <85C0486B-60BE-3E10-ABBF-DD74341B7376> /usr/lib/system/libsystem_eligibility.dylib
+       0x288a0f000 -        0x288a1688b  libsystem_sanitizers.dylib (26.1) <A8C4F7FC-3443-35F7-B306-068D06237ED0> /usr/lib/system/libsystem_sanitizers.dylib
+       0x288a17000 -        0x288a17bbf  libsystem_trial.dylib (474.2.18.2.1) <83FF8DEB-1153-35BA-99C3-2AEF9B7559CD> /usr/lib/system/libsystem_trial.dylib

@@ -107,6 +107,78 @@ def T.splan.k(r: P.Env & P.Plan) -> P.Plan:
 def T.splan(s: C.Frame) -> P.Plan:
   T.splan.k(DF.source("sales", s))
 
+# mode 3 (the scaling diagnosis, DESIGN.md 16.10): the pre-chunked compute BATCHED above the 1 ms clock:
+# K = 8 chunked copies of the sales frame are built before the clock (each with its own env), the plan runs
+# over all K inside ONE window (CX.run_x only), and the compute slot reports the window in MICROSECONDS PER
+# RUN (window ms * 1000 / K); the first result is flattened and hashed after the clock (out / check as the
+# other modes), the other results are dropped after it. bench/w5/scale/t53b.py drives it.
+type BI is Type:
+  BI{env: P.Env, cf: CH.CFrame}
+
+def T.b.k() -> Nat:
+  8n
+
+def T.b.one.k(cf: CH.CFrame, r: P.Env & P.Plan) -> BI:
+  (env, pp) = r
+  BI{env, cf}
+
+def T.b.one(+g: Nat, s: C.Frame, p: C.Frame) -> BI:
+  T.b.one.k(CH.CFrame.of_frame(g, s), DF.source("products", p))
+
+def T.b.pre(k: Nat, +g: Nat, acc: List<&1, BI>, ss: C.Frame & C.Frame, pp: C.Frame & C.Frame) -> List<&1, BI>:
+  match k:
+    case 0n:
+      acc
+    case 1n+j:
+      (s1, s2) = ss
+      (p1, p2) = pp
+      T.b.pre(j, g, T.b.one(g, s1, p1) <> acc, DF.clone(s2), DF.clone(p2))
+
+type BR is Type:
+  BR{st: QC.CStats, x: E.ResT(QC.XF)}
+
+def T.b.wrap(r: QC.CStats & E.ResT(QC.XF)) -> BR:
+  (st, x) = r
+  BR{st, x}
+
+# the window: every copy run once
+def T.b.run(+g: Nat, +p: P.Plan, bis: List<&1, BI>, acc: List<&1, BR>) -> List<&1, BR>:
+  match bis:
+    case Nil{}:
+      acc
+    case BI{env, cf} <> rest:
+      T.b.run(g, p, rest, T.b.wrap(QC.CX.run_x(g, p, env, QC.PNF{"sales", cf} <> Nil{})) <> acc)
+
+def T.b.fin(+us: Nat, rs: List<&1, BR>) -> IO(R):
+  match rs:
+    case Nil{}:
+      do IO<R>:
+        return R{T.ms(0n, us, 0n, 0n), 0, "no result"}
+    case BR{st, x} <> rest:
+      do IO<R>:
+        +t2 : Nat <- IO.now()
+        o : QC.CStats & E.ResT(C.Frame) <- IO.pure(QC.CStats & E.ResT(C.Frame), QC.CX.out(st, x))
+        T.pre.out(0n, us, t2, o)
+
+def T.b.go(+g: Nat, +p: P.Plan, bis: List<&1, BI>) -> IO(R):
+  do IO<R>:
+    +t0 : Nat <- IO.now()
+    rs : List<&1, BR> <- IO.pure(List<&1, BR>, T.b.run(g, p, bis, Nil{}))
+    +t1 : Nat <- IO.now()
+    T.b.fin(Nat.div(Nat.mul(Nat.sub(t1, t0), 1000n), T.b.k()), rs)
+
+def T.b.k2(+g: Nat, +op: String, +par: U32, r: P.Env & P.Plan, ss: C.Frame & C.Frame, pp: C.Frame & C.Frame) -> IO(R):
+  (env, +pl) = r
+  (s1, s2) = ss
+  T.b.go(g, P.Optimize.release(T.plan(op, par, T.splan(s1), pl)), T.b.pre(T.b.k(), g, Nil{}, DF.clone(s2), pp))
+
+def T.b.env(+g: Nat, +op: String, +par: U32, s: C.Frame, p: C.Frame, pp: C.Frame & C.Frame) -> IO(R):
+  (p1, p2) = pp
+  T.b.k2(g, op, par, DF.source("products", p1), DF.clone(s), DF.clone(p2))
+
+def T.batch(+g: Nat, +op: String, +par: U32, s: C.Frame, p: C.Frame) -> IO(R):
+  T.b.env(g, op, par, s, C.Frame.empty(), DF.clone(p))
+
 def T.pre.k2(+g: Nat, env: P.Env, +p: P.Plan, s: C.Frame) -> IO(R):
   T.pre(g, env, p, s)
 
@@ -133,6 +205,8 @@ def T.one(+mode: U32, +op: String, +par: U32, s: C.Frame, p: C.Frame) -> IO(R):
       T.one.k(mode, op, par, C.Frame.empty(), C.Frame.empty(), T.env(op, par, s, p))
     case 1:
       T.one.k(mode, op, par, C.Frame.empty(), C.Frame.empty(), T.env(op, par, s, p))
+    case 3:
+      T.batch(CH.Ch.grain(), op, par, s, p)
     case _:
       T.pre.env(T.grain(mode), op, par, s, p)
 

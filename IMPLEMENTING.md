@@ -2887,3 +2887,191 @@ Findings (G6 table of master cd4da62, bench/m2/results/g6-master-prov.md; the ma
   pcodes / pmerge lists plus 63 MB of `blk_node` / `blk_half` rebuilds in `Sort.pcodes`); the candidate 163.6 MB in 2.3 thousand.
 - Peak live heap (the G4 quantity), whole process: q3 at 100k rows peaks at 117.9 MB with the v0.1 reader and 10.9 MB with the v0.2
   reader; the table gives `live after` each phase and the retained bytes per result row.
+## Scaling diagnosis (G2: why the chunked walks stopped at ~2x, and the fix; DESIGN.md 16.10)
+
+What was done: the diagnosis probes under bench/w5/scale/ (probe.bend: an owned tree of U32 leaves forked
+one way per mode; run.py: one process under `/usr/bin/time -l` with the load recorded; matrix.py: the
+interleaved matrix with its report; sample.py: `sample` of a running probe; instrument.py: a DIAGNOSTIC
+build of an emitted C file with scheduler counters; fids.py / forkaudit.py: the task-table flags and the
+stall shape read off an emitted C file), the fix in src/chunks.bend (`Lst.pmap` over a prebuilt tree),
+src/sort.bend (`Sort.pm`, the same) and src/cexec.bend (the frame tree `FT`, `CX.ft`, the walks `CX.p1` /
+`CX.p2` / `CX.w2` over it), bench/w5/t53x.bend on the new API. No proof mentions any of these defs (checked:
+LAWS.bend / PROOF*.bend name none of `Lst.pmap`, `Sort.pm`, `CX.*`); the laws are untouched.
+
+Performance lessons (what the runtime C showed; every number PROVISIONAL, shared machine, loads recorded):
+
+- **The scheduler model (2.0.36, from the emitted C).** `corpus_eval` runs the main thread sequentially
+  until a parallel let returns a join with pending children (`task_deal` to the frontier rows); then
+  `cube_run` iterates: a GROW turn (`pool_turn(true, rows)`: one unit per frontier row, `row_grow` expands
+  the row breadth-first by running the tasks whose def can fork; a fork-free task at a ring head is skipped
+  (`monk_step`: `!seq && fid_nofk`); stops at 128 busy rings or when nothing grew), then a DRAIN turn
+  (`pool_turn(false, f)`: `pool_step` sizes the units, every thread grabs units from `pool_row`, each ring's
+  tasks run to completion with `seq = true`, so a parallel let met inside runs sequentially), then
+  `ring_rewind`. Turns are `pthread_cond_broadcast`s; `POOL_WAIT` yields 128 times then sleeps. A join
+  whose last child arrives runs its continuation at once on that thread (`task_deliver` -> `monk_step`
+  `t = r; continue`), climbing the join chain. The heap is per-thread free lists per class (`ALC[thread]`,
+  `heap_alloc` / `heap_free`), generations of KEEP_WORDS exchanged through a global bank under a spinlock,
+  fresh pages by one atomic add on `H_BUMP`; nothing is ever unmapped. Every CPU-side `fid_nofk` /
+  `task_node` / `return term_tsk` site is in the program's own segments, so the shape of every fork is
+  readable in the C.
+- **The ceiling was a shape rule, not the allocator.** A fork-free def that is not FLAT (a non-tail
+  recursion such as `Lst.split`, `List.append`, `CX.cuts`, `Dict.clone`) is a segment; a call to it from a
+  forking def in non-sequential mode is `task_node(.., 0); return term_tsk(..)`: a task. In a grow turn the
+  caller is rewound at that call (`monk_step` pushes the helper task to a ring, answers 2, `row_grow` breaks
+  and finds nothing grew), and in the drain the helper runs with `seq = true` and `FID_EXIT` continues
+  straight into its continuation (`WL_DYN(wf)` with `seq & 1` kept): the rest of the forking def, parallel
+  let included, runs sequentially: the whole subtree on one thread. `Lst.pmap.go` had `Lst.split(..)` in its
+  branch arguments; `CX.p1` / `CX.p2` / `CX.w2` had `CX.cut(a)` and `CX.dclone(ra)`. The root forks (the
+  main thread is not in a grow turn), so a tree degenerates to its two halves: ~2x at 4 and 12 threads,
+  the same at 16 or 4096 leaves. A FLAT helper (a tail loop) is inlined as a `spin_N` C call and costs
+  nothing (probe mode 10). The instrumented build showed it directly: the tree fork drains 256 ring tasks
+  per rep (every thread 80-200 of them), `Lst.pmap` over the same leaves drains ~38 per rep (268 over 7 drains), two of them 5-7 ms
+  long (the halves), with zero grow skips and zero deferred forks (so NOT a per-level iteration cost).
+- **What was ruled out, with the evidence**: fresh output blocks per leaf (probe modes 2 / 3 / 5 scale like
+  the allocation-free fold, 6-7x at 12 threads); page faults (`/usr/bin/time -l` reclaims flat across
+  thread counts; the heap never unmaps); drops inside the fork (mode 1 = mode 0); a sleeping pool (the
+  `gap` mode puts a 10 ms sequential stage before every rep, the workers sleep on the condvar, and the
+  12-thread time stays at 1-2 ms); the grain and leaf count (16..4096 leaves at a constant 2^24 rows:
+  identical); E cores (the drain is dynamic: a slow lane costs only its last unit; `units` per thread in the
+  instrumented build vary 80-250 but the turn ends together).
+- **`sample` tells the story in one screen** (bench/w5/scale/sample.py): on the old t53x the main thread had
+  611 samples inside `pool_turn -> monk_step -> LST_PMAP_SEQ` and the eleven workers 55 between them, 94%
+  of their time in `__psynch_cvwait`; on the fixed probe the workers are in the leaf spins.
+- **Nested fork trees do not nest.** Whatever a drain runs is sequential inside (`seq`), so a parallel let
+  inside a leaf (the per-column rechunk under the column fork of `CFrame.op`) adds no parallelism; only
+  the frontier the grow turn built is parallel. One fork tree per operator, flat leaves.
+- **Measure a fork tree by its ring tasks**: instrument.py's `units` / `steps` per thread and `unit_max_ms`
+  show in one run whether the tree unfolded (units ~ leaves / 4 at 128 per row) or collapsed (a few units
+  of half the work). forkaudit.py finds the shape statically: every `forking def -> fork-free callee` task;
+  only leaf-position and join (`*_J*`) callees may remain.
+
+Bend lessons:
+
+- **Before the parallel let: match, then fork, nothing else.** Pre-cut trees in a sequential prelude
+  (`CX.ft` builds the frame tree with the cuts and the Dict copies; `Lst.lt` turns a list into a balanced
+  tree with the old split recursion minus the fork) and fork by matching. Helpers belong in the leaf
+  (a task of its own, fine: it IS the unit of work), in the join (the continuation runs in place after the
+  fork) or in the prelude. A mutual recursion is still impossible, so a tree builder that must open a pair
+  (the split) keeps the pair as a parameter, as `Lst.lt.go(fl, small, k, r)` does.
+- A generic tree over a `Type`-kinded element is `type LT<-A: Type> is Type:`; the list forks keep their
+  signatures (`Lst.pmap` / `Sort.pm` are drop-in), so no caller changed.
+- The termination checker needs the frame tree, not the cut, as the walk's argument (`CX.p1(pred, t: FT)`
+  is structural; the old `CX.p1(pred, sk, CX.cut(a), ..)` needed the skeleton as its measure).
+- A diagnostic build of the runtime is one `python3 -I bench/w5/scale/instrument.py x.c x_dbg.c && clang
+  -O2 -w -o x_dbg x_dbg.c -lpthread` away; the program and its timing structure are unchanged (relaxed
+  atomics on their own cache lines), and the counters print as one JSON line on stderr at exit.
+
+Measured (PROVISIONAL: shared machine, the 1-minute load of every process is in the JSONL files under
+bench/w5/scale/results/; medians of fresh interleaved processes, each process's sample the median of its reps
+after the cold ones; every cell's checksum / result hash equal across modes and thread counts):
+
+- **The controlled probes** (bench/w5/scale/matrix.py, 2^24 rows in 1024 leaves of 2^14, 3 processes x 8 reps
+  per cell, load 7.4-8.7; matrix.jsonl):
+
+  | leaf work | 1 thr | 2 | 4 | 8 | 12 | 12-vs-1 |
+  |---|---|---|---|---|---|---|
+  | fold, the leaf handed back (no allocation) | 10 ms | 5 | 3 | 2 | 2 (raw 3, 1, 2) | 5x |
+  | Kernel.map into a FRESH leaf, the input dropped inside | 15 | 8 | 5 | 3 | 3 | 5x |
+  | in-place map over the owned leaf | 4 | 2 | 1 | 1 | 1 | 4x (clock) |
+  | fresh map + fold, both buffers die inside the fork | 24 | 13 | 6 | 4 | 4 (raw 4, 3, 4) | 6x |
+  | no leaf work (the fork tree alone) | 0 | 0 | 0 | 0 | 0 | - |
+  | the same fold over a List by the OLD Lst.pmap | 10 | 5 | 5 | 5 | 5 | **2x** |
+
+  The old `Lst.pmap` is 5 ms at 2, 4, 8 and 12 threads and at 16, 64, 256, 1024 and 4096 leaves (depth
+  sweep, 12 threads: 5-6 ms every time; the tree fork 1-3 ms). The fork tree's own cost, by the instrumented
+  build (drain time of 17 reps minus 1 rep, over 16): 0.07 ms per tree of 256 leaves, 0.2 ms per tree of 64
+  leaves at 12 threads. The allocating modes scale like the allocation-free fold.
+- **bench/w5/t53x.bend (the T5.3 probe, 256 leaves of 2^14 rows), before / after the fix, 12 threads, 6 reps,
+  ms per rep, load 5.4 / 11.4**: eval walk (Eval.full + pred + popcount per leaf) 10 -> 5 -> 5 at 1 / 4 / 12
+  threads before, 10 -> 2.5 -> 1-2 after; one flat kernel per leaf 5 -> 2.5 -> 2.5 before, 5 -> 1.5 -> 1 after;
+  with_columns leaf 8.5 -> 4 -> 4.5 before, 8.5 -> 3 -> 2 after; the runner's walk (CX.p1) 6.5 -> 3.5 -> 3.5
+  before, 7 -> 2.5 -> 1.5 after (the fixed numbers at load 11 with two 7 ms outliers in the eval cell).
+- **The engine on the m2 workloads** (bench/w5/t53.py, 5 processes x 12 reps per cell, load 6.9-19.0 during
+  the run; t53_fix.jsonl; ms per rep at the 1 ms clock, every result hash equal to the reference's):
+
+  | query | reference 1 / 4 / 12 thr | chunked from a flat env 1 / 4 / 12 (conversions inside) | pre-chunked compute 1 / 4 / 12 | compute 12-vs-1 (T5.3 before) |
+  |---|---|---|---|---|
+  | q1 | 2.5 / 2 / 3 | 8 / 4 / 4 | 3.5 / 1.5 / 1.5 | 2.3x at the clock (1.5x) |
+  | q2 | 2.5 / 3 / 3 | 16 / 7 / 6 | 3 / 2 / 2 | 1.5x at the clock; compute + out 2.5x (1.5x) |
+  | q3 | 12 / 12 / 12 | 22 / 16 / 15 | 16 / 12 / 12 | 1.33x (1.19x) |
+  | q5 | 11.5 / 10 / 11 | 11 / 10 / 11 | 17 / 13 / 12.5 | 1.36x (1.14x) |
+  | filter qty > 50 (7 columns) | 7 / 7.5 / 7 | 17 / 6 / 6 | 8 / 3 / 2 | **4.0x** (1.88x) |
+
+  q1 / q2 at 12 threads are 1-2 ms cells on a 1 ms clock, so the batched table below is the one to read for
+  them; q3 and q5 are bounded by their flat stages (group_by 12 of q3's 16 ms; the join and the 6 ms flatten
+  of 7 columns before it in q5), exactly 16.8's serial fractions. From a flat env the conversions still
+  dominate (of_frame 6 -> 3 ms, a 7-leaf column fork; W6 hands chunked sources to the runner).
+- **The pre-chunked compute batched above the clock** (bench/w5/t53.bend mode 3 + bench/w5/scale/t53b.py: 8
+  chunked copies run in ONE window, CX.run_x only, microseconds per run; 5 processes x 6 reps, load 8.8-26.8
+  during the run, so the raw samples carry 2x outliers; t53b.jsonl):
+
+  | query | 1 thr | 4 thr | 12 thr | 4-vs-1 | 12-vs-1 | 16.8 G2 | best 12-thr sample |
+  |---|---|---|---|---|---|---|---|
+  | filter | 7.56 ms | 2.62 | 2.31 (raw 1.88, 6.12, 2.44, 2.00, 2.31) | 2.9x | **3.3x** | >= 3x | 1.88 (4.0x) |
+  | q1 | 3.44 | 1.56 | 2.31 (raw 2.62, 2.31, 3.25, 1.31, 1.50) | 2.2x | 1.5x | >= 3x | 1.31 (2.6x) |
+  | q2 | 3.44 | 1.44 | 1.38 (raw 1.12, 2.81, 3.06, 1.38, 1.31) | 2.4x | **2.5x** | >= 3x | 1.12 (3.1x) |
+  | q3 | 15.9 | 12.2 | 12.0 | 1.3x | 1.3x | >= 2x | 11.7 |
+  | q5 | 16.4 | 12.5 | 12.8 | 1.3x | 1.3x | >= 1.5x | 12.1 |
+
+  q1 / q2 / filter were 1.5-1.9x before the fix (T5.3's table). What is left in q1 (3.4 ms of work, 1.3 ms at
+  best on 12 threads): two fork trees of 62 leaves each (walk 1: the F5 pred_count pass; walk 2: the
+  compaction) at ~0.1-0.2 ms fixed each, their sequential preludes (`CX.ft`, the W1 assembly, the lazy
+  rechunk check) and the per-leaf evaluator entry (see the allocation counts below). q3 / q5 are their
+  flat stages (group_by: 12 of 16 ms; q5's join and the 6 ms flatten of the pre-chunked 7 columns before it,
+  both outside this task) and cannot reach 16.8's targets on this engine shape: 16.8's `s` for q3 was 0.3
+  on the assumption that the group_by ran chunked (T5.3 item 3 runs it flat).
+- **Allocation counts per phase (the orchestrator's G6 data point: the chunked engine's 56k-100k heap
+  allocations and 33-84 MB on q1-q3 against the reference's 3-8k and 7-32 MB).** master's
+  bench/m2/instrument.py over bench/w5/t53.bend mode 2 at 1 thread (counts are exact; window deltas of the
+  second rep): q1 `in` (of_frame, 7 columns) 4,494 allocs / 32.6 MB, `compute` 52,365 allocs / 9.8 MB
+  (reference compute: 3,070 / 7.4 MB), `out` (to_frame, 3 columns) 363 / 3.1 MB; q2 `in` 4,494 / 32.6 MB,
+  `compute` 88,924 / 14.1 MB (reference 3,627 / 12.6 MB), `out` 459 / 37.7 MB. So the extra MEGABYTES are
+  the boundary conversions (28 MB in, 3-38 MB out: the flat frame rebuilt per column; W6 removes both when
+  sources are born chunked and sinks take chunks), and the extra COUNT is the per-leaf evaluator entry:
+  845 (q1) / 1,434 (q2) allocations per leaf of 2^14 rows, ~0.1-0.2 ms of the 1-thread cost per 1M rows
+  (the chunked compute is 3.4 ms against the reference's 2.5 on q1), from `CX.p1.leaf` / `CX.w2.leaf`
+  typing and compiling the expression per leaf (`S.Frame.schema`, `Eval.f5.plan`, `Eval.slot.mv`: the type
+  check, the mark, the peephole pass and the kernel program, then the leaf frame wrapped and unwrapped).
+  None of it is the scaling ceiling (the per-leaf setup is inside the parallel leaves; probe modes 2 / 3 /
+  5 show that fresh blocks per leaf scale like the fold), but it is the next 1-thread item: compile the
+  expression ONCE per walk (schema and plan are the same at every leaf of a WFCFrame) and run the compiled
+  program per leaf, which would also take the per-leaf allocations to the reference's order.
+
+Gates (this worktree, after the fix): `make test` PASS 195 / 195 (XFAIL 0); `make check` 244 files; `make
+proofs` and `make verdict` ALL PROOFS CHECK; `make mutation-check` 92 of 92 mutations rejected; `make
+diff-smoke` clean; `make bench-check` q1-q6 identical / within tolerance at 1k and 100k; `make
+diff-chunked`: seeds 2 (dict), 3 (deep), 4 (dict + deep) clean, seed 1 (Raw, n = 2000) reports ONE T2.2
+finding, d1588 (shrunk: a self inner_join of a 1-row f32 frame on a NaN key: every engine, the eager
+reference included, answers 1 row, Polars 2.0 answers 0; the contract's "every NaN one key" rule for
+join keys, DESIGN.md 15 item 1 of the join section, against the oracle). It is not a chunked-engine
+divergence (the chunked grains agree with the reference) and nothing in this task touches join.bend or the
+eager path; it is an oracle / contract question for the orchestrator (the frozen G1 seeds 601-604 do not
+hit it).
+
+What the next agents need to know:
+
+- Keep the shape rule (DESIGN.md 16.10) in every fork tree you write and run bench/w5/scale/forkaudit.py
+  on the emitted C of the real program; the probe matrix (bench/w5/scale/matrix.py) is the quickest way to
+  see a fork tree collapse (a cell flat from 4 to 12 threads).
+- The G2 cells of q1 / q2 are 1-3 ms jobs: measure them batched (t53.bend mode 3, bench/w5/scale/t53b.py),
+  never per rep on the 1 ms clock.
+- The chunked compute's 1-thread gap to the reference is the per-leaf evaluator entry (845-1,434 allocations
+  per leaf); compiling each walk's expressions once per walk is the next step (W8).
+- q3 / q5 need chunked group_by / join stages (16.8's `s`) to reach their targets; the walks are no longer the
+  limit.
+
+Second batched pass at a quieter machine (the same cells, load 3.9-5.4, 5 processes x 6 reps;
+bench/w5/scale/results/t53b_pass2.jsonl; the samples are tight: every q1 12-thread process 1.25 ms):
+
+| query | 1 thr | 4 thr | 12 thr | 4-vs-1 | 12-vs-1 | 16.8 G2 |
+|---|---|---|---|---|---|---|
+| filter | 7.44 ms (raw 7.44, 7.56, 6.75, 6.94, 7.44) | 2.56 | 1.88 (raw 1.75, 1.94, 1.81, 1.88, 1.88) | 2.9x | **4.0x** | >= 3x: met |
+| q1 | 3.25 (3.25, 3.31, 3.19, 3.19, 3.25) | 1.31 | 1.25 (1.25 x 5) | 2.5x | **2.6x** | >= 3x: not met (a 1.25 ms floor) |
+| q2 | 3.38 (3.38, 3.38, 3.25, 3.38, 3.38) | 1.25 | 1.12 (1.19, 1.12, 1.12, 1.12, 1.12) | 2.7x | **3.0x** | >= 3x: met |
+
+q1's floor: 1.25 ms at 4 AND 12 threads for 3.25 ms of 1-thread work, i.e. ~0.9 ms that no thread count
+shrinks: two fork trees of 62 leaves (0.2 ms each by the probes), the two `CX.ft` preludes, the W1 / W2
+assembly and the `CCols.cat` joins, the lazy rechunk check and the result's `CStats`. The next step for q1
+is one fork tree instead of two (the predicate's mask and the compaction in ONE walk, F5 + F6 per leaf,
+which the error-rerun design allows since the leaf frame comes back either way) and the compile-once
+evaluator entry.

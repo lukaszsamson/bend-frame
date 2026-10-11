@@ -474,36 +474,56 @@ def Sort.pm.split(-A: Type, xs: List<&1, A>, +k: U32, z: Bool) -> List<&1, A> & 
     case x <> rest False{}:
       Sort.pm.split.k(A, x, Sort.pm.split(A, rest, U32.sub(k, 1), U32.is_zero(U32.sub(k, 1))))
 
-def Sort.pm.seq(~A: Type, ~B: Type, ~P: Data, ~f: P -> A -> B, +p: P, xs: List<&1, A>) -> List<&1, B>:
+# The elements as a balanced tree, built BEFORE the fork (sequentially), so that the forking def does
+# nothing but match and fork: a non-flat fork-free call (the split) in a forking def's branch argument
+# made every walk on the old shape run as two sequential halves (DESIGN.md 16.10; the same fix as
+# Lst.pmap in src/chunks.bend, mirrored here because this file may not import the chunk layer).
+type PT<-A: Type> is Type:
+  PTE{}
+  PTL{x: A}
+  PTN{l: PT<A>, r: PT<A>}
+
+def Sort.pm.one(-A: Type, xs: List<&1, A>) -> PT<A>:
   match xs:
     case Nil{}:
-      Nil{}
+      PTE{}
     case x <> rest:
-      f(p, x) <> Sort.pm.seq(~A, ~B, ~P, ~f, p, rest)
+      PTL{x}
 
-# r: a list of k elements split at k / 2; the halves go to the two sides of a parallel let
-def Sort.pm.go(~A: Type, ~B: Type, ~P: Data, ~f: P -> A -> B, fl: Nat, small: Bool, +p: P, +k: U32, r: List<&1, A> & List<&1, A>) -> List<&1, B>:
+# r: a list of k elements split at k / 2 (small: k <= 1); the halves become the two subtrees (sequential)
+def Sort.pm.lt(-A: Type, fl: Nat, small: Bool, +k: U32, r: List<&1, A> & List<&1, A>) -> PT<A>:
   match fl small:
     case _ True{}:
       (a, b) = r
-      List.append(&1, B, Sort.pm.seq(~A, ~B, ~P, ~f, p, a), Sort.pm.seq(~A, ~B, ~P, ~f, p, b))
+      Sort.pm.one(A, List.append(&1, A, a, b))
     case 0n False{}:
       (a, b) = r
-      List.append(&1, B, Sort.pm.seq(~A, ~B, ~P, ~f, p, a), Sort.pm.seq(~A, ~B, ~P, ~f, p, b))
+      Sort.pm.one(A, List.append(&1, A, a, b))
     case 1n++q False{}:
       (a, b) = r
       +h1 = U32.shr(k)
       +h2 = U32.sub(k, h1)
-      x y = Sort.pm.go(~A, ~B, ~P, ~f, q, U32.is_le(h1, 1), p, h1, Sort.pm.split(A, a, U32.shr(h1), U32.is_zero(U32.shr(h1)))) Sort.pm.go(~A, ~B, ~P, ~f, q, U32.is_le(h2, 1), p, h2, Sort.pm.split(A, b, U32.shr(h2), U32.is_zero(U32.shr(h2))))
-      List.append(&1, B, x, y)
+      PTN{Sort.pm.lt(A, q, U32.is_le(h1, 1), h1, Sort.pm.split(A, a, U32.shr(h1), U32.is_zero(U32.shr(h1)))), Sort.pm.lt(A, q, U32.is_le(h2, 1), h2, Sort.pm.split(A, b, U32.shr(h2), U32.is_zero(U32.shr(h2))))}
 
-def Sort.pm.k(~A: Type, ~B: Type, ~P: Data, ~f: P -> A -> B, +p: P, r: List<&1, A> & U32) -> List<&1, B>:
+def Sort.pm.tree(-A: Type, r: List<&1, A> & U32) -> PT<A>:
   (xs, +k) = r
-  Sort.pm.go(~A, ~B, ~P, ~f, 32n, U32.is_le(k, 1), p, k, Sort.pm.split(A, xs, U32.shr(k), U32.is_zero(U32.shr(k))))
+  Sort.pm.lt(A, 32n, U32.is_le(k, 1), k, Sort.pm.split(A, xs, U32.shr(k), U32.is_zero(U32.shr(k))))
+
+# f(p, x) at every leaf, ONE balanced parallel let per node and nothing else before it; the results
+# appended in order at the joins
+def Sort.pm.t(~A: Type, ~B: Type, ~P: Data, ~f: P -> A -> B, +p: P, t: PT<A>) -> List<&1, B>:
+  match t:
+    case PTE{}:
+      Nil{}
+    case PTL{x}:
+      f(p, x) <> Nil{}
+    case PTN{l, r}:
+      x y = Sort.pm.t(~A, ~B, ~P, ~f, p, l) Sort.pm.t(~A, ~B, ~P, ~f, p, r)
+      List.append(&1, B, x, y)
 
 # f(p, x) for every element, in order, the elements forked in a balanced tree
 def Sort.pm(~A: Type, ~B: Type, ~P: Data, ~f: P -> A -> B, +p: P, xs: List<&1, A>) -> List<&1, B>:
-  Sort.pm.k(~A, ~B, ~P, ~f, p, Sort.pm.len(A, xs, 0, Nil{}))
+  Sort.pm.t(~A, ~B, ~P, ~f, p, Sort.pm.tree(A, Sort.pm.len(A, xs, 0, Nil{})))
 
 def Sort.frame.a(r: C.Frame & E.ResT(Array<U32>)) -> E.ResT(C.Frame):
   (f, rp) = r
