@@ -390,9 +390,10 @@ def Exec.run_phys.h(+n: U32, x: P.Plan, env: P.Env) -> E.ResT(C.Frame):
 #
 # A plan whose ROOT is Select{es, Filter{pred, x}} with es a non-empty list of plain columns (the
 # Exec.plain case: Exec.select would run Frame.select_names on the filtered frame) runs x's code and
-# then ONE step, Exec.fs, in place of IFilter{pred} then ISelect{es}: the predicate is evaluated
-# exactly as Eval.filter does (Exec.fs.a .. Exec.fs.q mirror Eval.filter.a .. Eval.filter.q: the
-# same typing, the same Eval.full / Eval.pred / popcount, so the same errors in the same order), then
+# then ONE step, Exec.fs, in place of IFilter{pred} then ISelect{es}: the mask and kept count come
+# from Eval.filter.mask, the function Eval.filter itself calls (the F5 pred_count passes over
+# borrowed columns when the predicate is a conjunction of bool columns and `col op lit`, the
+# general predicate otherwise; the same errors in the same order: v0.2 T4.4), then
 # Frame.select_names takes the selected columns out of the UNFILTERED frame (its errors depend on the
 # names only, which the filter keeps), and only those columns are compacted (Exec.fc): AllValid
 # columns of the same length four or three at a time with ONE Kernel.compact4 / compact3 loop (one
@@ -647,47 +648,28 @@ def Exec.fs.cmp(r: E.ResT(C.Frame), m: Array<U32>, +kept: U32) -> E.ResT(C.Frame
     case Done{g}:
       Done{Exec.fc(g, m, kept)}
 
-# Eval.filter.a .. Eval.filter.q with the select and the selective compaction at the end
+# the select on the UNFILTERED frame (its errors depend on the names only, which the filter keeps),
+# then the selected columns compacted with filter's mask and kept count
 def Exec.fs.q(f: C.Frame, +es: List<&2, X.Expr>, r: Array<U32> & U32) -> E.ResT(C.Frame):
   (m, +kept) = r
   Exec.fs.cmp(C.Frame.select_names(f, V.Eval.names(es)), m, kept)
 
-def Exec.fs.p(f: C.Frame, +es: List<&2, X.Expr>, r: Array<U32> & U32) -> E.ResT(C.Frame):
-  (m, +n) = r
-  Exec.fs.q(f, es, K.Kernel.popcount(n, m))
+def Exec.fs.k(+es: List<&2, X.Expr>, x: C.Frame & (Array<U32> & U32)) -> E.ResT(C.Frame):
+  (f, r) = x
+  Exec.fs.q(f, es, r)
 
-def Exec.fs.go2(rc: E.ResT(C.Column), f: C.Frame, +es: List<&2, X.Expr>) -> E.ResT(C.Frame):
-  match rc:
-    case Fail{e}:
-      Fail{e}
-    case Done{c}:
-      Exec.fs.p(f, es, V.Eval.pred(c))
-
-def Exec.fs.go(+es: List<&2, X.Expr>, r: C.Frame & E.ResT(C.Column)) -> E.ResT(C.Frame):
-  (f, rc) = r
-  Exec.fs.go2(rc, f, es)
-
-def Exec.fs.t(t: D.DType, f: C.Frame, +pred: X.Expr, +es: List<&2, X.Expr>) -> E.ResT(C.Frame):
-  match t:
-    case D.TBool{}:
-      Exec.fs.go(es, V.Eval.full(f, pred))
-    case other:
-      Fail{E.TypeMismatch{"filter", "bool", D.DType.show(other)}}
-
-def Exec.fs.b(+pred: X.Expr, +es: List<&2, X.Expr>, f: C.Frame, r: E.Res(D.DType)) -> E.ResT(C.Frame):
+def Exec.fs.r(+es: List<&2, X.Expr>, r: E.ResT(C.Frame & (Array<U32> & U32))) -> E.ResT(C.Frame):
   match r:
     case Fail{e}:
       Fail{e}
-    case Done{t}:
-      Exec.fs.t(t, f, pred, es)
+    case Done{x}:
+      Exec.fs.k(es, x)
 
-def Exec.fs.a(+pred: X.Expr, +es: List<&2, X.Expr>, r: C.Frame & List<&2, S.Field>) -> E.ResT(C.Frame):
-  (f, s) = r
-  Exec.fs.b(pred, es, f, A.Ana.type(pred, s))
-
-# Eval.filter(f, pred) then Exec.select (plain columns: Frame.select_names), as one step
+# Eval.filter(f, pred) then Exec.select (plain columns: Frame.select_names), as one step: the mask
+# from the SAME function Eval.filter uses (Eval.filter.mask: the F5 pred_count passes over borrowed
+# columns, or the general predicate; its errors first), then only the selected columns compacted
 def Exec.fs(f: C.Frame, +pred: X.Expr, +es: List<&2, X.Expr>) -> E.ResT(C.Frame):
-  Exec.fs.a(pred, es, S.Frame.schema(f))
+  Exec.fs.r(es, V.Eval.filter.mask(f, pred))
 
 def Exec.fsel.s(+pred: X.Expr, +es: List<&2, X.Expr>, stack: List<&1, C.Frame>) -> E.ResT(List<&1, C.Frame>):
   match stack:

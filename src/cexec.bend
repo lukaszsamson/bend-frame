@@ -982,10 +982,38 @@ def CX.p1.a(r: C.Frame & E.ResT(C.Column)) -> W1:
   (f, rc) = r
   CX.p1.c(CX.unwf(f), rc)
 
-# a leaf: Eval.filter's predicate chain (Eval.full, Eval.pred, popcount) on the leaf frame, which comes
-# back whole (the predicate's column references copy, as in Eval.filter)
+# the F5 passes' state (Eval.f5.go: one pred_count loop per conjunct over the borrowed columns): the leaf
+# frame is in it whether a pass failed or not
+def CX.p1.f5(st: V.F5St) -> W1:
+  match st:
+    case V.F5St{f, m, +k, err}:
+      match err:
+        case None{}:
+          W1{CX.lframe(CX.unwf(f)), ML{m, k}, True{}}
+        case Some{e}:
+          W1{CX.lframe(CX.unwf(f)), MX{}, False{}}
+
+def CX.p1.f5h(ps: List<&2, V.P5>, r: C.Frame & U32) -> W1:
+  (f, +h) = r
+  CX.p1.f5(V.Eval.f5.go(ps, h, V.F5St{f, V.Eval.fz.ones(), 0, None{}}))
+
+def CX.p1.h(+pred: X.Expr, f: C.Frame, plan: Maybe<&2, List<&2, V.P5>>) -> W1:
+  match plan:
+    case Some{ps}:
+      CX.p1.f5h(ps, C.Frame.height(f))
+    case None{}:
+      CX.p1.a(V.Eval.full(f, pred))
+
+def CX.p1.s(+pred: X.Expr, r: C.Frame & List<&2, S.Field>) -> W1:
+  (f, +s) = r
+  CX.p1.h(pred, f, V.Eval.f5.plan(pred, s))
+
+# a leaf: Eval.filter.mask's chain on the leaf frame (the F5 pred_count passes when the predicate is a
+# conjunction of bool columns and column-op-literal comparisons, Eval.f5.plan; else Eval.full, Eval.pred,
+# popcount), by the steps that hand the leaf frame back whole, error or not (Eval.filter.mask itself
+# answers a bare Fail; the borrow is what the error rerun needs)
 def CX.p1.leaf(+pred: X.Expr, rd: List<&1, DN>, f: C.Frame) -> W1:
-  CX.p1.a(V.Eval.full(CX.wrapf(f, rd), pred))
+  CX.p1.s(pred, S.Frame.schema(CX.wrapf(f, rd)))
 
 def CX.p1.j(x: W1, y: W1) -> W1:
   match x:

@@ -771,16 +771,20 @@ fallback, both string storages in the P1 chain, the in-place kernels and concate
 included; the v0.1 review's scan laws `hmerge_keeps_scans` / `release_keeps_scans` added
 after it; v0.2 W1f added `range_cell`, the range copy behind `Column.slice`; v0.2 T3.1 added section 16,
 the moves of the liveness pass; v0.2 T3.4 added section 17, the Sort + Head bounded gather and the
-runner's physical step `Exec.run_phys`; v0.2 T4.1 added section 18, the fused kernels): `LAWS.bend` states 176
-laws over `src/` in 18 sections; `PROOF.bend` imports
+runner's physical step `Exec.run_phys`; v0.2 T4.1 added section 18, the fused kernels; T4.2 section 19,
+the fusion peepholes; T4.3 section 20, the Filter + Select step; T5.1 section 21, the chunk trees; T5.2
+section 22, the chunked kernel wrappers; recounted at T4.4, after the T4.2 / T4.3 / T5.2 merges):
+`LAWS.bend` states 231 laws over `src/` in 22 sections (5 and 5b counted as one; per section 5, 20, 9,
+9, 5, 2, 5, 11, 6, 5, 16, 4, 22, 22, 9, 5, 4, 17, 25, 5, 11, 14); `PROOF.bend` imports
 `PROOF_lib`, `PROOF_schema`, `PROOF_expr`, `PROOF_plan`, `PROOF_kernels`, `PROOF_exec`,
 `PROOF_bits`, `PROOF_contents`, `PROOF_eval`, `PROOF_evalops`, `PROOF_evalrun`,
-`PROOF_strs`, `PROOF_append`, `PROOF_inplace`, `PROOF_moves`, `PROOF_sorthead` and `PROOF_fused` (one file per area; `L.*` is the shared
+`PROOF_strs`, `PROOF_append`, `PROOF_inplace`, `PROOF_moves`, `PROOF_sorthead`, `PROOF_fused`,
+`PROOF_peep`, `PROOF_chunks`, `PROOF_filtsel` and `PROOF_ckernels` (one file per area; `L.*` is the shared
 toolkit, `B.*` the word-level toolkit) and proves all of them: `bend PROOF.bend` prints ALL
-PROOFS CHECK in 1.7-2.3 s wall (3.3-3.6 s CPU, `make proofs`), `bend PROOF.bend --verdict`
-prints it again under the independent BendTT kernel in 5.1-5.5 s wall (`make verdict`);
-measured 2026-10-09 on the M2 Pro at a one-minute load average of 22-38 (a quiet machine is
-faster). No `@unsafe`, no foreign code, no open law, no axiom. Eleven negative fixtures in
+PROOFS CHECK (`make proofs`; 1.7-2.3 s wall at 176 laws on 2026-10-09, 7.5 s wall / 9.5 s CPU at 231
+laws on 2026-10-11), `bend PROOF.bend --verdict` prints it again under the independent BendTT kernel
+(`make verdict`; 5.1-5.5 s then, 36 s wall / 33 s CPU now); measured on the M2 Pro at one-minute load
+averages of 22-38 and ~10-20 (a quiet machine is faster). No `@unsafe`, no foreign code, no open law, no axiom. Eleven negative fixtures in
 `tests/proof_negative/` (plan M_01 T5) show the claims are load-bearing: a slots law
 falsified to 2^(d+1); a mutated copy of the production head rule `Opt.hmin` (the outer limit
 wins) that the real R1 proof term is refused for; a copy of `Kernel.gather.go` reading the
@@ -832,6 +836,20 @@ one / a buffer read one row ahead / the mask read one row ahead)), runs `bend PR
 "SOME PROOFS FAIL"; the unmutated copy must say ALL PROOFS CHECK first. All 45 are caught (nothing
 was weakened to make that true). It is a spot check of 27 functions, not a mutation test of
 every proof.
+v0.2 T4.2 added section 19 (`PROOF_peep`, imported by `PROOF.bend`): 25 laws over the fused
+evaluator (`Eval.fz.z1` / `z2` / `z0`, `Eval.f5.c`, `Eval.f5.plan`, `Eval.fz.step`) and 17 more
+mutation controls (each peephole's selector: literal side, Kleene `&`, the distinct-name test, the lone
+fill, the F5 plan's Kleene `|` / merge / dtype tests; each fused executor: the map_pb side, the zipv
+mask, the add template, the cast product's firing and rounding, F4's default test and validity, the F5
+conjunct), all caught. v0.2 T4.3 added 6 controls over the Filter + Select step (a fused group drops a
+column, a masked column joins a group, an output column loses its name, the kept count, the step firing
+on aliases / on every select), T5.1 12 over the chunk trees and T5.2 12 over the chunked wrappers. T4.4
+(the T4.2 + T4.3 integration) moved one T4.3 control: the predicate's mask and count now come from
+`Eval.filter.mask`, which `Eval.filter` and `Exec.fs` share, so a wrong count there changes both sides
+of `filter_select_step` and is not a control any more (no law pins Eval.filter's count against an
+independent model; before T4.4 it was Exec.fs's private copy that was mutated); the control mutates
+the step's own use of the count (`Exec.fs.q`, kept + 1) instead. `make mutation-check` runs 92 mutations
+in all, all caught, the unmutated copy accepted.
 
 Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 
@@ -855,7 +873,8 @@ Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 | 16 Moves (`PROOF_moves`; v0.2 T3.1, DESIGN 16.2 rule 1, plan M_02 section 4 "projection/moves") | models `lastm` / `fcol` (the column a frame holds under a name), `hollowm` / `holed` / `holedf` (the frame with a hollow stand-in in the column's place), `nomove`, `moves_ok`; `lend_observes` (over a frame with unique names whose column named n is c: `Frame.lend(f, n) == (holedf(f, n), Done{c})`, `Frame.get_cloned(f, n) == (f, Done{c})` and `Frame.replace(holedf(f, n), n, c) == Done{f}`: the moved column IS the column the copy reproduces, and a borrow puts the frame back as it was); `mark_reads` (`Eval.mark` changes no read: the same names in the same order), `mark_moves_ok` (every `IMove{n}` it makes in move-free code is allowed, n in `dead` or `all`, and is the last read of n: no later instruction of the code and no name in `later` reads it), `compile_nomove` (`Eval.compile` emits no move), `compile_reads` (the code of e reads exactly `X.Expr.refs(e)`, in order: the list the operators pass as `later` through `Eval.refs`) |
 | 17 Sort + Head (`PROOF_sorthead`; v0.2 T3.4) | the observation `robs(r, k)` (the error, or the height and per column in order its name, dtype, length and `ccell` at row k when k is a row, `SNull` past the length; `cobs` / `lobs`), `hres` (Sort then Head); `sort_head_frame` (`Sort.frame_head(f, ks, n)`, the exact full argsort then only min(n, height) rows gathered, shows at every row k what `Frame.head(Sort.frame(f, ks), n)` shows: every frame, key list, n including 0 and n past the height, errors included), `sort_head_run` (the production equivalence: `Exec.run_phys(Head{n, Sort{ks, x}}, env)`, what collect runs, shows what `Exec.run_pure` of the same plan shows (x's code, then `ISort`, then `IHead`), every plan x and env), `run_phys_obs` (the same for every plan), `collect_obs` (`run_phys(Optimize.release(p))` shows what `run_pure(p)` shows: G6 with the physical step). Inside the proof (not laws): `Column.gather` at every column kind and both Str storages as a witness (`cg_w`: the permutation back, the dtype, the length, row k the source row perm[k], from the section 11 / 14 gather theorems at U32, F32 and String) |
 | 18 Fused kernels (`PROOF_fused`; v0.2 T4.1, DESIGN 16.3 F1-F6, plan M_02 section 4 "fused kernels") | projections `zb_o`, `zv_o`, `zv_vo`, `pc_m`, `pc_k`, `c3_o1..3`, `c4_o1..4`; F1: `map_p_cell` (the existing consuming `Kernel.map_p`: `f(p, a[k])`), `map_pb_unfused` (`Kernel.map_pb` IS `(Kernel.map_p(..), a)`), `map_pb_bcast` / `map_pb_bcast_f32` (cell by cell equal to v0.1's zip against the broadcast literal column, `x > lit` and `lit - x`); F3: `zipb_unfused` (`Kernel.zipb` IS `ZB{Kernel.zip(..), a, b}`), `zipb_cast_cell` (`f32(a) * b` fused equals the cast map then the Mul zip, cell by cell); F2: `zipv_cell` (value `(va & vb) != 0 ? f(a, b) : z`), `zipv_valid` (the validity output IS `Kernel.mask_and(va, vb)` and the four operands come back), `zipv_unfused` / `zipv_unfused_f32` (the value equals `Kernel.mask_data(Kernel.zip(..), Kernel.mask_and(va, vb), z)`, v0.1's vand + zip + fix, cell by cell, u32 add and f32 mul); F5: `pred_count_cell` (the mask word: the predicate where both operands are valid, else 0), `pred_count_count` (the kept count IS `Kernel.popcount` of the mask), `pred_count_keeps` (operands back); F6: `compact3_unfused` / `compact4_unfused` (the record IS one `Kernel.compact_keep` per buffer with the same mask, the mask and inputs back, the cursor `Kernel.popcount(n, m)`), `compact3_contents` / `compact4_contents` (`CSpec` per column under `compact_contents`' `CRoom`) |
-| 20 Filter + Select (`PROOF_filtsel`; v0.2 T4.3, DESIGN 16.3 F8, plan M_02 D3) | `fmres` / `fsres` (a filter's result, then Frame.filter_mask / Exec.select); `fc_filter_mask` (`Exec.fc`, the selective compaction: AllValid columns of one length four or three at a time in one `Kernel.compact4` / `compact3` loop at the template instance their buffers pick, anything else by `Column.compact`, IS `Frame.filter_mask`, every frame, mask and count: a term equality); `select_filter_mask` (`Frame.select_names(Frame.filter_mask(f, m, kept), ns)` IS `fmres(Frame.select_names(f, ns), m, kept)`: the select commutes with the row filter, errors included); `filter_select_step` (`Exec.fs(f, pred, es)` IS `fsres(Eval.filter(f, pred), es)` for a list `Exec.plain` accepts); `filter_select_run_eq` / `filter_select_run` (the production equivalence: `Exec.run_phys(Select{es, Filter{pred, x}}, env)` IS `Exec.run_pure` of the same plan, every column list, predicate, plan x and env; the robs form); `run_phys_obs` / `collect_obs` (section 17) re-proven over the new root. Inside the proof (not laws): `ckw` / `colw` (Kernel.compact_keep and Column.compact answer the mask itself, every column kind, validity, storage), `cm` (the compaction as a function of the column list), `pcl` (a column rebuilt from its compacted buffer IS Column.compact's), `fzw` (Exec.fz / Exec.unfz round trip), `tkc` (Cols.take over cm), the compact3 / compact4 dispatch over `PF.c3_sim` / `c4_sim` at all 27 + 81 instances |
+| 19 Fusion peepholes (`PROOF_peep`; v0.2 T4.2, DESIGN 16.3 F1-F5) | projections `z1_col`, `z2_col`, `z0_col`, `res_col`, `f5r_m`, `f5r_k`; F1: `peep_f1` (u32 `x > lit`: the fused cell is `Eval.bin`'s over `Eval.const_col`, the literal's broadcast), `peep_f1_left` (f32 `lit - x`, the literal on the left), `peep_f1_back` (fires, the operand back, the column `Kernel.map_p`'s); F2: `peep_f2_dense` (dense u32 add: the fused column IS `Eval.bin`'s, operands back), `peep_f2_mask_back` (masked: `Kernel.mask_and` validity, zipv's value, operands back), `peep_f2_mask` (masked: the cell of `Eval.bin`'s vand + zip + fix); F3: `peep_f3_back` (`f32(a) * b` one zipb, operands back), `peep_f3` (the cell of `Eval.bin` over `Eval.cast`'s column), `peep_f3_strict` (a fallible cast does not fire); F4: `peep_f4` (fill with 0 = the payload with AllValid), `peep_f4_cell` (the cell of `Eval.fill` under P0 at the row), `peep_f4_not_noop` (a null row becomes the value 0), `peep_f4_other` (another literal does not fire); F5: `peep_f5_back` (q1's pass is one pred_count, operands back), `peep_f5_cell` (the mask cell of v0.1's `Eval.pred(Eval.bin(And, ok, Eval.bin(Gt, qty, broadcast)))`), `peep_f5_count` (the count is popcount of the mask), `peep_f5_plan` / `peep_f5_or` / `peep_f5_dtype` (the plan of q1's predicate is one merged pass; Kleene `|` and a literal of another dtype have none); the selector (`Eval.fz.step`): `fuse_lit_right`, `fuse_lit_left`, `fuse_two` (distinct names), `fuse_same` (one column on both sides stays a copy), `fuse_fill`, `fuse_kleene`. Not stated: the stack-machine equivalence `Eval.runz(Eval.fuse(code))` vs `Eval.run(code)` (lend / replace and the stack plumbing; the fallback IS `code`; tests/eval_fused's differential), the other template instances, and the equality of the two kept counts as filter computes them |
+| 20 Filter + Select (`PROOF_filtsel`; v0.2 T4.3, DESIGN 16.3 F8, plan M_02 D3) | `fmres` / `fsres` (a filter's result, then Frame.filter_mask / Exec.select); `fc_filter_mask` (`Exec.fc`, the selective compaction: AllValid columns of one length four or three at a time in one `Kernel.compact4` / `compact3` loop at the template instance their buffers pick, anything else by `Column.compact`, IS `Frame.filter_mask`, every frame, mask and count: a term equality); `select_filter_mask` (`Frame.select_names(Frame.filter_mask(f, m, kept), ns)` IS `fmres(Frame.select_names(f, ns), m, kept)`: the select commutes with the row filter, errors included); `filter_select_step` (`Exec.fs(f, pred, es)` IS `fsres(Eval.filter(f, pred), es)` for a list `Exec.plain` accepts; since T4.4 both call `Eval.filter.mask`, the F5 passes or the general predicate, and the proof splits once on its result, for every predicate); `filter_select_run_eq` / `filter_select_run` (the production equivalence: `Exec.run_phys(Select{es, Filter{pred, x}}, env)` IS `Exec.run_pure` of the same plan, every column list, predicate, plan x and env; the robs form); `run_phys_obs` / `collect_obs` (section 17) re-proven over the new root. Inside the proof (not laws): `ckw` / `colw` (Kernel.compact_keep and Column.compact answer the mask itself, every column kind, validity, storage), `cm` (the compaction as a function of the column list), `pcl` (a column rebuilt from its compacted buffer IS Column.compact's), `fzw` (Exec.fz / Exec.unfz round trip), `tkc` (Cols.take over cm), the compact3 / compact4 dispatch over `PF.c3_sim` / `c4_sim` at all 27 + 81 instances |
 
 ### 8.1 Assurance matrix (plan M_01 section 6: theorem -> production function -> assumptions -> checker)
 
@@ -2931,6 +2950,40 @@ the pre-W2.3 build's; tests/strwire.bend passes on both builds).
     frame-level WFCFrame law over the column list. `CF` / `CS` and the column / frame layer are tested,
     not proven (LAWS section 21's closing comment lists the open items).
 
+### v0.2 T4.2 (fusion peepholes F1-F5 in the evaluator; section 16.3)
+
+Implementation, same values, validity, names, row order, F32 bits and errors (tests/eval_fused: 473
+expressions through with_columns and select and 32 filter predicates against the unfused evaluator,
+F32 by bits; competing strict-cast errors in different rows, operands and expressions; make
+diff-smoke and bench-check unchanged).
+
+1. **Where the peepholes live**: not in `Eval.compile` (the P2 proofs' term) but in a post-pass
+   `Eval.fuse` over the marked code, run only by `Eval.slot.mh` (select, with_columns, group_by's
+   `_mv` entries, filter's non-F5 predicates) through a second runner `Eval.runz`; `Eval.full` /
+   `Eval.expr` (the P2 entries, group_by's computed keys, sort-by-expression callers) stay unfused.
+   Each fused instruction carries the code it replaces and runs it when its runtime shape has no
+   kernel (the fallback is the v0.1 code, not a re-implementation).
+2. **Scope as implemented** (16.3's list, narrowed): F1 for u32 / i32 / f32 arithmetic and
+   comparisons with a non-null literal of the column's dtype on either side (not bool / str, not
+   Kleene and/or, floor_div, mod); F2 for two full columns (or stack slots) of one numeric dtype; F3
+   only for f32 add / sub / mul / div with ONE side cast from u32 / bool / i32 (comparisons with a
+   cast, both sides cast, and bool -> u32 / i32 run unfused); F4 for u32 / i32 / bool / f32 with the
+   default literal (f32: bits 0, so a `-0.0` fill is NOT the default and runs Kernel.choose); a fill
+   with another literal runs v0.1's `Eval.fill` (no `fill_pb` kernel); F5 for conjunctions of bool
+   columns and `col op lit` with the literal on the right (a left literal goes through the fused
+   evaluator instead). F9 is not done: with flat columns each expression is one walk already; it is
+   a W5 (chunk tree) concern.
+3. **F4 on a borrowed column copies the data buffer** (the frame keeps the column, so the result
+   needs its own payload): one `Array.clone` instead of v0.1's data + mask clone and choose pass. On
+   a moved or computed column it is a validity change only.
+4. **Output validity of a one-sided mask**: the fused zip answers `Mask{va & 1}` where Eval.vand
+   reused `va` itself; equal cell by cell on 0/1 masks (the P0 invariant), as T4.1 noted.
+5. **Proof scope** (section 8, group 19): the column-level operations against the unfused
+   operations at one instance per peephole, and the selector's scan step per window; the
+   stack-machine level equivalence is tested, not proven.
+6. **Files outside the task list**: `PROOF_moves.bend` gained an `IFz` case in `mark_reads` and
+   `mark_moves_ok` (the two exhaustive matches on `V.Instr`; required by the new constructor).
+
 ### v0.2 T4.3 (W4 F8: the Filter + Select physical step)
 
 Implementation only: `Exec.run_phys` on `Select{plain cols, Filter{pred, x}}` gives the same result
@@ -2951,7 +3004,32 @@ F32 bits and errors with their precedence). Deviations from the plan's F8 row (1
 4. **Code size**: the template dispatch instantiates 27 compact3 and 81 compact4 loops (driver binary
    2.16 -> 2.46 MB).
 5. **Coupled to Eval.filter's internals**: `Exec.fs.a` .. `q` replicate `Eval.filter.a` .. `q` (eval.bend
-   was not to be edited during T4.2); the T4.2 merge must re-align them (IMPLEMENTING T4.3).
+   was not to be edited during T4.2); the T4.2 merge must re-align them (IMPLEMENTING T4.3). Done in
+   T4.4: the mirror is deleted, Exec.fs calls `Eval.filter.mask`.
+
+### v0.2 T4.4 (T4.2 + T4.3 integrated: the F5 filter inside the Filter + Select step)
+
+Implementation, same values, validity, names, row order, F32 bits and errors (no law statement changed;
+tests/exec_filter_select's 38 cases against run_pure, tests/eval_fused, make diff-smoke). Deviations and
+decisions:
+
+1. **One mask function** in src/eval.bend, `Eval.filter.mask(f, pred)`: the frame back, the mask and the
+   kept count, or the predicate's error; the F5 passes (`Eval.f5.mask`, the old `Eval.f5.run` without the
+   compaction) or the general predicate. `Eval.filter` = it then `Frame.filter_mask`; `Exec.fs` = it then
+   the select on the unfiltered frame then `Exec.fc` over the selected columns. T4.3's `Exec.fs.a .. p`
+   mirror is deleted. `Eval.filter.{a, b, t, x, go, go2, p}` are now `Eval.filter.mask.{...}` (answering
+   the mask triple); `Eval.f5.fin` answers the triple; `Eval.f5.run` / `run.h` are gone.
+2. **filter_select_step re-proven, not restated**: one case split on the mask result (`pr` / `pk` in
+   PROOF_filtsel), then T4.3's `pq`; it no longer follows the predicate's internals.
+3. **One mutation control retargeted** (section 8): the kept-count control mutates `Exec.fs.q`'s count,
+   since a wrong count inside the shared `Eval.filter.mask` changes both sides of the law. Eval.filter's
+   own count is not pinned by any law (it was not in v0.1 either); stated, not hidden.
+4. **Merge**: DESIGN.md was the only conflict (both sides kept). Master moved during the task
+   (T5.2, T5.4, bench/data untracked) and was merged too; the section 8 counts were recounted after
+   both merges: 231 laws in 22 sections, 92 mutation controls.
+5. **q1** (PROVISIONAL, 1M rows, 1 thread; IMPLEMENTING T4.4): 11 ms (baseline 3612482) -> 7 ms (T4.3,
+   5fa1908) -> 3 ms (batched: 10.2 -> 6.6 -> 3.4 ms per query); compute-phase copy bytes 8,388,608 -> 0.
+   The compute phase is two loops: one pred_count pass and one compact3 pass.
 ### v0.2 T5.4 (coarse forks: describe kept; group_by aggregates and column gathers removed; section 16.4 D4)
 
 1. **`Fmt.describe` forks its columns** in a balanced binary tree over the column list

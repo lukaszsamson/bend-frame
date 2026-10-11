@@ -10,7 +10,9 @@
 #  - masked columns in a group (one by one), columns of different lengths in a malformed frame
 #    (the group needs one length), the empty frame, 0 / 1 / 50 / 100 % selectivity on 100 rows,
 #    Raw and Dictionary strings, F32 NaN / -0.0 / inf;
-#  - Filter + Select under Head / Sort / WithColumns and a Select over a Head (the general path).
+#  - Filter + Select under Head / Sort / WithColumns and a Select over a Head (the general path);
+#  - T4.4 (the step's mask is Eval.filter.mask's): i32 / f32 / three-conjunct / masked-column F5
+#    predicates, and a Kleene-or predicate F5 does not plan (the general path inside the step).
 import Base
 import ./../src/dtype.bend as D
 import ./../src/err.bend as E
@@ -287,6 +289,14 @@ def main() -> IO(Unit):
     IO.print(run_on(P.Sort{[SO.SortKey{"price", True{}, False{}}], sel(cols(["id", "price"]), q1p(), srcw(1))}, 1))
     IO.print(run_on(P.WithColumns{[X.Alias{X.Bin{X.Add{}, c("id"), X.Lit{u(10)}}, "id10"}], sel(cols(["id", "region"]), q1p(), srcw(0))}, 0))
     IO.print(run_on(P.Select{cols(["id", "region"]), P.Head{3, P.Filter{q1p(), srcw(0)}}}, 0))
+    # T4.4: Exec.fs takes its mask from Eval.filter.mask, so every F5 shape runs inside the step:
+    # an i32 comparison, an f32 comparison (NaN sorts above every number, as in Polars: kept), three conjuncts (one pass merged, two more), a
+    # comparison over a masked column; and a predicate F5 does not plan (Kleene or: the general path)
+    IO.print(fs(0, ["id", "n"], X.Bin{X.Lt{}, c("n"), X.Lit{ipos(0)}}))
+    IO.print(fs(1, ["id", "price"], X.Bin{X.Gt{}, c("price"), X.Lit{f(1.0)}}))
+    IO.print(fs(0, ["id", "region", "price"], X.Bin{X.And{}, q1p(), X.Bin{X.Gt{}, c("price"), X.Lit{f(0.0)}}}))
+    IO.print(fs(0, ["id", "disc"], X.Bin{X.Gt{}, c("disc"), X.Lit{f(0.3)}}))
+    IO.print(fs(1, ["id", "qty"], X.Bin{X.Or{}, c("ok"), gt(c("qty"), 90)}))
 #|h=3 id:u32=[1, 4, 7] | region:str=[south, north, west] | price:f32=[nan, 2, 7] [same]
 #|h=3 id:u32=[1, 4, 7] | region:str=[south, north, west] | price:f32=[nan, 2, 7] [same]
 #|h=3 price:f32=[nan, 2, 7] [same]
@@ -320,3 +330,8 @@ def main() -> IO(Unit):
 #|h=3 id:u32=[1, 7, 4] | price:f32=[nan, 7, 2] [same]
 #|h=3 id:u32=[1, 4, 7] | region:str=[south, north, west] | id10:u32=[11, 14, 17] [same]
 #|h=3 id:u32=[1, 4, 7] | region:str=[south, north, west] [same]
+#|h=3 id:u32=[1, 3, 5] | n:i32=[-7, -2147483648, -1] [same]
+#|h=5 id:u32=[0, 1, 3, 4, 7] | price:f32=[1.5, nan, inf, 2, 7] [same]
+#|h=3 id:u32=[1, 4, 7] | region:str=[south, north, west] | price:f32=[nan, 2, 7] [same]
+#|h=3 id:u32=[0, 4, 7] | disc:f32=[0.5, 1, 0.75] [same]
+#|h=6 id:u32=[0, 1, 4, 5, 6, 7] | qty:u32=[10, 60, 51, 50, 99, 100] [same]

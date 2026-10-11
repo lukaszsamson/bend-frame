@@ -21,6 +21,7 @@
 #   PROOF_moves.bend    section 16  moves: Frame.lend observes as Frame.get_cloned, Frame.replace undoes it
 #   PROOF_sorthead.bend section 17  Sort + Head: Sort.frame_head and Exec.run_phys against Sort.frame / Frame.head / Exec.run_pure
 #   PROOF_fused.bend    section 18  fused kernels (W4): map_pb / zipb / zipv / pred_count / compact3 / compact4
+#   PROOF_peep.bend     section 19  fusion peepholes (W4): Eval.fz.z1 / z2 / z0 / Eval.f5.c against the unfused operations, Eval.fz.step
 #   PROOF_chunks.bend   section 21  chunk trees (W5): builder, flatten bridge, round trip, rechunk, head, concat, croom_of_cap, chunked map
 #   PROOF_filtsel.bend  section 20  Filter + Select (W4 F8): Exec.fc / Exec.fs / Exec.run_phys against filter_mask / select / Exec.run_pure
 #   PROOF_ckernels.bend section 22  chunked kernel wrappers (W5): leafwise / unfused laws, sum / min / max combines, per-leaf compaction
@@ -43,6 +44,7 @@ import ./PROOF_inplace.bend as PI
 import ./PROOF_moves.bend as PM
 import ./PROOF_sorthead.bend as PSH
 import ./PROOF_fused.bend as PF
+import ./PROOF_peep.bend as PPE
 import ./PROOF_chunks.bend as PCH
 import ./PROOF_filtsel.bend as PFS
 import ./PROOF_ckernels.bend as PCK

@@ -257,7 +257,7 @@ themselves are real tests (`make test` runs them and compares every dump with it
 
 Method: a static call graph (see the header of `scripts/coverage_matrix.py`). A def *mentions* another def
 when its body names it (qualified through the file's import aliases, or bare inside its own module).
-Entry points are the 460 defs that a test (or a `tests/**/lib` helper a test imports) calls directly,
+Entry points are the 470 defs that a test (or a `tests/**/lib` helper a test imports) calls directly,
 `frame.bend` defs and `src/` defs alike. A def is *reached* when a path of mentions leads to it. Two
 reach columns: **via facade** follows only the entries that are `frame.bend` defs (what the public API
 alone can reach); **reached** adds the `src/` defs the tests call directly (the proof-style and unit tests).
@@ -280,14 +280,14 @@ reach these", not as line coverage. Reported, not gated.
 | `src/dtype.bend` | 40 | 25 | 24 | 36 | 4 |
 | `src/dump.bend` | 39 | 3 | 39 | 39 | 0 |
 | `src/err.bend` | 3 | 3 | 3 | 3 | 0 |
-| `src/eval.bend` | 315 | 14 | 308 | 313 | 2 |
-| `src/exec.bend` | 103 | 10 | 103 | 103 | 0 |
-| `src/expr.bend` | 45 | 8 | 45 | 45 | 0 |
+| `src/eval.bend` | 477 | 23 | 470 | 475 | 2 |
+| `src/exec.bend` | 99 | 10 | 99 | 99 | 0 |
+| `src/expr.bend` | 45 | 9 | 45 | 45 | 0 |
 | `src/fmt.bend` | 119 | 3 | 119 | 119 | 0 |
 | `src/groupby.bend` | 174 | 1 | 174 | 174 | 0 |
 | `src/hcode.bend` | 51 | 8 | 32 | 51 | 0 |
 | `src/join.bend` | 132 | 5 | 128 | 132 | 0 |
-| `src/kernels.bend` | 83 | 45 | 67 | 83 | 0 |
+| `src/kernels.bend` | 83 | 45 | 75 | 83 | 0 |
 | `src/plan.bend` | 123 | 11 | 122 | 122 | 1 |
 | `src/radix.bend` | 16 | 0 | 16 | 16 | 0 |
 | `src/ranks.bend` | 78 | 2 | 78 | 78 | 0 |
@@ -295,9 +295,9 @@ reach these", not as line coverage. Reported, not gated.
 | `src/sort.bend` | 83 | 3 | 81 | 81 | 2 |
 | `src/strs.bend` | 92 | 10 | 90 | 90 | 2 |
 | `src/table.bend` | 72 | 1 | 72 | 72 | 0 |
-| **total** | **3350** | **460** | **3032** | **3247** | **103** |
+| **total** | **3508** | **470** | **3198** | **3405** | **103** |
 
-96.9 % of the 3350 defs are reachable from the tests (90.5 % through the facade alone).
+97.1 % of the 3508 defs are reachable from the tests (91.2 % through the facade alone).
 
 Unreached defs:
 
