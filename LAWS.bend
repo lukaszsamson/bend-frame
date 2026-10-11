@@ -2843,7 +2843,7 @@ law collect_obs:
   {robs(Q.Exec.run_phys(P.Optimize.release(p), env), k) == robs(Q.Exec.run_pure(p, env), k) : RObs}
 
 # =====================================================================================
-# 17. Fused kernels (v0.2 T4.1, DESIGN.md 16.3 F1-F6): each borrowing loop of src/kernels.bend
+# 18. Fused kernels (v0.2 T4.1, DESIGN.md 16.3 F1-F6): each borrowing loop of src/kernels.bend
 #     (W4 section) equals the unfused passes it replaces, slot by slot, and hands its inputs back
 # =====================================================================================
 #
