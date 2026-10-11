@@ -353,8 +353,8 @@ def pdiff(ps: List<&2, X.Expr>) -> List<&2, String>:
 
 # part 3: single-expression errors, fused (with_columns) and unfused (Eval.full)
 def errs() -> List<&2, X.Expr>:
-  [bin(X.Add{}, cast(col("s"), D.TU32{}), cast(col("u"), D.TI32{})),
-   bin(X.Add{}, cast(col("u"), D.TI32{}), cast(col("s"), D.TU32{})),
+  [bin(X.Add{}, cast(col("s"), D.TI32{}), cast(col("u"), D.TI32{})),
+   bin(X.Add{}, cast(col("u"), D.TI32{}), cast(col("s"), D.TI32{})),
    bin(X.Add{}, cast(col("g"), D.TU32{}), col("w")),
    bin(X.Add{}, col("w"), cast(col("g"), D.TU32{})),
    bin(X.Sub{}, lf(1.0), cast(col("s"), D.TF32{})),
@@ -382,6 +382,113 @@ def eshows(es: List<&2, X.Expr>) -> List<&2, String>:
 def nshow(+n: Nat) -> String:
   U32.show(U32.from_nat(n))
 
+# ---- part 4: the selector (Eval.fuse over marked code) and the column-level operations ----------
+
+def opd(o: V.Opd) -> String:
+  match o:
+    case V.OStk{}:
+      "stack"
+    case V.ORef{n, mv}:
+      Bool.pick(String, mv, "move ", "borrow ") ++ n
+
+def pre(p: V.Pre) -> String:
+  match p:
+    case V.PNone{}:
+      ""
+    case V.PCast{t}:
+      " as " ++ D.DType.show(t)
+    case V.PFill{v}:
+      " fill " ++ D.Scalar.show(v)
+
+def fzs(z: V.Fz) -> String:
+  match z:
+    case V.Z0{a, pa}:
+      "Z0 " ++ opd(a) ++ pre(pa)
+    case V.Z1{op, v, left, a, pa}:
+      "Z1 " ++ X.BinOp.name(op) ++ Bool.pick(String, left, " lit-left ", " lit-right ") ++ D.Scalar.show(v) ++ " " ++ opd(a) ++ pre(pa)
+    case V.Z2{op, a, pa, b, pb}:
+      "Z2 " ++ X.BinOp.name(op) ++ " " ++ opd(a) ++ pre(pa) ++ ", " ++ opd(b) ++ pre(pb)
+
+def ins(i: V.Instr) -> String:
+  match i:
+    case V.ICol{n}:
+      "col " ++ n
+    case V.IMove{n}:
+      "move " ++ n
+    case V.IConst{v, t}:
+      "lit " ++ D.Scalar.show(v)
+    case V.IBin{op}:
+      "bin " ++ X.BinOp.name(op)
+    case V.ICast{t}:
+      "cast " ++ D.DType.show(t)
+    case V.IFill{}:
+      "fill"
+    case V.IFz{z, orig}:
+      "[" ++ fzs(z) ++ "]"
+    case _:
+      "other"
+
+def codes(xs: List<&2, V.Instr>) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case i <> t:
+      ins(i) <> codes(t)
+
+def shape(e: X.Expr, +all: Bool, +dead: List<&2, String>) -> String:
+  String.join(codes(V.Eval.fuse(V.Eval.mark(V.Eval.compile(e, Nil{}), all, dead, Nil{}))), " ")
+
+def cl.k(r: E.ResT(C.Column)) -> C.Column:
+  match r:
+    case Fail{e}:
+      C.CU32{0, 0n, C.AllValid{}, [0 : U32*1n]}
+    case Done{c}:
+      c
+
+def cl(xs: List<&2, D.Scalar>, +t: D.DType) -> C.Column:
+  cl.k(C.Column.from_scalars(xs, t))
+
+def mres(r: Maybe<&1, C.Column>) -> String:
+  match r:
+    case Some{c}:
+      "fused " ++ cs(c)
+    case None{}:
+      "unfused"
+
+def z2s(r: V.Z2R) -> String:
+  match r:
+    case V.Z2R{m, a, b}:
+      mres(m) ++ " / a " ++ cs(a) ++ " / b " ++ cs(b)
+
+def z1s(r: V.Z1R) -> String:
+  match r:
+    case V.Z1R{m, a}:
+      mres(m) ++ " / a " ++ cs(a)
+
+def z0s(r: V.Z0R) -> String:
+  match r:
+    case V.Z0R{ok, c}:
+      Bool.pick(String, ok, "F4 ", "no F4 ") ++ cs(c)
+
+def part4() -> List<&2, String>:
+  [shape(bin(X.Mul{}, bin(X.Mul{}, cast(col("qty"), D.TF32{}), col("price")), bin(X.Sub{}, lf(1.0), fill(col("discount"), lf(0.0)))), False{}, Nil{}),
+   shape(bin(X.Add{}, col("a"), col("a")), True{}, Nil{}),
+   shape(bin(X.And{}, bin(X.Gt{}, col("u"), lu(2)), col("e")), False{}, Nil{}),
+   shape(bin(X.Sub{}, col("x"), X.Agg{X.Sum{}, col("x")}), False{}, Nil{}),
+   shape(fill(col("x"), lu(0)), False{}, Nil{}),
+   shape(bin(X.Add{}, lu(3), lu(4)), False{}, Nil{}),
+   shape(bin(X.Gt{}, cast(col("s"), D.TU32{}), lu(1)), False{}, Nil{}),
+   shape(bin(X.And{}, col("b"), col("e")), False{}, Nil{}),
+   shape(bin(X.Mul{}, col("a"), col("b")), False{}, ["a"]),
+   shape(fill(bin(X.Add{}, col("a"), lu(1)), lu(0)), False{}, Nil{}),
+   z2s(V.Eval.fz.z2(X.Add{}, V.PNone{}, V.PNone{}, cl([D.SU32{1}, D.SU32{2}], D.TU32{}), cl([D.SU32{3}, D.SNull{}], D.TU32{}))),
+   z2s(V.Eval.fz.z2(X.Eq{}, V.PNone{}, V.PNone{}, cl([D.SStr{"x"}], D.TStr{}), cl([D.SStr{"y"}], D.TStr{}))),
+   z1s(V.Eval.fz.z1(X.Gt{}, D.SF32{1.0}, False{}, V.PNone{}, cl([D.SU32{1}, D.SU32{2}], D.TU32{}))),
+   z0s(V.Eval.fz.z0(V.PFill{D.SU32{0}}, cl([D.SU32{1}, D.SNull{}], D.TU32{}))),
+   z0s(V.Eval.fz.z0(V.PFill{D.SU32{5}}, cl([D.SU32{1}, D.SNull{}], D.TU32{}))),
+   z2s(V.Eval.fz.z2(X.Mul{}, V.PCast{D.TF32{}}, V.PNone{}, cl([D.SU32{2}, D.SU32{3}], D.TU32{}), cl([D.SF32{0.5}, D.SNull{}], D.TF32{}))),
+   z2s(V.Eval.fz.z2(X.Add{}, V.PCast{D.TI32{}}, V.PNone{}, cl([D.SU32{2}, D.SU32{3}], D.TU32{}), cl([D.SI32{D.I32{1}}, D.SNull{}], D.TI32{})))]
+
 def main() -> IO(Unit):
   do IO<Unit>:
     IO.print("-- part 1: with_columns (the input columns come back unchanged), select, filter")
@@ -404,7 +511,7 @@ def main() -> IO(Unit):
     IO.print(String.join(pdiff(preds()), "\n"))
     IO.print("predicates: " ++ nshow(List.length(&2, X.Expr, preds())))
     IO.print("-- part 3: competing errors (rows, operands, expressions) next to fused fragments")
-    IO.print(on(f => fr(V.Eval.with_columns(f, [al(bin(X.Add{}, cast(col("s"), D.TU32{}), cast(col("b"), D.TI32{})), "x")]))))
+    IO.print(on(f => fr(V.Eval.with_columns(f, [al(bin(X.Add{}, cast(col("s"), D.TI32{}), cast(col("b"), D.TI32{})), "x")]))))
     IO.print(on(f => fr(V.Eval.with_columns(f, [al(bin(X.Add{}, cast(col("b"), D.TI32{}), cast(col("s"), D.TI32{})), "x")]))))
     IO.print(on(f => fr(V.Eval.with_columns(f, [al(bin(X.Add{}, col("a"), lu(1)), "d"), al(cast(col("c"), D.TU32{}), "e"), al(cast(col("b"), D.TI32{}), "f")]))))
     IO.print(on(f => fr(V.Eval.with_columns(f, [al(bin(X.Add{}, bin(X.Mul{}, col("a"), lu(2)), cast(col("c"), D.TU32{})), "x")]))))
@@ -413,3 +520,60 @@ def main() -> IO(Unit):
     IO.print(on(f => fr(V.Eval.with_columns(f, [al(bin(X.Sub{}, lf(1.0), cast(col("s"), D.TF32{})), "x")]))))
     IO.print(on(f => fr(V.Eval.with_columns(f, [al(cast(col("s"), D.TU32{}), "x"), al(bin(X.Add{}, col("a"), lf(1.0)), "y")]))))
     IO.print(String.join(eshows(errs()), "\n"))
+    IO.print("-- part 4: the selector over marked code; the column-level operations (fused or not)")
+    IO.print(String.join(part4(), "\n"))
+
+#|-- part 1: with_columns (the input columns come back unchanged), select, filter
+#|h=4 a:u32=[1, 2, null, 4] | b:u32=[10, 3000000000, 30, 40] | s:str=[x, y, x, 7] | c:f32=[0.5, null, 2.5, -2.5] | k:bool=[true, false, true, null] | d:u32=[2, 3, null, 5]
+#|h=4 a:u32=[1, 2, null, 4] | b:u32=[10, 3000000000, 30, 40] | s:str=[x, y, x, 7] | c:f32=[0.5, null, 2.5, -2.5] | k:bool=[true, false, true, null] | e:f32=[0.5, 1, -1.5, 3.5]
+#|h=4 a:u32=[1, 2, null, 4] | b:u32=[10, 3000000000, 30, 40] | s:str=[x, y, x, 7] | c:f32=[0.5, null, 2.5, -2.5] | k:bool=[true, false, true, null] | p:f32=[0.5, null, null, -10]
+#|h=4 a:u32=[1, 2, null, 4] | b:u32=[10, 3000000000, 30, 40] | s:str=[x, y, x, 7] | c:f32=[0.5, null, 2.5, -2.5] | k:bool=[true, false, true, null] | g:bool=[true, true, null, true]
+#|h=4 a:u32=[1, 2, null, 4] | b:u32=[10, 3000000000, 30, 40] | s:str=[x, y, x, 7] | c:f32=[0.5, null, 2.5, -2.5] | k:bool=[true, false, true, null] | h:bool=[false, true, true, true]
+#|h=4 a:u32=[1, 2, null, 4] | b:u32=[10, 3000000000, 30, 40] | s:str=[x, y, x, 7] | c:f32=[0.5, null, 2.5, -2.5] | k:bool=[true, false, true, null] | z:u32=[1, 2, 0, 4]
+#|h=4 a:u32=[1, 2, null, 4] | b:u32=[10, 3000000000, 30, 40] | s:str=[x, y, x, 7] | c:f32=[0.5, null, 2.5, -2.5] | k:bool=[true, false, true, null] | q:f32=[1, null, null, -12.5]
+#|h=4 r:f32=[0.25, null, null, -35]
+#|h=1 a:u32=[null] | b:u32=[30] | s:str=[x] | c:f32=[2.5] | k:bool=[true]
+#|h=1 a:u32=[4] | b:u32=[40] | s:str=[7] | c:f32=[-2.5] | k:bool=[null]
+#|h=2 a:u32=[1, null] | b:u32=[10, 30] | s:str=[x, x] | c:f32=[0.5, 2.5] | k:bool=[true, true]
+#|h=0 a:u32=[] | b:u32=[] | s:str=[] | c:f32=[] | k:bool=[]
+#|h=4 a:u32=[1, 2, null, 4] | b:u32=[10, 3000000000, 30, 40] | s:str=[x, y, x, 7] | c:f32=[0.5, null, 2.5, -2.5] | k:bool=[true, false, true, null]
+#|-- part 2: differential (fused vs unfused, F32 by bits)
+#|
+#|expressions: 473
+#|
+#|predicates: 32
+#|-- part 3: competing errors (rows, operands, expressions) next to fused fragments
+#|error: InvalidOperation: cast str to i32: row 0 holds "x"
+#|error: InvalidOperation: cast u32 to i32: row 1 holds 3000000000
+#|error: InvalidOperation: cast f32 to u32: row 3 holds -2.5
+#|error: InvalidOperation: cast f32 to u32: row 3 holds -2.5
+#|error: InvalidOperation: cast str to u32: row 0 holds "x"
+#|error: InvalidOperation: cast str to u32: row 0 holds "x"
+#|error: InvalidOperation: cast str to f32: row 0 holds "x"
+#|error: TypeMismatch in add: expected u32, got f32
+#|error: InvalidOperation: cast str to i32: row 1 holds "x"
+#|error: InvalidOperation: cast u32 to i32: row 5 holds 4294967295
+#|error: InvalidOperation: cast f32 to u32: row 4 holds nan
+#|error: InvalidOperation: cast f32 to u32: row 4 holds nan
+#|error: InvalidOperation: cast str to f32: row 1 holds "x"
+#|error: InvalidOperation: cast f32 to u32: row 2 holds nan
+#|error: InvalidOperation: cast f32 to u32: row 2 holds nan
+#|error: InvalidOperation: cast u32 to i32: row 5 holds 4294967295
+#|-- part 4: the selector over marked code; the column-level operations (fused or not)
+#|[Z2 mul borrow qty as f32, borrow price] [Z1 sub lit-left 1 borrow discount fill 0] [Z2 mul stack, stack]
+#|col a [Z2 add stack, move a]
+#|[Z1 gt lit-right 2 borrow u] col e bin and
+#|col x col x other [Z2 sub stack, stack]
+#|[Z0 borrow x fill 0]
+#|lit 3 [Z1 add lit-right 4 stack]
+#|[Z1 gt lit-right 1 borrow s as u32]
+#|col b col e bin and
+#|[Z2 mul move a, borrow b]
+#|[Z1 add lit-right 1 borrow a] [Z0 stack fill 0]
+#|fused u32=[4, null] / a u32=[1, 2] / b u32=[3, null]
+#|unfused / a str=[x] / b str=[y]
+#|unfused / a u32=[1, 2]
+#|F4 u32=[1, 0]
+#|no F4 u32=[1, null]
+#|fused f32=[1, null] / a u32=[2, 3] / b f32=[0.5, null]
+#|unfused / a u32=[2, 3] / b i32=[1, null]
