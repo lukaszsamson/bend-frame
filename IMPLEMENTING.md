@@ -1732,3 +1732,57 @@ cloned (`Kernel.gather` hands the index array back). Output identical to v0.1 (b
   same frames. Mutants of the packed code (8): 6 killed; 2 equivalent (the hash test on a slot
   dropped: equality decides; a miss answering `ix - 1`, which is 2^32 - 1 = DEAD on an empty slot).
   bench/diff joinstress: seed 24 (Raw) and 25 (`--dict`), 1000 cases each, 0 failures.
+
+## W2.3 (wiring the coder and the rank stage; src/radix.bend; the Map coding deleted)
+
+Callers: group_by keys / unique (`Grp.enc.s`, `Grp.enc.sk`) and the per-group n_unique (`Grp.encode`)
+-> `H.Hc.code.pk` (+1 in the null-zeroing pass); Raw `n_unique` -> `Eval.nu.str` (pk's entry count);
+`Sort.str_words` and a Raw sort key -> `R.Rk.words` (key borrowed, no clone); `Dict.ranks` callers ->
+`R.Rk.dict`. `Radix.*` / `WS` moved to src/radix.bend (byte-identical) to break the ranks -> sort cycle.
+Deleted from src/: the Base-Map coder and its parallel blocks, the Map ranks, `ST.Dict.ranks`, the
+cons-list `Eval.nuniq`; the v0.1 text is kept byte-identical as the test reference tests/lib/v01str.bend
+(imported as V1 by tests/hcode_diff, ranks_diff and bench/w2).
+
+- **Differential at frame level, not only at the coder.** bench/w2/wire.bend builds a frame from the
+  tests/lib/w2gen.bend shapes (k with none / 1-in-7 / 3-in-4 / all null rows, null slots holding "",
+  g = i % 7, id, k2 a permuted copy), runs 13 operations (group_by on k / g / (k, g) with n_unique, min,
+  max, first, count of strings; unique on 1 and 2 keys; 5 sorts incl. desc / nulls_last / two string
+  keys; select n_unique / min / max; `<` / `>=` between two string columns) on Raw and on
+  `encode_strings` Dictionary frames and prints the m2 driver's logical content hash. The v0.1 output
+  (bench/w2/results/wire_v01.txt, 8,762 lines, recorded from the binary built before the change) is
+  the reference: `bench/w2/wire.sh` (about 10 min with the 300k / 1M cells, `WIRE_BIG=0` for ~3 min).
+  Raw and Dictionary lines agree with each other too. Bend: `Bool.pick` over 13 operations evaluates all
+  of them (and consumes the frame 13 times): dispatch on a Data enum with `match`.
+- **Hc.code (representative-row compare) vs Hc.code.pk for group_by: measured both** (scratch probe
+  over CSVs read as Raw, 1 thread, 5 interleaved processes, load 7-150, PROVISIONAL): 1M distinct short
+  keys (hc t_1M, m2 driver) 232 [197..270] vs 189 [165..2,003] ms; lp 300k (45-char keys, 39 shared)
+  93 [88..119] vs 112 [103..120]; 1M rows of 20k distinct 22-char keys: group_by 1,163 vs 525 ms,
+  n_unique 2,851 vs 535; half hot keys / half distinct: 312 vs 296. Generated (sequentially allocated)
+  strings understate the difference (bench/w2 `pk` mode: low 1M 89 vs 35 ms, equal 120 vs 87, prefix
+  513 vs 693): a CSV's strings are scattered and String is hot, so every hit's walk of the
+  representative row pays dependent misses (W2.4). pk chosen; its price is memory (pk presized at 8
+  words per row, doubling: lp_group_300k peak RSS 585 vs 477 MB).
+- **Results (bench/m2 label w23_str_prov, provisional, 1 thread, 5 fresh interleaved processes, load
+  median 4.7 max 76, all content hashes valid), compute_ms median [min..max], baseline 3612482 ->
+  candidate**: str_group 100k 578 -> 14, 300k 2,603 -> 51, 1M 13,844 [13,340..14,519] -> 178 [165..197];
+  str_unique 100k 567 -> 15, 300k 2,482 -> 52, 1M 14,573 -> 191 [158..224]; lp_group 100k 6,367 -> 38,
+  300k 20,942 -> 131; lp_unique 100k 6,703 -> 39, 300k 20,001 -> 111; q3_1m 22 -> 18; q4_1m 41 -> 16.
+  Per-row growth 100k -> 1M: group 140 -> 178 ns (1.27x), unique 150 -> 191 ns (1.27x). Against the
+  build before W2.3 (c79d5f5, same driver, 9 / 5 interleaved processes, load
+  33-37): q4 15 [14..20] vs 16 [15..18], q3 18 [17..21] vs 19 [19..26]: no regression beyond noise.
+  The rest of the 1M string group_by is the check phase (300 ms: hashing the 1M output strings) and the
+  parse; compute is the coder (~100-150 ms) plus densify / scatter / the gather of the key column.
+- **Emitted C** (bench/m2/driver.bend, `bench/spikes/w0_strings/tools/hot.py`): `HJ`, `HC`, `LK`, `HB`,
+  `PW` stay cold in the real program; `WS` (now `SRC_RADIX_WS`) was already hot at c79d5f5 and its loops
+  are unchanged. No new kernel loop: the wiring calls `Hc.jgo` (W2.4's spin), `Sort.xmap.go`,
+  `Kernel.mask_data`, `Sort.wm.go` / `wgm.go` (T3.2's). `blk_copy` sites in the driver 61 -> 57 (the Raw
+  sort key clone among them).
+- **Open**: `Rk.words` still codes with `Hc.code.fnv` (the rank stage needs `fr` and UTF-8 byte
+  lengths, which `Hc.code.pk` does not answer). Sorting 1M rows of 20k repeated 22-char keys read
+  from a CSV takes 2.3 s vs 1.6 s for 1M distinct keys (scratch probe, load ~12, includes the gather):
+  the hits walk scattered representative strings. A pk-based `Rk.words` (fr from the codes in one
+  flat pass, byte lengths and the packing from `pk` instead of the strings) is the next step.
+- **Gotchas**: a Raw null slot holds "", so a "" coded only from null rows takes an id that the
+  zeroing pass then hides (k counts it, as v0.1's did: identical `Codes`); `Eval.dropnull` runs before
+  `Eval.nu.str`, so n_unique counts only valid rows. tests/strwire.bend pins this, real FNV-1a
+  collisions (k32004 / k261338) and empty / all-null frames, and passes on the pre-W2.3 build too.

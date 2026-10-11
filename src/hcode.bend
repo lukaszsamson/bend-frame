@@ -42,8 +42,8 @@
 # walk is inherent while rows are Array<String> (DESIGN 17.1.5: 2-4 ns per code point); the probe
 # loop itself allocates nothing per row (the table state rides the spin loop's registers).
 #
-# Callers (W2.3): group_by keys and unique (src/groupby.bend Grp.enc.s / Grp.enc.sk: Hc.code.h, ids
-# from 1), Raw n_unique (src/eval.bend Eval.nu.str: Hc.code.h, the entry count), the sort words of a
+# Callers (W2.3): group_by keys and unique (src/groupby.bend Grp.enc.s / Grp.enc.sk: Hc.code.pk, ids
+# + 1), Raw n_unique (src/eval.bend Eval.nu.str: Hc.code.pk, the entry count), the sort words of a
 # Raw column (src/ranks.bend Rk.words: Hc.code.fnv, ids from 0, then the rank stage).
 #
 # Idioms (DESIGN.md section 9): helpers above callers; Nat fuel first; pairs taken apart in the next

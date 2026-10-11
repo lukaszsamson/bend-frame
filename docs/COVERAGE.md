@@ -195,7 +195,7 @@ themselves are real tests (`make test` runs them and compares every dump with it
 | `optimize` | [api_plans](../tests/coverage/api_plans.bend) | n/a [11] | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | n/a | 4 |
 | `optimize_full` | [api_plans](../tests/coverage/api_plans.bend) | n/a [11] | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | n/a | 2 |
 | `show` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 3 |
-| `dump` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 14 |
+| `dump` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 15 |
 | `dump_frame` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [6] | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 2 |
 | `describe` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 4 |
 | `clone` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [6] | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 1 |
@@ -245,7 +245,7 @@ themselves are real tests (`make test` runs them and compares every dump with it
 
 Method: a static call graph (see the header of `scripts/coverage_matrix.py`). A def *mentions* another def
 when its body names it (qualified through the file's import aliases, or bare inside its own module).
-Entry points are the 349 defs that a test (or a `tests/**/lib` helper a test imports) calls directly,
+Entry points are the 355 defs that a test (or a `tests/**/lib` helper a test imports) calls directly,
 `frame.bend` defs and `src/` defs alike. A def is *reached* when a path of mentions leads to it. Two
 reach columns: **via facade** follows only the entries that are `frame.bend` defs (what the public API
 alone can reach); **reached** adds the `src/` defs the tests call directly (the proof-style and unit tests).
@@ -257,7 +257,7 @@ reach these", not as line coverage. Reported, not gated.
 |---|---|---|---|---|---|
 | `frame.bend` | 175 | 162 | 174 | 174 | 1 |
 | `src/analysis.bend` | 44 | 0 | 44 | 44 | 0 |
-| `src/column.bend` | 160 | 28 | 158 | 158 | 2 |
+| `src/column.bend` | 160 | 29 | 158 | 158 | 2 |
 | `src/csv.bend` | 296 | 14 | 287 | 295 | 1 |
 | `src/csvlane.bend` | 135 | 1 | 0 | 135 | 0 |
 | `src/csvparse.bend` | 20 | 1 | 19 | 19 | 1 |
@@ -269,20 +269,20 @@ reach these", not as line coverage. Reported, not gated.
 | `src/exec.bend` | 56 | 10 | 56 | 56 | 0 |
 | `src/expr.bend` | 45 | 8 | 45 | 45 | 0 |
 | `src/fmt.bend` | 113 | 3 | 113 | 113 | 0 |
-| `src/groupby.bend` | 172 | 1 | 172 | 172 | 0 |
-| `src/hcode.bend` | 22 | 6 | 21 | 22 | 0 |
-| `src/join.bend` | 152 | 3 | 151 | 151 | 1 |
-| `src/kernels.bend` | 71 | 33 | 63 | 71 | 0 |
+| `src/groupby.bend` | 174 | 1 | 174 | 174 | 0 |
+| `src/hcode.bend` | 51 | 8 | 48 | 51 | 0 |
+| `src/join.bend` | 132 | 5 | 128 | 132 | 0 |
+| `src/kernels.bend` | 71 | 34 | 63 | 71 | 0 |
 | `src/plan.bend` | 123 | 11 | 122 | 122 | 1 |
 | `src/radix.bend` | 16 | 0 | 16 | 16 | 0 |
 | `src/ranks.bend` | 61 | 2 | 61 | 61 | 0 |
 | `src/schema.bend` | 23 | 8 | 20 | 23 | 0 |
 | `src/sort.bend` | 76 | 3 | 74 | 74 | 2 |
-| `src/strs.bend` | 92 | 8 | 92 | 92 | 0 |
+| `src/strs.bend` | 92 | 8 | 90 | 90 | 2 |
 | `src/table.bend` | 72 | 1 | 72 | 72 | 0 |
-| **total** | **2354** | **349** | **2134** | **2334** | **20** |
+| **total** | **2365** | **355** | **2138** | **2344** | **21** |
 
-99.2 % of the 2354 defs are reachable from the tests (90.7 % through the facade alone).
+99.1 % of the 2365 defs are reachable from the tests (90.4 % through the facade alone).
 
 Unreached defs:
 
@@ -293,6 +293,6 @@ Unreached defs:
 - `src/csvprod.bend`: `Pr.piece`, `Rt.leaves`, `Rt.of`, `Rt.pair`, `Rt.top`
 - `src/dtype.bend`: `I32.floor_div`, `I32.floor_div.k`, `I32.floor_mod`, `I32.floor_mod.k`
 - `src/eval.bend`: `Eval.is_stat`, `SKind.is_agg`
-- `src/join.bend`: `JoinHow.show`
 - `src/plan.bend`: `Plan.sources`
 - `src/sort.bend`: `Sort.none`, `Sort.sign`
+- `src/strs.bend`: `Dict.entries`, `Dict.entries.k`

@@ -7,6 +7,7 @@
 #                oldseq  Sort.str_codes (v0.1: one Map)
 #                new     Hc.code with the default template (FNV-1a + UTF-8 byte lengths, one walk)
 #                newh    Hc.code with ST.Str.hash only (no byte lengths): the cost of counting bytes
+#                pk      Hc.code.pk (W2.4: one walk hashes and packs the code points, hits compare flat)
 # mode (words):  rold    Sort.str_words (v0.1: Map coder + Map.to_list ranks; frees its input rows)
 #                rnew    Rk.words (Hc.code, then the rank stage, the rows handed back)
 #                rstage  Hc.code then Rk.ranks then the gather, each stage timed (code_ms rank_ms
@@ -82,6 +83,13 @@ def run.old.k(+mode: String, +shape: String, +n: U32, +chars: U32, +t0: Nat, r: 
 def run.new.k(+mode: String, +shape: String, +n: U32, +chars: U32, +t0: Nat, st: H.HC) -> IO(Unit):
   match st:
     case H.HC{+next, a, hs, rp, ids, out, fr, bl}:
+      do IO<Unit>:
+        t1 : Nat <- IO.now()
+        fin.cs(mode, shape, n, chars, t0, t1, out, next, a)
+
+def run.pk.k(+mode: String, +shape: String, +n: U32, +chars: U32, +t0: Nat, st: H.HJ) -> IO(Unit):
+  match st:
+    case H.HJ{+next, a, hs, ix, out, po, pl, pk, cur, pd}:
       do IO<Unit>:
         t1 : Nat <- IO.now()
         fin.cs(mode, shape, n, chars, t0, t1, out, next, a)
@@ -223,6 +231,7 @@ type Mode is Data:
   MRParts{}
   MDOld{}
   MDNew{}
+  MPk{}
   MFrame{}
 
 def mode_of(+s: String) -> Mode:
@@ -236,7 +245,8 @@ def mode_of(+s: String) -> Mode:
   Bool.pick(Mode, String.eq(s, "rparts"), MRParts{},
   Bool.pick(Mode, String.eq(s, "dold"), MDOld{},
   Bool.pick(Mode, String.eq(s, "dnew"), MDNew{},
-  MFrame{}))))))))))
+  Bool.pick(Mode, String.eq(s, "pk"), MPk{},
+  MFrame{})))))))))))
 
 def run.mode(m: Mode, +mode: String, +shape: String, +n: U32, +d: Nat, +chars: U32, +t0: Nat, a: Array<String>) -> IO(Unit):
   match m:
@@ -248,6 +258,8 @@ def run.mode(m: Mode, +mode: String, +shape: String, +n: U32, +d: Nat, +chars: U
       run.new.k(mode, shape, n, chars, t0, H.Hc.code.fnv(n, d, 0, a))
     case MNewH{}:
       run.new.k(mode, shape, n, chars, t0, H.Hc.code(~(s => H.Hc.hash.h(s)), n, d, 0, a))
+    case MPk{}:
+      run.pk.k(mode, shape, n, chars, t0, H.Hc.code.pk(~(h => h), n, d, a))
     case MROld{}:
       run.rold.k(shape, n, chars, t0, V1.Sort.str_words(n, d, 0, a))
     case MRNew{}:

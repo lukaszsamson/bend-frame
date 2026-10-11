@@ -1276,17 +1276,18 @@ def Eval.dropnull(c: C.Column) -> C.Column:
   Eval.dropnull.a(C.Column.len(c))
 
 # n_unique over Raw strings (v0.2 W2.3): the number of distinct strings among a[0..k) = the
-# flat coder's entry count (H.Hc.code.h: first-appearance ids from 0, so next = k distinct; one
-# hash walk per row, a string compare only on a hash hit, no cons list of rows, no sort). The
+# packed flat coder's entry count (H.Hc.code.pk: first-appearance ids from 0, so next = the
+# distinct count; one walk per row hashes and packs it, a hash hit compares flat words; no cons
+# list of rows, no sort). The
 # caller (Eval.agg -> Eval.dropnull) passes the VALID rows only and adds one for any null
 # (DESIGN 15.2.5).
-def Eval.nu.str.k(hc: H.HC) -> U32:
-  match hc:
-    case H.HC{next, a, hs, rp, ids, codes, fr, bl}:
+def Eval.nu.str.k(hj: H.HJ) -> U32:
+  match hj:
+    case H.HJ{next, a, hs, ix, codes, po, pl, pk, cur, pd}:
       next
 
 def Eval.nu.str(+k: U32, a: Array<String>) -> U32:
-  Eval.nu.str.k(H.Hc.code.h(k, K.Kernel.depth_for(k), 0, a))
+  Eval.nu.str.k(H.Hc.code.pk(~(h => h), k, K.Kernel.depth_for(k), a))
 
 # n_unique over WORDS (Bool / U32 / I32 as they are, F32 as its 15.5.2 order words): a stable radix
 # sort of the words (the sort of Sort / median; the pair's second array is a scratch perm that is
