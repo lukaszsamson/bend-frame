@@ -305,34 +305,29 @@ def CW.to_flat(+dd: Nat, t: CW) -> Array<U32>:
     case WN{rows, lrows, l, r}:
       CW.flatten(dd, WN{rows, lrows, l, r})
 
-# ---- rechunk: sibling leaves whose rows fit 2^g merge into one leaf (decided by row counts only) ----
+# ---- rechunk: subtrees whose rows fit 2^g become one leaf (decided by row counts only) ----
 
-def CW.rc.leaf(fits: Bool, +g: Nat, +rows: U32, +lrows: U32, +n1: U32, +d1: Nat, a1: Array<U32>, +n2: U32, +d2: Nat, a2: Array<U32>) -> CW:
-  match fits:
-    case True{}:
-      WL{rows, g, K.Kernel.append(~U32, n1, n2, g, a1, a2, 0)}
-    case False{}:
-      WN{rows, lrows, WL{n1, d1, a1}, WL{n2, d2, a2}}
-
-def CW.rc.join(+g: Nat, +rows: U32, +lrows: U32, x: CW, y: CW) -> CW:
-  match x y:
-    case WL{+n1, +d1, a1} WL{+n2, +d2, a2}:
-      CW.rc.leaf(U32.is_le(rows, U32.shln(1, g)), g, rows, lrows, n1, d1, a1, n2, d2, a2)
-    case WL{n1, d1, a1} WN{r2, l2, xl, xr}:
-      WN{rows, lrows, WL{n1, d1, a1}, WN{r2, l2, xl, xr}}
-    case WN{r1, l1, yl, yr} WL{n2, d2, a2}:
-      WN{rows, lrows, WN{r1, l1, yl, yr}, WL{n2, d2, a2}}
-    case WN{r1, l1, yl, yr} WN{r2, l2, xl, xr}:
-      WN{rows, lrows, WN{r1, l1, yl, yr}, WN{r2, l2, xl, xr}}
-
-# bottom-up, one balanced fork per node; copies at most the rows of the merged leaves
-def CW.rechunk(+g: Nat, t: CW) -> CW:
-  match t:
-    case WL{n, d, a}:
+# fits: the tree's rows fit 2^g (decided by the parent from its own counts: lrows, rows - lrows). A
+# node that fits becomes ONE leaf of 2^g slots (flatten: every row copied once, however deep the
+# subtree); a node that does not fit keeps its counts and rechunks both children, one fork per node.
+def CW.rechunk.go(t: CW, fits: Bool, +g: Nat) -> CW:
+  match t fits:
+    case WL{n, d, a} _:
       WL{n, d, a}
-    case WN{+rows, +lrows, l, r}:
-      x y = CW.rechunk(g, l) CW.rechunk(g, r)
-      CW.rc.join(g, rows, lrows, x, y)
+    case WN{+rows, +lrows, l, r} True{}:
+      WL{rows, g, CW.flatten(g, WN{rows, lrows, l, r})}
+    case WN{+rows, +lrows, l, r} False{}:
+      x y = CW.rechunk.go(l, U32.is_le(lrows, U32.shln(1, g)), g) CW.rechunk.go(r, U32.is_le(U32.sub(rows, lrows), U32.shln(1, g)), g)
+      WN{rows, lrows, x, y}
+
+def CW.rechunk.k(+g: Nat, r: CW & U32) -> CW:
+  (t, +rows) = r
+  CW.rechunk.go(t, U32.is_le(rows, U32.shln(1, g)), g)
+
+# merge every subtree whose rows fit 2^g into one leaf (decided by row counts only, so every tree of a
+# frame takes the same new shape); a leaf is kept as it is. Copies each moved row once.
+def CW.rechunk(+g: Nat, t: CW) -> CW:
+  CW.rechunk.k(g, CW.rows(t))
 
 # ---- cut: head (drop the leaves past h, shorten the boundary leaf: no copy) and drop (the boundary leaf
 # re-cut by one range copy of its kept rows) ----
@@ -579,34 +574,29 @@ def CF.to_flat(+dd: Nat, t: CF) -> Array<F32>:
     case FN{rows, lrows, l, r}:
       CF.flatten(dd, FN{rows, lrows, l, r})
 
-# ---- rechunk: sibling leaves whose rows fit 2^g merge into one leaf (decided by row counts only) ----
+# ---- rechunk: subtrees whose rows fit 2^g become one leaf (decided by row counts only) ----
 
-def CF.rc.leaf(fits: Bool, +g: Nat, +rows: U32, +lrows: U32, +n1: U32, +d1: Nat, a1: Array<F32>, +n2: U32, +d2: Nat, a2: Array<F32>) -> CF:
-  match fits:
-    case True{}:
-      FL{rows, g, K.Kernel.append(~F32, n1, n2, g, a1, a2, 0.0)}
-    case False{}:
-      FN{rows, lrows, FL{n1, d1, a1}, FL{n2, d2, a2}}
-
-def CF.rc.join(+g: Nat, +rows: U32, +lrows: U32, x: CF, y: CF) -> CF:
-  match x y:
-    case FL{+n1, +d1, a1} FL{+n2, +d2, a2}:
-      CF.rc.leaf(U32.is_le(rows, U32.shln(1, g)), g, rows, lrows, n1, d1, a1, n2, d2, a2)
-    case FL{n1, d1, a1} FN{r2, l2, xl, xr}:
-      FN{rows, lrows, FL{n1, d1, a1}, FN{r2, l2, xl, xr}}
-    case FN{r1, l1, yl, yr} FL{n2, d2, a2}:
-      FN{rows, lrows, FN{r1, l1, yl, yr}, FL{n2, d2, a2}}
-    case FN{r1, l1, yl, yr} FN{r2, l2, xl, xr}:
-      FN{rows, lrows, FN{r1, l1, yl, yr}, FN{r2, l2, xl, xr}}
-
-# bottom-up, one balanced fork per node; copies at most the rows of the merged leaves
-def CF.rechunk(+g: Nat, t: CF) -> CF:
-  match t:
-    case FL{n, d, a}:
+# fits: the tree's rows fit 2^g (decided by the parent from its own counts: lrows, rows - lrows). A
+# node that fits becomes ONE leaf of 2^g slots (flatten: every row copied once, however deep the
+# subtree); a node that does not fit keeps its counts and rechunks both children, one fork per node.
+def CF.rechunk.go(t: CF, fits: Bool, +g: Nat) -> CF:
+  match t fits:
+    case FL{n, d, a} _:
       FL{n, d, a}
-    case FN{+rows, +lrows, l, r}:
-      x y = CF.rechunk(g, l) CF.rechunk(g, r)
-      CF.rc.join(g, rows, lrows, x, y)
+    case FN{+rows, +lrows, l, r} True{}:
+      FL{rows, g, CF.flatten(g, FN{rows, lrows, l, r})}
+    case FN{+rows, +lrows, l, r} False{}:
+      x y = CF.rechunk.go(l, U32.is_le(lrows, U32.shln(1, g)), g) CF.rechunk.go(r, U32.is_le(U32.sub(rows, lrows), U32.shln(1, g)), g)
+      FN{rows, lrows, x, y}
+
+def CF.rechunk.k(+g: Nat, r: CF & U32) -> CF:
+  (t, +rows) = r
+  CF.rechunk.go(t, U32.is_le(rows, U32.shln(1, g)), g)
+
+# merge every subtree whose rows fit 2^g into one leaf (decided by row counts only, so every tree of a
+# frame takes the same new shape); a leaf is kept as it is. Copies each moved row once.
+def CF.rechunk(+g: Nat, t: CF) -> CF:
+  CF.rechunk.k(g, CF.rows(t))
 
 # ---- cut: head (drop the leaves past h, shorten the boundary leaf: no copy) and drop (the boundary leaf
 # re-cut by one range copy of its kept rows) ----
@@ -853,34 +843,29 @@ def CS.to_flat(+dd: Nat, t: CS) -> Array<String>:
     case SN{rows, lrows, l, r}:
       CS.flatten(dd, SN{rows, lrows, l, r})
 
-# ---- rechunk: sibling leaves whose rows fit 2^g merge into one leaf (decided by row counts only) ----
+# ---- rechunk: subtrees whose rows fit 2^g become one leaf (decided by row counts only) ----
 
-def CS.rc.leaf(fits: Bool, +g: Nat, +rows: U32, +lrows: U32, +n1: U32, +d1: Nat, a1: Array<String>, +n2: U32, +d2: Nat, a2: Array<String>) -> CS:
-  match fits:
-    case True{}:
-      SL{rows, g, K.Kernel.append(~String, n1, n2, g, a1, a2, "")}
-    case False{}:
-      SN{rows, lrows, SL{n1, d1, a1}, SL{n2, d2, a2}}
-
-def CS.rc.join(+g: Nat, +rows: U32, +lrows: U32, x: CS, y: CS) -> CS:
-  match x y:
-    case SL{+n1, +d1, a1} SL{+n2, +d2, a2}:
-      CS.rc.leaf(U32.is_le(rows, U32.shln(1, g)), g, rows, lrows, n1, d1, a1, n2, d2, a2)
-    case SL{n1, d1, a1} SN{r2, l2, xl, xr}:
-      SN{rows, lrows, SL{n1, d1, a1}, SN{r2, l2, xl, xr}}
-    case SN{r1, l1, yl, yr} SL{n2, d2, a2}:
-      SN{rows, lrows, SN{r1, l1, yl, yr}, SL{n2, d2, a2}}
-    case SN{r1, l1, yl, yr} SN{r2, l2, xl, xr}:
-      SN{rows, lrows, SN{r1, l1, yl, yr}, SN{r2, l2, xl, xr}}
-
-# bottom-up, one balanced fork per node; copies at most the rows of the merged leaves
-def CS.rechunk(+g: Nat, t: CS) -> CS:
-  match t:
-    case SL{n, d, a}:
+# fits: the tree's rows fit 2^g (decided by the parent from its own counts: lrows, rows - lrows). A
+# node that fits becomes ONE leaf of 2^g slots (flatten: every row copied once, however deep the
+# subtree); a node that does not fit keeps its counts and rechunks both children, one fork per node.
+def CS.rechunk.go(t: CS, fits: Bool, +g: Nat) -> CS:
+  match t fits:
+    case SL{n, d, a} _:
       SL{n, d, a}
-    case SN{+rows, +lrows, l, r}:
-      x y = CS.rechunk(g, l) CS.rechunk(g, r)
-      CS.rc.join(g, rows, lrows, x, y)
+    case SN{+rows, +lrows, l, r} True{}:
+      SL{rows, g, CS.flatten(g, SN{rows, lrows, l, r})}
+    case SN{+rows, +lrows, l, r} False{}:
+      x y = CS.rechunk.go(l, U32.is_le(lrows, U32.shln(1, g)), g) CS.rechunk.go(r, U32.is_le(U32.sub(rows, lrows), U32.shln(1, g)), g)
+      SN{rows, lrows, x, y}
+
+def CS.rechunk.k(+g: Nat, r: CS & U32) -> CS:
+  (t, +rows) = r
+  CS.rechunk.go(t, U32.is_le(rows, U32.shln(1, g)), g)
+
+# merge every subtree whose rows fit 2^g into one leaf (decided by row counts only, so every tree of a
+# frame takes the same new shape); a leaf is kept as it is. Copies each moved row once.
+def CS.rechunk(+g: Nat, t: CS) -> CS:
+  CS.rechunk.k(g, CS.rows(t))
 
 # ---- cut: head (drop the leaves past h, shorten the boundary leaf: no copy) and drop (the boundary leaf
 # re-cut by one range copy of its kept rows) ----
@@ -1559,7 +1544,7 @@ def CFrame.head(f: CFrame, +n: U32) -> CFrame:
 def CFrame.slice(f: CFrame, +off: U32, +len: U32) -> CFrame:
   CFrame.op(OHead{len}, CFrame.op(ODrop{off}, f))
 
-# merge sibling leaves whose rows fit 2^g, in every tree of every column (the same row counts, so the
+# every subtree whose rows fit 2^g becomes one leaf, in every tree of every column (the same row counts, so the
 # same new shape everywhere)
 def CFrame.rechunk(+g: Nat, f: CFrame) -> CFrame:
   CFrame.op(ORechunk{g}, f)
