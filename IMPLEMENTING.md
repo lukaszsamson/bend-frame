@@ -3444,3 +3444,25 @@ What the next agents need to know:
   are disjoint (the Filter + Select root), not for a plain filter.
 - The 1-thread gap left (q1 1.12x, q2 1.10x of the reference at 62 leaves) is the leaf's call chain; a bigger walk
   grain (2^15: q1 2.6 ms at 1 thread) would halve it at the cost of fewer leaves for 12 threads.
+
+## W8 (close: the v0.2 reader becomes the default; the gate report plans/GATES_V02.md)
+
+- **Flipping a default without a cycle.** `Csv.read_enc` (what every `read_csv*` reaches) now dispatches through
+  `Csv.read_eng(Csv.engine_default(), ..)`, and `Csv.read_eng`'s `CsvV01{}` arm used to call `Csv.read_enc`: left as
+  it was, the v0.1 selector would have read with v0.2 (or, had the default been v0.1-by-dispatch, looped). The v0.1
+  body is now `Csv.read_enc_v01` (`Csv.read_full` at the v0.1 chunk), called by both selector arms that mean v0.1
+  (`read_eng`, `read_eng_m`); the default readers (`read_enc` / `read_with` / `read`) moved BELOW `Csv.read_eng` in the
+  file (helpers above callers, DESIGN 9). The v0.2 reader's own non-ASCII-separator fall back calls `Csv.read_full`
+  directly, so it never re-enters the default.
+- **Tests as the flip's G1.** Nothing in tests/ needed a new expectation: every file that reads a CSV through the
+  default (read_csv, read_csv_opts, scan_csv + collect, the examples, the B02 regressions) now runs the v0.2 reader
+  against the expectations written for v0.1, and `make test` stayed 203 / 203. The one test whose meaning depended on
+  the default (tests/coverage/csv_engine.bend, which used `read_csv` AS the v0.1 side) now names the v0.1 reader
+  explicitly and also checks that `read_csv` prints what `read_csv_v02` prints.
+- **A selector token whose meaning moves.** bench/m2's `BF_ENGINE=v01` used to mean "the reference" (no reader token =
+  v0.1); after the flip no token means v0.2, so `v01` is now an explicit reader choice (bench/m2/engine.bend), `run.py
+  --engine` defaults to `reference`, and the G6 report names configurations by the reader actually used, so the old
+  g6-master-prov records (`v01` = the then-reference) render correctly. Record what a token MEANT, not only its text.
+- **Measurement under load.** The pre-run 1-minute load was above 2 for every W8 timing run (M_02 section 5), so the
+  gate report labels every timing PROVISIONAL and leaves G2-G4 unevaluated; the counts of G6 and the validity of every
+  result (each process's result hashed against expected.json after the clock) do not depend on load.

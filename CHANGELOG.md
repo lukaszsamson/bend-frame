@@ -1,5 +1,65 @@
 # Changelog
 
+## 0.2.0 (performance milestone, 2026-10-11; not published)
+
+The plan is `plans/M_02.txt`; the gate report is `plans/GATES_V02.md`. **The v0.1 data contract (`DESIGN.md` 15) is unchanged**: the same values, validity, names, row order, F32 bits (the existing NaN-payload relaxation aside), errors and error order, for every operation, eager and lazy. No new API surface beyond the engine and reader selectors.
+
+Candidate claim, as far as the gates demonstrate it: "owned chunks and fused kernels reduce copying and improve measured throughput; parallel execution preserves the documented semantics on the supported paths". The load-independent gates are met: correctness (G1), memory on the frozen 1M workload (G4), proofs (G5) and the phase / copy report (G6). **Every timing number below is PROVISIONAL**: the shared machine was never quiet (1-minute load >= 2 before every run), so by M_02 section 5 the timing gates G2 and G3 are recorded as UNEVALUATED, with the provisional observation beside each cell (several are not met even provisionally; `plans/GATES_V02.md` lists every one).
+
+### Changes
+
+- **CSV reader (the default since 0.2.0).** A sequential producer of flat packed bytes in 240 KiB pieces with the record boundaries found in the same walk (`src/csvprod.bend`), ONE balanced fork of typed lanes over the regions (`src/csvlane.bend`: a generated one-def tokenizer, typed loops with cold private records, no per-cell string or list), and a sequential combine in region order that keeps v0.1's error precedence and dictionary codes (`Csv.v2.*` in `src/csv.bend`). The v0.1 reader is kept, selectable (`csv_engine_v01()`, `read_csv_engine`, `collect_engine`), and is the pinned reference of the CSV tests and fuzz.
+- **Distinct-key strings.** A flat presized hash coder (`src/hcode.bend`; first-appearance ids, hash hits compared against the strings) and a lexical rank stage by radix refinement (`src/ranks.bend`) replace the Base-Map coder in group_by, unique, Raw n_unique, Raw sort keys and Dictionary ranks; the join probes a packed flat string table sequentially (no table clone per split).
+- **Evaluator fusion** (on in the default executor): literal operands as scalars (F1), null-propagating zips with validity in one loop (F2), total casts inside the zip (F3), `fill_null` with the dtype default as a validity change (F4), filter predicate mask and count in one pass (F5), up to four aligned columns compacted per loop (F6), and the Filter + plain Select step at the plan root (F8). Kleene logic and fallible casts are not fused.
+- **Fewer copies.** A liveness pass moves single-reference columns and borrows where a kernel hands the buffer back; group_by moves dead inputs and codes its key without a clone; the join copies its table only at a split; describe borrows and fuses its count / sum / min / max; `slice` is one range copy; `Sort + Head` gathers only the kept rows of the exact full argsort; the radix sort reads keys in place with one scan pass, skips sorted words and ping-pongs two buffers; n_unique is a radix sort plus a run count.
+- **Chunked engine (opt-in).** Owned chunk trees (`src/chunks.bend`), generated chunked kernel wrappers (`src/ckernels.bend`) and a chunked executor (`src/cexec.bend`) behind `collect_with(engine_chunked(), ..)`: row-wise operators fork over leaves of 2^14 rows; sort, join, group_by, unique and describe run the flat code behind a boundary; a `scan_csv` whose consumer is row-wise is read straight into chunk leaves by the v0.2 reader. Exact against the reference engine on every differential case.
+- **Parallel shape.** Every parallel let follows one rule found in this milestone (the Bend 2.0.36 scheduler's fork-shape rule, `DESIGN.md` 16.10): a forking def matches and forks and calls nothing non-flat before its parallel let; `make fork-audit` checks it statically and is part of `make ci`.
+- **Tooling.** `bench/m2/` (the frozen workload harness against the pinned baseline 3612482, with an instrumented copy / allocation mode, `make m2-g6`), `make diff-chunked` (G1), `make csv-fuzz` / `csv-fuzz-smoke` (the v0.2 reader against v0.1), `make fork-audit`; `make ci` now also runs `csv-fuzz-smoke` and `fork-audit`, and `diff-smoke` runs every case through the chunked engine too.
+
+### Measured (PROVISIONAL; `plans/GATES_V02.md`, `bench/m2/results/w8-*.jsonl`)
+
+Against the pinned v0.1 baseline (3612482), same driver, Apple M2 Pro, medians of 5 fresh interleaved processes, load 1.4-5.8 (so: PROVISIONAL), 1M rows, 1 thread unless noted:
+
+- CSV parse of the 41 MB sales file: 3,966 -> 632 ms (6.3x); 1,814 -> 334 ms at 12 threads. Peak RSS of the 1M-row q1-q6 runs: 1,315-1,346 MB -> 190-314 MB (G4's 600 MB met).
+- Compute (default executor): q1 10 -> 3 ms, q2 7 -> 3, q3 20 -> 12, q4 40 -> 13, q5 17 -> 10, q6 98 -> 49 (16 at 12 threads); end to end (parse + compute) 3.97-4.06 s -> 0.63-0.68 s.
+- n_unique over 2^20 distinct U32 1,803 -> 16 ms; group_by / unique over 1M distinct strings 12.5 s -> 0.13 s; the 1M distinct-key join 4.2 s -> 0.36 s.
+- Thread scaling (12 vs 1): parse 1.89x; describe 3.1x; with the opt-in chunked engine on already-chunked inputs q1 4.0x, q2 3.8x, a 50% filter 5.9x, q3 / q5 1.4x; sort, join, group_by and unique do not scale.
+- Copies: the compute phase of q1-q6 copies no array block (q3 and q5: under 5 kB; v0.1: 8-105 MB per query), exact counts from the instrumented build (`make m2-g6`).
+- Regressions: the 1k-row q3 and q5 controls are 1.57x and 1.25x slower than v0.1 (~0.1 ms per query, with either reader); every other cell is equal or faster.
+
+### Verified scope
+
+- 231 laws in `LAWS.bend` (149 in 0.1.0; 82 added: `range_cell`, and sections 16-22: moves, Sort + Head, fused kernels, fusion peepholes, Filter + Select, chunk trees, chunked kernel wrappers), all proven in `PROOF*.bend` over the production functions, checked by `bend PROOF.bend` and `--verdict`. No axiom, no `@unsafe`, no open law; no v0.1 law weakened or dropped; the Dictionary probe hypotheses stay conditional.
+- `make mutation-check`: 92 in-place mutations of production functions (14 in 0.1.0), all caught, the unmutated copy accepted.
+- New proven facts that matter beyond their kernels: `croom_of_cap` derives v0.1's `CRoom` hypothesis for per-leaf compaction; `sort_head_run` / `collect_obs` relate the physical runner `collect` executes to `Exec.run_pure`; `filter_select_run` proves the Filter + Select step.
+- Tested only (`DESIGN.md` 8.2): the chunked executor (no theorem relates it to `Exec.run_pure`), the v0.2 reader, the string coder, the rank stage, the radix sort pipeline, n_unique, describe's fused pass, the balanced list forks, and the native scheduler.
+
+### Testing
+
+- 203 test programs (files) in `make test` (158 in 0.1.0), 0 XFAIL. `docs/COVERAGE.md`: 816 operation x kind cells, 762 covered, 54 n/a with a reason, 0 missing.
+- G1 differential counts are in `plans/GATES_V02.md` (generated cases through the reference and the chunked engine at four grains, Raw and Dictionary, deep plans, join stress, interpreter vs native; the CSV fuzz of the v0.2 reader against v0.1 at seven piece sizes).
+- `make ci` green on the 0.2.0 tree (time and result in `plans/STATUS.md` "W8").
+
+### Deviations from the plan (each recorded in `DESIGN.md` 14, v0.2 entries)
+
+- G2 parse target revised at W0 from >= 4x to ">= 2x end to end and >= 4x on the fork phase" (`DESIGN.md` 17.8, 17.10 item 1): the File API returns cons lists on the IO thread, so the producer is serial. The G2 / G3 per-query thresholds of 16.8 / 17.8 were proposed at W0 and never frozen on a quiet machine.
+- The chunked engine converts lazily (only where an operator needs the other representation), runs group_by flat, and reports data errors by a flat rerun; the reader picks chunks or a flat frame by the scan's consumer. The facade takes no chunk frame (results are flattened once).
+- The group_by aggregate fork, the column-gather fork after a sort and a fused group_by scatter were built, measured and removed (no gain on this runtime); describe's column fork is kept.
+- Not done: W2.5 (owned-partition coder), W2.6 (Dict index on flat arrays), W7 (flat string storage; deferred per `DESIGN.md` 17.11), a chunked group_by or partitioned parallel sort.
+- D7 says the new layout stays opt-in "until G1-G6 pass"; the READER default was flipped on G1 (exact on every CSV test, the 10,000-case fuzz x 7 piece sizes, the adversarial corpus), G4 and provisional parse evidence while G2 / G3 are unevaluated (`DESIGN.md` 14 "W8"). The chunked ENGINE was not flipped. Nothing was removed (removal is a later explicit gate).
+
+### Not claimed
+
+- That every kernel forks, or that thread scaling is general: sort, join, group_by and unique stages do not scale with threads; F32 sums are one sequential pass by contract (`DESIGN.md` 15.5.3); the CSV producer is serial (File API), so the parse scales about 2x end to end.
+- That any timing gate passed: no measurement was taken on a quiet machine.
+- That hashing or the CSV reader is linear in the worst case (collisions, skew, long records): growth is reported per row and byte at 100k / 300k / 1M, not bounded.
+- A verified chunked engine, reader, coder or sort (tested only), Polars compatibility, native runtime correctness; everything 0.1.0 did not claim.
+
+### Known limits
+
+- The machine for every number: Apple M2 Pro (8 P + 4 E cores), shared with other jobs; Bend 2.0.36 native. Linux and hosted CI have never run.
+- Peak RSS and times are workload-dependent; small inputs (under 2^14 rows) run the flat loops with no fork.
+
 ## 0.1.0 (experimental release candidate, 2026-10-10; not yet published)
 
 The first release, an EXPERIMENTAL one (plans/STATUS.md Decisions, 2026-10-10): the default optimizer is R1 only (adjacent `head` merging), the Dictionary string assurance is conditional (`Probe` / `EncProbe` hypotheses; index completeness is not proven), and the remaining proof work is deferred (R2-R5 as theorems, the grouped scatter invariant for `group_by`, Dictionary completeness and rank order). The release claim: a small Bend-native dataframe library with tested ETL operations, verified core buffer operations and evaluator typing, and a result-preserving default optimizer under documented input and runtime assumptions.

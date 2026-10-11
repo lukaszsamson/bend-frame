@@ -13,6 +13,27 @@ Data is seeded and deterministic. `fixtures/tiny.csv` (20 rows, includes null di
 `fixtures/products.csv` (64 rows) are tracked; golden floats are written with 4 decimals.
 `fixtures/` and `data/` use the same schema, so a Bend implementation can load either.
 
+## v0.2 (0.2.0): where the numbers come from and how to reproduce them
+
+The v0.2 milestone measures against the pinned v0.1 baseline (commit 3612482), not against Polars, with its own harness:
+`bench/m2/` (frozen workloads, expected outputs frozen from the baseline, 5 fresh interleaved processes per cell, 1 / 4 / 12
+threads, an instrumented copy / allocation mode). The close-out run and its gate verdicts are `plans/GATES_V02.md`; the exact
+command sequence is in `bench/m2/README.md` "W8: reproducing the gate report":
+
+```sh
+make m2-baseline m2-candidate m2-data                        # both drivers, the inputs (bench/data, gitignored) and their sha256
+python3 bench/m2/run.py run --label NAME --provisional       # every workload, baseline vs candidate (add --engine v02,chunked etc.)
+python3 bench/m2/run.py summary bench/m2/results/NAME.jsonl --raw
+make m2-g6 LABEL=NAME                                        # exact copy / allocation counts per phase
+~/.bend/bin/bend bench/w5/t53.bend -o build/t53/t53 && python3 -I bench/w5/scale/t53b.py OUT.jsonl --modes 3 4   # pre-chunked scaling
+```
+
+A gate run needs a 1-minute load below 2 before it starts (`make m2-bench LABEL=x` enforces it); on a shared machine the
+records are labelled provisional and no timing gate is evaluated from them. The W8 numbers (provisional, load 1.4-5.8): parse
+of the 41 MB file 3,966 -> 632 ms at 1 thread (334 ms at 12), q1-q6 compute 1.7-3.3x faster at 1 thread, distinct-string
+group_by / unique 100x, peak RSS 1.3 GB -> 190-314 MB. The v0.1 sections below (M6 against Polars, M4) are kept as they were
+measured; `scripts/bench.sh` (Polars vs Bend) still runs, now with the v0.2 reader as the default (its parse is untimed there).
+
 ## Queries (`queries.py`, all signature `qK(sales, products)`; floats are Float32)
 
 | q | what |
