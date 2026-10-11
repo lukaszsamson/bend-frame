@@ -15,6 +15,7 @@ Departures (each is one place in this file):
   15.5.2 f32 equality/order/keys: Polars 2.0.0 agrees (verified in the contract); min/max skip NaN
   15.5.4 std/var/median as written there
   15.5.5 cast / try_cast conversions and the `cast <from> to <to>: row <i> holds <cell>` error
+  15.5.2 joins go through Polars' LAZY engine (`_pjoin`): the eager join loses NaN matches for flagged-sorted keys (d1588)
   15.2   verbs: group_by always first-appearance order; empty subset of unique = all columns;
          joins' `_right` suffix against ANY left name; null keys never match
 
@@ -601,6 +602,22 @@ def o_group(of, p, schema):
     return OF(outs, len(groups))
 
 
+def _pjoin(ldf, rdf, **kw):
+    """Polars' join through the LAZY engine, never `DataFrame.join`.
+
+    Polars 2.0.0's eager `DataFrame.join` of an f32 key goes through a sorted-merge path whenever a key
+    Series carries the SORTED_ASC flag (a 1-row Series always does, and so does a column that came out of
+    a sort or of a join); that path compares keys with IEEE `==`, so NaN never matches NaN: a 1 x 1 NaN
+    inner join answers 0 rows, a 5-row flagged NaN column joined with a NaN answers 0 rows (generated case
+    d1588, tests/diff/d0011-d0012). The very same join through `.lazy().collect()` (default engine and
+    streaming) matches every NaN with every NaN, as the join section of DESIGN.md 15 / 15.5.2 states
+    (bench/diff/tests/test_oracle_join.py fuzzes this against a brute-force reference). The oracle therefore
+    asks the lazy engine, whose answer does not depend on the hidden flag. Not a contract departure: the
+    contract is Polars' semantics, this is Polars' eager path disagreeing with itself.
+    """
+    return ldf.lazy().join(rdf.lazy(), **kw).collect()
+
+
 def o_join(how):
     def g(l: OF, r: OF, p, schema_out):
         lo, ro = p
@@ -610,10 +627,10 @@ def o_join(how):
         lo, ro = [a for a, _ in pairs], [b for _, b in pairs]
         ldf, rdf = l.df(), r.df()
         if how in ("semi", "anti"):
-            res = ldf.join(rdf, left_on=list(lo), right_on=list(ro), how=how, maintain_order="left", nulls_equal=False)
+            res = _pjoin(ldf, rdf, left_on=list(lo), right_on=list(ro), how=how, maintain_order="left", nulls_equal=False)
             return OF(res.get_columns(), res.height)
-        res = ldf.join(rdf, left_on=list(lo), right_on=list(ro), how=how, maintain_order="left_right",
-                       nulls_equal=False, coalesce=True, suffix="_right")
+        res = _pjoin(ldf, rdf, left_on=list(lo), right_on=list(ro), how=how, maintain_order="left_right",
+                     nulls_equal=False, coalesce=True, suffix="_right")
         want = [n for n, _ in schema_out]
         if res.columns != want:
             raise Uncertain(f"join columns {res.columns} vs contract {want}")

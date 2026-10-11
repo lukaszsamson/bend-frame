@@ -3200,6 +3200,21 @@ evidence and the rule). Deviations from the plan text:
    group_by / join stages run flat; 16.8's `s` for q3 assumed a chunked group_by). The gate numbers are the
    orchestrator's on a quiet machine (bench/w5/scale/t53b.py).
 
+### G1 finding d1588 (differential oracle: Polars' eager join drops NaN matches under the sorted flag)
+
+`make diff-chunked` seed 1 (Raw, n = 2000) reported one T2.2 finding: a self inner join on an f32 NaN key where
+every bend-frame engine answered the joined rows and the oracle answered 0. Not an engine defect and not a
+contract departure: the oracle's own call was wrong. Polars 2.0.0's EAGER `DataFrame.join` of an f32 key takes a
+sorted-merge path when a key Series carries the hidden SORTED_ASC flag (always set on a 1-row Series; also set
+on a column that came out of a sort or of a join, as d1588's `c` did), and that path compares with IEEE `==`:
+NaN never matches NaN (`pl.DataFrame({'c': [nan]})` joined with itself: eager 0 rows, `.lazy().collect()` 1 row;
+`[1, 2, nan, nan]` sorted, self join: eager 2 rows, lazy 6). The lazy engine (default and streaming) gives the
+contract's answer (15.5.2, "every NaN one key") for every flag state; a seeded fuzz of NaN / +-0.0 / +-inf / null
+keys through inner / left / semi / anti found no lazy deviation (322 eager ones). `unique`, `group_by`,
+`n_unique` and `sort` were fuzzed the same way and are flag independent. The contract is unchanged (it matches
+Polars' lazy semantics); `bench/diff/oracle.py` now joins through the lazy engine (`_pjoin`), and
+`bench/diff/tests/test_oracle_join.py` plus `tests/diff/d0011-d0013.bend` pin the answers.
+
 ## 15. v0.1 contract (frozen)
 
 The exact semantics every M1-M6 agent codes and tests against. Tables over prose;

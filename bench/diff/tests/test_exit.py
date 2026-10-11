@@ -144,6 +144,9 @@ def main():
     for kind in reduce_mod.DEFECT_KINDS + ("infra", "a-kind-added-later"):
         expect(f"reduce.py finding {kind}", drive_reduce(finding_kind=kind), 1)
     expect("reduce.py crash", drive_reduce(crash=True), 1)
+    import test_oracle_join  # the oracle's joins against the brute-force contract (d1588)
+    if test_oracle_join.main() != 0:
+        FAILS.append("test_oracle_join")
     if FAILS:
         print(f"\ntest_exit: {len(FAILS)} FAILED: {FAILS}")
         return 1

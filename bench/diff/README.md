@@ -129,6 +129,10 @@ run with Bend's message (it does not bisect).
   more (classified NEW-2); the generator can produce them from low-cardinality keys.
 * F32 literals are written as shortest decimals; the oracle trusts Bend's literal parser to round
   like numpy (a double rounding could differ in a last bit for exotic literals; the pools avoid them).
+* The oracle joins through Polars' lazy engine: Polars 2.0.0's eager `DataFrame.join` of an f32 key loses NaN
+  matches whenever a key Series carries the hidden sorted flag (a 1-row Series, or a column out of a sort / join);
+  the lazy engine does not. `tests/test_oracle_join.py` (run by `test_exit.py`, so by `make diff-driver-check`)
+  pins this against a brute-force reference (finding d1588, tests/diff/d0011-d0013.bend; DESIGN.md 14).
 * The oracle takes -0.0 = 0.0 ties from the contract, not from Polars (Polars orders -0.0 first in a
   sort), and reductions over a scalar argument (`lit(1).sum()` is 1) as Polars does.
 * T2.3 (reductions against an exact reference) is a separate driver, `reduce.py` (below), not part of the program generator.
