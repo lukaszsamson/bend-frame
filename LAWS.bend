@@ -3384,3 +3384,76 @@ law fuse_same:
   for +op: X.BinOp
   for +rest: List<&2, V.Instr>
   {V.Eval.fz.step(V.FzS{out, V.ICol{n} <> V.IMove{n} <> V.IBin{op} <> rest}) == V.FzS{V.ICol{n} <> out, V.IMove{n} <> V.IBin{op} <> rest} : V.FzS}
+
+# ---- F3: a total cast folded into the zip ------------------------------------------------------------
+
+# LAW (F3 fires, the operands back): f32(a) * b over a dense u32 and a dense f32 column is ONE zipb loop
+# with Eval.cast.u's U32.to_f32 composed in front of Eval.zip.fa's product, both columns handed back
+law peep_f3_back:
+  for +n: U32
+  for +d: Nat
+  for +d2: Nat
+  for a: Array<U32>
+  for b: Array<F32>
+  {V.Eval.fz.z2(X.Mul{}, V.PCast{D.TF32{}}, V.PNone{}, C.CU32{n, d, C.AllValid{}, a}, C.CF32{n, d2, C.AllValid{}, b}) == V.Z2R{Some{C.CF32{n, d, C.AllValid{}, zb_o(U32, F32, F32, K.Kernel.zipb(~U32, ~F32, ~F32, ~(x => y => F32.mul(U32.to_f32(x), y)), n, d, a, b, 0.0))}}, C.CU32{n, d, C.AllValid{}, a}, C.CF32{n, d2, C.AllValid{}, b}} : V.Z2R}
+
+# LAW (F3 against v0.1's two passes): the fused cell is Eval.bin's product over Eval.cast's column (the
+# cast's rounding, then the product's: no reassociation, no FMA)
+law peep_f3:
+  for +n: U32
+  for +d: Nat
+  for +d2: Nat
+  for a: Array<U32>
+  for b: Array<F32>
+  for +k: U32
+  for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for +hk: {U32.is_lt(k, n) == True{} : Bool}
+  {ccell(z2_col(V.Eval.fz.z2(X.Mul{}, V.PCast{D.TF32{}}, V.PNone{}, C.CU32{n, d, C.AllValid{}, a}, C.CF32{n, d2, C.AllValid{}, b})), k) == ccell(res_col(V.Eval.bin(X.Mul{}, res_col(V.Eval.cast(D.TF32{}, C.CU32{n, d, C.AllValid{}, a})), C.CF32{n, d2, C.AllValid{}, b})), k) : D.Scalar}
+
+# ---- F5: the filter predicate's mask and kept count in one loop (Eval.f5.c) ----------------------------
+
+def f5r_m(r: V.F5R) -> Array<U32>:
+  match r:
+    case V.F5R{ok, m, k, a, va, c}:
+      m
+
+def f5r_k(r: V.F5R) -> U32:
+  match r:
+    case V.F5R{ok, m, k, a, va, c}:
+      k
+
+# LAW (F5 fires on q1's pass, the operands back): `ok & (qty > lit)` over a dense bool column's words
+# (the mask so far) and a dense u32 column is one pred_count loop with Eval.zip.u's Gt template; the
+# words, the ones array and the column come back unchanged
+law peep_f5_back:
+  for +n: U32
+  for +d: Nat
+  for ok: Array<U32>
+  for q: Array<U32>
+  for +lit: U32
+  {V.Eval.f5.c(X.Gt{}, ok, V.Eval.fz.ones(), C.CU32{n, d, C.AllValid{}, q}, D.SU32{lit}) == V.F5R{True{}, pc_m(U32, U32, K.Kernel.pred_count(~U32, ~U32, ~U32, ~(p => x => y => U32.and(x, Bool.to_u32(U32.is_gt(y, p)))), n, d, lit, ok, V.Eval.fz.ones(), q, V.Eval.fz.ones())), pc_k(U32, U32, K.Kernel.pred_count(~U32, ~U32, ~U32, ~(p => x => y => U32.and(x, Bool.to_u32(U32.is_gt(y, p)))), n, d, lit, ok, V.Eval.fz.ones(), q, V.Eval.fz.ones())), ok, V.Eval.fz.ones(), C.CU32{n, d, C.AllValid{}, q}} : V.F5R}
+
+# LAW (F5 against v0.1's mask): row i of the fused mask is row i of the mask v0.1's filter computes
+# for `ok & (qty > lit)` over the same dense columns: Eval.pred of Eval.bin(And, ok, Eval.bin(Gt, qty,
+# the literal's broadcast column))
+law peep_f5_cell:
+  for +n: U32
+  for +d: Nat
+  for ok: Array<U32>
+  for q: Array<U32>
+  for +lit: U32
+  for +i: U32
+  for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for +hi: {U32.is_lt(i, n) == True{} : Bool}
+  {rd_at(U32, f5r_m(V.Eval.f5.c(X.Gt{}, ok, V.Eval.fz.ones(), C.CU32{n, d, C.AllValid{}, q}, D.SU32{lit})), i) == rd_at(U32, Pair.fst(Array<U32>, U32, V.Eval.pred(res_col(V.Eval.bin(X.And{}, C.CBool{n, d, C.AllValid{}, ok}, res_col(V.Eval.bin(X.Gt{}, C.CU32{n, d, C.AllValid{}, q}, V.Eval.const_col(D.SU32{lit}, D.TU32{}, n))))))), i) : U32}
+
+# LAW (F5's count): the kept count of the pass is Kernel.popcount of its mask (what v0.1 computes from
+# its mask; the two masks agree at every row below n: peep_f5_cell)
+law peep_f5_count:
+  for +n: U32
+  for +d: Nat
+  for ok: Array<U32>
+  for q: Array<U32>
+  for +lit: U32
+  for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  {f5r_k(V.Eval.f5.c(X.Gt{}, ok, V.Eval.fz.ones(), C.CU32{n, d, C.AllValid{}, q}, D.SU32{lit})) == Pair.snd(Array<U32>, U32, K.Kernel.popcount(n, f5r_m(V.Eval.f5.c(X.Gt{}, ok, V.Eval.fz.ones(), C.CU32{n, d, C.AllValid{}, q}, D.SU32{lit})))) : U32}
