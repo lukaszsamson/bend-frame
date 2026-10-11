@@ -1123,6 +1123,46 @@ Head above a Select/WithColumns, tests/plan_release_bench.bend); against `optimi
 pushdown it is 4-5 ms on q1 and q5 at 1M rows and nothing elsewhere (bench/README.md
 "optimize_full vs the default optimizer").
 
+### 8.2 v0.2 assurance status (W8 close; plan M_02 G5 and section 4)
+
+The v0.1 chain above is unchanged: no law was weakened, dropped or turned into a hypothesis, `release_run` still speaks
+about `Exec.run_pure`, and the dictionary hypotheses (`Probe`, `EncProbe`, `MergeProbe`, `FindProbe`) stay conditional.
+v0.2 added 82 laws (149 -> 231: `range_cell` at W1f, then 81 in sections 16-22) and 78
+in-place mutation controls (14 -> 92, every one caught by `bend PROOF.bend`, the unmutated copy accepted). `make proofs`
+and `make verdict` print ALL PROOFS CHECK on the W8 tree (plans/STATUS.md "W8"). Per v0.2 law section:
+
+| LAWS section (PROOF file) | laws | production functions they pin | hypotheses / not claimed | controls |
+|---|---:|---|---|---:|
+| W1f slice (`PROOF_contents`) | 1 | `range_cell`: `Kernel.range`, `Valid.range`; v0.1's `slice_cell_u32` re-proven over the range copy that replaced iota + gather in `Column.slice` | U32 instance (`range_tcell` is generic, stated at U32) | 3 |
+| 16 Moves (`PROOF_moves`; T3.1) | 5 | `Frame.lend` / `Frame.replace` observe as `Frame.get_cloned`; `Eval.mark` / the compile's moves never move a column a later expression reads | unique names; the moves of the liveness pass only, not every borrow helper of later tasks | 4 |
+| 17 Sort + Head (`PROOF_sorthead`; T3.4) | 4 | `Sort.frame_head` (the bounded gather) = `Sort.frame` then `Frame.head`; `Exec.run_phys` (`run_phys_obs`) and `collect_obs`: the physical runner `collect` executes observes as `Exec.run_pure` | the argsort itself is tested only (item 7 above): the law is "same permutation, fewer rows gathered" | 4 |
+| 18 Fused kernels (`PROOF_fused`; T4.1) | 17 | `Kernel.map_pb`, `zipb`, `zipv`, `pred_count`, `compact3` / `compact4` (each equal to the unfused kernels or cell by cell) | `n <= 2^d`; `CRoom` for the compactions (derived per leaf by `croom_of_cap`, section 21) | 20 |
+| 19 Fusion peepholes (`PROOF_peep`; T4.2) | 25 | `Eval.fuse` / `Eval.fz.*` / `Eval.f5.*` (F1-F5): each fused evaluation equals `Eval.bin` / `Eval.fill` / the filter mask of the unfused evaluator; F4 is proven NOT a no-op on validity | the peephole selectors as written; Kleene and / or and fallible casts are not fused (F7) | 17 |
+| 20 Filter + Select (`PROOF_filtsel`; T4.3 / T4.4) | 5 | `Exec.fc` / `Exec.fs` (the physical Filter + plain Select step) against `Frame.filter_mask` then `Exec.select`, and `filter_select_run` over `Exec.run_pure` | the predicate's own mask and count are `Eval.filter.mask`'s (shared by both sides, so not an independent control) | 6 |
+| 21 Chunk trees (`PROOF_chunks`; T5.1) | 11 | `src/chunks.bend`: `CW.of` / `flatten` round trip, `concat`, `rechunk`, `head`, the lockstep `fits` walk, `Ch.rng`, `cmap` congruence; `croom_of_cap` DISCHARGES section 11's `CRoom` at a leaf | stated on the word tree `CW` (Bool / U32 / I32 / masks / codes); `CW.drop` / `CW.slice` and the F32 (`CF`) / Raw-string (`CS`) trees tested only | 12 |
+| 22 Chunked wrappers (`PROOF_ckernels`; T5.2) | 14 | `src/ckernels.bend` (generated): map / map_p / zip / zipb / zipv / pred_count / compact3 / fold / min / max wrappers are leafwise the flat kernels; `ck_sum` (U32 tree sum) | the instances stated (BendTT refuses a quantified cell type); the F32 in-order walk is tested only | 12 |
+
+Tested only in v0.2 (in addition to the numbered list above, which still holds; each is covered by the named
+differential and tests, not by a law):
+
+- **The chunked runner** (`src/cexec.bend`, item 10 above): no theorem relates `Exec.run_with(Chunked{g}, ..)` to
+  `Exec.run_pure`. Evidence: the G1 differential (`make diff-chunked`, `make diff-smoke`: every generated case by the
+  reference and by the chunked engine at grains 2^0 / 2^2 / 2^4 / 2^14, exactly), tests/cexec_*.bend. Its leaves call
+  proven code (the evaluator, `Exec.fc`, the section 21 / 22 wrappers).
+- **The v0.2 CSV reader** (`src/csvprod.bend` producer, `src/csvlane.bend` tokenizer and typed loops, the header step,
+  inference, combine, dictionary merge and chunk build in `src/csv.bend` `Csv.v2.*`): tested only, as the v0.1 reader
+  is (item 6). Evidence: every CSV test against the v0.1 reader, the W6.4 fuzz (10,000 cases x 7 piece sizes + two chunk
+  reads per case; `make csv-fuzz-smoke` in ci) and the adversarial corpus. It is the DEFAULT since W8 (section 14 "W8").
+- **The flat string coder and the rank stage** (`src/hcode.bend` `Hc.*`, `src/ranks.bend` `Rk.*`, the join's packed
+  table `Hc.code.pk` / `Hc.find.pk`): tested only, as the Base-Map coder they replace; the coder's probe hypothesis is
+  stated in the file header, not a law. Evidence: bench/w2 differential (every shape, forced collisions), tests.
+- **The radix sort pipeline** (`src/radix.bend`, `Sort.*` after T3.2: one scan pass, sorted skip, ping-pong), the
+  n_unique radix + run count (W1b), describe's fused pass and its column fork (W1c, T5.4), group_by's moves and one-pass
+  key (T3.3, T5.4b), the unboxed `R{v, ok}` maps (W1d: `Kernel.map_r` / `zip_r`), the balanced list forks
+  (`Lst.pmap.t`, `Sort.pm.t`): tested only (bench-check goldens, the differential, `make diff-reduce` for F32).
+- **Parallel execution itself**: the native runtime's scheduler is outside every law (as in v0.1); `make fork-audit`
+  is a static shape check (16.10), not a correctness argument.
+
 
 ## 9. Idiom checklist for implementers (copy into every module's header)
 
@@ -3381,6 +3421,41 @@ exec term and no law changed (LAWS.bend / PROOF*.bend name no `CX.*` def). Decis
    (exact): q1's compute 52,365 -> 12,212 allocations (reference 1,116), q2 88,924 -> 28,366 (1,626), filter
    67,016 -> 19,322 (634); per leaf q1 922 -> 160, q2 1,505 -> 410, filter 1,251 -> 279.
 
+### W8: the v0.2 reader is the default (D7: the flip, separate from any removal)
+
+No change of the data contract (section 15): the v0.2 reader answers v0.1's frame or error on every input tested.
+What changed, and only this: `Csv.read_enc` / `Csv.read_with` / `Csv.read` (so `read_csv`, `read_csv_opts`,
+`read_csv_schema`, `read_csv_enc`) and the scans of `Exec.run` / `Lazy.collect` / `collect_raw` / `Exec.run_with`
+(both engines) read with `Csv.engine_default()` = `CsvV02{P.Pr.piece()}`. Nothing was removed: the v0.1 reader is
+`Csv.read_full` / `Csv.read_enc_v01`, selectable as `csv_engine_v01()` (`read_csv_engine`, `collect_engine`,
+`Lazy.collect_with_rd`), and stays the pinned reference of tests/coverage/csv_engine.bend, tests/lib/v02cmp.bend (every
+csv_v02_* test) and the CSV fuzz (bench/diff/csvfuzz.bend reads with `Csv.read_full`). The v0.2 reader's own fall back
+for a non-ASCII separator still calls the v0.1 reader. Removal is a later explicit gate (M_02 D7: a stabilization
+period, two independently reproduced full gate runs with the new default, a reproducible final baseline run).
+
+1. **Justification (G1 for the reader, exact)**: every CSV test (tests/csv*, tests/coverage/csv_*, the B02 regressions)
+   with the v0.1 reader as reference; the W6.4 fuzz, 10,000 cases x 7 piece sizes (1, 2, 3, 7, 64, 4096, the default)
+   plus the two chunk-mode reads per case, and the adversarial corpus (W0 tools/adv.py, promoted); `make test` 203/203 with
+   the default flipped (every test that reads a CSV through the default now runs the v0.2 reader against unchanged
+   expectations). Performance (PROVISIONAL, shared machine; W6.3 / W6.6 put it at ~0.68 s against ~5.3 s and ~200-250 MB
+   against ~1.3 GB; the W8 run, plans/GATES_V02.md, load 1.4-5.8): 41 MB parse 632 ms against 3,966 ms for the baseline
+   (3,911 ms for the v0.1 reader on the same candidate) at 1 thread, 334 against 1,814 ms at 12; peak RSS of the 1M q1-q6
+   runs 190-314 MB against 1,315-1,346 MB (G4's 600 MB met; RSS does not depend on load). The flip precedes the
+   evaluation of G2 / G3 (unevaluated: no quiet machine), a deviation from D7's "opt-in until G1-G6 pass", taken on the
+   orchestrator's instruction for the reader only.
+2. **The chunked ENGINE stays opt-in** (`engine_chunked()`; `Exec.run` / `collect` keep the reference executor). It is
+   exact (G1) but helps only some workloads: scan-fed row-wise pipelines (filter / with_columns / row-wise select over a
+   scan_csv, where the reader builds the leaves: W6.6) and multi-threaded runs of them (q1 / q2 / filter 4.0x / 3.8x / 5.9x at 12
+   vs 1 thread on pre-chunked inputs, W8 run F; T5.5 had 3.75-5.6x). It does not help eager env frames (each flat Source pays a conversion in and
+   the result one out: q1 / q2 3-5x slower than the reference end to end of compute, T5.3) nor q3 / q4 / q5 / q6, whose
+   heavy stages (group_by, sort, join, describe) run flat behind the boundary (q3 / q5 1.3-1.4x at 12 threads). G2 is not
+   met across q1-q6 (plans/GATES_V02.md), so the engine default does not flip in v0.2.
+3. **scan_csv's plan-time schema inference** (`Csv.scan_fields`, the bounded prefix) is unchanged and shared by both
+   readers; with `infer_rows = 0` it reads the whole file with the v0.1 prefix scanner at plan time (as v0.1 did).
+4. **bench/m2**: `BF_ENGINE` without a reader token now reads with the default (v0.2) reader on the candidate; the new
+   token `v01` selects the v0.1 reader (bench/m2/engine.bend); `run.py run --engine` defaults to `reference`; `make m2-g6`
+   runs the candidate as `v01` / `reference` / `v02,chunked`. The baseline binary (3612482) ignores `BF_ENGINE` as before.
+
 ## 15. v0.1 contract (frozen)
 
 The exact semantics every M1-M6 agent codes and tests against. Tables over prose;
@@ -4578,6 +4653,41 @@ def the audit changed, `CBs.feed` (the v0.1 sink's column fork, one fork per chu
 noise: the heaviest column is one unit of 1.1-1.7 s, so the chunk is bounded by its biggest column, not by the
 shape of the fork).
 
+### 16.11 As built at W8 (summary; the deviations are section 14's v0.2 entries, the numbers plans/GATES_V02.md)
+
+What of 16.0-16.10 exists in the 0.2.0 tree, and where it differs from the design:
+
+- **D1 owned chunks**: `src/chunks.bend` (T5.1: the word / F32 / Raw-string trees, WFChunks, the binary-counter
+  builder, flatten, concat, head / slice by cutting, the occupancy rechunk, the lockstep `fits` walk; LAWS 21), the
+  chunked kernel wrappers `src/ckernels.bend` (T5.2, generated; LAWS 22) and the chunked runner `src/cexec.bend` (T5.3)
+  behind `Engine`. As designed: row-wise operators keep aligned leaves, compaction per leaf into the same capacity
+  (`croom_of_cap` discharges `CRoom` there), sort / join / group_by / unique / n_unique flat behind a boundary. Differs:
+  conversions are LAZY (where an operator needs the other representation, only the columns it reads; T5.3 item 1),
+  group_by runs flat (no chunked codes / count / max: T5.3 item 3), errors come from a flat rerun (item 2), the rechunk
+  runs when the next walk reads a frame (item 5), and the reader builds the leaves of a scan whose consumer is row-wise
+  (W6.6: `CMChk{g}`); the facade takes no `CFrame`, so a chunked result is flattened once at the end.
+- **D2 ownership**: the liveness pass moves single-reference columns and borrows where a kernel hands the buffer back
+  (T3.1, LAWS 16); group_by moves dead aggregation inputs and codes its key without a copy (T3.3, T5.4b); the join copies
+  its table only at a split (W1a), describe borrows (W1c). Rule 2 as designed: kernels allocate fresh outputs.
+- **D3 fusion**: F1-F6 kernels (T4.1, LAWS 18), the evaluator peepholes F1-F5 (T4.2, LAWS 19), F8 Filter + plain
+  Select at the plan root (T4.3 / T4.4, LAWS 20), F7 not fused (as designed), F9 as the chunked runner's with_columns
+  walk over the columns its expressions read (T5.5). Fusion is ON in the default (reference) executor: it is part of
+  `Exec.run` / `Eval.*`, proven per kernel, not behind the engine flag.
+- **D4 reductions**: U32 sum / count / popcount / min / max tree-reduce over chunks (LAWS 22 `ck_sum`, `ck_min`,
+  `ck_max`); F32 sums stay one sequential Neumaier pass in row order everywhere (the 16.4 walk anomaly was a fork-shape
+  effect, T5.2 item 1). The coarse forks: describe's column fork is kept (T5.4, from 2^16 rows); the 2x2 group_by
+  aggregate fork, the column-gather fork after a sort and the fused group_by scatter were built, measured and REMOVED
+  (T5.4 items 3-4, T5.4b item 3): no gain on this runtime.
+- **D7 selector**: `Engine = Reference{} | Chunked{g}` and the reader selector `CsvEngine = CsvV01{} | CsvV02{piece}`.
+  W8 flipped the READER default only (section 14 "W8"); the chunked ENGINE stays opt-in because G2 is not met across
+  q1-q6 (it scales the row-wise queries, not the ones whose heavy stage runs flat). The reference executor and the v0.1
+  reader are kept as the pinned references; removal is a later explicit gate.
+- **16.10 the scheduler shape rule**: found by the scaling diagnosis, fixed in `Lst.pmap`, `Sort.pm` and the runner's
+  walks, then audited over every parallel let (`make fork-audit`, part of `make ci`: 68 parallel lets in 28 files, no
+  finding, every call task inside a forking def on the allowlist with its reason).
+- **16.8 thresholds**: proposed at W0, never frozen on a quiet machine (no quiet window occurred); plans/GATES_V02.md
+  reports every cell against them, provisionally, and leaves the timing gates unevaluated (M_02 section 5).
+
 ## 17. v0.2 performance design (strings and reader)
 
 Work package W0 of plans/M_02.txt, design decisions **D5 (strings)** and **D6 (reader)**. The
@@ -5195,3 +5305,28 @@ a third case in the storage proofs (M4 chose a sum type to avoid a sixth Column 
 high-cardinality column, RSS) outside 17.8 after W2 / W6; the distinct-key cells are met with the
 coder alone. If scheduled, scope it to "reader-produced flat Raw columns, decoded at the API
 boundary", measured against the per-region Raw decode of 17.4.7.
+
+### 17.12 As built at W8 (summary; the deviations are section 14's v0.2 entries, the numbers plans/GATES_V02.md)
+
+- **D5 strings**: the flat distinct-key coder `src/hcode.bend` (W2.1; FNV-1a over packed code points, a presized table
+  of hashes / representative row + 1 / id, sequential insertion = first-appearance ids, hash hits compared against the
+  actual strings) and the lexical rank stage `src/ranks.bend` (W2.2, radix refinement; W2 pk ranks read the coder's
+  packed code points) are wired into group_by / unique / Raw n_unique / Raw sort words / `Dict.ranks`' callers (W2.3:
+  the Base-Map coder, `pcodes`, `pmerge`, `kbc` deleted) and the join's string table (W2.4: the packed table, a
+  sequential borrowed probe; `Probe.fork` / `Dict.clone` removed). Not done (optional in 17.7): W2.5 owned-partition
+  coder, W2.6 the Dict index on flat arrays (so LAWS section 14 and its probe hypotheses are unchanged). Tested only, as
+  the code they replace (8.2).
+- **D6 reader**: the sequential producer `src/csvprod.bend` (W6.1: 240 KiB pieces (`Pr.piece` = 245,760 bytes) by `File.read_at`, packed bytes,
+  regions at record boundaries found by the global quote state in the same walk, physical line counts), the lane
+  `src/csvlane.bend` (W6.2: a generated one-def tokenizer and typed loops, cold private records) and the integration
+  `Csv.v2.*` in src/csv.bend (W6.3: header step, inference by classification, ONE balanced fork of lanes, the combine in
+  region order with v0.1's error precedence, the dictionary merge with EncAuto's early stop, the balanced column fork).
+  The fuzz (W6.4: 10,000 cases x 7 piece sizes, `make csv-fuzz-smoke` in ci) and the chunk hand-off (W6.6) followed;
+  W8 made it the default (section 14 "W8"). Differs from 17.4: the producer is serial by platform fact (17.10 item 1:
+  the File API answers cons lists on the IO thread), so the parse's 12-vs-1 ratio is bounded near 2x end to end while
+  the fork phase itself scales ~5x (16.10 "Fork audit"); a non-ASCII separator falls back to the v0.1 reader.
+- **W7 (flat string storage, SFlat)**: not scheduled (17.11's recommendation held: the distinct-key cells are met by the
+  coder); deferred past v0.2.
+- **17.8 thresholds**: proposed at W0 (the parse G2 revision to ">= 2x end to end and >= 4x on the fork phase" is
+  recorded in 17.8 / 17.10 item 1 and section 14 "v0.2 W0 strings / reader" item 1); never frozen on a quiet machine.
+  plans/GATES_V02.md reports every cell against both the M_02 and the 17.8 value, provisionally.

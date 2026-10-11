@@ -359,3 +359,58 @@ Baseline: 3612482 (v0.1 RC). The v0.1 data contract (DESIGN §15) does not chang
   12-vs-1 filter 4.0x, q2 3.0x, q1 2.6x (1.25 ms floor), q3/q5 1.3x (flat group_by/join bound).
   Rule added to the agent brief. Running: fork audit of every parallel let; d1588 (NaN join
   key: engines 1 row, Polars oracle 0) investigation.
+- Merged since: fork audit (`make fork-audit` in ci), W6.6 (the reader builds the chunked engine's leaves), T5.5 (compile once
+  per walk, one-walk F5 filter: q1 3.75x, q2 4.1x, filter 5.6x at 12 thr on pre-chunked inputs).
+
+## W8 / W6.5 close (2026-10-11; branch worktree-agent-ab30c98dc1d896930)
+- **Default flip (D7, its own commit 3b57c14)**: the v0.2 CSV reader is the default of every `read_csv*` and of scan_csv's
+  collect (`Csv.engine_default()`); the v0.1 reader stays selectable (`csv_engine_v01()`) and is the pinned reference of the
+  CSV tests and fuzz; the chunked ENGINE stays opt-in (G2 not met on q3-q5). Nothing removed. DESIGN 14 "W8".
+- **Gate report**: plans/GATES_V02.md. The host was never quiet (load before each run 2.4-3.7, during 1.4-5.8), so every
+  timing is PROVISIONAL and G2 / G3 are UNEVALUATED (M_02 section 5). Evaluated: G1 met, G4 met (frozen 1M workload:
+  190-314 MB vs 600), G5 met, G6 met. Provisionally not met: G2 q3 1.37x / q4 ~1.0x / q5 1.38x / parse 1.89x (also against
+  the W0 proposals 2x / 1.3x / 1.5x / 2x); G3 1k controls q3 1.57x and q5 1.25x of v0.1 (a fixed compute cost, either reader).
+  Provisionally met: G2 q1 4.0x, q2 3.8x, filter 5.9x (pre-chunked), q6 3.1x; every G3 1M / distinct-string / parse cell.
+- **G1 runs on the W8 tree** (fresh seeds, all exit 0, 0 failing / 0 crashes / 0 oracle errors): `make diff` 8001 (Raw) and
+  8002 (Dict) x 2000 with `--strict --chunked`; `make diff-chunked SEED=8011` (5000); deep + joinstress 8021 / 8022 x 1000;
+  `--backend both --chunked` 8031 x 500 (interpreter vs native); `make csv-fuzz SEED=8041 N=5000` (44,936 reads); `make
+  diff-reduce SEED=8051 REDUCE_N=2000` (no finding).
+- **make ci on the flip commit 3b57c14**: exit 0, "ci: all gates passed", 13 min 29 s wall (load 4-8): test 203/203, 92/92
+  mutations, csv-fuzz-smoke 2 x 1500, fork-audit (68 parallel lets, 0 findings), consumer-check, coverage 762/54/0.
+  On the final tree (docs and results only after 4cf2e52): **make ci at 3a2c3da: exit 0, "ci: all gates passed", 13 min 56 s
+  wall** (load 4.7 before, 7-10 during): test 203/203 (0 XFAIL), proofs + verdict ALL PROOFS CHECK, mutation-check 92/92,
+  bench-check, diff-smoke (Raw + Dict with --chunked, reduce), csv-fuzz-smoke 2 x 1500 (13,488 / 13,492 reads), fork-audit
+  (68 parallel lets, 0 findings; 14 call tasks, 0 new, 0 stale), consumer-check (clone 3a2c3da), coverage 762/54/0. This
+  STATUS line is the only change after it.
+
+### v0.2 definition of done (M_02 sections 0 and 3), checked against the repo
+- [x] **G1 correctness**: make ci green; reference vs chunked executor on Raw, Dictionary, deep, joinstress (11,000 fresh cases
+  at W8, 13k+ at T5.3); CSV v0.2 vs v0.1 (10,000 x 7 pieces at W6.4, 5,000 at W8); interpreter vs native (500); >= 10,000
+  release cases; F32 bit-equal (2,499 m2 results hashed against the frozen baseline; diff-reduce clean). No new tolerance.
+- [ ] **G2 scaling**: UNEVALUATED (no quiet machine). Provisionally met for q1 / q2 / filter (chunked inputs) and q6;
+  provisionally NOT met for q3, q4, q5 and the parse, against M_02 and against the W0 proposals (16.8 / 17.8).
+- [ ] **G3 one-thread targets**: UNEVALUATED. Provisionally met: q1 3, q2 3, q3 12 (at the limit; 10.1 batched), q4 13, q6
+  49 ms, q5 faster, n_unique 16 ms, distinct-string group_by / unique / join 125 / 126 / 356 ms, parse 632 / 334 ms. NOT met:
+  the 1k controls of q3 (1.57x) and q5 (1.25x). Not measured at W8: the rank stage alone, the 1M-distinct str column read.
+- [x] **G4 memory**: 190-314 MB peak on the frozen 1M q1-q6 workload (phases and e2e, 1-12 threads, both engines); parse
+  216-253 MB. Reported, above 600 MB: the 1M distinct-string group_by / unique (~630 MB) and join (~1.03 GB).
+- [x] **G5 proofs**: 231 laws, ALL PROOFS CHECK under bend and --verdict, 92 mutation controls; no @unsafe; the tested-only list
+  is DESIGN 8.2; Dictionary hypotheses unchanged.
+- [x] **G6 phase / copy report**: phases separate in every m2 record; `make m2-g6` exact counts (compute-phase copies q1-q6:
+  0 vs 8-105 MB at the baseline; W3's ">= 50% fewer clone bytes on q1-q5" met at 100%).
+- [x] **W0** harness, spikes, DESIGN 16 / 17. [x] **W1** a-g (W1g as T3.4). [x] **W2** 2.1-2.4 (2.5 / 2.6 optional, not done).
+  [x] **W3** T3.1-T3.4. [x] **W4** T4.1-T4.4. [x] **W5** T5.1-T5.5 + the scaling diagnosis and fork audit (G2 partly).
+  [x] **W6** 6.1-6.4, 6.6; 6.5 = this close. [ ] **W7** SFlat: deferred (DESIGN 17.11 recommendation held).
+  [~] **W8**: full table at 1/4/12 threads re-measured (provisional), docs updated (README, CHANGELOG 0.2.0, bench READMEs,
+  DESIGN 8.2 / 14 / 16.11 / 17.12, IMPLEMENTING "W8"), consumer + mutation checks green; NOT done: a quiet-machine gate run
+  (twice, per D7, before any removal), hosted platforms (no remote; Linux never run). No publish.
+- [x] **D7**: selectors in place; reader default flipped separately from removal; reference executor and v0.1 reader kept;
+  removal NOT done (a later explicit gate). Deviation: the reader flip precedes G2 / G3 evaluation (GATES_V02 "D7").
+- [x] **The v0.1 data contract (DESIGN 15) is unchanged.**
+
+### Open after W8 (would block calling v0.2 "done" on the gates)
+1. A quiet-machine gate run of bench/m2/README "W8: reproducing the gate report" (twice before any removal, per D7).
+2. G2 for q3 / q4 / q5 / parse: accept as documented limits (README, CHANGELOG) or schedule a chunked group_by / partitioned
+   sort; the parse needs a File API that reads into a flat buffer (DESIGN 17.10 item 1).
+3. Freeze (or restate) the 16.8 / 17.8 thresholds formally.
+4. The 1k q3 / q5 control regression (~0.1 ms per query in the compute path, independent of the reader): diagnose.

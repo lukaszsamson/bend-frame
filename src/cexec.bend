@@ -3656,8 +3656,10 @@ def Exec.run_with_rd(+csv: R.CsvEngine, +eng: Engine, +p: P.Plan, env: P.Env) ->
     case Chunked{g}:
       Exec.run_with.c(g, csv, p, env)
 
+# the scans by the default reader engine (R.Csv.engine_default: v0.2 since W8; with Chunked{g} its scans
+# hand their chunk leaves to the chunked runner, W6.6)
 def Exec.run_with(+eng: Engine, +p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
-  Exec.run_with_rd(R.CsvV01{}, eng, p, env)
+  Exec.run_with_rd(R.Csv.engine_default(), eng, p, env)
 
 # Lazy.collect by the engine (the release optimizer, then Exec.run_with)
 def Lazy.collect_with(+eng: Engine, +p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):

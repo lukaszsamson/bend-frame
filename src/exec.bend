@@ -720,8 +720,8 @@ def Exec.run_phys(+p: P.Plan, env: P.Env) -> E.ResT(C.Frame):
 #
 # Every ScanCsv of a plan is read before anything runs: scan k (postfix order, the
 # order of Exec.compile and so of the runner's IScans) is read with Csv.read_with
-# (strict, the plan's dtypes; W6.3: by the reader engine `eng`, Csv.read_eng, v0.1 for
-# Exec.run / Lazy.collect, chosen by Exec.run_rd / Lazy.collect_rd) and its schema must
+# (strict, the plan's dtypes; W6.3: by the reader engine `eng`, Csv.read_eng: the default engine,
+# v0.2 since W8, for Exec.run / Lazy.collect, chosen by Exec.run_rd / Lazy.collect_rd) and its schema must
 # equal the plan's (Exec.mat). The
 # frames are put, in that order, in env's scan namespace (P.Env.set_scans), which no
 # Source name can reach: scans have no names (DESIGN.md 14 "v0.1 review: scan source
@@ -865,11 +865,13 @@ def Exec.run.k(r: E.Res(List<&2, S.Field>), +p: P.Plan, env: P.Env, +eng: R.CsvE
 # boundary) into env's scan namespace; then the physical runner (Exec.run_phys:
 # Exec.run_pure with the Sort + Head and Filter + Select steps at the root) on the plan as it is. env is
 # consumed (frames the plan does not name are dropped).
+# The scans are read by the default reader engine (R.Csv.engine_default: the v0.2 reader since W8).
 def Exec.run(+p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
-  Exec.run.k(P.Plan.schema(p), p, env, R.CsvV01{})
+  Exec.run.k(P.Plan.schema(p), p, env, R.Csv.engine_default())
 
-# Exec.run with the scans read by the CSV reader engine eng (D7, W6.3: R.CsvV02{piece} opts in to
-# the v0.2 reader; the result is the same frame or error, DESIGN.md 17.4)
+# Exec.run with the scans read by the CSV reader engine eng (D7, W6.3: R.CsvV01{} selects the v0.1
+# reader, R.CsvV02{piece} the v0.2 reader at a piece size; the result is the same frame or error,
+# DESIGN.md 17.4)
 def Exec.run_rd(+eng: R.CsvEngine, +p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
   Exec.run.k(P.Plan.schema(p), p, env, eng)
 
