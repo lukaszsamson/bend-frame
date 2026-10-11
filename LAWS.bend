@@ -3488,3 +3488,26 @@ law peep_f2_mask:
   for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
   for +hk: {U32.is_lt(k, n) == True{} : Bool}
   {ccell(z2_col(V.Eval.fz.z2(X.Add{}, V.PNone{}, V.PNone{}, C.CU32{n, d, C.Mask{ma}, a}, C.CU32{n, d2, C.Mask{mb}, b})), k) == ccell(res_col(V.Eval.bin(X.Add{}, C.CU32{n, d, C.Mask{ma}, a}, C.CU32{n, d2, C.Mask{mb}, b})), k) : D.Scalar}
+
+# ---- F5's selector: the plan of a predicate (Eval.f5.plan, static: the schema's dtypes) ----------------
+
+def q1_schema() -> List<&2, S.Field>:
+  S.Field{"ok", D.TBool{}} <> S.Field{"qty", D.TU32{}} <> Nil{}
+
+# LAW (F5 fires on q1's predicate): `ok & (qty > lit)` over a bool `ok` and a u32 `qty` is ONE pass
+# (the bool column and the comparison in one pred_count loop)
+law peep_f5_plan:
+  for +lit: U32
+  {V.Eval.f5.plan(X.Bin{X.And{}, X.Col{"ok"}, X.Bin{X.Gt{}, X.Col{"qty"}, X.Lit{D.SU32{lit}}}}, q1_schema()) == Some{V.T5BC{"ok", X.Gt{}, "qty", D.SU32{lit}} <> Nil{}} : Maybe<&2, List<&2, V.P5>>}
+
+# LAW (Kleene `|` is not F5): `ok | (qty > lit)` keeps a row where one side is true and the other null,
+# which no conjunction of masks computes: no plan, the predicate is evaluated
+law peep_f5_or:
+  for +lit: U32
+  {V.Eval.f5.plan(X.Bin{X.Or{}, X.Col{"ok"}, X.Bin{X.Gt{}, X.Col{"qty"}, X.Lit{D.SU32{lit}}}}, q1_schema()) == None{} : Maybe<&2, List<&2, V.P5>>}
+
+# LAW (F5 needs the literal's dtype to be the column's): `ok & (qty > lit)` with an f32 literal
+# against the u32 column (refused by typing anyway) has no plan
+law peep_f5_dtype:
+  for +lit: F32
+  {V.Eval.f5.plan(X.Bin{X.And{}, X.Col{"ok"}, X.Bin{X.Gt{}, X.Col{"qty"}, X.Lit{D.SF32{lit}}}}, q1_schema()) == None{} : Maybe<&2, List<&2, V.P5>>}

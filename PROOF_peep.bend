@@ -333,3 +333,14 @@ def pf2m(+n: U32, +d: Nat, +d2: Nat, -a: Array<U32>, -ma: Array<U32>, -b: Array<
 
 def Laws.peep_f2_mask(n, d, d2, a, ma, b, mb, k, fits, hk):
   pf2m(n, d, d2, a, ma, b, mb, k, fits, hk, PF.clone3(U32, a), PF.clone3(U32, ma), PF.clone3(U32, b), PF.clone3(U32, mb))
+
+# ---- F5's selector -----------------------------------------------------------------------------------------
+
+def Laws.peep_f5_plan(lit):
+  {==}
+
+def Laws.peep_f5_or(lit):
+  {==}
+
+def Laws.peep_f5_dtype(lit):
+  {==}
