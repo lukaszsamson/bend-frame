@@ -1,0 +1,12 @@
+q1 eager v02 (env frame): {"op":"q1","chk":383004541,"stats":"conv_in 1 bytes_in 20000000 conv_out 1 bytes_out 2992272 walks 2 flat_ops 0"}
+q1 scan v02: {"op":"q1","chk":383004541,"stats":"conv_in 0 bytes_in 0 conv_out 1 bytes_out 2992272 walks 2 flat_ops 0"}
+q2 eager v02 (env frame): {"op":"q2","chk":1458363826,"stats":"conv_in 1 bytes_in 32000000 conv_out 1 bytes_out 36000000 walks 1 flat_ops 0"}
+q2 scan v02: {"op":"q2","chk":1458363826,"stats":"conv_in 0 bytes_in 0 conv_out 1 bytes_out 36000000 walks 1 flat_ops 0"}
+q3 eager v02 (env frame): {"op":"q3","chk":2441642363,"stats":"conv_in 1 bytes_in 32000000 conv_out 1 bytes_out 16000000 walks 1 flat_ops 2"}
+q3 scan v02: {"op":"q3","chk":2441642363,"stats":"conv_in 0 bytes_in 0 conv_out 1 bytes_out 16000000 walks 1 flat_ops 2"}
+q4 eager v02 (env frame): {"op":"q4","chk":996192388,"stats":"conv_in 0 bytes_in 0 conv_out 0 bytes_out 0 walks 0 flat_ops 1"}
+q4 scan v02: {"op":"q4","chk":996192388,"stats":"conv_in 0 bytes_in 0 conv_out 0 bytes_out 0 walks 0 flat_ops 1"}
+q5 eager v02 (env frame): {"op":"q5","chk":3210337892,"stats":"conv_in 0 bytes_in 0 conv_out 0 bytes_out 0 walks 0 flat_ops 3"}
+q5 scan v02: {"op":"q5","chk":3210337892,"stats":"conv_in 0 bytes_in 0 conv_out 0 bytes_out 0 walks 0 flat_ops 3"}
+filter eager v02 (env frame): {"op":"filter","chk":3357616475,"stats":"conv_in 1 bytes_in 32000000 conv_out 1 bytes_out 15985504 walks 2 flat_ops 0"}
+filter scan v02: {"op":"filter","chk":3357616475,"stats":"conv_in 0 bytes_in 0 conv_out 1 bytes_out 15985504 walks 2 flat_ops 0"}

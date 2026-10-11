@@ -17,7 +17,10 @@
 #     code behind a flatten boundary (to_frame once, forked across columns; group_by and select flatten only
 #     the columns they read); the output stays flat until a chunked operator needs chunks again;
 #   * a frame of at most 2^g rows from a Source runs exactly today's flat path: nothing is converted, no
-#     fork (a chunked frame of one leaf converts in O(columns): its buffers are moved).
+#     fork (a chunked frame of one leaf converts in O(columns): its buffers are moved);
+#   * (W6.6) a scan read by the v0.2 reader (Exec.run_with_rd(CsvV02{_}, ..)) arrives in the representation
+#     its consumer runs in (CX.want): chunk leaves built by the reader's combine (no of_frame) when that is a
+#     row-wise operator, else the flat frame (no to_frame); the frames ride in pre as PScan entries (CX.mat).
 #
 # Row-wise operators reuse the FLAT EVALUATOR at every leaf (V.Eval.full / V.Eval.pred / K.Kernel.popcount /
 # Q.Exec.fc on a leaf-sized C.Frame: every v0.1 semantic, the fused kernels and their laws at the leaf),
@@ -2376,9 +2379,11 @@ def CX.cat(+g: Nat, +i: U32, st: CStats, xl: XF, xr: XF) -> XR:
 
 # ==== the runner: Exec's postfix code over a stack of XF ====
 
-# a pre-chunked source (the benchmark's chunked inputs; W6 hands the reader's leaves over this way)
+# a pre-chunked source (the benchmark's chunked inputs), or (W6.6) a scan's frame as the v0.2 reader built
+# it: unnamed, in postfix order, taken by IScan (CX.pre.scan), never reached by a Source name
 type PNF is Type:
   PNF{name: String, f: CH.CFrame}
+  PScan{x: XF}
 
 type CSt is Type:
   CSt{env: P.Env, pre: List<&1, PNF>, st: CStats, r: E.ResT(List<&1, XF>)}
@@ -2448,6 +2453,10 @@ def CX.pre.k(eq: Bool, last: Bool, n: String, f: CH.CFrame, r: List<&1, PNF> & M
       (rest, m) = r
       (PNF{n, f} <> rest, m)
 
+def CX.pre.skip(x: XF, r: List<&1, PNF> & Maybe<&1, CH.CFrame>) -> List<&1, PNF> & Maybe<&1, CH.CFrame>:
+  (rest, m) = r
+  (PScan{x} <> rest, m)
+
 # the pre-chunked frame of a name: taken on its last use, cloned (CX.cfclone) before
 def CX.pre.get(+last: Bool, pre: List<&1, PNF>, +name: String) -> List<&1, PNF> & Maybe<&1, CH.CFrame>:
   match pre:
@@ -2455,6 +2464,22 @@ def CX.pre.get(+last: Bool, pre: List<&1, PNF>, +name: String) -> List<&1, PNF> 
       (Nil{}, None{})
     case PNF{+n, f} <> rest:
       CX.pre.k(String.eq(n, name), last, n, f, CX.pre.get(last, rest, name))
+    case PScan{x} <> rest:
+      CX.pre.skip(x, CX.pre.get(last, rest, name))
+
+def CX.pre.sc.k(n: String, f: CH.CFrame, r: List<&1, PNF> & Maybe<&1, XF>) -> List<&1, PNF> & Maybe<&1, XF>:
+  (rest, m) = r
+  (PNF{n, f} <> rest, m)
+
+# the first scan frame of pre (W6.6: the v0.2 reader's frames, postfix order), taken
+def CX.pre.scan(pre: List<&1, PNF>) -> List<&1, PNF> & Maybe<&1, XF>:
+  match pre:
+    case Nil{}:
+      (Nil{}, None{})
+    case PScan{x} <> rest:
+      (rest, Some{x})
+    case PNF{n, f} <> rest:
+      CX.pre.sc.k(n, f, CX.pre.scan(rest))
 
 def CX.src.p(+n: String, +s: List<&2, S.Field>, +last: Bool, env: P.Env, st: CStats, stack: List<&1, XF>, r: List<&1, PNF> & Maybe<&1, CH.CFrame>) -> CSt:
   (pre, m) = r
@@ -2464,11 +2489,20 @@ def CX.src.p(+n: String, +s: List<&2, S.Field>, +last: Bool, env: P.Env, st: CSt
     case None{}:
       CX.src.e(n, s, pre, st, stack, Q.Exec.source.get(last, env, n))
 
+def CX.scan.p(+path: String, +s: List<&2, S.Field>, env: P.Env, st: CStats, stack: List<&1, XF>, r: List<&1, PNF> & Maybe<&1, XF>) -> CSt:
+  (pre, m) = r
+  match m:
+    case None{}:
+      CSt{env, pre, st, Fail{E.InvalidOperation{"exec: scan_csv not materialised: " ++ path}}}
+    case Some{x}:
+      CX.src.x(env, pre, st, stack, "scan_csv " ++ path, s, CX.xschema(x))
+
+# IScan: the next frame of env's scan namespace (Exec.prep), else (W6.6) the next scan frame of pre
 def CX.scan.k(+path: String, +s: List<&2, S.Field>, pre: List<&1, PNF>, st: CStats, stack: List<&1, XF>, r: P.Env & Maybe<&1, C.Frame>) -> CSt:
   (env, m) = r
   match m:
     case None{}:
-      CSt{env, pre, st, Fail{E.InvalidOperation{"exec: scan_csv not materialised: " ++ path}}}
+      CX.scan.p(path, s, env, st, stack, CX.pre.scan(pre))
     case Some{f}:
       CX.src.x(env, pre, st, stack, "scan_csv " ++ path, s, CX.xschema(XFlat{f}))
 
@@ -2641,10 +2675,208 @@ def Exec.run_with.k(+g: Nat, +p: P.Plan, r: E.ResT(P.Env)) -> E.ResT(C.Frame):
     case Done{env}:
       CX.snd(CX.run(g, p, env, Nil{}))
 
-def Exec.run_with.c(+g: Nat, +csv: R.CsvEngine, +p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
+def Exec.run_with.c1(+g: Nat, +csv: R.CsvEngine, +p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
   do IO<E.ResT(C.Frame)>:
     r : E.ResT(P.Env) <- Q.Exec.prep(csv, p, env)
     return Exec.run_with.k(g, p, r)
+
+# ---- W6.6: the v0.2 reader's chunk leaves handed to the runner (DESIGN.md 17.5) ----
+# Exec.prep's steps in Exec.prep's order (the plan's schema, the bindings, then every scan read in postfix
+# order, the first error wins, each frame's schema checked against the plan's with Exec.check's text), but
+# each scan is read by R.Csv.read_eng_m in the representation its consumer runs in (CX.want): for a row-wise
+# consumer at the runner's grain, so a frame of more than 2^g rows comes out of the v0.2 combine as chunk
+# leaves (XChk: no CFrame.of_frame, nothing converted or counted), a smaller one as the flat frame; for a
+# flat consumer (sort, group_by, join, unique, a reduction select, the result itself) as the flat frame
+# (XFlat: today's path, no to_frame either). The frames go to pre as PScan entries, taken by IScan in order.
+
+# what a one-input instruction wants of its input: chunks (it runs chunked: a row-wise walk), the flat frame
+# (it runs flat: sort, group_by, unique, a select with a reduction), or nothing (it passes the frame on in its
+# own representation: head, slice, tail, drop, rename, a plain select)
+type SW is Data:
+  SWChk{}
+  SWFlat{}
+  SWNone{}
+
+def CX.want.t(op: Q.TOp) -> SW:
+  match op:
+    case Q.TUnique{ss}:
+      SWFlat{}
+    case _:
+      SWNone{}
+
+def CX.want.sel(plain: Bool, rows: Bool) -> SW:
+  match plain:
+    case True{}:
+      SWNone{}
+    case False{}:
+      Bool.pick(SW, rows, SWChk{}, SWFlat{})
+
+def CX.want.u(i: Q.Instr) -> SW:
+  match i:
+    case Q.IFilter{p}:
+      SWChk{}
+    case Q.IWith{es}:
+      SWChk{}
+    case Q.ISelect{+es}:
+      CX.want.sel(Q.Exec.plain(es), CX.rws(es))
+    case Q.IHead{n}:
+      SWNone{}
+    case Q.ITable{op}:
+      CX.want.t(op)
+    case _:
+      SWFlat{}
+
+# the walk's state: the scan's frame at depth d of the stack (0: the top), decided, chunks wanted
+type WSt is Data:
+  WSt{d: U32, done: Bool, chk: Bool}
+
+def CX.want.cls(w: SW) -> WSt:
+  match w:
+    case SWChk{}:
+      WSt{0, True{}, True{}}
+    case SWFlat{}:
+      WSt{0, True{}, False{}}
+    case SWNone{}:
+      WSt{0, False{}, False{}}
+
+# a unary instruction at depth d: the consumer at the top, else the frame stays where it is
+def CX.want.un(top: Bool, i: Q.Instr, +d: U32) -> WSt:
+  match top:
+    case True{}:
+      CX.want.cls(CX.want.u(i))
+    case False{}:
+      WSt{d, False{}, False{}}
+
+# a two-input instruction (join: flat; concat: passes the frame on) at depth d
+def CX.want.bin(pops: Bool, join: Bool, +d: U32) -> WSt:
+  match pops:
+    case True{}:
+      WSt{0, join, False{}}
+    case False{}:
+      WSt{U32.sub(d, 1), False{}, False{}}
+
+def CX.want.step(i: Q.Instr, +d: U32) -> WSt:
+  match i:
+    case Q.IScan{p, o, s}:
+      WSt{U32.inc(d), False{}, False{}}
+    case Q.ISource{n, s, l}:
+      WSt{U32.inc(d), False{}, False{}}
+    case Q.IJoin{h, lo, ro}:
+      CX.want.bin(U32.is_le(d, 1), True{}, d)
+    case Q.IConcat{k}:
+      CX.want.bin(U32.is_le(d, 1), False{}, d)
+    case other:
+      CX.want.un(U32.is_eq(d, 0), other, d)
+
+# the code after an IScan, from its frame at the top: the first instruction that takes the frame and runs in
+# one representation decides; reaching the end (the frame is the result, flattened by the runner) wants flat
+def CX.want.go(code: List<&2, Q.Instr>, st: WSt) -> Bool:
+  match code st:
+    case _ WSt{d, True{}, c}:
+      c
+    case Nil{} WSt{d, False{}, c}:
+      False{}
+    case i <> t WSt{+d, False{}, c}:
+      CX.want.go(t, CX.want.step(i, d))
+
+def CX.want(code: List<&2, Q.Instr>) -> Bool:
+  CX.want.go(code, WSt{0, False{}, False{}})
+
+def CX.want.mode(chk: Bool, +g: Nat) -> R.CsvMode:
+  match chk:
+    case True{}:
+      R.CMChk{g}
+    case False{}:
+      R.CMFlat{}
+
+type CMat is Type:
+  CMat{acc: List<&1, PNF>, err: Maybe<&2, E.Err>}
+
+def CX.mat.put(acc: List<&1, PNF>, m: Maybe<&2, E.Err>, x: XF) -> CMat:
+  match m:
+    case Some{e}:
+      CMat{acc, Some{e}}
+    case None{}:
+      CMat{PScan{x} <> acc, None{}}
+
+def CX.mat.chk(acc: List<&1, PNF>, +path: String, +s: List<&2, S.Field>, r: XF & List<&2, S.Field>) -> CMat:
+  (x, +fs) = r
+  CX.mat.put(acc, CX.chk("scan_csv " ++ path, s, fs), x)
+
+def CX.mat.x(o: R.CsvOut) -> XF:
+  match o:
+    case R.CsvFlat{f}:
+      XFlat{f}
+    case R.CsvChk{f}:
+      XChk{f}
+
+def CX.mat.add(acc: List<&1, PNF>, +path: String, +s: List<&2, S.Field>, r: E.ResT(R.CsvOut)) -> CMat:
+  match r:
+    case Fail{e}:
+      CMat{acc, Some{e}}
+    case Done{o}:
+      CX.mat.chk(acc, path, s, CX.xschema(CX.mat.x(o)))
+
+def CX.mat(+g: Nat, code: List<&2, Q.Instr>, m: CMat, +csv: R.CsvEngine) -> IO(CMat):
+  match code m:
+    case Nil{} _:
+      IO.pure(CMat, m)
+    case i <> t CMat{acc, Some{e}}:
+      IO.pure(CMat, CMat{acc, Some{e}})
+    case Q.IScan{+path, o, +s} <> +t CMat{acc, None{}}:
+      do IO<CMat>:
+        r : E.ResT(R.CsvOut) <- R.Csv.read_eng_m(csv, CX.want.mode(CX.want(t), g), path, o, Q.Exec.dtypes(s), R.Csv.enc_default())
+        CX.mat(g, t, CX.mat.add(acc, path, s, r), csv)
+    case i <> t CMat{acc, None{}}:
+      CX.mat(g, t, CMat{acc, None{}}, csv)
+
+def CX.mat.fin(env: P.Env, m: CMat) -> E.ResT(P.Env & List<&1, PNF>):
+  match m:
+    case CMat{acc, Some{e}}:
+      Fail{e}
+    case CMat{acc, None{}}:
+      Done{(env, List.reverse(&1, PNF, acc))}
+
+def CX.prep.v(+g: Nat, +csv: R.CsvEngine, +p: P.Plan, r: P.Env & E.Res(Unit)) -> IO(E.ResT(P.Env & List<&1, PNF>)):
+  (env, v) = r
+  match v:
+    case Fail{e}:
+      IO.pure(E.ResT(P.Env & List<&1, PNF>), Fail{e})
+    case Done{u}:
+      do IO<E.ResT(P.Env & List<&1, PNF>)>:
+        m : CMat <- CX.mat(g, Q.Exec.compile(p, Nil{}), CMat{Nil{}, None{}}, csv)
+        return CX.mat.fin(env, m)
+
+def CX.prep.k(r: E.Res(List<&2, S.Field>), +g: Nat, +csv: R.CsvEngine, +p: P.Plan, env: P.Env) -> IO(E.ResT(P.Env & List<&1, PNF>)):
+  match r:
+    case Fail{e}:
+      IO.pure(E.ResT(P.Env & List<&1, PNF>), Fail{e})
+    case Done{s}:
+      CX.prep.v(g, csv, p, Q.Exec.validate(p, env))
+
+def Exec.run_with.k3(+g: Nat, +p: P.Plan, ep: P.Env & List<&1, PNF>) -> E.ResT(C.Frame):
+  (env, pre) = ep
+  CX.snd(CX.run(g, p, env, pre))
+
+def Exec.run_with.k2(+g: Nat, +p: P.Plan, r: E.ResT(P.Env & List<&1, PNF>)) -> E.ResT(C.Frame):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{ep}:
+      Exec.run_with.k3(g, p, ep)
+
+def Exec.run_with.c2(+g: Nat, +csv: R.CsvEngine, +p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
+  do IO<E.ResT(C.Frame)>:
+    r : E.ResT(P.Env & List<&1, PNF>) <- CX.prep.k(P.Plan.schema(p), g, csv, p, env)
+    return Exec.run_with.k2(g, p, r)
+
+# the scans read by csv: v0.1 into env's scan namespace (Exec.prep), v0.2 into chunk leaves (W6.6)
+def Exec.run_with.c(+g: Nat, +csv: R.CsvEngine, +p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
+  match csv:
+    case R.CsvV01{}:
+      Exec.run_with.c1(g, R.CsvV01{}, p, env)
+    case R.CsvV02{+piece}:
+      Exec.run_with.c2(g, R.CsvV02{piece}, p, env)
 
 # Exec.run by the engine: Reference is Exec.run itself (Exec.run_rd with the CSV engine csv); Chunked{g}
 # runs the same checks and scan reads (Exec.prep), then the chunked runner at grain 2^g

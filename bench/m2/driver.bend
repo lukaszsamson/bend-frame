@@ -19,7 +19,10 @@
 #           output/validation phase; any pending parallel work is billed here, so compute+check is
 #           the honest figure and e2e the fair one)
 #   e2e     ONE timed region: read + compute + check (hash) with consume semantics: no walk, no
-#           preservation clone, the inputs are freed inside the region
+#           preservation clone, the inputs are freed inside the region. With the BF_ENGINE token `scan`
+#           (W6.6) a plan workload (q1..q5, filter) scans the sales file instead (DF.scan_csv: the prefix
+#           inference, then the read AT COLLECT by the selected reader; the aux file is read eagerly as
+#           before); the record carries "scan":1
 #   e2ecsv  one timed region: read + compute + write_csv(out.csv, floats at 4 decimals); the content
 #           hash is taken after the clock (the runner also hashes the file)
 #   selfcheck  (not a measurement) the content hash of <file> read with Raw / Dictionary / default strings
@@ -638,11 +641,63 @@ def Run.e2e.a(+csv: Bool, +op: String, +par: U32, +m: Nat, +outp: String, +t0: N
     case Done{ins}:
       Run.e2e.k(csv, op, par, m, outp, t0, ins)
 
-def Run.e2e(+csv: Bool, +op: String, +par: U32, +m: Nat, +path: String, +ppath: String, +outp: String) -> IO(Unit):
+def Run.e2e.r(+csv: Bool, +op: String, +par: U32, +m: Nat, +path: String, +ppath: String, +outp: String) -> IO(Unit):
   do IO<Unit>:
     +t0 : Nat <- IO.now()
     r : E.ResT(List<&1, In>) <- rd.many(m, path, ppath, Done{Nil{}})
     Run.e2e.a(csv, op, par, m, outp, t0, r)
+
+# ---- e2e over a scan (token `scan`, W6.6): the sales input is a scan_csv plan, read at collect ----
+
+def e2s.b(+op: String, +par: U32, +s: P.Plan, r: P.Env & P.Plan) -> IO(E.ResT(C.Frame)):
+  (env, +pp) = r
+  EN.Eng.collect(Pl.of(op, par, s, pp), env)
+
+def e2s.job(+op: String, +par: U32, ps: E.Res(P.Plan), rp: E.ResT(C.Frame)) -> IO(E.ResT(C.Frame)):
+  match ps rp:
+    case Done{+s} Done{p}:
+      e2s.b(op, par, s, DF.add_source(DF.empty_env(), "products", p))
+    case Fail{e} _:
+      IO.pure(E.ResT(C.Frame), Fail{e})
+    case _ Fail{e}:
+      IO.pure(E.ResT(C.Frame), Fail{e})
+
+def e2s.one(+op: String, +par: U32, +path: String, +ppath: String) -> IO(E.ResT(C.Frame)):
+  do IO<E.ResT(C.Frame)>:
+    rp : E.ResT(C.Frame) <- rd.aux(ppath)
+    ps : E.Res(P.Plan) <- DF.scan_csv(path)
+    e2s.job(op, par, ps, rp)
+
+# m scans, each collected on its own (the results kept, the first one checked)
+def e2s.many(+m: Nat, +op: String, +par: U32, +path: String, +ppath: String, acc: List<&1, E.ResT(C.Frame)>) -> IO(List<&1, E.ResT(C.Frame)>):
+  match m:
+    case 0n:
+      IO.pure(List<&1, E.ResT(C.Frame)>, acc)
+    case 1n+k:
+      do IO<List<&1, E.ResT(C.Frame)>>:
+        r : E.ResT(C.Frame) <- e2s.one(op, par, path, ppath)
+        e2s.many(k, op, par, path, ppath, r <> acc)
+
+def Run.e2s(+op: String, +par: U32, +m: Nat, +path: String, +ppath: String) -> IO(Unit):
+  do IO<Unit>:
+    +t0 : Nat <- IO.now()
+    rs : List<&1, E.ResT(C.Frame)> <- e2s.many(m, op, par, path, ppath, Nil{})
+    c : Chk <- IO.pure(Chk, Chk.first(List.reverse(&1, E.ResT(C.Frame), rs)))
+    +t1 : Nat <- IO.now()
+    IO.print(Js.fin(c, Js.head(op, "e2e", m) ++ Js.kv("e2e_ms", Nat.sub(t1, t0)) ++ ",\"scan\":1"))
+
+def Run.e2e.s(sc: Bool, +csv: Bool, +op: String, +par: U32, +m: Nat, +path: String, +ppath: String, +outp: String) -> IO(Unit):
+  match sc:
+    case True{}:
+      Run.e2s(op, par, m, path, ppath)
+    case False{}:
+      Run.e2e.r(csv, op, par, m, path, ppath, outp)
+
+# e2e / e2ecsv; with `scan`, e2e of a plan workload scans the sales file (Run.e2s)
+def Run.e2e(+csv: Bool, +op: String, +par: U32, +m: Nat, +path: String, +ppath: String, +outp: String) -> IO(Unit):
+  do IO<Unit>:
+    sc : Bool <- EN.Eng.scan_on()
+    Run.e2e.s(Bool.and(sc, Bool.and(Bool.not(csv), U32.is_eq(job.kind(op), 0))), csv, op, par, m, path, ppath, outp)
 
 # ===== stages: each eager stage of q1..q6 timed on its own (mode `stages`) =======================
 # One parse (read + walk), then 11 stages in sequence, each over fresh clones of the inputs (or the

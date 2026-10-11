@@ -26,7 +26,7 @@ too). `run.py list --md` prints the workload table, `run.py list --inputs` the i
 |---|---|
 | `driver.bend` | the ONE native driver, built unchanged at baseline and candidate: modes `phases`, `e2e`, `e2ecsv`, `stages`, `selfcheck` |
 | `instrument.py` | G6: patches the emitted C of a bend program with copy / allocation counters (`patch`, `build`, `selftest`), and `Resolver` (C line -> Bend function) |
-| `cstats.bend` | G6 probe: runs one workload through the chunked engine over a flat env like `BF_ENGINE=chunked` and prints its `CStats` (conversion counts and logical bytes), which the facade drops |
+| `cstats.bend` | G6 probe: runs one workload through the chunked engine over a flat env like `BF_ENGINE=chunked` (or, with a fifth argument `scan`, over a scan_csv plan like `BF_ENGINE=v02,chunked,scan`) and prints its `CStats` (conversion counts and logical bytes), which the facade drops |
 | `baseline.sh` | materialises 3612482 (`git archive` into `build/m2/baseline-src`, no `.git`), copies the driver in, builds both binaries, writes `BUILD.json` (commit, src hash, driver hash, bend version) |
 | `workloads.py` | the FROZEN workload list (ids, ops, inputs, batches, modes) |
 | `gen.py` | input generation for the m2-only inputs and the check of every input's sha256 (`inputs.json`) |
@@ -80,6 +80,17 @@ env's flat frames to chunks INSIDE the compute window (`phases` compute_ms is en
 already-chunked inputs and the conversions apart (G6) are measured by bench/w5/t53.bend + t53.py.
 The driver hash in `BUILD.json` (and `run.py`'s staleness check) covers `driver.bend` followed by
 `engine.bend`. `selfcheck` reads with v0.1 only.
+
+W6.6: the token `scan` makes the `e2e` mode of a plan workload (q1..q5, filter, nunique, group, unique, join)
+SCAN the main input instead of reading it first: `DF.scan_csv(file)` (the bounded prefix inference), the aux
+file read eagerly as a source, then `Eng.collect`, which reads the scan at collect with the selected reader
+(`Eng.coll2`: `v02,chunked` is `Lazy.collect_with_rd(csv_engine_v02, engine_chunked)`, so the v0.2 combine
+builds the chunk leaves the chunked executor takes for its IScan, src/cexec.bend CX.prep.k; `v02` alone is
+`collect_engine(csv_engine_v02)`). The record carries `"scan":1`; e2ecsv, q6 and parse ignore the token. The
+baseline's `engine_v01.bend` honours `scan` too (scan_csv + DF.collect: v0.1 at collect), so `--engine
+v02,chunked,scan` against the baseline compares the same scan plans end to end. `bench/m2/cstats.bend <op> <file>
+<aux> <param> scan` prints the chunked executor's CStats for the scan plan (W6.6: conv_in / bytes_in are 0 when the
+scan's consumer runs chunked, and nothing is flattened when it runs flat).
 
 ## G6 instrumentation: copy and allocation accounting
 
