@@ -1,0 +1,26 @@
+# bench/w5/scale/forkaudit.allow -- the REVIEWED call tasks inside forking defs (make fork-audit; forkaudit.py --check).
+#
+# Format: `caller_regex -> callee_regex | reason` (fullmatch on the normalised names of the emitted C: lowercase,
+# without the FID_/src_ prefix, without the _K/_C/_J<n> segment suffix; a template instance `_<n>` is matched by
+# `(_\d+)?`). A forking def is a def with a parallel let. A call to a non-flat fork-free callee from inside it
+# compiles to a TASK (`return term_tsk(..)`) that the scheduler's grow pass does not run (DESIGN.md 16.10); it is
+# harmless in exactly three positions, and every entry names its position:
+#   leaf    the unit of work of the fork: the arm of the match that does NOT fork (the tree's leaf). The grow pass
+#           skips the task on purpose, the drain runs it on a thread of its own.
+#   root    the call sits in a sequential prelude or before a ROOT fork called from the sequential program
+#           (the main thread is never in a grow turn). None is needed today: the roots (Lst.pmap, Sort.pm,
+#           Csv.v2.lanes, ...) are not forking defs, so they do not appear.
+#   join    the continuation after the fork (`_J<n>`; filtered out by the tool, no entry needed).
+# Anything else (a call in a branch argument, work before the parallel let in a recursive forking def) is a
+# violation: build the work tree in a sequential prelude and fork by match only.
+#
+# The gate sees (def, callee) pairs, not sites: when you touch a forking def, read its diff.
+
+cexec_cx_p1 -> cexec_cx_wrapf | leaf: FTL arm = CX.p1.leaf (the leaf frame wrapped for the evaluator); no fork follows in that arm
+cexec_cx_p2 -> cexec_cx_lframe | leaf: FTL / FTB / mismatch arms hand the compacted leaf frame back as a one-leaf CFrame; no fork follows
+cexec_cx_w2 -> cexec_cx_wrapf | leaf: FTL arm = CX.w2.leaf (the leaf frame wrapped for the evaluator); no fork follows in that arm
+chunks_c[wfs]_rechunk_go -> chunks_c[wfs]_flatten | leaf: the `fits` arm builds ONE leaf by one flatten of the subtree; only the not-fits arm forks
+chunks_lst_pmap_t(_\d+)? -> chunks_cnamed_to | leaf: f(p, x) of Lst.pmap.t at an LTL leaf (the column job, the unit of work); no fork follows
+csv_csv_v2_bfork -> csv_csv_v2_kone | leaf: QKL arm builds ONE column (concatenation + dictionary merge), the unit of work of the column fork
+csv_fj_feed -> csv_cb_feed | leaf: FJL arm feeds ONE column builder with its chunk cells, the unit of work of the column fork
+sort_sort_pm_t(_\d+)? -> fmt_fmt_d_job | leaf: f(p, x) of Sort.pm.t at a PTL leaf (one describe column's statistics); no fork follows

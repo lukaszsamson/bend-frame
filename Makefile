@@ -238,3 +238,24 @@ csv-fuzz-smoke: csv-fuzz-check
 
 csv-fuzz-mutants:
 	cd bench && BEND=$(BEND) uv run python diff/csvfuzz_mut.py $(CSV_FUZZ_ARGS)
+
+# ---- fork-audit: the Bend 2.0.36 scheduler's fork-shape rule (DESIGN.md 16.10, bench/w5/scale/forkaudit.py) ----
+# A def with a parallel let does nothing but match (and call FLAT helpers) before the fork; a non-flat fork-free
+# call in a branch argument or before the fork becomes a task the grow pass does not run, and the subtree below
+# runs on one thread (the ~2x ceiling). Two parts, both static and deterministic (no timing, no data):
+#   1. the source lint over src/*.bend and frame.bend: every parallel let (66 today, the generated src/ckernels.bend
+#      wrappers included: no program reaches them all) has no non-primitive call in a branch argument or in a
+#      statement before it; any finding fails (there is no allowlist for this part);
+#   2. the emitted C of the audited programs (bench/m2/driver.bend: the v0.2 CSV reader, the chunked engine, the
+#      describe fork; tests/ckernels_sizes.bend: the chunked kernel wrappers): every call task inside a forking def
+#      must be an entry of bench/w5/scale/forkaudit.allow (leaf / root / join, with its one-line reason); a new
+#      pair fails, and so does an entry that no longer matches anything (stale).
+# Cost: two `bend -o x.c` compiles (~15 s each on a quiet machine) + two python passes; add a program to
+# FORK_AUDIT_PROGS to cover a new fork tree no audited program reaches.
+FORK_AUDIT_PROGS := bench/m2/driver.bend tests/ckernels_sizes.bend
+.PHONY: fork-audit
+fork-audit:
+	@python3 -I bench/w5/scale/forkaudit.py --src src/*.bend frame.bend
+	@mkdir -p build/fork-audit
+	@for p in $(FORK_AUDIT_PROGS); do $(BEND) $$p -o build/fork-audit/$$(basename $$p .bend).c > /dev/null || exit 1; done
+	@python3 -I bench/w5/scale/forkaudit.py --check bench/w5/scale/forkaudit.allow $(foreach p,$(FORK_AUDIT_PROGS),build/fork-audit/$(basename $(notdir $(p))).c)

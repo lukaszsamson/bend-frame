@@ -3158,3 +3158,88 @@ the densify (1.9 ms); a cheaper F32 step must keep the 15.5.3 bits (K.Kernel.nm.
 cheaper densify would take a conditional store of `first` (a branch that only mispredicts on new codes).
 `Grp.sv` / `Grp.med` / `Grp.agg.nu` still clone row-sized arrays and the `Grp.wrap.*` result maps the
 accumulator (group sized); `Grp.agg.len` / `count` over a 1M-group key are the same loop as today.
+## Fork audit (every parallel let of src/ against the 16.10 shape rule; `make fork-audit`)
+
+What was done: every parallel let in src/ (66 in 28 files, frame.bend has none) was checked against the Bend
+2.0.36 scheduler's fork-shape rule (DESIGN.md 16.10, "Scaling diagnosis" above) by two static views, the verdict
+table is at the end of DESIGN.md 16.10. One def changed (`CBs.feed`, the v0.1 sink's column fork: a 1-vs-rest
+chain became a prelude tree `FJ`); nothing else in src/ needed a change; bench/w5/scale/forkaudit.py grew a
+`--forks`, a `--check` and a `--src` mode, bench/w5/scale/forkaudit.allow holds the reviewed call tasks, `make
+fork-audit` runs the gate, tests/csv_feed_tree.bend pins the new tree. No proof mentions `CBs.feed` (checked:
+LAWS.bend / PROOF*.bend).
+
+Findings:
+
+- **No stall-shape violation was left.** The three forks of the v0.2 CSV reader (`Csv.v2.ftree` over `P.Rt.of`,
+  `Csv.v2.ctree`, `Csv.v2.bfork` over `Csv.v2.kt.top`), `Lst.pmap.t`, `Sort.pm.t`, the three `CX.p1` / `CX.p2` /
+  `CX.w2` walks, the three `rechunk.go`, `CW.map` and the 53 generated `CK.*` wrappers all match and fork; their
+  trees are built by a sequential caller (`Csv.v2.lanes`, `Csv.v2.infer`, `Csv.v2.build.k`, `Lst.pmap`, `Sort.pm`,
+  `CX.filter` / `CX.fsel` / `CX.ws`). The call tasks the C still shows in them are all in leaf position
+  (`CX.p1 -> CX.wrapf`, `CX.p2 -> CX.lframe`, `rechunk.go -> flatten`, `Csv.v2.bfork -> Csv.v2.kone`,
+  `Lst.pmap.t -> CNamed.to`, `Sort.pm.t -> Fmt.d.job`, `FJ.feed -> CB.feed`): a leaf is a task of its own on
+  purpose (the grow pass skips it, the drain runs it on a thread), only a call BEFORE the fork stalls the tree.
+- **The v0.2 CSV reader scales as far as its producer lets it.** Instrumented 12-thread run (3 iterations, 768
+  drain units, every thread 9-17 ring tasks, no task skipped): the fork phases are fine. The reader's ~1.8x at 12
+  threads (723 / 441 / 406 ms at 1 / 4 / 12) is Amdahl on `P.Pr.regions` (one cons cell per byte built on the IO
+  thread, DESIGN 17.1): ~75 ms of the 380 ms at 12 threads is the two fork trees. More threads cannot help;
+  a producer that hands each region to its lane as it is read (a pipeline: lane i overlaps the read of region
+  i + 1) is the next step, and needs the runtime to run a parallel let while the IO loop is still going.
+- **A shape rule has a blind spot a lint can cover.** The compiled view (forkaudit.py `--check`) only sees defs
+  the audited programs reach (the emitted C holds the reachable defs: the generated CK wrappers, `CW.map` and
+  any def of an unused module are absent), so the source lint (`--src`) covers every parallel let of every file:
+  no branch argument and no statement before the fork may call anything but `U32.* / Bool.* / Nat.* / I32.* /
+  F32.* / Char.*`. It reproduces the pre-fix findings on the old sources (`git show ef5c391^:src/cexec.bend`: 12
+  findings, `CX.cut` / `CX.dclone` / `Lst.split`), and the compiled gate reproduces them on the old driver (18
+  new call tasks). Neither view can tell a leaf call from a call in a branch argument of a def whose callee is
+  already allowed: when you touch a forking def, read the diff of its fork.
+- **How the gate reads the C.** A forking def = a def whose segment family has a join `D_J<n>` paired with a
+  continuation `D_K<n>` (the parallel let's join task). A call task = `return term_tsk(FID_y, ..)` whose callee is
+  fork-free (FID_T flag 2: the guard `fid_nofk(y)` is true), in a segment of the family that is not the join;
+  a forking callee is entered by `WL_JMP` instead (no task). Names are normalised (lower case, no `FID_` / `src_`,
+  no `_K/_C/_J<n>`) and matched by the allowlist's regular expressions (`(_\d+)?` for template instances of
+  `Lst.pmap.t` / `CK.map.ww` ...). A new pair, or an allowlist line that matches nothing in any audited program,
+  fails the gate.
+- Callers of a forking def (`Csv.v2.lanes`, `Lst.pmap`, `Sort.pm`, `CX.filter`, ...) call helpers before the fork
+  (`P.Rt.of`, `Lst.lt`, `CX.ft`): they are not forking defs themselves (no join of their own), their calls run on
+  the main thread or in a join continuation, never in a grow turn; the old forkaudit.py listed them as noise.
+
+Gate cost: `make fork-audit` is two `bend -o x.c` compiles (bench/m2/driver.bend, tests/ckernels_sizes.bend) and
+two python passes: 12.9 s wall in all at load ~12, deterministic (no timing, no data, no network),
+so it fits `make ci` (the `ci:` line is not edited here; add `fork-audit` to it when the orchestrator agrees). Add a
+program to `FORK_AUDIT_PROGS` when you write a fork tree no audited program reaches (the source lint still sees it).
+
+Measured (PROVISIONAL: shared machine, load recorded; raw samples in the JSONL files under
+bench/w5/scale/results/fork_audit_*.jsonl; the driver is bench/m2/driver.bend, 1M rows, phases mode, ms):
+
+| operator | before (1 / 4 / 12 threads, median) | after | raw samples (12 threads, after) |
+|---|---|---|---|
+| v0.1 parse (`BF_ENGINE` unset; the one changed def, 7 interleaved processes per cell, load 14-59) | 4373 / 2515 / 2180 | 4317 / 2406 / 2104 | 2112, 2026, 2162, 2104, 2118, 2049, 2050 |
+| v0.2 parse (`BF_ENGINE=v02`; control: no def changed; 9 processes per cell, load 12-13) | 723 / 441 / 406 | 726 / 442 / 395 | 422, 381, 439, 396, 395, 388, 399, 377, 371 |
+| describe via q6 (`BF_ENGINE=v02`, compute_ms; control; 9 processes, load 12-15) | 54 / 18 / 18 | 53 / 17 / 17 | 17, 19, 17, 17, 17, 18, 18, 18, 17 |
+
+Result hashes equal in every process (walk 2121684461, content hash 521005157; q6 2704508534).
+Instrumented builds (bench/w5/scale/instrument.py) of the before / after C: v0.1 parse at 12 threads: `nofk_skips`
+48 -> 0 (the leaf `CB.feed` tasks the grow pass used to skip are now reached through the grown tree), 3
+iterations / 768 drain units both, one unit of 1.1-2.9 s (the heaviest column; load-dependent) in both; v0.2 parse at 12 threads:
+3 iterations, 768 drain units, 9-17 ring tasks per thread (384 units, 39-41 per thread at 4 threads), 0 skipped.
+Chunked engine, instrumented, 12 threads, whole process (parse + compute): q1 7 iterations / 1792 drain units,
+q2 6 / 1536, q6 4 / 1024, 9-42 ring tasks per thread, no skipped task: every fork tree of the engine unfolds.
+
+Bend lessons:
+
+- `+x = ..` is not a statement of a `do` block (`expected: a pattern`): compute a value used many times in a
+  helper's `+` parameter (`ft.go(+path, +n)`), as the tests do; a value bound by `x : T <- io` and used more than
+  once needs `+x : T <- io`.
+- A def whose only job is to build a tree for a fork has three parts, in this order (`FJ`, `Csv.v2.kt`, `P.Rt`,
+  `Lst.lt`): `leaves` (one leaf per element, in order), `pair` (adjacent leaves paired, one level), `top` (levels
+  until one tree is left, bounded by a `Nat` fuel: 32 covers any U32 count); the odd leaf of a level rides up
+  unpaired. The forking def matches the tree and forks; the join (`List.append`) runs in place after the fork.
+- Do not run the compiled audit on one program and call it covered: the C holds only reachable defs.
+
+Gates (this worktree, after the audit): `make test` PASS 196 / 196 (XFAIL 0; 195 + tests/csv_feed_tree.bend);
+`make check` ok; `make proofs` and `make verdict` ALL PROOFS CHECK; `make mutation-check` 92 of 92 mutations
+rejected; `make diff-smoke` clean; `make csv-fuzz-smoke` ok (1500 cases x 7 pieces, two seeds); `make bench-check`
+q1-q6 identical / within tolerance at 1k and 100k; `make fork-audit` ok; `make diff-chunked`: seeds 2 (dict), 3
+(deep), 4 (dict + deep) clean, seed 1 (Raw, n = 2000) reports the same ONE T2.2 finding as "Scaling diagnosis"
+(d1588, a self inner_join of a 1-row f32 frame on a NaN key: oracle / contract question, not a chunked-engine
+divergence; nothing here touches join.bend). Raw instrumented counters: bench/w5/scale/results/fork_audit_instrument.txt.

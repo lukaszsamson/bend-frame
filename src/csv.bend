@@ -1354,17 +1354,55 @@ def CB.feed(+cs: List<&2, H.CsvCell>, ls: List<&2, U32>, cb: CB) -> CB:
       +m = K.Kernel.count(~H.CsvCell, cs, 0)
       CB.feed.k(m, K.Kernel.depth_for(U32.max(m, 1)), cs, ls, t, n, nulls, bad, sk, parts)
 
-def CBs.feed.k(a: CB, r: List<&1, CB>) -> List<&1, CB>:
-  a <> r
+# every column of a chunk in parallel: ONE balanced fork over a tree of (builder, cells) pairs, the builders
+# fed at the leaves (DESIGN.md 16.10; v0.1 had a 1-vs-rest chain down the column list, a level per column).
+# The tree is built by a sequential prelude, so the forking def does nothing but match and fork; the lists of
+# the leaves are joined in column order after the fork (the join runs in place).
+type FJ is Type:
+  FJE{}
+  FJL{cb: CB, cs: List<&2, H.CsvCell>}
+  FJN{l: FJ, r: FJ}
 
-# every column of a chunk in parallel (a parallel let per column, as Csv.cols built them)
-def CBs.feed(cbs: List<&1, CB>, cols: List<&2, List<&2, H.CsvCell>>, +ls: List<&2, U32>) -> List<&1, CB>:
+def FJ.leaves(cbs: List<&1, CB>, cols: List<&2, List<&2, H.CsvCell>>) -> List<&1, FJ>:
   match cbs cols:
     case cb <> ct c <> cst:
-      a r = CB.feed(c, ls, cb) CBs.feed(ct, cst, ls)
-      CBs.feed.k(a, r)
+      FJL{cb, c} <> FJ.leaves(ct, cst)
     case _ _:
       Nil{}
+
+def FJ.pair(xs: List<&1, FJ>) -> List<&1, FJ>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{a, Nil{}}:
+      a <> Nil{}
+    case Con{a, Con{b, u}}:
+      FJN{a, b} <> FJ.pair(u)
+
+# the leaves paired level by level (at most f levels; 32 cover any column count)
+def FJ.top(f: Nat, xs: List<&1, FJ>) -> FJ:
+  match f xs:
+    case _ Nil{}:
+      FJE{}
+    case _ Con{a, Nil{}}:
+      a
+    case 0n other:
+      FJE{}
+    case 1n+p other:
+      FJ.top(p, FJ.pair(other))
+
+def FJ.feed(+ls: List<&2, U32>, t: FJ) -> List<&1, CB>:
+  match t:
+    case FJE{}:
+      Nil{}
+    case FJL{cb, c}:
+      CB.feed(c, ls, cb) <> Nil{}
+    case FJN{l, r}:
+      a b = FJ.feed(ls, l) FJ.feed(ls, r)
+      List.append(&1, CB, a, b)
+
+def CBs.feed(cbs: List<&1, CB>, cols: List<&2, List<&2, H.CsvCell>>, +ls: List<&2, U32>) -> List<&1, CB>:
+  FJ.feed(ls, FJ.top(32n, FJ.leaves(cbs, cols)))
 
 # a new builder of dtype t (a Str one in the requested storage)
 def CB.new.sk(+t: D.DType, enc: ST.StrEnc) -> SK:
