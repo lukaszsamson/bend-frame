@@ -737,7 +737,9 @@ def Exec.run_phys(+p: P.Plan, env: P.Env) -> E.ResT(C.Frame):
 #
 # Every ScanCsv of a plan is read before anything runs: scan k (postfix order, the
 # order of Exec.compile and so of the runner's IScans) is read with Csv.read_with
-# (strict, the plan's dtypes) and its schema must equal the plan's (Exec.mat). The
+# (strict, the plan's dtypes; W6.3: by the reader engine `eng`, Csv.read_eng, v0.1 for
+# Exec.run / Lazy.collect, chosen by Exec.run_rd / Lazy.collect_rd) and its schema must
+# equal the plan's (Exec.mat). The
 # frames are put, in that order, in env's scan namespace (P.Env.set_scans), which no
 # Source name can reach: scans have no names (DESIGN.md 14 "v0.1 review: scan source
 # identity"). The plan is not rewritten. The first failing scan is the result.
@@ -768,13 +770,13 @@ def Exec.read.k(+path: String, s: List<&2, S.Field>, r: E.ResT(C.Frame)) -> E.Re
     case Done{f}:
       Exec.check("scan_csv " ++ path, s, S.Frame.schema(f))
 
-def Exec.mat.read(+path: String, opts: R.CsvOpts, +s: List<&2, S.Field>, acc: List<&1, C.Frame>) -> IO(Mat):
+def Exec.mat.read(+path: String, opts: R.CsvOpts, +s: List<&2, S.Field>, acc: List<&1, C.Frame>, eng: R.CsvEngine) -> IO(Mat):
   do IO<Mat>:
-    r : E.ResT(C.Frame) <- R.Csv.read_with(path, opts, Exec.dtypes(s))
+    r : E.ResT(C.Frame) <- R.Csv.read_eng(eng, path, opts, Exec.dtypes(s), R.Csv.enc_default())
     return Exec.mat.add(acc, Exec.read.k(path, s, r))
 
 # read every IScan of the code in order (stopping at the first error)
-def Exec.mat(code: List<&2, Instr>, m: Mat) -> IO(Mat):
+def Exec.mat(code: List<&2, Instr>, m: Mat, +eng: R.CsvEngine) -> IO(Mat):
   match code m:
     case Nil{} _:
       IO.pure(Mat, m)
@@ -782,10 +784,10 @@ def Exec.mat(code: List<&2, Instr>, m: Mat) -> IO(Mat):
       IO.pure(Mat, Mat{acc, Some{e}})
     case IScan{path, o, s} <> t Mat{acc, None{}}:
       do IO<Mat>:
-        m2 : Mat <- Exec.mat.read(path, o, s, acc)
-        Exec.mat(t, m2)
+        m2 : Mat <- Exec.mat.read(path, o, s, acc, eng)
+        Exec.mat(t, m2, eng)
     case i <> t Mat{acc, None{}}:
-      Exec.mat(t, Mat{acc, None{}})
+      Exec.mat(t, Mat{acc, None{}}, eng)
 
 # ---- bindings (DESIGN.md 15.7, DF.validate_bindings) ---------------------------------------
 
@@ -857,22 +859,22 @@ def Exec.run.m(+p: P.Plan, env: P.Env, m: Mat) -> E.ResT(C.Frame):
     case Mat{acc, None{}}:
       Exec.run_phys(p, P.Env.set_scans(env, List.reverse(&1, C.Frame, acc)))
 
-def Exec.run.v(+p: P.Plan, r: P.Env & E.Res(Unit)) -> IO(E.ResT(C.Frame)):
+def Exec.run.v(+p: P.Plan, r: P.Env & E.Res(Unit), +eng: R.CsvEngine) -> IO(E.ResT(C.Frame)):
   (env, v) = r
   match v:
     case Fail{e}:
       IO.pure(E.ResT(C.Frame), Fail{e})
     case Done{u}:
       do IO<E.ResT(C.Frame)>:
-        m : Mat <- Exec.mat(Exec.compile(p, Nil{}), Mat{Nil{}, None{}})
+        m : Mat <- Exec.mat(Exec.compile(p, Nil{}), Mat{Nil{}, None{}}, eng)
         return Exec.run.m(p, env, m)
 
-def Exec.run.k(r: E.Res(List<&2, S.Field>), +p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
+def Exec.run.k(r: E.Res(List<&2, S.Field>), +p: P.Plan, env: P.Env, +eng: R.CsvEngine) -> IO(E.ResT(C.Frame)):
   match r:
     case Fail{e}:
       IO.pure(E.ResT(C.Frame), Fail{e})
     case Done{s}:
-      Exec.run.v(p, Exec.validate(p, env))
+      Exec.run.v(p, Exec.validate(p, env), eng)
 
 # run a plan as written (no optimisation) over the frames of env: the plan's
 # schema is resolved first and its error, if any, is the result; then the
@@ -881,11 +883,20 @@ def Exec.run.k(r: E.Res(List<&2, S.Field>), +p: P.Plan, env: P.Env) -> IO(E.ResT
 # Exec.run_pure with the Sort + Head step at the root) on the plan as it is. env is
 # consumed (frames the plan does not name are dropped).
 def Exec.run(+p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
-  Exec.run.k(P.Plan.schema(p), p, env)
+  Exec.run.k(P.Plan.schema(p), p, env, R.CsvV01{})
+
+# Exec.run with the scans read by the CSV reader engine eng (D7, W6.3: R.CsvV02{piece} opts in to
+# the v0.2 reader; the result is the same frame or error, DESIGN.md 17.4)
+def Exec.run_rd(+eng: R.CsvEngine, +p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
+  Exec.run.k(P.Plan.schema(p), p, env, eng)
 
 # Polars collect(): the release optimizer (Optimize.release), then run
 def Lazy.collect(+p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
   Exec.run(P.Optimize.release(p), env)
+
+# Lazy.collect with the scans read by the CSV reader engine eng (D7, W6.3)
+def Lazy.collect_rd(+eng: R.CsvEngine, +p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
+  Exec.run_rd(eng, P.Optimize.release(p), env)
 
 # every rewrite of Plan.optimize_full (opt-in, outside the guarantee), then run
 def Lazy.collect_full(+p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):

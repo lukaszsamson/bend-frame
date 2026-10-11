@@ -1,16 +1,17 @@
 # W2.2: the rank stage (src/ranks.bend) against v0.1, on every key shape.
 #  - Rk.words(n, d, flip, a) vs Sort.str_words(n, d, flip, a) for flip 0 and 2^32 - 1: the same
 #    words in ALL 2^d slots (0 beyond n), and the rows come back untouched;
-#  - Rk.dict(dict) vs ST.Dict.ranks(dict) on a Dictionary built from the same rows (code 0 = "",
+#  - Rk.dict(dict) vs Dict.ranks(dict) on a Dictionary built from the same rows (code 0 = "",
 #    entries in first-appearance order): the same rank in all 2^dd slots and the same dictionary.
-# The code-point order, a prefix first, is Base's String order; the reference IS v0.1.
+# The code-point order, a prefix first, is Base's String order; the reference IS v0.1 (Sort.str_words
+# and Dict.ranks, kept in tests/lib/v01str.bend since W2.3 deleted them from src/).
 # Shapes with code points above U+10FFFF (the packing fallback) cannot be built here: the
 # interpreter refuses such a Chr; bench/w2/w2diff.bend runs them natively.
 import Base
 import ./lib/w2gen.bend as G
 import ./../src/kernels.bend as K
 import ./../src/strs.bend as ST
-import ./../src/sort.bend as SO
+import ./lib/v01str.bend as V1
 import ./../src/ranks.bend as R
 
 # rows back untouched AND words equal
@@ -20,7 +21,7 @@ def Rd.both(+n: U32, +d: Nat, r: Array<String> & Array<U32>, a: Array<String>, w
 
 def Rd.one(+n: U32, +flip: U32, +sh: G.Shape) -> Bool:
   +d = G.Gen.depth(n)
-  Rd.both(n, d, R.Rk.words(n, d, flip, G.Gen.mk(n, sh)), G.Gen.mk(n, sh), SO.Sort.str_words(n, d, flip, G.Gen.mk(n, sh)))
+  Rd.both(n, d, R.Rk.words(n, d, flip, G.Gen.mk(n, sh)), G.Gen.mk(n, sh), V1.Sort.str_words(n, d, flip, G.Gen.mk(n, sh)))
 
 # ---- Dictionary ----------------------------------------------------------------------------------
 
@@ -55,7 +56,7 @@ def Dg.cmp(x: ST.Dict & Array<U32>, y: ST.Dict & Array<U32>) -> Bool:
   Dg.cmp.d(d1, r1, d2, r2)
 
 def Dg.one(+n: U32, +sh: G.Shape) -> Bool:
-  Dg.cmp(ST.Dict.ranks(Dg.mk(n, sh)), R.Rk.dict(Dg.mk(n, sh)))
+  Dg.cmp(V1.Dict.ranks(Dg.mk(n, sh)), R.Rk.dict(Dg.mk(n, sh)))
 
 # ---- the sizes -------------------------------------------------------------------------------------
 

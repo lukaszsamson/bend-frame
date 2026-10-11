@@ -79,13 +79,21 @@ def src_hash(root: Path) -> str:
     return h.hexdigest()
 
 
+def driver_hash() -> str:
+    """sha256 of driver.bend followed by engine.bend (the CSV reader shim, W6.3): baseline.sh's `dh`."""
+    h = hashlib.sha256()
+    for n in ("driver.bend", "engine.bend"):
+        h.update((HERE / n).read_bytes())
+    return h.hexdigest()
+
+
 def git_info() -> dict:
     head = sh(["git", "rev-parse", "HEAD"])
     status = sh(["git", "status", "--porcelain"]) or ""
     lines = [l for l in status.splitlines() if not l[3:].startswith(("build/", "bench/m2/results/"))]
-    src = [l for l in lines if l[3:].startswith(("src/", "frame.bend", "bench/m2/driver.bend"))]
+    src = [l for l in lines if l[3:].startswith(("src/", "frame.bend", "bench/m2/driver.bend", "bench/m2/engine.bend"))]
     return {"head": head, "dirty": bool(lines), "dirty_src": bool(src),
-            "src_hash": src_hash(ROOT), "driver_hash": sha256_file(HERE / "driver.bend")}
+            "src_hash": src_hash(ROOT), "driver_hash": driver_hash()}
 
 
 def build_info(which: str):

@@ -8,8 +8,11 @@
 #       u32 / i32 / f32 -> the order-preserving sort word (sort.bend; -0.0 =
 #         0.0, every NaN one value); a value range < 2^20 is coded directly
 #         (word - min + 1), a wider one by rank after a radix sort
-#       str   -> a Map from string to first-appearance code (one Map lookup
-#         per row: no per-row key strings, no concatenation)
+#       str   -> Raw: first-appearance codes from 1 by the packed flat coder
+#         (H.Hc.code.pk, src/hcode.bend, v0.2 W2.3: one walk per row hashes
+#         and packs its code points, a hash hit compares flat words, the rows
+#         borrowed and handed back; ids from 0, so + 1 in the null-zeroing
+#         pass); Dictionary: code + 1. No per-row key strings, no concatenation
 #  3. combine the key codes left to right: g * k_c + c when the product of
 #     the cardinalities is <= 2^22, then re-densified through a direct table;
 #     otherwise the pairs are ranked by a radix sort. A final densify pass
@@ -41,6 +44,8 @@ import ./schema.bend as S
 import ./expr.bend as X
 import ./eval.bend as V
 import ./sort.bend as SO
+import ./radix.bend as RD
+import ./hcode.bend as H
 
 # dense codes, every one < k
 type Codes is Type:
@@ -211,7 +216,7 @@ def Grp.rank.b(+n: U32, +d: Nat, m: Array<U32>, st: Array<U32> & Array<U32>) -> 
 
 # codes by rank of the words (valid rows 1.., null rows 0)
 def Grp.rank(+n: U32, +d: Nat, w: Array<U32>, m: Array<U32>) -> Codes:
-  Grp.rank.b(n, d, m, SO.Radix.sort(n, d, (w, K.Kernel.iota(n, d))))
+  Grp.rank.b(n, d, m, RD.Radix.sort(n, d, (w, K.Kernel.iota(n, d))))
 
 # pairs (a[i], b[i]) ranked: radix by b, then stably by a, then count changes
 def Grp.prank.go(n: Nat, +j: U32, +pa: U32, +pb: U32, +rank: U32, codes: Array<U32>, ra: Array<U32> & U32, rb: Array<U32> & U32, rp: Array<U32> & U32) -> Array<U32> & U32:
@@ -245,11 +250,11 @@ def Grp.prank.d(+n: U32, +d: Nat, b2: Array<U32>, st: Array<U32> & Array<U32>) -
 
 def Grp.prank.c(+n: U32, +d: Nat, a: Array<U32>, b2: Array<U32>, st: Array<U32> & Array<U32>) -> Codes:
   (xb, perm) = st
-  Grp.prank.d(n, d, b2, SO.Radix.sort(n, d, K.Kernel.gather(~U32, n, d, a, perm, 0)))
+  Grp.prank.d(n, d, b2, RD.Radix.sort(n, d, K.Kernel.gather(~U32, n, d, a, perm, 0)))
 
 def Grp.prank.b(+n: U32, +d: Nat, a: Array<U32>, bb: Array<U32> & Array<U32>) -> Codes:
   (b1, b2) = bb
-  Grp.prank.c(n, d, a, b2, SO.Radix.sort(n, d, (b1, K.Kernel.iota(n, d))))
+  Grp.prank.c(n, d, a, b2, RD.Radix.sort(n, d, (b1, K.Kernel.iota(n, d))))
 
 def Grp.prank(+n: U32, +d: Nat, a: Array<U32>, b: Array<U32>) -> Codes:
   Grp.prank.b(n, d, a, Array.clone(U32, b))
@@ -288,11 +293,20 @@ def Grp.enc.num(+n: U32, +d: Nat, r: Array<U32> & C.Valid) -> Codes:
   (w, v) = r
   Grp.enc.mm(n, d, Grp.mm.go(U32.to_nat(n), 0, 4294967295, 0, Array.get(U32, w, 0), Array.get(U32, C.Valid.materialize(v, d), 0)))
 
-def Grp.enc.str(+n: U32, v: C.Valid, r: Array<String> & Array<U32> & SO.CS) -> Codes:
-  (strs, codes, cs) = r
-  match cs:
-    case SO.CS{m, k}:
-      Codes{k, Grp.zero(n, codes, v)}
+# the packed coder's first-appearance ids (from 0) + 1, the null rows 0: v0.1's codes from 1
+def Grp.enc.p1(+n: U32, +d: Nat, codes: Array<U32>, v: C.Valid) -> Array<U32> & C.Valid:
+  SO.Sort.words.z(n, SO.Sort.xmap(~U32, ~(w => U32.inc(w)), n, d, 0, codes), v)
+
+def Grp.enc.str.k(+k: U32, r: Array<U32> & C.Valid) -> Codes:
+  (c, v) = r
+  Codes{k, c}
+
+# a Raw column's codes: first-appearance ids from 1 (k = 1 + distinct strings, the null rows' ""
+# included as in v0.1), null rows 0
+def Grp.enc.str(+n: U32, +d: Nat, v: C.Valid, hj: H.HJ) -> Codes:
+  match hj:
+    case H.HJ{+next, strs, hs, ix, codes, po, pl, pk, cur, pd}:
+      Grp.enc.str.k(U32.inc(next), Grp.enc.p1(n, d, codes, v))
 
 # a Dictionary column's codes are dense already (M4): code + 1, null rows 0, k = entries + 1
 def Grp.enc.dict(+n: U32, +d: Nat, v: C.Valid, codes: Array<U32>, r: ST.Dict & U32) -> Codes:
@@ -302,7 +316,7 @@ def Grp.enc.dict(+n: U32, +d: Nat, v: C.Valid, codes: Array<U32>, r: ST.Dict & U
 def Grp.enc.s(+n: U32, +d: Nat, v: C.Valid, x: ST.Strs) -> Codes:
   match x:
     case ST.SRaw{a}:
-      Grp.enc.str(n, v, SO.Sort.str_codes_par(n, d, 1, a))
+      Grp.enc.str(n, d, v, H.Hc.code.pk(~(h => h), n, d, a))
     case ST.SDict{codes, dict}:
       Grp.enc.dict(n, d, v, codes, ST.Dict.size(dict))
 
@@ -324,11 +338,10 @@ def Grp.enc.strk.b(+n: U32, +d: Nat, strs: Array<String>, +k: U32, r: Array<U32>
   (codes, v) = r
   (C.CStr{n, d, v, ST.SRaw{strs}}, Codes{k, codes})
 
-def Grp.enc.strk(+n: U32, +d: Nat, v: C.Valid, r: Array<String> & Array<U32> & SO.CS) -> C.Column & Codes:
-  (strs, codes, cs) = r
-  match cs:
-    case SO.CS{m, +k}:
-      Grp.enc.strk.b(n, d, strs, k, SO.Sort.words.z(n, codes, v))
+def Grp.enc.strk(+n: U32, +d: Nat, v: C.Valid, hj: H.HJ) -> C.Column & Codes:
+  match hj:
+    case H.HJ{+next, strs, hs, ix, codes, po, pl, pk, cur, pd}:
+      Grp.enc.strk.b(n, d, strs, U32.inc(next), Grp.enc.p1(n, d, codes, v))
 
 def Grp.enc.dk.b(+n: U32, +d: Nat, codes: Array<U32>, dict: ST.Dict, +k: U32, r: Array<U32> & C.Valid) -> C.Column & Codes:
   (w, v) = r
@@ -342,7 +355,7 @@ def Grp.enc.dk.a(+n: U32, +d: Nat, v: C.Valid, cc: Array<U32> & Array<U32>, r: S
 def Grp.enc.sk(+n: U32, +d: Nat, v: C.Valid, x: ST.Strs) -> C.Column & Codes:
   match x:
     case ST.SRaw{a}:
-      Grp.enc.strk(n, d, v, SO.Sort.str_codes_par(n, d, 1, a))
+      Grp.enc.strk(n, d, v, H.Hc.code.pk(~(h => h), n, d, a))
     case ST.SDict{codes, dict}:
       Grp.enc.dk.a(n, d, v, Array.clone(U32, codes), ST.Dict.size(dict))
 
@@ -693,7 +706,7 @@ def Grp.med.fin(+ng: U32, +dg: Nat, gids: Array<U32>, first: Array<U32>, r: Arra
 
 def Grp.med.e(+ng: U32, +dg: Nat, first: Array<U32>, sorted: Array<F32>, sz: Array<U32>, r: Array<U32> & Array<U32>) -> Groups & E.ResT(C.Column):
   (gids, kc) = r
-  Grp.med.fin(ng, dg, gids, first, Grp.med.go(U32.to_nat(ng), 0, (sorted, Array.new(F32, dg, 0.0), Array.new(U32, dg, 0)), Array.get(U32, SO.Radix.pre.go(U32.to_nat(ng), 0, 0, Array.get(U32, sz, 0)), 0), Array.get(U32, kc, 0)))
+  Grp.med.fin(ng, dg, gids, first, Grp.med.go(U32.to_nat(ng), 0, (sorted, Array.new(F32, dg, 0.0), Array.new(U32, dg, 0)), Array.get(U32, RD.Radix.pre.go(U32.to_nat(ng), 0, 0, Array.get(U32, sz, 0)), 0), Array.get(U32, kc, 0)))
 
 # rows per group (sz) and valid rows per group (kc)
 def Grp.med.d(+n: U32, +ng: U32, +dg: Nat, first: Array<U32>, m: Array<U32>, sorted: Array<F32>, r: Array<U32> & Array<U32>) -> Groups & E.ResT(C.Column):
@@ -710,7 +723,7 @@ def Grp.med.b2(+n: U32, +d: Nat, +ng: U32, +dg: Nat, gids: Array<U32>, first: Ar
 
 def Grp.med.b1(+n: U32, +d: Nat, +ng: U32, +dg: Nat, gids: Array<U32>, first: Array<U32>, m: Array<U32>, x: Array<F32>, r: Array<U32> & Array<U32>) -> Groups & E.ResT(C.Column):
   (key2, perm1) = r
-  Grp.med.b2(n, d, ng, dg, gids, first, m, x, SO.Radix.sort(n, d, (key2, perm1)))
+  Grp.med.b2(n, d, ng, dg, gids, first, m, x, RD.Radix.sort(n, d, (key2, perm1)))
 
 # the second sort key: the group, then valid rows (0) before null rows (1)
 def Grp.med.key(+g: U32, v: U32) -> U32:
@@ -725,7 +738,7 @@ def Grp.med.b(+n: U32, +d: Nat, +ng: U32, +dg: Nat, first: Array<U32>, gg: Array
 
 def Grp.med.a(+n: U32, +d: Nat, +ng: U32, +dg: Nat, first: Array<U32>, gg: Array<U32> & Array<U32>, mm: Array<U32> & Array<U32>, xx: Array<F32> & Array<F32>) -> Groups & E.ResT(C.Column):
   (x1, x2) = xx
-  Grp.med.b(n, d, ng, dg, first, gg, mm, Array.clone(F32, x2), SO.Radix.sort(n, d, (K.Kernel.map(~F32, ~U32, ~(w => K.Kernel.fword(w)), n, d, x1, 0), K.Kernel.iota(n, d))))
+  Grp.med.b(n, d, ng, dg, first, gg, mm, Array.clone(F32, x2), RD.Radix.sort(n, d, (K.Kernel.map(~F32, ~U32, ~(w => K.Kernel.fword(w)), n, d, x1, 0), K.Kernel.iota(n, d))))
 
 # the median per group: one stable radix sort of the rows by the 15.5.2 order word, then by
 # (group * 2 + null flag), so each group's valid rows form a sorted run (in row order among
