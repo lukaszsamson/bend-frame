@@ -2603,3 +2603,83 @@ What T5.3 (the chunked runner) needs:
 - Fuse wrapper chains into one walk where an expression has several total fragments (q2: 1.25-1.8 ms with
   three walks, 0.9-1.0 ms with one at 12 threads): a per-leaf chain wrapper like bench/w5's `w3`.
 - Gathers for sort / join outputs: `CK.gather.X(src, perm, n, g)` (fused, faster) or `CK.gatherf.X`.
+
+## T4.4 (W4: integrating T4.2's F5 filter with T4.3's Filter + Select step; LAWS sections 19 / 20)
+
+What was done: the T4.2 branch merged into master (only DESIGN.md conflicted: both sides kept, section 19
+before 20 in the section 8 table, the T4.2 entry before T4.3's in section 14), then the mask computation
+factored out ONCE in src/eval.bend and both callers made to use it:
+
+- `Eval.filter.mask(f, pred) -> E.ResT(C.Frame & (Array<U32> & U32))`: the frame back (no column moved
+  or compacted), the row mask and the kept count, or the predicate's error (TypeMismatch first, then
+  the evaluation's). Its chain `Eval.filter.mask.a / b / t / x / go / go2 / p` is the old
+  `Eval.filter.a .. p` with the last step answering `(f, (m, kept))` instead of compacting: the F5 path
+  (`Eval.f5.mask`: `Eval.f5.go`'s passes, then `Eval.f5.fin` answering `F5St{f, m, k, None}` as
+  `Done{(f, (m, k))}`; `Eval.f5.run` / `run.h` are gone) or the general path (fused evaluator, Eval.pred,
+  popcount).
+- `Eval.filter(f, pred) = Eval.filter.r(Eval.filter.mask(f, pred))` (`r`: Fail stays, Done goes to
+  `Eval.filter.k` -> `Eval.filter.q` = `Frame.filter_mask`). Same terms as before, one level deeper.
+- `Exec.fs(f, pred, es) = Exec.fs.r(es, Eval.filter.mask(f, pred))`: `Exec.fs.r / k` split the result,
+  `Exec.fs.q` (unchanged) selects on the unfiltered frame and compacts the selected columns with
+  `Exec.fc`. The mirror `Exec.fs.a / b / t / go / go2 / p` is deleted.
+- tests/eval_fused's unfused filter reference is now `Eval.filter.r(Eval.filter.mask.go(Eval.full(f,
+  p)))` (v0.1's predicate path through the same tail); tests/exec_filter_select gained five F5 / general
+  shapes inside the step (i32, f32 with NaN / inf, three conjuncts, a masked comparison column, Kleene
+  or).
+
+Proof (PROOF_filtsel.bend; PROOF_peep / PROOF_sorthead / PROOF_moves unchanged): `filter_select_step`
+was a seven-lemma chain `pa .. pq` following Eval.filter's internals step by step (which is why the merge
+broke it: `pt` met T4.2's extra `@plan` parameter). Now `Laws.filter_select_step(f, pred, es, hp) =
+pr(es, Eval.filter.mask(f, pred), hp)`: `pr` splits the mask result (Fail: refl), `pk` the pair, and
+the old `pq` (select on the unfiltered frame then Exec.fc = select of Frame.filter_mask, from
+fc_filter_mask and select_filter_mask) finishes. It holds for EVERY mask result, so it says nothing
+about the predicate and needs no update when the predicate path changes again. No law statement
+changed; 231 laws (192 + T4.2's 25 + T5.2's 14), all checked by `bend` and `--verdict`.
+
+Mutation controls: T4.3's "Exec.fs.p: the kept count is the predicate's length" mutated the private
+copy of the popcount. With one shared `Eval.filter.mask` the same mutation changes BOTH sides of
+filter_select_step and is (correctly) not caught by it, and no other law pins Eval.filter's count (it
+was never pinned for v0.1's Eval.filter either; peep_f5_count pins the F5 kernel's count). The control
+now mutates the step's own use of the count (`Exec.fs.q` compacts with kept + 1). 92 controls in all.
+
+Lesson: **a physical step that must equal a logical one should CALL the logical one's pieces, not copy
+them.** A copied chain makes the equivalence proof follow the internals (it breaks at any change of
+them) and makes the mutation controls on the copy look meaningful when the shared semantics is not
+pinned at all. Factor the shared part (here: everything up to the mask) into one function returning
+its intermediate result, prove the equivalence by one case split on that result, and pin the shared
+part separately if it needs pinning.
+
+Performance (PROVISIONAL: shared machine; 1M rows, 1 thread, fresh processes interleaved baseline
+3612482 / master 5fa1908 (T4.3, before this merge) / candidate (this task); all results validated
+against bench/m2/expected.json, q1 checksum 383004541, 249,356 rows):
+
+- bench/m2 run.py cells (`results/t44-prov.jsonl`, 7 processes per cell, `--provisional`, load 6.6-21.7,
+  median 8.7; `uptime` 9.20 before, 7.33 after), compute_ms median [raw]:
+
+  | cell | baseline | master 5fa1908 | candidate |
+  |---|---|---|---|
+  | q1 | 11 [11,12,11,18,11,10,12] | 7 [7,7,7,9,9,7,8] | **3** [3,3,3,6,3,3,6] |
+  | q2 | 8 [8,10,8,8,8,8,9] | 9 [9,8,8,12,8,9,29] | 4 [7,4,4,4,4,4,16] |
+  | q3 | 23 [23,41,21,33,26,23,22] | 18 [18,17,18,17,17,19,18] | 15 [15,14,14,15,14,16,15] |
+  | filter_sel0 | 8 [8,8,9,7,8,7,9] | 8 [19,8,11,8,8,8,7] | 6 [7,6,7,6,6,6,6] |
+  | filter_sel1 | 8 [8,7,10,8,8,8,7] | 8 [8,8,11,8,8,9,8] | 7 [6,6,7,7,6,7,7] |
+  | filter_sel50 | 12 [10,14,12,11,12,13,10] | 12 [11,13,15,14,12,12,11] | 10 [9,10,11,20,9,9,11] |
+  | filter_sel100 | 11 [11,13,11,11,11,10,12] | 12 [11,11,11,23,12,12,12] | 11 [11,11,10,11,10,12,9] |
+
+- q1 batched for sub-ms resolution (5 queries per timed window, 3 processes per binary, interleaved,
+  load 5.7-13.3): baseline windows [71, 49, 51] ms -> 10.2 ms per query, master [31, 39, 33] -> 6.6,
+  candidate [17, 20, 17] -> **3.4 ms**. (Batch 20 is impractical: the driver parses every batch input
+  on its own, 20 x 1M rows per process.)
+- Copy bytes, compute phase (T3.1's C counter on the emitted driver): q1 master 8,388,608 (v0.1's
+  predicate copies of `ok` and `qty`) -> **0**; q2 0; q3 4,194,496 (group_by's remainder, as T4.2).
+
+Spin loops of q1's compute phase (identified dynamically: every `spin_N` of the emitted driver C
+patched with an entry counter, the compute phase's counts diffed; numbering of this build):
+`spin_1540` = `Kernel.pred_count` at q1's instance (`ok & (qty > 50)`, the merged T5BC pass: per row
+`rb > p`, AND with `ok`'s word, validity `(va & vb) != 0`; 5 `blk_read`, 1 `blk_write`, no
+`heap_alloc` / `rfc_seal` / `term_keep` / `ctr_take` / `blk_copy`; its per-row helpers `spin_0`
+(Bool.pick) and `spin_1` (Bool.to_u32) are inlined and allocate nothing: 1,000,002 / 1,000,000 entries),
+entered once; `spin_1227` = `Kernel.compact3` at U32 / U32 / F32 (id, region's Dictionary codes, price;
+7 `blk_read`, 3 `blk_write`, nothing allocated), entered once. No popcount fold (the count comes out of
+pred_count), no compaction of the four unselected columns. The rest of the compute phase is O(columns)
+list / name work (a few hundred entries of small spins).
