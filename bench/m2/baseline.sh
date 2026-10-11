@@ -42,6 +42,8 @@ if [ "$which" = baseline ]; then
   fi
   mkdir -p "$src/bench/m2"
   cp bench/m2/driver.bend "$src/bench/m2/driver.bend"
+  # the pinned facade has no v0.2 reader: the baseline's CSV shim reads with v0.1 (W6.3)
+  cp bench/m2/engine_v01.bend "$src/bench/m2/engine.bend"
   root=$src
   commit=$full
 else
@@ -61,7 +63,8 @@ print(h.hexdigest())
 EOF
 }
 sh=$(srchash "$root")
-dh=$(shasum -a 256 "$root/bench/m2/driver.bend" | cut -d' ' -f1)
+# the driver and its CSV reader shim (engine.bend; the baseline's is engine_v01.bend copied in)
+dh=$(cat "$root/bench/m2/driver.bend" "$root/bench/m2/engine.bend" | shasum -a 256 | cut -d' ' -f1)
 
 if [ "$force" = 0 ] && [ -x "$out/driver" ] && [ -f "$out/BUILD.json" ] \
    && grep -q "\"src_hash\": \"$sh\"" "$out/BUILD.json" && grep -q "\"driver_hash\": \"$dh\"" "$out/BUILD.json"; then
@@ -78,7 +81,7 @@ if [ "$which" = candidate ]; then
   facade_diff=${facade_diff:-0}
 fi
 dirty=false
-if [ "$which" = candidate ] && [ -n "$(git status --porcelain -- src frame.bend bench/m2/driver.bend)" ]; then dirty=true; fi
+if [ "$which" = candidate ] && [ -n "$(git status --porcelain -- src frame.bend bench/m2/driver.bend bench/m2/engine.bend)" ]; then dirty=true; fi
 cat > "$out/BUILD.json" <<EOF
 {
   "which": "$which",

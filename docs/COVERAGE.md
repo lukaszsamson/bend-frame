@@ -13,7 +13,7 @@ operation without an annotation (a heuristic, report only). Cases are DF.dump-ba
 reasoned first and confirmed against Polars 2.0.0 where the semantics match (`bench/coverage/`), the
 documented departures (DESIGN.md 14, 15) applied by hand.
 
-13 annotated test files, 95 annotation lines.
+14 annotated test files, 99 annotation lines.
 
 What the gate proves and what it does not. It proves that every row has every kind accounted for by a
 case named in an annotation, that each annotation names an operation its file really calls, and that no
@@ -28,6 +28,7 @@ themselves are real tests (`make test` runs them and compares every dump with it
 | [agg](../tests/coverage/agg.bend) | 39 | [bench/coverage/agg.py](../bench/coverage/agg.py) (`bench/coverage/check.sh agg`: byte-for-byte after the documented departures applied in the twin) |
 | [api_frames](../tests/coverage/api_frames.bend) | 42 | [bench/coverage/api_frames.py](../bench/coverage/api_frames.py) (reference values only; see the test header) |
 | [api_plans](../tests/coverage/api_plans.bend) | 60 | none: expectation reasoned from the contract (see the test header) |
+| [csv_engine](../tests/coverage/csv_engine.bend) | 27 | none: expectation reasoned from the contract (see the test header) |
 | [csv_read](../tests/coverage/csv_read.bend) | 27 | [bench/coverage/csv_read.py](../bench/coverage/csv_read.py) (`bench/coverage/check.sh csv_read`: byte-for-byte after the documented departures applied in the twin) |
 | [csv_storage](../tests/coverage/csv_storage.bend) | 5 | none: expectation reasoned from the contract (see the test header) |
 | [csv_write](../tests/coverage/csv_write.bend) | 29 | [bench/coverage/csv_write.py](../bench/coverage/csv_write.py) (`bench/coverage/check.sh csv_write`: byte-for-byte after the documented departures applied in the twin) |
@@ -43,14 +44,14 @@ themselves are real tests (`make test` runs them and compares every dump with it
 
 | kind | covered | n/a (reason given) | missing |
 |---|---|---|---|
-| success | 129 | 0 | 0 |
-| null | 119 | 10 | 0 |
-| empty | 126 | 3 | 0 |
-| invalid | 112 | 17 | 0 |
-| eager | 129 | 0 | 0 |
-| lazy | 112 | 17 | 0 |
+| success | 133 | 0 | 0 |
+| null | 123 | 10 | 0 |
+| empty | 130 | 3 | 0 |
+| invalid | 116 | 17 | 0 |
+| eager | 132 | 1 | 0 |
+| lazy | 113 | 20 | 0 |
 
-129 rows (149 facade defs); 774 row x kind cells; covered by a case 727, n/a with a reason 47, missing 0.
+133 rows (154 facade defs); 798 row x kind cells; covered by a case 747, n/a with a reason 51, missing 0.
 
 ### Columns, literals and builders
 
@@ -195,7 +196,7 @@ themselves are real tests (`make test` runs them and compares every dump with it
 | `optimize` | [api_plans](../tests/coverage/api_plans.bend) | n/a [11] | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | n/a | 4 |
 | `optimize_full` | [api_plans](../tests/coverage/api_plans.bend) | n/a [11] | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | n/a | 2 |
 | `show` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 3 |
-| `dump` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 11 |
+| `dump` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 14 |
 | `dump_frame` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [6] | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 2 |
 | `describe` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 4 |
 | `clone` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [6] | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 1 |
@@ -211,9 +212,13 @@ themselves are real tests (`make test` runs them and compares every dump with it
 | `read_csv_opts` | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) |  | 2 |
 | `read_csv_schema` | [csv_read](../tests/coverage/csv_read.bend), [csv_write](../tests/coverage/csv_write.bend) | [csv_read](../tests/coverage/csv_read.bend), [csv_write](../tests/coverage/csv_write.bend) | [csv_read](../tests/coverage/csv_read.bend), [csv_write](../tests/coverage/csv_write.bend) | [csv_read](../tests/coverage/csv_read.bend), [csv_write](../tests/coverage/csv_write.bend) | [csv_read](../tests/coverage/csv_read.bend), [csv_write](../tests/coverage/csv_write.bend) | [csv_read](../tests/coverage/csv_read.bend) |  | 2 |
 | `read_csv_enc` | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) |  | 1 |
-| `str_*` (str_raw, str_dict, str_auto) | [csv_read](../tests/coverage/csv_read.bend), [csv_storage](../tests/coverage/csv_storage.bend) | [csv_read](../tests/coverage/csv_read.bend), [csv_storage](../tests/coverage/csv_storage.bend) | [csv_read](../tests/coverage/csv_read.bend), [csv_storage](../tests/coverage/csv_storage.bend) | [csv_read](../tests/coverage/csv_read.bend), [csv_storage](../tests/coverage/csv_storage.bend) | [csv_read](../tests/coverage/csv_read.bend), [csv_storage](../tests/coverage/csv_storage.bend) | n/a [15] |  | 1 |
-| `encode_strings` | [csv_storage](../tests/coverage/csv_storage.bend) | [csv_storage](../tests/coverage/csv_storage.bend) | [csv_storage](../tests/coverage/csv_storage.bend) | n/a [16] | [csv_storage](../tests/coverage/csv_storage.bend) | n/a [17] |  | 1 |
-| `dict_columns` | [csv_storage](../tests/coverage/csv_storage.bend) | [csv_storage](../tests/coverage/csv_storage.bend) | [csv_storage](../tests/coverage/csv_storage.bend) | n/a [16] | [csv_storage](../tests/coverage/csv_storage.bend) | n/a [17] |  | 1 |
+| `csv_engine_*` (csv_engine_v01, csv_engine_v02) | [csv_engine](../tests/coverage/csv_engine.bend) | [csv_engine](../tests/coverage/csv_engine.bend) | [csv_engine](../tests/coverage/csv_engine.bend) | [csv_engine](../tests/coverage/csv_engine.bend) | [csv_engine](../tests/coverage/csv_engine.bend) | n/a [15] |  | 0 |
+| `read_csv_engine` | [csv_engine](../tests/coverage/csv_engine.bend) | [csv_engine](../tests/coverage/csv_engine.bend) | [csv_engine](../tests/coverage/csv_engine.bend) | [csv_engine](../tests/coverage/csv_engine.bend) | [csv_engine](../tests/coverage/csv_engine.bend) | n/a [15] |  | 0 |
+| `read_csv_v02` | [csv_engine](../tests/coverage/csv_engine.bend) | [csv_engine](../tests/coverage/csv_engine.bend) | [csv_engine](../tests/coverage/csv_engine.bend) | [csv_engine](../tests/coverage/csv_engine.bend) | [csv_engine](../tests/coverage/csv_engine.bend) | n/a [15] |  | 0 |
+| `collect_engine` | [csv_engine](../tests/coverage/csv_engine.bend) | [csv_engine](../tests/coverage/csv_engine.bend) | [csv_engine](../tests/coverage/csv_engine.bend) | [csv_engine](../tests/coverage/csv_engine.bend) | n/a [16] | [csv_engine](../tests/coverage/csv_engine.bend) |  | 0 |
+| `str_*` (str_raw, str_dict, str_auto) | [csv_read](../tests/coverage/csv_read.bend), [csv_storage](../tests/coverage/csv_storage.bend) | [csv_read](../tests/coverage/csv_read.bend), [csv_storage](../tests/coverage/csv_storage.bend) | [csv_read](../tests/coverage/csv_read.bend), [csv_storage](../tests/coverage/csv_storage.bend) | [csv_read](../tests/coverage/csv_read.bend), [csv_storage](../tests/coverage/csv_storage.bend) | [csv_read](../tests/coverage/csv_read.bend), [csv_storage](../tests/coverage/csv_storage.bend) | n/a [17] |  | 1 |
+| `encode_strings` | [csv_storage](../tests/coverage/csv_storage.bend) | [csv_storage](../tests/coverage/csv_storage.bend) | [csv_storage](../tests/coverage/csv_storage.bend) | n/a [18] | [csv_storage](../tests/coverage/csv_storage.bend) | n/a [19] |  | 1 |
+| `dict_columns` | [csv_storage](../tests/coverage/csv_storage.bend) | [csv_storage](../tests/coverage/csv_storage.bend) | [csv_storage](../tests/coverage/csv_storage.bend) | n/a [18] | [csv_storage](../tests/coverage/csv_storage.bend) | n/a [19] |  | 1 |
 | `scan_csv` | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) |  | 7 |
 | `scan_csv_opts` | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) |  | 4 |
 | `scan_csv_schema` | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) |  | 2 |
@@ -237,15 +242,17 @@ themselves are real tests (`make test` runs them and compares every dump with it
 12. building an environment or a Source plan cannot fail (a bad plan or binding is reported by collect_schema / validate_bindings / collect, covered)
 13. the answer is a dtype list / a text: a null cell changes none of them
 14. the argument is an error value / a name: nothing zero-row to give
-15. scan_csv always uses the default (Auto) storage: the readers' choice is eager-only, the Auto reads are compared with the scans
-16. both take a valid Frame (and a Bool) and cannot fail
-17. eager frame functions: the scan / collect path picks its storage itself
+15. a read's lazy twin is scan_csv + collect_engine (the collect_engine row), compared here with the eager reads
+16. collecting a plan is the lazy API itself; its eager twins are the reads above
+17. scan_csv always uses the default (Auto) storage: the readers' choice is eager-only, the Auto reads are compared with the scans
+18. both take a valid Frame (and a Bool) and cannot fail
+19. eager frame functions: the scan / collect path picks its storage itself
 
 ## Def-call coverage over src/
 
 Method: a static call graph (see the header of `scripts/coverage_matrix.py`). A def *mentions* another def
 when its body names it (qualified through the file's import aliases, or bare inside its own module).
-Entry points are the 324 defs that a test (or a `tests/**/lib` helper a test imports) calls directly,
+Entry points are the 356 defs that a test (or a `tests/**/lib` helper a test imports) calls directly,
 `frame.bend` defs and `src/` defs alike. A def is *reached* when a path of mentions leads to it. Two
 reach columns: **via facade** follows only the entries that are `frame.bend` defs (what the public API
 alone can reach); **reached** adds the `src/` defs the tests call directly (the proof-style and unit tests).
@@ -255,29 +262,33 @@ reach these", not as line coverage. Reported, not gated.
 
 | file | defs | called directly | reached via facade | reached | unreached |
 |---|---|---|---|---|---|
-| `frame.bend` | 175 | 162 | 174 | 174 | 1 |
+| `frame.bend` | 180 | 167 | 179 | 179 | 1 |
 | `src/analysis.bend` | 44 | 0 | 44 | 44 | 0 |
-| `src/column.bend` | 151 | 26 | 149 | 149 | 2 |
-| `src/csv.bend` | 296 | 14 | 287 | 295 | 1 |
+| `src/column.bend` | 160 | 28 | 158 | 158 | 2 |
+| `src/csv.bend` | 412 | 15 | 403 | 411 | 1 |
+| `src/csvlane.bend` | 152 | 1 | 152 | 152 | 0 |
 | `src/csvparse.bend` | 20 | 1 | 19 | 19 | 1 |
-| `src/dtype.bend` | 40 | 25 | 28 | 40 | 0 |
+| `src/csvprod.bend` | 33 | 2 | 33 | 33 | 0 |
+| `src/dtype.bend` | 40 | 25 | 24 | 36 | 4 |
 | `src/dump.bend` | 39 | 1 | 39 | 39 | 0 |
 | `src/err.bend` | 3 | 3 | 3 | 3 | 0 |
-| `src/eval.bend` | 295 | 12 | 290 | 293 | 2 |
-| `src/exec.bend` | 51 | 9 | 51 | 51 | 0 |
+| `src/eval.bend` | 317 | 14 | 310 | 315 | 2 |
+| `src/exec.bend` | 53 | 9 | 53 | 53 | 0 |
 | `src/expr.bend` | 45 | 8 | 45 | 45 | 0 |
-| `src/fmt.bend` | 98 | 3 | 98 | 98 | 0 |
-| `src/groupby.bend` | 152 | 1 | 152 | 152 | 0 |
-| `src/join.bend` | 151 | 2 | 150 | 150 | 1 |
-| `src/kernels.bend` | 67 | 29 | 61 | 67 | 0 |
+| `src/fmt.bend` | 113 | 3 | 113 | 113 | 0 |
+| `src/groupby.bend` | 172 | 1 | 172 | 172 | 0 |
+| `src/hcode.bend` | 22 | 5 | 0 | 22 | 0 |
+| `src/join.bend` | 152 | 3 | 151 | 151 | 1 |
+| `src/kernels.bend` | 71 | 33 | 65 | 71 | 0 |
 | `src/plan.bend` | 123 | 11 | 122 | 122 | 1 |
+| `src/ranks.bend` | 61 | 2 | 0 | 61 | 0 |
 | `src/schema.bend` | 23 | 8 | 20 | 23 | 0 |
-| `src/sort.bend` | 70 | 4 | 69 | 69 | 1 |
-| `src/strs.bend` | 98 | 5 | 98 | 98 | 0 |
-| `src/table.bend` | 68 | 0 | 68 | 68 | 0 |
-| **total** | **2009** | **324** | **1967** | **1999** | **10** |
+| `src/sort.bend` | 70 | 5 | 69 | 69 | 1 |
+| `src/strs.bend` | 98 | 10 | 98 | 98 | 0 |
+| `src/table.bend` | 72 | 1 | 72 | 72 | 0 |
+| **total** | **2475** | **356** | **2344** | **2461** | **14** |
 
-99.5 % of the 2009 defs are reachable from the tests (97.9 % through the facade alone).
+99.4 % of the 2475 defs are reachable from the tests (94.7 % through the facade alone).
 
 Unreached defs:
 
@@ -285,6 +296,7 @@ Unreached defs:
 - `src/column.bend`: `Column.depth`, `Column.rename`
 - `src/csv.bend`: `Csv.parse_enc`
 - `src/csvparse.bend`: `parse`
+- `src/dtype.bend`: `I32.floor_div`, `I32.floor_div.k`, `I32.floor_mod`, `I32.floor_mod.k`
 - `src/eval.bend`: `Eval.is_stat`, `SKind.is_agg`
 - `src/join.bend`: `JoinHow.show`
 - `src/plan.bend`: `Plan.sources`

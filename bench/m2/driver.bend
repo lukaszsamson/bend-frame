@@ -32,6 +32,10 @@
 #   batch > 1, each input parsed on its own); every ms field is the WINDOW, the runner divides.
 #
 # stdout: one JSON line of integers (ms) and hashes, or a line starting with "error:".
+#
+# CSV reader: every input is read through bench/m2/engine.bend (EN.Eng.read_csv): BF_ENGINE=v02 selects the
+# v0.2 reader (W6.3, DESIGN.md 16.5 D7), anything else v0.1. The baseline build gets bench/m2/engine_v01.bend
+# as its engine.bend (bench/m2/baseline.sh): v0.1 whatever BF_ENGINE says. selfcheck reads with v0.1 only.
 import Base
 import ./../../frame.bend as DF
 import ./../../src/dtype.bend as D
@@ -42,6 +46,7 @@ import ./../../src/strs.bend as ST
 import ./../../src/join.bend as J
 import ./../../src/plan.bend as P
 import ./../../src/expr.bend as X
+import ./engine.bend as EN
 
 # ===== shim: forcing (bench/main.bend `force`, every cell read once) ==========================
 
@@ -355,7 +360,7 @@ def rd.aux.k(+none: Bool, +ppath: String) -> IO(E.ResT(C.Frame)):
     case True{}:
       IO.pure(E.ResT(C.Frame), Done{C.Frame.empty()})
     case False{}:
-      DF.read_csv(ppath)
+      EN.Eng.read_csv(ppath)
 
 # aux "-": no second file (an empty frame)
 def rd.aux(+ppath: String) -> IO(E.ResT(C.Frame)):
@@ -363,7 +368,7 @@ def rd.aux(+ppath: String) -> IO(E.ResT(C.Frame)):
 
 def rd.one(+path: String, +ppath: String) -> IO(E.ResT(In)):
   do IO<E.ResT(In)>:
-    rs : E.ResT(C.Frame) <- DF.read_csv(path)
+    rs : E.ResT(C.Frame) <- EN.Eng.read_csv(path)
     rp : E.ResT(C.Frame) <- rd.aux(ppath)
     return rd.j(rs, rp)
 

@@ -14,6 +14,8 @@ import ./kernels.bend as K
 import ./column.bend as C
 import ./strs.bend as ST
 import ./fmt.bend as F
+import ./csvprod.bend as P
+import ./csvlane.bend as L
 
 type CsvOpts is Data:
   CsvOpts{sep: Char, has_header: Bool, infer_rows: U32}
@@ -2117,3 +2119,965 @@ def Csv.write_with(f: C.Frame, path: String, +w: CsvWriteOpts) -> IO(C.Frame & R
 # renders with F32.show (Csv.render(f, None{})) and writes the file; the frame comes back
 def Csv.write(f: C.Frame, path: String) -> IO(C.Frame & Result<&1, &1, U32 & String, Unit>):
   Csv.write_with(f, path, Csv.write_default())
+
+# ==== the v0.2 reader (W6.3; DESIGN.md 17.4 D6, 16.5 D7) =============================================
+# Opt-in (D7): the default stays v0.1 (every Csv.read* above) until W8 flips it; the engine is chosen
+# by a `CsvEngine` value (`Csv.read_eng`, the facade's `read_csv_engine` / `read_csv_v02`, and
+# `Exec.run_rd` / `Lazy.collect_rd` for scan_csv's collect). Same contract as v0.1 (DESIGN.md 15.6):
+# the same values, validity, F32 bits, strings, dictionary codes, column order and dtypes, errors and
+# their order and lines. Pipeline:
+#
+#   1. header step (Csv.v2.h*, sequential, bounded): 64 KiB File.read_at pieces walked byte by byte
+#      until the first non-blank record ends (an LF at even quote parity, or the end of the file):
+#      blank lines ("" or a lone CR before an LF) are skipped and counted; that record's bytes are
+#      decoded as File.read decodes (Csv.u8) and parsed by the reference parser (csvparse): rejected
+#      -> malformed; with a header its cells are the names, else column_0 .. (its width). It answers
+#      the width w, the byte offset off0 where the data starts and the physical line line0 there (no
+#      header: 0 and 1; the producer then sees the blank lines, which the lanes skip or keep as v0.1
+#      does). No non-blank record: the empty frame or the dtype-count error (a header-less file of
+#      blank lines only is one column of null rows, as v0.1).
+#   2. producer (src/csvprod.bend Pr.regions from off0, line0): regions at record boundaries; odd
+#      final quote parity -> malformed.
+#   3. dtypes: explicit (a count != w: every lane only tokenizes, TyN, and the count error comes after
+#      malformed / ragged, as v0.1); inferred over the first infer_rows records: infer_rows <= 65536
+#      tokenizes and classifies the leading regions SEQUENTIALLY until they hold infer_rows rows
+#      (L.Ln.cls; their tokens are kept for the typed pass); infer_rows = 0 (all) or larger: ONE
+#      balanced fork classifies every region (L.Ln.clsr), the regions come back and are tokenized
+#      again by the typed fork (17.4.5: two passes over the packed bytes, no second read). Either way
+#      a column's dtype is v0.1's Csv.pick over the first rows, computed from each region's first
+#      failing local row plus the region's row offset (Csv.v2.ci.*).
+#   4. lanes: ONE balanced fork over the region tree (P.Rt.of: `a b = lane(l) lane(r)`), L.Ln.lane per
+#      leaf; nothing shared but the dtype list.
+#   5. combine, sequential, in region order: malformed (a lane rejected) > the first ragged record (the
+#      first region with one) > the dtype count > the row cap (the sum of the lanes' rows, checked
+#      before any column is allocated) > per column in column order its first bad cell (the first
+#      region with one: its line and text) > Frame.from_columns (Csv.fin, as v0.1); every column is
+#      its region parts concatenated once (the columns built by one balanced fork over a tree of
+#      them, Csv.v2.bfork: each column's concatenation and merge is its own). Str columns: Raw (EncRaw: rows decoded in the lanes) or ONE
+#      ST.Dict built from the regions' entries in region order (each region's entries in their local
+#      first-appearance order: v0.1's codes exactly). EncAuto falls back to Raw by v0.1's rule
+#      (Csv.dict_over at every row: some entry with global code c first appearing at global row r has
+#      c + 1 > max(floor, (r + 1) / den)); the merge checks the rule per entry and STOPS at the first
+#      hit (a 1M-distinct column merges ~16k entries, not 1M); then the rows coded so far are decoded
+#      (Dict.decode) and every later part is decoded from its own entries (one gather). A column of
+#      no row is checked once with size 1 and 0 rows, as v0.1's builder does on an empty chunk
+#      (Csv.v2.x.zero: Raw under EncAutoAt{0, _}).
+# A separator outside ASCII goes to the v0.1 reader (the lane compares bytes).
+#
+# Parallel shape: forks only in Csv.v2.ftree and Csv.v2.ctree (balanced trees of regions) and
+# Csv.v2.bfork (a balanced tree of columns); the header step and the rest of the combine are sequential. Hot loops (tokenizer, typed loops, coder) are csvlane's; the
+# combine's per-row loops are Kernel.copy_into and Csv.v2.ggo (a gather into an offset), flat loops.
+# Idioms: DESIGN 9 (helpers above callers, pairs taken apart in the next helper's parameter, no
+# mutual recursion, early exits by a Bool field of the loop record).
+
+# the reader engine (D7): v0.1 (the reference, default) or v0.2 with its piece size in bytes
+type CsvEngine is Data:
+  CsvV01{}
+  CsvV02{piece: U32}
+
+def Csv.engine_v01() -> CsvEngine:
+  CsvV01{}
+
+def Csv.engine_v02() -> CsvEngine:
+  CsvV02{P.Pr.piece()}
+
+def Csv.v2.sel(c: Bool, +a: U32, +b: U32) -> U32:
+  match c:
+    case True{}:
+      a
+    case False{}:
+      b
+
+# ---- 1. the header step ----------------------------------------------------------------------------
+# modes: at a line start (blank so far), a line start then one CR, inside the first non-blank record,
+# that record ended (at the LF of offset p)
+type QM is Data:
+  QM0{}
+  QM1{}
+  QMR{}
+  QMD{}
+
+# the walk: mode, the offset of the next byte (frozen at the record's LF once QMD), the physical line
+# the record starts on, quote parity, LFs inside the record, its bytes (newest first)
+type QH is Type:
+  QH{md: QM, p: U32, ln: U32, q: U32, nlf: U32, rec: List<&2, U32>}
+
+def Csv.v2.h0(lf: Bool, cr: Bool, +b: U32, +p: U32, +ln: U32, rec: List<&2, U32>) -> QH:
+  match lf:
+    case True{}:
+      QH{QM0{}, U32.inc(p), U32.inc(ln), 0, 0, rec}
+    case False{}:
+      match cr:
+        case True{}:
+          QH{QM1{}, U32.inc(p), ln, 0, 0, rec}
+        case False{}:
+          QH{QMR{}, U32.inc(p), ln, Bool.to_u32(U32.is_eq(b, 34)), 0, b <> rec}
+
+def Csv.v2.h1(lf: Bool, +b: U32, +p: U32, +ln: U32, rec: List<&2, U32>) -> QH:
+  match lf:
+    case True{}:
+      QH{QM0{}, U32.inc(p), U32.inc(ln), 0, 0, rec}
+    case False{}:
+      QH{QMR{}, U32.inc(p), ln, Bool.to_u32(U32.is_eq(b, 34)), 0, b <> (13 <> rec)}
+
+def Csv.v2.hr(end: Bool, +b: U32, +p: U32, +ln: U32, +q: U32, +nlf: U32, rec: List<&2, U32>) -> QH:
+  match end:
+    case True{}:
+      QH{QMD{}, p, ln, q, nlf, b <> rec}
+    case False{}:
+      QH{QMR{}, U32.inc(p), ln, U32.xor(q, Bool.to_u32(U32.is_eq(b, 34))), U32.add(nlf, Bool.to_u32(U32.is_eq(b, 10))), b <> rec}
+
+def Csv.v2.hstep.k(md: QM, +b: U32, +p: U32, +ln: U32, +q: U32, +nlf: U32, rec: List<&2, U32>) -> QH:
+  match md:
+    case QM0{}:
+      Csv.v2.h0(U32.is_eq(b, 10), U32.is_eq(b, 13), b, p, ln, rec)
+    case QM1{}:
+      Csv.v2.h1(U32.is_eq(b, 10), b, p, ln, rec)
+    case QMR{}:
+      Csv.v2.hr(Bool.and(U32.is_eq(b, 10), U32.is_eq(q, 0)), b, p, ln, q, nlf, rec)
+    case QMD{}:
+      QH{QMD{}, p, ln, q, nlf, rec}
+
+def Csv.v2.hstep(+b: U32, st: QH) -> QH:
+  match st:
+    case QH{md, +p, +ln, +q, +nlf, rec}:
+      Csv.v2.hstep.k(md, b, p, ln, q, nlf, rec)
+
+# the bytes of one piece
+def Csv.v2.hgo(bs: List<&2, U32>, st: QH) -> QH:
+  match bs:
+    case Nil{}:
+      st
+    case b <> t:
+      Csv.v2.hgo(t, Csv.v2.hstep(b, st))
+
+type QS is Type:
+  QRun{f: File, off: U32, size: U32, hp: U32, h: QH}
+  QEnd{size: U32, h: QH}
+  QErr{code: U32, msg: String}
+
+# the header step's piece: 64 KiB, or the reader's piece when smaller (tests read with tiny pieces, so
+# the header step crosses pieces in every phase)
+def Csv.v2.hpiece(+piece: U32) -> U32:
+  U32.max(U32.min(piece, 65536), 1)
+
+def Csv.v2.isd(md: QM) -> Bool:
+  match md:
+    case QMD{}:
+      True{}
+    case _:
+      False{}
+
+def Csv.v2.hend.k(end: Bool, f: File, +off: U32, +size: U32, +hp: U32, h: QH) -> IO(QS):
+  match end:
+    case True{}:
+      do IO<QS>:
+        File.close(f)
+        return QEnd{size, h}
+    case False{}:
+      IO.pure(QS, QRun{f, off, size, hp, h})
+
+# after a piece: the record ended, the file ended, or the read gave no byte: stop; else read on at p
+def Csv.v2.hnext(f: File, +off: U32, +size: U32, +hp: U32, h: QH) -> IO(QS):
+  match h:
+    case QH{+md, +p, ln, q, nlf, rec}:
+      Csv.v2.hend.k(Bool.or(Csv.v2.isd(md), Bool.or(U32.is_ge(p, size), U32.is_eq(p, off))), f, p, size, hp, QH{md, p, ln, q, nlf, rec})
+
+def Csv.v2.hres(f: File, res: Result<&1, &1, U32 & String, List<&2, U32>>, +off: U32, +size: U32, +hp: U32, h: QH) -> IO(QS):
+  match res:
+    case Fail{(code, msg)}:
+      do IO<QS>:
+        File.close(f)
+        return QErr{code, msg}
+    case Done{bs}:
+      Csv.v2.hnext(f, off, size, hp, Csv.v2.hgo(bs, h))
+
+def Csv.v2.hgot(r: File & Result<&1, &1, U32 & String, List<&2, U32>>, +off: U32, +size: U32, +hp: U32, h: QH) -> IO(QS):
+  (f, res) = r
+  Csv.v2.hres(f, res, off, size, hp, h)
+
+def Csv.v2.hread(st: QS) -> IO(QS):
+  match st:
+    case QRun{f, +off, +size, +hp, h}:
+      do IO<QS>:
+        r : File & Result<&1, &1, U32 & String, List<&2, U32>> <- File.read_at(f, off, hp)
+        Csv.v2.hgot(r, off, size, hp, h)
+    case other:
+      IO.pure(QS, other)
+
+# one step per piece; the fuel (pieces + 3) never runs out before the file does
+def Csv.v2.hloop(fuel: Nat, st: QS) -> IO(QS):
+  match fuel:
+    case 0n:
+      IO.pure(QS, st)
+    case 1n+p:
+      match st:
+        case QRun{f, off, size, hp, h}:
+          do IO<QS>:
+            st2 : QS <- Csv.v2.hread(QRun{f, off, size, hp, h})
+            Csv.v2.hloop(p, st2)
+        case other:
+          IO.pure(QS, other)
+
+# the header step's answer: an error (IO, malformed), no record at all, or the names, the width, the
+# byte offset and physical line where the data starts
+type QD is Type:
+  QDErr{e: E.Err}
+  QDNone{}
+  QDOk{names: List<&2, String>, w: U32, off0: U32, line0: U32}
+
+def Csv.v2.hok(hdr: Bool, +off0: U32, +line0: U32, +cs: List<&2, H.CsvCell>) -> QD:
+  match hdr:
+    case True{}:
+      QDOk{Csv.names(cs), U32.from_nat(List.length(&2, H.CsvCell, cs)), off0, line0}
+    case False{}:
+      QDOk{Csv.gen_names(List.length(&2, H.CsvCell, cs), 0n), U32.from_nat(List.length(&2, H.CsvCell, cs)), 0, 1}
+
+def Csv.v2.hrecs(+hdr: Bool, +off0: U32, +line0: U32, rs: List<&2, H.CsvRec>) -> QD:
+  match rs:
+    case Nil{}:
+      QDErr{Csv.malformed()}
+    case H.CsvRec{l, cs} <> t:
+      Csv.v2.hok(hdr, off0, line0, cs)
+
+def Csv.v2.hans(+hdr: Bool, +off0: U32, +line0: U32, ans: H.Ans) -> QD:
+  match ans:
+    case H.Rejected{}:
+      QDErr{Csv.malformed()}
+    case H.Parsed{rs}:
+      Csv.v2.hrecs(hdr, off0, line0, rs)
+
+# the first non-blank record (its bytes newest first): decoded as File.read decodes, parsed by the
+# reference parser (a record cut at an LF at even parity is exactly one record unless malformed)
+def Csv.v2.hrec(+hdr: Bool, +sep: U32, +off0: U32, +line0: U32, rec: List<&2, U32>) -> QD:
+  Csv.v2.hans(hdr, off0, line0, H.parse_sep(sep, Csv.u8(U32.to_nat(U32.inc(off0)), List.reverse(&2, U32, rec))))
+
+# no non-blank record: with a header, no record; without, the empty file has none and a file of
+# blank lines is one column of them
+def Csv.v2.hnone(hdr: Bool, +size: U32) -> QD:
+  match hdr:
+    case True{}:
+      QDNone{}
+    case False{}:
+      Bool.pick(QD, U32.is_eq(size, 0), QDNone{}, QDOk{Csv.gen_names(1n, 0n), 1, 0, 1})
+
+def Csv.v2.hfin.m(md: QM, +hdr: Bool, +sep: U32, +size: U32, +p: U32, +ln: U32, +nlf: U32, rec: List<&2, U32>) -> QD:
+  match md:
+    case QMD{}:
+      Csv.v2.hrec(hdr, sep, U32.inc(p), U32.add(ln, U32.inc(nlf)), rec)
+    case QMR{}:
+      Csv.v2.hrec(hdr, sep, size, U32.add(ln, U32.inc(nlf)), rec)
+    case _:
+      Csv.v2.hnone(hdr, size)
+
+def Csv.v2.hfin(+hdr: Bool, +sep: U32, +size: U32, h: QH) -> QD:
+  match h:
+    case QH{md, +p, +ln, q, +nlf, rec}:
+      Csv.v2.hfin.m(md, hdr, sep, size, p, ln, nlf, rec)
+
+def Csv.v2.hout(+hdr: Bool, +sep: U32, st: QS) -> IO(QD):
+  match st:
+    case QEnd{+size, h}:
+      IO.pure(QD, Csv.v2.hfin(hdr, sep, size, h))
+    case QErr{code, msg}:
+      IO.pure(QD, QDErr{E.IoError{code, msg}})
+    case QRun{f, off, size, hp, h}:
+      do IO<QD>:
+        File.close(f)
+        return QDErr{E.InvalidOperation{"csv: header read did not finish"}}
+
+def Csv.v2.hsized(+hdr: Bool, +sep: U32, +hp: U32, f: File, res: Result<&1, &1, U32 & String, U32>) -> IO(QD):
+  match res:
+    case Done{+size}:
+      do IO<QD>:
+        st : QS <- Csv.v2.hloop(Nat.add(U32.to_nat(U32.div(size, hp)), 3n), QRun{f, 0, size, hp, QH{QM0{}, 0, 1, 0, 0, Nil{}}})
+        Csv.v2.hout(hdr, sep, st)
+    case Fail{(code, msg)}:
+      do IO<QD>:
+        File.close(f)
+        return QDErr{E.IoError{code, msg}}
+
+def Csv.v2.hsize(+hdr: Bool, +sep: U32, +hp: U32, r: File & Result<&1, &1, U32 & String, U32>) -> IO(QD):
+  (f, res) = r
+  Csv.v2.hsized(hdr, sep, hp, f, res)
+
+def Csv.v2.hopened(+hdr: Bool, +sep: U32, +hp: U32, o: Result<&1, &1, U32 & String, File>) -> IO(QD):
+  match o:
+    case Done{f}:
+      do IO<QD>:
+        r : File & Result<&1, &1, U32 & String, U32> <- File.size(f)
+        Csv.v2.hsize(hdr, sep, hp, r)
+    case Fail{(code, msg)}:
+      IO.pure(QD, QDErr{E.IoError{code, msg}})
+
+# the header step over the file (pieces of hp bytes)
+def Csv.v2.header(path: String, +hdr: Bool, +sep: U32, +hp: U32) -> IO(QD):
+  do IO<QD>:
+    o : Result<&1, &1, U32 & String, File> <- File.open(path, "r")
+    Csv.v2.hopened(hdr, sep, hp, o)
+
+# ---- 2. the lanes: ONE balanced fork over the region tree --------------------------------------------
+
+type QT is Type:
+  QTE{}
+  QTL{o: L.LO}
+  QTN{l: QT, r: QT}
+
+def Csv.v2.ftree(+ts: List<&2, L.Ty>, +w: U32, +sep: U32, t: P.Rt) -> QT:
+  match t:
+    case P.RE{}:
+      QTE{}
+    case P.RL{rg}:
+      QTL{L.Ln.lane(ts, w, sep, rg)}
+    case P.RN{l, r}:
+      a b = Csv.v2.ftree(ts, w, sep, l) Csv.v2.ftree(ts, w, sep, r)
+      QTN{a, b}
+
+# the lanes of the tree, in file order, in front of acc
+def Csv.v2.flist(t: QT, acc: List<&1, L.LO>) -> List<&1, L.LO>:
+  match t:
+    case QTE{}:
+      acc
+    case QTL{o}:
+      o <> acc
+    case QTN{l, r}:
+      Csv.v2.flist(l, Csv.v2.flist(r, acc))
+
+def Csv.v2.lanes(+ts: List<&2, L.Ty>, +w: U32, +sep: U32, regs: List<&1, P.Rg>) -> List<&1, L.LO>:
+  Csv.v2.flist(Csv.v2.ftree(ts, w, sep, P.Rt.of(regs)), Nil{})
+
+# already tokenized leading regions (newest first): their typed columns, in file order, in front of acc
+def Csv.v2.hcols(tos: List<&1, L.TO>, +ts: List<&2, L.Ty>, +w: U32, acc: List<&1, L.LO>) -> List<&1, L.LO>:
+  match tos:
+    case Nil{}:
+      acc
+    case t <> r:
+      Csv.v2.hcols(r, ts, w, L.Ln.cols(ts, w, t) <> acc)
+
+# the lanes' dtypes: Str as per-region Dictionaries (TyS) unless the storage is Raw (TyR)
+def Csv.v2.ty(t: D.DType, enc: ST.StrEnc) -> L.Ty:
+  match t enc:
+    case D.TU32{} _:
+      L.TyU{}
+    case D.TI32{} _:
+      L.TyI{}
+    case D.TF32{} _:
+      L.TyF{}
+    case D.TBool{} _:
+      L.TyB{}
+    case D.TStr{} ST.EncRaw{}:
+      L.TyR{}
+    case D.TStr{} _:
+      L.TyS{}
+
+def Csv.v2.tys(ts: List<&2, D.DType>, +enc: ST.StrEnc) -> List<&2, L.Ty>:
+  match ts:
+    case Nil{}:
+      Nil{}
+    case t <> tt:
+      Csv.v2.ty(t, enc) <> Csv.v2.tys(tt, enc)
+
+# every column skipped (the lanes only tokenize: the dtype count is wrong)
+def Csv.v2.tyn(n: Nat) -> List<&2, L.Ty>:
+  match n:
+    case 0n:
+      Nil{}
+    case 1n+p:
+      L.TyN{} <> Csv.v2.tyn(p)
+
+# ---- 3. inference: the regions' classes combined in file order (v0.1's Csv.pick over the first
+# `lim` rows; a class field is the first failing row + 1, 0 for none) ------------------------------------
+
+def Csv.v2.ci.f(+g: U32, +l: U32, +off: U32) -> U32:
+  Csv.v2.sel(Bool.and(U32.is_eq(g, 0), U32.is_ne(l, 0)), U32.add(off, l), g)
+
+def Csv.v2.ci.one(+off: U32, g: L.CL, l: L.CL) -> L.CL:
+  match g l:
+    case L.CL{+gu, +gi, +gf, +gb, +gv} L.CL{+lu, +li, +lf, +lb, +lv}:
+      L.CL{Csv.v2.ci.f(gu, lu, off), Csv.v2.ci.f(gi, li, off), Csv.v2.ci.f(gf, lf, off), Csv.v2.ci.f(gb, lb, off), Csv.v2.ci.f(gv, lv, off)}
+
+# the global classes so far, and a region's (its rows start at global row off)
+def Csv.v2.ci.zip(+off: U32, gs: List<&1, L.CL>, ls: List<&1, L.CL>) -> List<&1, L.CL>:
+  match gs ls:
+    case g <> gt l <> lt:
+      Csv.v2.ci.one(off, g, l) <> Csv.v2.ci.zip(off, gt, lt)
+    case other _:
+      other
+
+def Csv.v2.ci.zero(n: Nat) -> List<&1, L.CL>:
+  match n:
+    case 0n:
+      Nil{}
+    case 1n+p:
+      L.CL{0, 0, 0, 0, 0} <> Csv.v2.ci.zero(p)
+
+def Csv.v2.ci.ok(+x: U32, +lim: U32) -> Bool:
+  Bool.or(U32.is_eq(x, 0), U32.is_gt(x, lim))
+
+# a value among the first lim rows; every one of them fits u32, i32, f32, bool
+def Csv.v2.ci.dt(+lim: U32, g: L.CL) -> D.DType:
+  match g:
+    case L.CL{+u, +i, +f, +b, +v}:
+      Csv.pick(Bool.and(U32.is_ne(v, 0), U32.is_le(v, lim)), Csv.v2.ci.ok(u, lim), Csv.v2.ci.ok(i, lim), Csv.v2.ci.ok(f, lim), Csv.v2.ci.ok(b, lim))
+
+def Csv.v2.ci.dts(gs: List<&1, L.CL>, +lim: U32) -> List<&2, D.DType>:
+  match gs:
+    case Nil{}:
+      Nil{}
+    case g <> t:
+      Csv.v2.ci.dt(lim, g) <> Csv.v2.ci.dts(t, lim)
+
+# the head path (lim <= Csv.v2.headmax()): leading regions tokenized and classified one by one until
+# they hold lim rows (or one is rejected); their tokens are kept (newest first)
+type QHP is Type:
+  QHP{tos: List<&1, L.TO>, g: List<&1, L.CL>, off: U32, go: Bool}
+
+type QHR is Type:
+  QHR{hp: QHP, rest: List<&1, P.Rg>}
+
+def Csv.v2.headmax() -> U32:
+  65536
+
+def Csv.v2.hp.k(+lim: U32, tos: List<&1, L.TO>, g: List<&1, L.CL>, +off: U32, tc: L.TC) -> QHP:
+  match tc:
+    case L.TC{L.TO{+n, +rej, rag, rgn, sh, lines}, cl}:
+      +off2 = U32.add(off, n)
+      QHP{L.TO{n, rej, rag, rgn, sh, lines} <> tos, Csv.v2.ci.zip(off, g, cl), off2, Bool.and(U32.is_lt(off2, lim), U32.is_eq(rej, 0))}
+
+def Csv.v2.hp.go(regs: List<&1, P.Rg>, +w: U32, +sep: U32, +lim: U32, st: QHP) -> QHR:
+  match regs st:
+    case Nil{} other:
+      QHR{other, Nil{}}
+    case h <> t QHP{tos, g, off, False{}}:
+      QHR{QHP{tos, g, off, False{}}, h <> t}
+    case h <> t QHP{tos, g, off, True{}}:
+      Csv.v2.hp.go(t, w, sep, lim, Csv.v2.hp.k(lim, tos, g, off, L.Ln.cls(w, L.Ln.tok(w, sep, h))))
+
+# the full path (infer_rows = 0 or > headmax): ONE balanced fork classifies every region; the regions
+# come back (their bytes only) in file order
+type QC is Type:
+  QCE{}
+  QCL{cr: L.CR}
+  QCN{l: QC, r: QC}
+
+def Csv.v2.ctree(+w: U32, +sep: U32, t: P.Rt) -> QC:
+  match t:
+    case P.RE{}:
+      QCE{}
+    case P.RL{rg}:
+      QCL{L.Ln.clsr(w, sep, rg)}
+    case P.RN{l, r}:
+      a b = Csv.v2.ctree(w, sep, l) Csv.v2.ctree(w, sep, r)
+      QCN{a, b}
+
+def Csv.v2.clist(t: QC, acc: List<&1, L.CR>) -> List<&1, L.CR>:
+  match t:
+    case QCE{}:
+      acc
+    case QCL{c}:
+      c <> acc
+    case QCN{l, r}:
+      Csv.v2.clist(l, Csv.v2.clist(r, acc))
+
+type QCA is Type:
+  QCA{regs: List<&1, P.Rg>, g: List<&1, L.CL>, off: U32}
+
+def Csv.v2.cone(c: L.CR, st: QCA) -> QCA:
+  match c st:
+    case L.CR{rg, +n, cl} QCA{regs, g, +off}:
+      QCA{rg <> regs, Csv.v2.ci.zip(off, g, cl), U32.add(off, n)}
+
+def Csv.v2.cacc(crs: List<&1, L.CR>, st: QCA) -> QCA:
+  match crs:
+    case Nil{}:
+      st
+    case c <> t:
+      Csv.v2.cacc(t, Csv.v2.cone(c, st))
+
+# ---- 5. the combine ---------------------------------------------------------------------------------
+# the summary: rows, rejected, the first ragged record in region order
+
+type QSM is Data:
+  QSM{n: U32, rej: U32, rag: U32, rgn: U32}
+
+def Csv.v2.sum.add(+n: U32, +rej: U32, +rag: U32, +rgn: U32, s: QSM) -> QSM:
+  match s:
+    case QSM{+n0, +rj, +rg, +rn}:
+      +first = Bool.and(U32.is_ne(rag, 0), U32.is_eq(rg, 0))
+      QSM{U32.add(n0, n), U32.or(rj, rej), Csv.v2.sel(first, rag, rg), Csv.v2.sel(first, rgn, rn)}
+
+def Csv.v2.sum.one(x: L.LO, st: List<&1, L.LO> & QSM) -> List<&1, L.LO> & QSM:
+  match x:
+    case L.LO{+n, +rej, +rag, +rgn, lines, cols}:
+      (acc, s) = st
+      (L.LO{n, rej, rag, rgn, lines, cols} <> acc, Csv.v2.sum.add(n, rej, rag, rgn, s))
+
+# lanes in order -> (lanes in order, summary)
+def Csv.v2.sum(xs: List<&1, L.LO>, st: List<&1, L.LO> & QSM) -> List<&1, L.LO> & QSM:
+  match xs:
+    case Nil{}:
+      (acc, s) = st
+      (List.reverse(&1, L.LO, acc), s)
+    case h <> t:
+      Csv.v2.sum(t, Csv.v2.sum.one(h, st))
+
+# column c of every lane: (rows, part); the lanes keep their other columns
+
+def Csv.v2.dummy() -> L.CO:
+  L.OW{Array.new(U32, 0n, 0), Array.new(U32, 0n, 0), 0, 0, 0, ""}
+
+def Csv.v2.take.c.k(here: Bool, h: L.CO, r: List<&1, L.CO> & L.CO) -> List<&1, L.CO> & L.CO:
+  match here:
+    case True{}:
+      (t, x) = r
+      (Csv.v2.dummy() <> t, h)
+    case False{}:
+      (t, x) = r
+      (h <> t, x)
+
+def Csv.v2.take.c(cols: List<&1, L.CO>, +c: U32) -> List<&1, L.CO> & L.CO:
+  match cols:
+    case Nil{}:
+      (Nil{}, Csv.v2.dummy())
+    case h <> t:
+      Csv.v2.take.c.k(U32.is_eq(c, 0), h, Csv.v2.take.c(t, U32.sub(c, 1)))
+
+type QP is Type:
+  QP{n: U32, co: L.CO}
+
+def Csv.v2.take.k2(+n: U32, +rej: U32, +rag: U32, +rgn: U32, lines: Array<U32>, rest: List<&1, L.LO> & List<&1, QP>, r: List<&1, L.CO> & L.CO) -> List<&1, L.LO> & List<&1, QP>:
+  (los, ps) = rest
+  (cols, co) = r
+  (L.LO{n, rej, rag, rgn, lines, cols} <> los, QP{n, co} <> ps)
+
+def Csv.v2.take.k(+c: U32, x: L.LO, rest: List<&1, L.LO> & List<&1, QP>) -> List<&1, L.LO> & List<&1, QP>:
+  match x:
+    case L.LO{+n, rej, rag, rgn, lines, cols}:
+      Csv.v2.take.k2(n, rej, rag, rgn, lines, rest, Csv.v2.take.c(cols, c))
+
+def Csv.v2.take(+c: U32, xs: List<&1, L.LO>) -> List<&1, L.LO> & List<&1, QP>:
+  match xs:
+    case Nil{}:
+      (Nil{}, Nil{})
+    case h <> t:
+      Csv.v2.take.k(c, h, Csv.v2.take(c, t))
+
+# out[off + j] = src[perm[j]] for j < n (src and perm consumed, out comes back): a region's Str part
+# remapped to the merged codes, or decoded from its entries, straight into the column
+def Csv.v2.gput(~T: Data, out: Array<T>, +j: U32, r: Array<T> & T) -> Array<T> & Array<T>:
+  (src, x) = r
+  (src, Array.set(T, out, j, x))
+
+def Csv.v2.ggo(~T: Data, n: Nat, +j: U32, +off: U32, so: Array<T> & Array<T>, r: Array<U32> & U32) -> Array<T>:
+  match n:
+    case 0n:
+      (src, out) = so
+      (perm, i) = r
+      out
+    case 1n+p:
+      (src, out) = so
+      (perm, i) = r
+      +j2 = U32.inc(j)
+      Csv.v2.ggo(~T, p, j2, off, Csv.v2.gput(~T, out, U32.add(off, j), Array.get(T, src, i)), Array.get(U32, perm, j2))
+
+def Csv.v2.gat(~T: Data, +n: U32, +off: U32, out: Array<T>, src: Array<T>, perm: Array<U32>) -> Array<T>:
+  Csv.v2.ggo(~T, U32.to_nat(n), 0, off, (src, out), Array.get(U32, perm, 0))
+
+# the column builders: rows so far (off), the arrays, nulls, the first bad cell (first region with one)
+type QW is Type:
+  QW{off: U32, a: Array<U32>, v: Array<U32>, nulls: U32, bad: U32, bl: U32, bt: String}
+
+type QF is Type:
+  QF{off: U32, a: Array<F32>, v: Array<U32>, nulls: U32, bad: U32, bl: U32, bt: String}
+
+# Str: a Dictionary so far (merged codes) or Raw strings
+type QX is Type:
+  QXD{off: U32, c: Array<U32>, v: Array<U32>, nulls: U32, dict: ST.Dict}
+  QXR{off: U32, a: Array<String>, v: Array<U32>, nulls: U32}
+
+def Csv.v2.w.part(+m: U32, co: L.CO, st: QW) -> QW:
+  match co st:
+    case L.OW{a, v, +nb, +bd, +bl, bt} QW{+off, oa, ov, +nulls, +bad, +obl, obt}:
+      +first = Bool.and(U32.is_eq(bad, 0), U32.is_ne(bd, 0))
+      QW{U32.add(off, m), K.Kernel.copy_into(~U32, m, off, oa, a), K.Kernel.copy_into(~U32, m, off, ov, v), U32.add(nulls, nb), Csv.v2.sel(first, bd, bad), Csv.v2.sel(first, bl, obl), Bool.pick(String, first, bt, obt)}
+    case _ other:
+      other
+
+def Csv.v2.f.part(+m: U32, co: L.CO, st: QF) -> QF:
+  match co st:
+    case L.OF{a, v, +nb, +bd, +bl, bt} QF{+off, oa, ov, +nulls, +bad, +obl, obt}:
+      +first = Bool.and(U32.is_eq(bad, 0), U32.is_ne(bd, 0))
+      QF{U32.add(off, m), K.Kernel.copy_into(~F32, m, off, oa, a), K.Kernel.copy_into(~U32, m, off, ov, v), U32.add(nulls, nb), Csv.v2.sel(first, bd, bad), Csv.v2.sel(first, bl, obl), Bool.pick(String, first, bt, obt)}
+    case _ other:
+      other
+
+# the merge of a region's entries (local id order) into the column's dictionary: map[local id] = code;
+# stops at the first entry past EncAuto's threshold (over: the column is Raw)
+type QG is Type:
+  QG{ents: Array<String>, fr: Array<U32>, dict: ST.Dict, map: Array<U32>, over: Bool}
+
+def Csv.v2.mput(+j: U32, +row: U32, +enc: ST.StrEnc, ents: Array<String>, fr: Array<U32>, map: Array<U32>, r: ST.Dict & U32) -> QG:
+  (dict, +code) = r
+  QG{ents, fr, dict, Array.set(U32, map, j, code), Csv.dict_over(enc, U32.inc(code), U32.inc(row))}
+
+def Csv.v2.mat(+j: U32, +off: U32, +enc: ST.StrEnc, dict: ST.Dict, map: Array<U32>, re: Array<String> & String, rf: Array<U32> & U32) -> QG:
+  (ents, s) = re
+  (fr, row) = rf
+  Csv.v2.mput(j, U32.add(off, row), enc, ents, fr, map, ST.Dict.code(dict, s))
+
+def Csv.v2.mgo(f: Nat, +j: U32, +off: U32, +enc: ST.StrEnc, st: QG) -> QG:
+  match f st:
+    case 0n other:
+      other
+    case _ QG{ents, fr, dict, map, True{}}:
+      QG{ents, fr, dict, map, True{}}
+    case 1n+p QG{ents, fr, dict, map, False{}}:
+      Csv.v2.mgo(p, U32.inc(j), off, enc, Csv.v2.mat(j, off, enc, dict, map, Array.get(String, ents, j), Array.get(U32, fr, j)))
+
+# a part decoded into the Raw column: its rows are its entries by local code (a null row holds the
+# empty content's entry, "", as a v0.1 Raw null slot)
+def Csv.v2.x.raw(+m: U32, +off: U32, +nulls: U32, oa: Array<String>, ov: Array<U32>, c: Array<U32>, v: Array<U32>, ents: Array<String>) -> QX:
+  QXR{U32.add(off, m), Csv.v2.gat(~String, m, off, oa, ents, c), K.Kernel.copy_into(~U32, m, off, ov, v), nulls}
+
+# after the merge loop: codes remapped into the column, or (EncAuto's fall back) the rows so far
+# decoded from the dictionary and this part decoded from its entries
+def Csv.v2.x.dfin(+m: U32, +off: U32, +nulls: U32, +d: Nat, oc: Array<U32>, ov: Array<U32>, c: Array<U32>, v: Array<U32>, g: QG) -> QX:
+  match g:
+    case QG{ents, fr, dict, map, False{}}:
+      QXD{U32.add(off, m), Csv.v2.gat(~U32, m, off, oc, map, c), K.Kernel.copy_into(~U32, m, off, ov, v), nulls, dict}
+    case QG{ents, fr, dict, map, True{}}:
+      Csv.v2.x.raw(m, off, nulls, ST.Dict.decode(off, d, oc, dict), ov, c, v, ents)
+
+def Csv.v2.x.part(+m: U32, +d: Nat, +enc: ST.StrEnc, co: L.CO, st: QX) -> QX:
+  match co st:
+    case L.OS{c, v, +nb, +k, ents, fr} QXD{+off, oc, ov, +nulls, dict}:
+      Csv.v2.x.dfin(m, off, U32.add(nulls, nb), d, oc, ov, c, v, Csv.v2.mgo(U32.to_nat(k), 0, off, enc, QG{ents, fr, dict, Array.new(U32, K.Kernel.depth_for(U32.max(k, 1)), 0), False{}}))
+    case L.OS{c, v, +nb, k, ents, fr} QXR{+off, oa, ov, +nulls}:
+      Csv.v2.x.raw(m, off, U32.add(nulls, nb), oa, ov, c, v, ents)
+    case L.OR{a, v, +nb} QXR{+off, oa, ov, +nulls}:
+      QXR{U32.add(off, m), K.Kernel.copy_into(~String, m, off, oa, a), K.Kernel.copy_into(~U32, m, off, ov, v), U32.add(nulls, nb)}
+    case _ other:
+      other
+
+def Csv.v2.cat.w(ps: List<&1, QP>, st: QW) -> QW:
+  match ps:
+    case Nil{}:
+      st
+    case QP{+m, co} <> t:
+      Csv.v2.cat.w(t, Csv.v2.w.part(m, co, st))
+
+def Csv.v2.cat.f(ps: List<&1, QP>, st: QF) -> QF:
+  match ps:
+    case Nil{}:
+      st
+    case QP{+m, co} <> t:
+      Csv.v2.cat.f(t, Csv.v2.f.part(m, co, st))
+
+def Csv.v2.cat.x(ps: List<&1, QP>, +d: Nat, +enc: ST.StrEnc, st: QX) -> QX:
+  match ps:
+    case Nil{}:
+      st
+    case QP{+m, co} <> t:
+      Csv.v2.cat.x(t, d, enc, Csv.v2.x.part(m, d, enc, co, st))
+
+def Csv.v2.w.fin.k(isbad: Bool, +name: String, +t: D.DType, +n: U32, +d: Nat, +nulls: U32, a: Array<U32>, v: Array<U32>, +bl: U32, +bt: String) -> E.ResT(C.Named):
+  match isbad:
+    case True{}:
+      Csv.col.err(name, t, bt, bl)
+    case False{}:
+      Done{C.Named{name, C.Column.mk_w(t, n, d, CB.valid(nulls, v), a)}}
+
+def Csv.v2.w.fin(+name: String, +t: D.DType, +n: U32, +d: Nat, st: QW) -> E.ResT(C.Named):
+  match st:
+    case QW{off, a, v, +nulls, +bad, +bl, bt}:
+      Csv.v2.w.fin.k(U32.is_ne(bad, 0), name, t, n, d, nulls, a, v, bl, bt)
+
+def Csv.v2.f.fin.k(isbad: Bool, +name: String, +t: D.DType, +n: U32, +d: Nat, +nulls: U32, a: Array<F32>, v: Array<U32>, +bl: U32, +bt: String) -> E.ResT(C.Named):
+  match isbad:
+    case True{}:
+      Csv.col.err(name, t, bt, bl)
+    case False{}:
+      Done{C.Named{name, C.CF32{n, d, CB.valid(nulls, v), a}}}
+
+def Csv.v2.f.fin(+name: String, +t: D.DType, +n: U32, +d: Nat, st: QF) -> E.ResT(C.Named):
+  match st:
+    case QF{off, a, v, +nulls, +bad, +bl, bt}:
+      Csv.v2.f.fin.k(U32.is_ne(bad, 0), name, t, n, d, nulls, a, v, bl, bt)
+
+# a column of no row: v0.1 checks the storage rule once with the dictionary holding only "" (size 1)
+# and no row (its builder is fed an empty chunk), so EncAutoAt{0, _} is Raw there
+def Csv.v2.x.zero(over0: Bool, +d: Nat, st: QX) -> QX:
+  match over0 st:
+    case True{} QXD{+off, c, v, +nulls, dict}:
+      QXR{off, ST.Dict.decode(0, d, c, dict), v, nulls}
+    case _ other:
+      other
+
+def Csv.v2.x.fin(+name: String, +n: U32, +d: Nat, st: QX) -> E.ResT(C.Named):
+  match st:
+    case QXD{off, c, v, +nulls, dict}:
+      Done{C.Named{name, C.CStr{n, d, CB.valid(nulls, v), ST.SDict{c, dict}}}}
+    case QXR{off, a, v, +nulls}:
+      Done{C.Named{name, C.CStr{n, d, CB.valid(nulls, v), ST.SRaw{a}}}}
+
+# one column (2^depth_for(n) slots, AllValid without nulls) from its parts, or its first bad cell
+def Csv.v2.col.k(t: L.Ty, +name: String, +dt: D.DType, +n: U32, +d: Nat, +enc: ST.StrEnc, ps: List<&1, QP>) -> E.ResT(C.Named):
+  match t:
+    case L.TyF{}:
+      Csv.v2.f.fin(name, dt, n, d, Csv.v2.cat.f(ps, QF{0, Array.new(F32, d, 0.0), Array.new(U32, d, 0), 0, 0, 0, ""}))
+    case L.TyS{}:
+      Csv.v2.x.fin(name, n, d, Csv.v2.x.zero(Bool.and(U32.is_eq(n, 0), Csv.dict_over(enc, 1, 0)), d, Csv.v2.cat.x(ps, d, enc, QXD{0, Array.new(U32, d, 0), Array.new(U32, d, 0), 0, ST.Dict.empty()})))
+    case L.TyR{}:
+      Csv.v2.x.fin(name, n, d, Csv.v2.cat.x(ps, d, enc, QXR{0, Array.new(String, d, ""), Array.new(U32, d, 0), 0}))
+    case _:
+      Csv.v2.w.fin(name, dt, n, d, Csv.v2.cat.w(ps, QW{0, Array.new(U32, d, 0), Array.new(U32, d, 0), 0, 0, 0, ""}))
+
+# a column to build: its dtypes, name and parts (one per region, region order)
+type QK is Type:
+  QK{t: L.Ty, name: String, dt: D.DType, ps: List<&1, QP>}
+
+def Csv.v2.kcols.k(t: L.Ty, +name: String, +dt: D.DType, acc: List<&1, QK>, r: List<&1, L.LO> & List<&1, QP>) -> List<&1, L.LO> & List<&1, QK>:
+  (los, ps) = r
+  (los, QK{t, name, dt, ps} <> acc)
+
+def Csv.v2.kcols.step(t: L.Ty, +name: String, +dt: D.DType, +c: U32, st: List<&1, L.LO> & List<&1, QK>) -> List<&1, L.LO> & List<&1, QK>:
+  (los, acc) = st
+  Csv.v2.kcols.k(t, name, dt, acc, Csv.v2.take(c, los))
+
+# every column's parts taken out of the lanes (list surgery only, columns x regions; newest first)
+def Csv.v2.kcols(ts: List<&2, L.Ty>, dts: List<&2, D.DType>, names: List<&2, String>, +c: U32, st: List<&1, L.LO> & List<&1, QK>) -> List<&1, L.LO> & List<&1, QK>:
+  match ts dts names:
+    case t <> tt dt <> dtt nm <> nmt:
+      Csv.v2.kcols(tt, dtt, nmt, U32.inc(c), Csv.v2.kcols.step(t, nm, dt, c, st))
+    case _ _ _:
+      st
+
+def Csv.v2.kone(+n: U32, +d: Nat, +enc: ST.StrEnc, k: QK) -> E.ResT(C.Named):
+  match k:
+    case QK{t, +name, +dt, ps}:
+      Csv.v2.col.k(t, name, dt, n, d, enc, ps)
+
+# the columns built by ONE balanced fork over a tree of the columns (paired as P.Rt.of pairs regions:
+# halves of similar size; each column's concatenation and dictionary merge is its own, nothing shared
+# but scalars)
+type QKT is Type:
+  QKE{}
+  QKL{k: QK}
+  QKN{l: QKT, r: QKT}
+
+def Csv.v2.kt.leaves(xs: List<&1, QK>) -> List<&1, QKT>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case h <> t:
+      QKL{h} <> Csv.v2.kt.leaves(t)
+
+def Csv.v2.kt.pair(xs: List<&1, QKT>) -> List<&1, QKT>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{a, Nil{}}:
+      a <> Nil{}
+    case Con{a, Con{b, u}}:
+      QKN{a, b} <> Csv.v2.kt.pair(u)
+
+def Csv.v2.kt.top(f: Nat, xs: List<&1, QKT>) -> QKT:
+  match f xs:
+    case _ Nil{}:
+      QKE{}
+    case _ Con{a, Nil{}}:
+      a
+    case 0n other:
+      QKE{}
+    case 1n+p other:
+      Csv.v2.kt.top(p, Csv.v2.kt.pair(other))
+
+type QB is Type:
+  QBE{}
+  QBL{r: E.ResT(C.Named)}
+  QBN{l: QB, r: QB}
+
+def Csv.v2.bfork(+n: U32, +d: Nat, +enc: ST.StrEnc, t: QKT) -> QB:
+  match t:
+    case QKE{}:
+      QBE{}
+    case QKL{k}:
+      QBL{Csv.v2.kone(n, d, enc, k)}
+    case QKN{l, r}:
+      a b = Csv.v2.bfork(n, d, enc, l) Csv.v2.bfork(n, d, enc, r)
+      QBN{a, b}
+
+# the built columns, LAST first (Csv.v2.fold's order)
+def Csv.v2.blist(t: QB, acc: List<&1, E.ResT(C.Named)>) -> List<&1, E.ResT(C.Named)>:
+  match t:
+    case QBE{}:
+      acc
+    case QBL{r}:
+      r <> acc
+    case QBN{l, r}:
+      Csv.v2.blist(r, Csv.v2.blist(l, acc))
+
+# the first column (in order) holding an error wins
+def Csv.v2.fold(rs: List<&1, E.ResT(C.Named)>, acc: E.ResT(List<&1, C.Named>)) -> E.ResT(List<&1, C.Named>):
+  match rs:
+    case Nil{}:
+      acc
+    case r <> t:
+      Csv.v2.fold(t, Csv.cols.k(r, acc))
+
+def Csv.v2.build.k(+n: U32, +d: Nat, +enc: ST.StrEnc, r: List<&1, L.LO> & List<&1, QK>) -> E.ResT(C.Frame):
+  (los, ks) = r
+  Csv.fin(Csv.v2.fold(Csv.v2.blist(Csv.v2.bfork(n, d, enc, Csv.v2.kt.top(32n, Csv.v2.kt.leaves(List.reverse(&1, QK, ks)))), Nil{}), Done{Nil{}}))
+
+def Csv.v2.build(+n: U32, ts: List<&2, L.Ty>, dts: List<&2, D.DType>, names: List<&2, String>, +enc: ST.StrEnc, los: List<&1, L.LO>) -> E.ResT(C.Frame):
+  Csv.v2.build.k(n, K.Kernel.depth_for(U32.max(n, 1)), enc, Csv.v2.kcols(ts, dts, names, 0, (los, Nil{})))
+
+# the error order after malformed and ragged: the dtype count, the row cap, then the columns
+def Csv.v2.comb.cap(capd: Maybe<&2, E.Err>, +n: U32, ts: List<&2, L.Ty>, dts: List<&2, D.DType>, names: List<&2, String>, +enc: ST.StrEnc, los: List<&1, L.LO>) -> E.ResT(C.Frame):
+  match capd:
+    case Some{e}:
+      Fail{e}
+    case None{}:
+      Csv.v2.build(n, ts, dts, names, enc, los)
+
+def Csv.v2.comb.c(cnt: Maybe<&2, E.Err>, +cap: U32, +n: U32, ts: List<&2, L.Ty>, dts: List<&2, D.DType>, names: List<&2, String>, +enc: ST.StrEnc, los: List<&1, L.LO>) -> E.ResT(C.Frame):
+  match cnt:
+    case Some{e}:
+      Fail{e}
+    case None{}:
+      Csv.v2.comb.cap(K.Kernel.check_rows.cap(cap, n), n, ts, dts, names, enc, los)
+
+def Csv.v2.comb.r(rag: Bool, cnt: Maybe<&2, E.Err>, +w: U32, +rg: U32, +line: U32, +cap: U32, +n: U32, ts: List<&2, L.Ty>, dts: List<&2, D.DType>, names: List<&2, String>, +enc: ST.StrEnc, los: List<&1, L.LO>) -> E.ResT(C.Frame):
+  match rag:
+    case True{}:
+      Fail{E.ParseError{line, "expected " ++ U32.show(w) ++ " fields, got " ++ U32.show(rg)}}
+    case False{}:
+      Csv.v2.comb.c(cnt, cap, n, ts, dts, names, enc, los)
+
+def Csv.v2.comb.m(rej: Bool, cnt: Maybe<&2, E.Err>, +w: U32, +rag: U32, +rg: U32, +cap: U32, +n: U32, ts: List<&2, L.Ty>, dts: List<&2, D.DType>, names: List<&2, String>, +enc: ST.StrEnc, los: List<&1, L.LO>) -> E.ResT(C.Frame):
+  match rej:
+    case True{}:
+      Fail{Csv.malformed()}
+    case False{}:
+      Csv.v2.comb.r(U32.is_ne(rag, 0), cnt, w, rg, rag, cap, n, ts, dts, names, enc, los)
+
+def Csv.v2.comb.k(sm: QSM, cnt: Maybe<&2, E.Err>, +w: U32, +cap: U32, ts: List<&2, L.Ty>, dts: List<&2, D.DType>, names: List<&2, String>, +enc: ST.StrEnc, los: List<&1, L.LO>) -> E.ResT(C.Frame):
+  match sm:
+    case QSM{+n, +rej, +rag, +rgn}:
+      Csv.v2.comb.m(U32.is_ne(rej, 0), cnt, w, rag, rgn, cap, n, ts, dts, names, enc, los)
+
+def Csv.v2.comb.s(r: List<&1, L.LO> & QSM, cnt: Maybe<&2, E.Err>, +w: U32, +cap: U32, ts: List<&2, L.Ty>, dts: List<&2, D.DType>, names: List<&2, String>, +enc: ST.StrEnc) -> E.ResT(C.Frame):
+  (los, sm) = r
+  Csv.v2.comb.k(sm, cnt, w, cap, ts, dts, names, enc, los)
+
+# the lanes (file order) combined: cnt is the dtype-count error, if any
+def Csv.v2.fin(cnt: Maybe<&2, E.Err>, ts: List<&2, L.Ty>, dts: List<&2, D.DType>, names: List<&2, String>, +w: U32, +cap: U32, +enc: ST.StrEnc, los: List<&1, L.LO>) -> E.ResT(C.Frame):
+  Csv.v2.comb.s(Csv.v2.sum(los, (Nil{}, QSM{0, 0, 0, 0})), cnt, w, cap, ts, dts, names, enc)
+
+# ---- the paths by schema --------------------------------------------------------------------------------
+
+# inferred, head path: the kept tokens' columns, then the fork over the rest
+def Csv.v2.head.t(+tys: List<&2, L.Ty>, dts: List<&2, D.DType>, +w: U32, +sep: U32, +cap: U32, +enc: ST.StrEnc, names: List<&2, String>, tos: List<&1, L.TO>, rest: List<&1, P.Rg>) -> E.ResT(C.Frame):
+  Csv.v2.fin(None{}, tys, dts, names, w, cap, enc, Csv.v2.hcols(tos, tys, w, Csv.v2.lanes(tys, w, sep, rest)))
+
+def Csv.v2.head.d(+dts: List<&2, D.DType>, +w: U32, +sep: U32, +cap: U32, +enc: ST.StrEnc, names: List<&2, String>, tos: List<&1, L.TO>, rest: List<&1, P.Rg>) -> E.ResT(C.Frame):
+  Csv.v2.head.t(Csv.v2.tys(dts, enc), dts, w, sep, cap, enc, names, tos, rest)
+
+def Csv.v2.head.k(+w: U32, +sep: U32, +cap: U32, +lim: U32, +enc: ST.StrEnc, names: List<&2, String>, r: QHR) -> E.ResT(C.Frame):
+  match r:
+    case QHR{QHP{tos, g, off, go}, rest}:
+      Csv.v2.head.d(Csv.v2.ci.dts(g, lim), w, sep, cap, enc, names, tos, rest)
+
+# inferred, full path, and explicit dtypes: one fork of whole lanes over the regions
+def Csv.v2.whole(cnt: Maybe<&2, E.Err>, +tys: List<&2, L.Ty>, dts: List<&2, D.DType>, +w: U32, +sep: U32, +cap: U32, +enc: ST.StrEnc, names: List<&2, String>, regs: List<&1, P.Rg>) -> E.ResT(C.Frame):
+  Csv.v2.fin(cnt, tys, dts, names, w, cap, enc, Csv.v2.lanes(tys, w, sep, regs))
+
+def Csv.v2.full.d(+dts: List<&2, D.DType>, +w: U32, +sep: U32, +cap: U32, +enc: ST.StrEnc, names: List<&2, String>, regs: List<&1, P.Rg>) -> E.ResT(C.Frame):
+  Csv.v2.whole(None{}, Csv.v2.tys(dts, enc), dts, w, sep, cap, enc, names, regs)
+
+def Csv.v2.full.k(+w: U32, +sep: U32, +cap: U32, +lim: U32, +enc: ST.StrEnc, names: List<&2, String>, st: QCA) -> E.ResT(C.Frame):
+  match st:
+    case QCA{regs, g, off}:
+      Csv.v2.full.d(Csv.v2.ci.dts(g, lim), w, sep, cap, enc, names, List.reverse(&1, P.Rg, regs))
+
+def Csv.v2.infer(head: Bool, +w: U32, +sep: U32, +cap: U32, +lim: U32, +enc: ST.StrEnc, names: List<&2, String>, regs: List<&1, P.Rg>) -> E.ResT(C.Frame):
+  match head:
+    case True{}:
+      Csv.v2.head.k(w, sep, cap, lim, enc, names, Csv.v2.hp.go(regs, w, sep, lim, QHP{Nil{}, Csv.v2.ci.zero(U32.to_nat(w)), 0, True{}}))
+    case False{}:
+      Csv.v2.full.k(w, sep, cap, lim, enc, names, Csv.v2.cacc(Csv.v2.clist(Csv.v2.ctree(w, sep, P.Rt.of(regs)), Nil{}), QCA{Nil{}, Csv.v2.ci.zero(U32.to_nat(w)), 0}))
+
+# explicit dtypes: a wrong count only tokenizes (malformed and ragged outrank it)
+def Csv.v2.exp(cnt: Maybe<&2, E.Err>, +ts: List<&2, D.DType>, +w: U32, +sep: U32, +cap: U32, +enc: ST.StrEnc, names: List<&2, String>, regs: List<&1, P.Rg>) -> E.ResT(C.Frame):
+  match cnt:
+    case Some{e}:
+      Csv.v2.whole(Some{e}, Csv.v2.tyn(U32.to_nat(w)), ts, w, sep, cap, enc, names, regs)
+    case None{}:
+      Csv.v2.whole(None{}, Csv.v2.tys(ts, enc), ts, w, sep, cap, enc, names, regs)
+
+def Csv.v2.mode(ts: List<&2, D.DType>, +w: U32, +sep: U32, +lim: U32, +cap: U32, +enc: ST.StrEnc, names: List<&2, String>, regs: List<&1, P.Rg>) -> E.ResT(C.Frame):
+  match ts:
+    case Nil{}:
+      Csv.v2.infer(U32.is_le(lim, Csv.v2.headmax()), w, sep, cap, lim, enc, names, regs)
+    case +t <> +tt:
+      Csv.v2.exp(Csv.ts.err(t <> tt, U32.to_nat(w)), t <> tt, w, sep, cap, enc, names, regs)
+
+def Csv.v2.odd(odd: Bool, ts: List<&2, D.DType>, +w: U32, +sep: U32, +lim: U32, +cap: U32, +enc: ST.StrEnc, names: List<&2, String>, regs: List<&1, P.Rg>) -> E.ResT(C.Frame):
+  match odd:
+    case True{}:
+      Fail{Csv.malformed()}
+    case False{}:
+      Csv.v2.mode(ts, w, sep, lim, cap, enc, names, regs)
+
+def Csv.v2.prod(o: P.PrOut, ts: List<&2, D.DType>, +w: U32, +sep: U32, +lim: U32, +cap: U32, +enc: ST.StrEnc, names: List<&2, String>) -> E.ResT(C.Frame):
+  match o:
+    case P.PrErr{code, msg}:
+      Fail{E.IoError{code, msg}}
+    case P.PrOk{nr, odd, regs}:
+      Csv.v2.odd(U32.is_ne(odd, 0), ts, w, sep, lim, cap, enc, names, regs)
+
+def Csv.v2.go(hd: QD, path: String, +sep: U32, +lim: U32, +piece: U32, +cap: U32, ts: List<&2, D.DType>, +enc: ST.StrEnc) -> IO(E.ResT(C.Frame)):
+  match hd:
+    case QDErr{e}:
+      IO.pure(E.ResT(C.Frame), Fail{e})
+    case QDNone{}:
+      IO.pure(E.ResT(C.Frame), Csv.rows.none(Csv.ts.err(ts, 0n)))
+    case QDOk{names, +w, off0, line0}:
+      do IO<E.ResT(C.Frame)>:
+        o : P.PrOut <- P.Pr.regions(path, off0, line0, piece)
+        return Csv.v2.prod(o, ts, w, sep, lim, cap, enc, names)
+
+def Csv.v2.start(+path: String, +hdr: Bool, +sep: U32, +lim: U32, +piece: U32, +cap: U32, ts: List<&2, D.DType>, +enc: ST.StrEnc) -> IO(E.ResT(C.Frame)):
+  do IO<E.ResT(C.Frame)>:
+    hd : QD <- Csv.v2.header(path, hdr, sep, Csv.v2.hpiece(piece))
+    Csv.v2.go(hd, path, sep, lim, piece, cap, ts, enc)
+
+# an ASCII separator: the v0.2 path; any other: the v0.1 reader (the lane compares bytes)
+def Csv.v2.ascii(ascii: Bool, path: String, +sep: Char, +hdr: Bool, +inf: U32, +piece: U32, +cap: U32, ts: List<&2, D.DType>, +enc: ST.StrEnc) -> IO(E.ResT(C.Frame)):
+  match ascii:
+    case True{}:
+      Csv.v2.start(path, hdr, Char.to_u32(sep), Csv.limit(inf), piece, cap, ts, enc)
+    case False{}:
+      Csv.read_full(path, CsvOpts{sep, hdr, inf}, ts, enc, Csv.chunk(), cap)
+
+def Csv.v2.chk(bad: Maybe<&2, E.Err>, path: String, +sep: Char, +hdr: Bool, +inf: U32, +piece: U32, +cap: U32, ts: List<&2, D.DType>, +enc: ST.StrEnc) -> IO(E.ResT(C.Frame)):
+  match bad:
+    case Some{e}:
+      IO.pure(E.ResT(C.Frame), Fail{e})
+    case None{}:
+      Csv.v2.ascii(U32.is_lt(Char.to_u32(sep), 128), path, sep, hdr, inf, piece, cap, ts, enc)
+
+# the v0.2 reader with every knob (Csv.read_full's): the piece size in bytes (tests use tiny ones), the
+# row cap, the Str storage. Answers what Csv.read_full answers (DESIGN.md 15.6, 17.4).
+def Csv.read_v02_full(path: String, +opts: CsvOpts, ts: List<&2, D.DType>, enc: ST.StrEnc, +piece: U32, +cap: U32) -> IO(E.ResT(C.Frame)):
+  match opts:
+    case CsvOpts{+sep, +hdr, +inf}:
+      Csv.v2.chk(Csv.sep_err(sep), path, sep, hdr, inf, piece, cap, ts, enc)
+
+# the reader by engine: Csv.read_enc (v0.1) or the v0.2 reader at its piece size
+def Csv.read_eng(eng: CsvEngine, path: String, opts: CsvOpts, ts: List<&2, D.DType>, enc: ST.StrEnc) -> IO(E.ResT(C.Frame)):
+  match eng:
+    case CsvV01{}:
+      Csv.read_enc(path, opts, ts, enc)
+    case CsvV02{+piece}:
+      Csv.read_v02_full(path, opts, ts, enc, piece, K.Kernel.max_rows())

@@ -58,8 +58,16 @@ never measure a stale binary. Rebuild with `make m2-candidate`.
 A string, `v01` for the current (baseline) executor. The runner passes it to every process as the
 environment variable `BF_ENGINE` and records it in every JSONL record (`--engine NAME`). W5 (D7) registers
 new names (`chunked`, ...) and decides how Bend code reads the variable (`IO.get_env("BF_ENGINE")`, as
-`bench/main.bend` does for `BF_STR`/`BF_OPT`); today the driver ignores it, so baseline and candidate are
-both `v01`. The thread count is the native runtime flag `--threads N` (not visible in `IO.args`).
+`bench/main.bend` does for `BF_STR`/`BF_OPT`). The thread count is the native runtime flag `--threads N`
+(not visible in `IO.args`).
+
+W6.3: `BF_ENGINE=v02` selects the v0.2 CSV reader for every input the driver reads (`--engine v02`).
+The driver reads CSV through `bench/m2/engine.bend` (`Eng.read_csv`: `DF.read_csv_v02` for `v02`, else
+`DF.read_csv`). The pinned baseline facade has no v0.2 reader, so `baseline.sh` copies
+`bench/m2/engine_v01.bend` in as the baseline's `engine.bend` (v0.1 whatever `BF_ENGINE` says): a run
+with `--engine v02` therefore compares the v0.2 reader (candidate) against the v0.1 reader (baseline).
+The driver hash in `BUILD.json` (and `run.py`'s staleness check) covers `driver.bend` followed by
+`engine.bend`. `selfcheck` reads with v0.1 only.
 
 ## Workloads (frozen)
 
