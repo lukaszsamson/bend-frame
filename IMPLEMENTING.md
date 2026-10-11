@@ -2215,3 +2215,115 @@ What T5.3 (the chunked runner) needs:
   decisions on every data and mask tree keep one shape per frame.
 - Open (stated in LAWS section 21's closing comment): drop / slice, the CF / CS instances, the column /
   frame layer, the dictionary remap / decode walks.
+## T4.3 (W4 F8: the Filter + Select physical step, Exec.run_phys; LAWS section 20)
+
+What was done: `Exec.run_phys` (what `Exec.run` / collect executes) takes a second root shortcut. A
+plan whose ROOT is `Select{es, Filter{pred, x}}` with `Exec.plain(es)` (a non-empty list of plain
+`Col`s: exactly the lists `Exec.select` hands to `Frame.select_names`) runs x's code and then ONE step,
+`Exec.fsel` / `Exec.fs`, in place of IFilter then ISelect:
+
+1. the predicate exactly as `Eval.filter` evaluates it: `Exec.fs.a` .. `Exec.fs.q` mirror
+   `Eval.filter.a` .. `Eval.filter.q` (Ana.type, TypeMismatch, Eval.full, Eval.pred, popcount), so the
+   errors and their precedence are v0.1's;
+2. `Frame.select_names(f, Eval.names(es))` on the UNFILTERED frame (DuplicateColumn, then the first
+   missing name: errors that depend on the names only, which the filter keeps), moving the selected
+   columns out (no clone);
+3. `Exec.fc`: only the selected columns are compacted, with the predicate's mask and kept count:
+   fixed chunks of four columns (`Kernel.compact4`), then three (`compact3`), when every column of the
+   chunk is AllValid and the chunk has one length; otherwise (a validity mask, lengths that differ in
+   a malformed frame, two or one columns left) each column goes through `Column.compact`, exactly as
+   `Frame.filter_mask`. Output depth `depth_for(kept + 1)` as Column.compact. The columns the select
+   drops are never compacted (q1: 3 of 7).
+
+Root only (like T3.4): `Head{Select{Filter}}`, a Select under a Sort etc. run the general path; so do
+aliases, computed expressions and `select([])` (`Eval.select`; DESIGN.md 14 "v0.2 T4.3").
+
+Implementation notes (src/exec.bend, run_phys area):
+
+- **Heterogeneous buffers through templates, without a 27-way switch.** A column is split
+  (`Exec.fz`, no copy: the buffer moves) into `FzOk{len, depth, Sh, Buf}` (Buf = BU u32 / BF f32 /
+  BS String; Sh = the constructor, and a Dictionary's table) or `FzNo{column}`. `Exec.c3` dispatches
+  one buffer per level (`Exec.c3` -> `.b` -> `.c`, 3 arms each), passing the element type and a
+  wrapper template `~(o => Buf.u(o))` down, so the innermost level calls `Kernel.compact3(~A, ~B, ~C,
+  ..)` and returns the common `F3{Buf, Buf, Buf, mask}`. The compiler monomorphises all 27 compact3 and
+  81 compact4 instances (driver binary 2.16 -> 2.46 MB); the source is 9 + 12 arms.
+- **A loop that needs a lookahead of four is still one self-recursion**: `Exec.fc.go` matches nested
+  list patterns (`Named <> Named <> Named <> Named <> rest`, the 3-, 2-, 1-column tails, Nil), calls
+  a non-recursive group step in the argument list and recurses on `rest` (structural). A non-fusable
+  chunk is compacted column by column, never re-grouped (that would recurse on a rebuilt list).
+- Emitted C (`bend bench/m2/driver.bend -o x.c`, `python3 -I bench/w2/spins.py x.c o1 o2 o3 r3`): the
+  27 compact3 instances are `spin_500` .. `spin_526`, the 81 compact4 instances `spin_132` .. ; every
+  one has zero `term_keep`, `rfc_seal`, `ctr_take`, `heap_alloc`, `blk_copy`, `blk_half`, `blk_node`
+  (nothing allocated per row); 3 (compact3) / 4 (compact4) `blk_write` per row and 1 + 2 per word / f32
+  buffer `blk_read` (the mask, the read-ahead and Array.set's dead read; a String buffer's elements move
+  as terms, so its reads do not show as blk_read).
+
+Proofs (PROOF_filtsel.bend, 5 laws, 181 in total; 1,224 lines, mostly generated then committed as
+plain Bend):
+
+- **Everything is a TERM equality; robs is congruence.** `fc_filter_mask` (Exec.fc IS
+  Frame.filter_mask), `select_filter_mask` (select_names over filter_mask IS filter_mask over
+  select_names), `filter_select_step` (Exec.fs IS Eval.filter then Exec.select), `filter_select_run_eq`
+  (run_phys IS run_pure on Select{es, Filter{pred, x}}, every es: the non-plain branch is run_pure
+  itself), `filter_select_run` (its robs form). `run_phys_obs` / `collect_obs` (PROOF_sorthead) now
+  dispatch the Select root to `filter_select_run` (`run_sel`). PROOF_sorthead imports PROOF_filtsel
+  (a law used in another file must be FILLED in an imported file: referencing `Laws.x` whose proof sits
+  in a file the user does not import is refused as "an unfilled law"), so PROOF_filtsel cannot import
+  PROOF_sorthead: `loop_app`, `mark_nil`, `ldup` (cols_dup) are repeated there.
+- **No pair eta in BendTT** (`Pair.fst(out.w(t, n, d, p))` does not reduce for a variable p). The
+  workhorse is `ckw`: `compact_keep(a, m) == (fst(compact_keep(a, m)), m)` (a CLOSED equation, from
+  PC.cmask and a pair match on a live copy), and `colw` the same for Column.compact at every
+  constructor x validity x storage. With it a compaction is a function of (column, m): rewriting the
+  stuck pair with `%Equal.sym(ckw ..)` makes Column.compact reduce to its column. Equations are
+  duplicable (`+e`), so ONE colw per column serves every later rewrite.
+- **A spec that threads an affine value from the END**: `cm(cols, m)` = `cm.g(n, c, cm(rest, m))` (the
+  recursion first, then a non-recursive step destructuring its pair parameter) is linear, non-mutual
+  and structural; with colw every mask in it is m. `CMW(cols)` (cm answers m) is carried as a by-product
+  of each induction (cgo, rcm, tkc return it) instead of re-proven, which saves a list clone per step.
+- **Erased originals + live copies**: every lemma takes `-x` (what the statement is about) plus a live
+  copy and `{copy == x}`, rewrites the goal to the copy (`%e : Goal(_)`) and spends the copy. Clones
+  are witnesses only (`ce3` .. `ce6` chain PC.clone_eq; `bclone`, `ldup`, `fdup`).
+- **Gotchas**: a `+` parameter must have a Data type and a Type-def ALIAS of an equality is "Type"
+  (write the equality inline for `+ec`); `%` cannot precede a `match` (match first, rewrite inside each
+  branch: `(%e : P(_); proof)`); a parameter referenced in an earlier parameter's type must come first
+  (`s3.t(.., ok, +eok: {.. == ok})`); `case +nm <> +t` when both are used twice; destructuring a CALL
+  result needs a helper parameter, also in proofs.
+- **Mutation controls** (scripts/mutation_check.sh, 6 new, all caught): a fused group drops a column
+  (s3.f.k), a masked column joins a group (fzw.b), an output column loses its name (s4.f.k), the kept
+  count is the predicate's length (pp), the step fires on non-plain selects (aliases: fsr.p), the step
+  fires on every select (fsr.p).
+
+Tests: tests/exec_filter_select.bend (33 cases, each printed and checked to dump exactly like
+run_pure): q1's shape (Raw and Dictionary), 1/2/4/5/6/7 columns (single steps, compact4, 4 + 3), a
+masked column inside a group, aliases and select([]) and a computed column (general path), duplicate
+names, a missing selected column, a missing predicate column, a non-bool predicate, a failing strict
+cast in the predicate winning over a select error, the empty frame, a malformed frame with a short
+column, 0 / 1 / 5 / 100 % selectivity on 100 rows, F32 NaN / -0 / inf, nested under Head / Sort /
+WithColumns and a Select over Head over Filter.
+
+Performance:
+
+- **Measured (PROVISIONAL: shared machine, load 8-37 during the runs, 1 thread, fresh processes
+  interleaved baseline / head / candidate, `driver phases q1 sales_1000000.csv`; compute_ms is the
+  timed window of `batch` collects; all content hashes equal, 383004541)**. q1 per query, batch 5 x 5
+  processes: candidate 8.8 ms median [6.2 .. 21.6] (raw window 48, 108, 36, 31, 44 ms), head 42da6ba
+  (before T4.3) 12.8 [10.4 .. 20.6] (53, 91, 103, 64, 52), baseline 3612482 11.8 [10.0 .. 19.2] (59,
+  53, 96, 67, 50). Batch 20 x 3 (before the master merge, load 34 -> 4): candidate 6.3 ms (134, 125,
+  126) vs head 4522c8d 11.0 ms (202, 226, 220). So T4.3 alone takes ~4-5 ms off q1's ~11 ms (4 of
+  the 7 column compactions skipped, the other 3 fused into one loop); the rest is v0.1's predicate (2 column
+  copies, broadcast, zip, zip, popcount: T4.2's pred_count). The batch-1 cells (1 ms clock) are noise
+  at this load: q1 13 [7..38] vs head 15 [12..18] vs baseline 16 [14..32]; filter_sel{0,1,50,100}
+  (plain filters, untouched by T4.3) 11 / 12 / 13 / 17 vs head 10 / 13 / 17 / 13 vs baseline 11 / 11 /
+  14 / 14 ms. q1 <= 3 ms needs T4.2 (pred_count) on top.
+
+What the next agents need to know:
+
+- **T4.2 coupling (merge note)**: `Exec.fs.a` .. `q` copy Eval.filter's chain and the proof `pa` ..
+  `pq` follows `Eval.filter.a` .. `q` step by step. When T4.2 rewires Eval.filter's predicate to
+  `pred_count`, (a) the shortcut must use the new mask path too or q1 keeps v0.1's predicate cost, and
+  (b) `filter_select_step`'s chain must follow. The clean shape: factor in eval.bend
+  `Eval.filter.mask(f, pred) -> E.ResT(Frame & (Array<U32> & U32))` (everything up to the popcount) with
+  `Eval.filter = mask then Frame.filter_mask`, and let Exec.fs call it; then the chain lemma is one
+  case split on that result and needs no update when the predicate changes again.
+- Masked columns could join a group as two buffers (data + validity mask, both flat); not done (the
+  group shape would be per buffer, not per column).

@@ -25,6 +25,7 @@ import ./src/column.bend as C
 import ./src/strs.bend as ST
 import ./src/sort.bend as O
 import ./src/plan.bend as P
+import ./src/expr.bend as X
 import ./src/exec.bend as Q
 import ./LAWS.bend as Laws
 import ./PROOF_lib.bend as L
@@ -34,6 +35,7 @@ import ./PROOF_contents.bend as PC
 import ./PROOF_eval.bend as PV
 import ./PROOF_strs.bend as PST
 import ./PROOF_exec.bend as PE
+import ./PROOF_filtsel.bend as PFS
 
 # ---- comparisons ------------------------------------------------------------------------------
 
@@ -547,6 +549,40 @@ def run_head(+n: U32, +x: P.Plan, env: P.Env, +k: U32) -> {Laws.robs(Q.Exec.run_
     case P.Concat{i, l, r}:
       {==}
 
+# a Select root: over a Filter, filter_select_run (section 20); over anything else run_phys IS run_pure
+def run_sel(+es: List<&2, X.Expr>, +x: P.Plan, env: P.Env, +k: U32) -> {Laws.robs(Q.Exec.run_phys(P.Select{es, x}, env), k) == Laws.robs(Q.Exec.run_pure(P.Select{es, x}, env), k) : Laws.RObs}:
+  match x:
+    case P.Filter{+e, +y}:
+      Laws.filter_select_run(es, e, y, env, k)
+    case P.ScanCsv{path, o, s}:
+      {==}
+    case P.Source{nm, s}:
+      {==}
+    case P.Select{fs, y}:
+      {==}
+    case P.WithColumns{fs, y}:
+      {==}
+    case P.Sort{ks, y}:
+      {==}
+    case P.GroupBy{gk, ags, mo, y}:
+      {==}
+    case P.Join{how, lo, ro, l, r}:
+      {==}
+    case P.Head{m, y}:
+      {==}
+    case P.Drop{ns, y}:
+      {==}
+    case P.Rename{ps, y}:
+      {==}
+    case P.Slice{o, l, y}:
+      {==}
+    case P.Tail{m, y}:
+      {==}
+    case P.Unique{ss, y}:
+      {==}
+    case P.Concat{i, l, r}:
+      {==}
+
 # every other root: run_phys IS run_pure
 def Laws.run_phys_obs(p, env, k):
   match p:
@@ -556,8 +592,8 @@ def Laws.run_phys_obs(p, env, k):
       {==}
     case P.Source{nm, s}:
       {==}
-    case P.Select{es, x}:
-      {==}
+    case P.Select{+es, +x}:
+      run_sel(es, x, env, k)
     case P.WithColumns{es, x}:
       {==}
     case P.Filter{e, x}:
