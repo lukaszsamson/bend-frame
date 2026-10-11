@@ -3172,6 +3172,34 @@ task text:
    d) got that column's Dict put back; select outputs are fresh columns now (seed 304, d0080; regression in
    tests/cexec_basic.bend).
 
+### v0.2 scaling diagnosis (G2: the ~2x ceiling of the chunked walks; section 16.10)
+
+No change of the data contract (G1's differential, the tests and every proof unchanged; the chunked engine
+answers the same frames). Item 8 of the T5.3 entry is superseded: the ceiling was a scheduler shape rule
+the walks broke, not the allocator and not the walk machinery (section 16.10 has the mechanism, the
+evidence and the rule). Deviations from the plan text:
+
+1. **The walks fork over a frame tree built sequentially first** (`CX.ft`: the cuts and the Dict copies of
+   16.2 rule 4 moved out of the parallel region into a prelude; the same count of each, O(leaves x
+   columns)), where 16.5 / T5.3 cut the frame per node inside the tree. The forking defs `CX.p1` / `CX.p2`
+   / `CX.w2` now take the frame tree and do nothing but match and fork.
+2. **`Lst.pmap` and `Sort.pm` fork over a tree of the list's elements** built by the old split recursion
+   without the parallel let (`Lst.lt` / `Sort.pm.tree`); their signatures and results are unchanged.
+   `Sort.pm` lives in src/sort.bend (outside this task's assigned files; a minimal, additive change of the
+   same shape, flagged in the report): the describe column fork of T5.4 had the same ceiling.
+3. **Rule added to the review criteria** (16.10): a forking def calls no non-flat fork-free helper before its
+   parallel let; bench/w5/scale/forkaudit.py checks an emitted C file for the shape.
+4. **16.9 risk 4 restated**: the fixed cost per fork tree is the two pool turns and their barrier waits
+   (measured 0.07-0.2 ms per tree at 12 threads on the probes, by the instrumented build), not a per-level
+   cost and not the 0.3-0.5 ms of 16.1; a sequential stage between two fork trees of more than ~128
+   `sched_yield`s puts the workers to sleep and the next tree pays a condvar wake (bench/w5/scale/probe.bend's
+   `gap` mode: a 10 ms sequential stage before every rep left the 12-thread fold at 1-2 ms, under the 1 ms
+   clock's resolution, at load 5-8).
+5. **G2 as measured after the fix (PROVISIONAL, load 3.9-5.4)**: filter 4.0x and q2 3.0x (meet 3x), q1
+   2.6x (not met: a 1.25 ms floor at 4 and 12 threads of a 3.25 ms job), q3 / q5 1.3x (not met: their
+   group_by / join stages run flat; 16.8's `s` for q3 assumed a chunked group_by). The gate numbers are the
+   orchestrator's on a quiet machine (bench/w5/scale/t53b.py).
+
 ## 15. v0.1 contract (frozen)
 
 The exact semantics every M1-M6 agent codes and tests against. Tables over prose;
@@ -4205,6 +4233,104 @@ inside the end-to-end number, a chunked scan does not. Small-input/control media
    of work; fusion before forking (W4 before W5) is load-bearing, not optional.
 5. Forking across 7 gathers and across 4 aggregates showed no gain on the loaded machine; the design keeps
    these coarse forks but does not count on them for G2.
+
+### 16.10 Scaling on the Bend 2.0.36 runtime (the G2 diagnosis; bench/w5/scale/)
+
+T5.3 found every chunked walk stopping at ~2x by 4 threads (q1 / q2 / filter 1.5-1.9x at 12 vs 1 thread
+on pre-chunked inputs, 16.8 asks 3x) while T5.2's wrapper probe scaled 4-6.5x in the same hours, and
+guessed at the allocator. The cause is neither the allocator nor the machine: it is a SHAPE RULE of the
+runtime's scheduler that the walks and the list fork (`Lst.pmap`, `Sort.pm`) broke. Read from the emitted
+runtime C (`~/.bend/bin/bend x.bend -o x.c`: `cube_run`, `pool_turn`, `pool_rows`, `row_grow`,
+`monk_step`, `work_loop`, `heap_alloc`) and confirmed by a diagnostic build with scheduler counters
+(bench/w5/scale/instrument.py patches the C: iterations, turns, units per thread, tasks the grow pass
+skipped, forks deferred to the next iteration).
+
+**How the runtime runs a fork tree.** The main thread evaluates the program sequentially until a parallel
+let returns a join with pending children; the children are dealt to the rings of the frontier rows (two
+rows for a binary root) and the pool takes over in ITERATIONS of two turns: a GROW turn, in which one
+thread per frontier row expands that row breadth-first by running the tasks whose def can fork (a task
+whose def is fork-free, `fid_nofk`, is never run while growing: `monk_step` skips it) until 128 rings of
+the row hold a task or nothing grows; then a DRAIN turn, in which every thread grabs ring groups from a
+shared counter and runs each ring's tasks to completion in SEQUENTIAL mode (`seq`: a parallel let met
+inside a drained task pushes its continuation on the stack and runs both halves itself). A continuation
+that forks again from inside a drain is dealt to new frontier rows and runs in the NEXT iteration. Turns
+are condvar broadcasts; a waiting thread yields 128 times (`sched_yield`) before it sleeps. The heap is
+per-thread free lists per size class (`ALC[thread]`), exchanged through a global bank in generations of
+256 KB words; a fresh 64 KB leaf costs one atomic bump of a shared page cursor; freed blocks are never
+unmapped (a steady-state rep has no page faults: /usr/bin/time -l reclaims are flat across modes).
+
+**The rule the walks broke.** A def is FLAT when it has no parallel let, no closure apply, no non-flat call
+and no non-tail self call: it compiles to a native loop (`spin_N`) and a call to it is an inlined C call.
+A fork-free def that is NOT flat (a non-tail recursion: `Lst.split`, `List.append`, `CX.cuts`, `Dict.clone`,
+every tree walk written as `f(x, g(rest))`) is a segment of its own, and a call to it from a forking def
+in non-sequential mode compiles to `task_node(..); return term_tsk(..)`: the call becomes a TASK. In a
+grow turn the forking task that made it is rewound (`monk_step` pushes the helper task to a ring and
+answers "ran to the end"), the row stops growing there, and in the drain the helper runs in sequential
+mode and `FID_EXIT` continues straight into its continuation, i.e. the rest of the forking def WITH its
+parallel let, still in sequential mode: the whole subtree below runs on ONE thread. The root forks (the
+main thread is not in a grow turn), so the tree degenerates to its two root halves: two lanes, ~2x at any
+thread count, independent of the leaf count. `Lst.pmap.go` had `Lst.split(..)` in its branch arguments
+and `CX.p1` / `CX.p2` / `CX.w2` had `CX.cut(a)` and `CX.dclone(ra)` in theirs. T5.2's CK wrappers
+(`x y = CK.map.ww(~f, l, z) CK.map.ww(~f, r, z)`: a match and a fork, nothing else) never did.
+Evidence (bench/w5/scale/probe.bend, 2^24 rows in 1024 leaves, 12 threads, load 5-8; the instrumented
+build): the tree fork folds in 1.5 ms (1 thread 10 ms; 256 ring tasks per drain, every thread 80-200 of
+them), the SAME leaves forked through `Lst.pmap` take 5.0 ms at 4 AND at 12 threads and at 16, 64, 256,
+1024 and 4096 leaves alike (26-38 ring tasks per drain, the two longest 5-7 ms each: the halves), with
+zero tasks skipped and zero forks deferred (so not the depth-per-iteration cost one might expect); a flat
+helper in the branch argument (inlined as a spin) costs nothing (mode 10 = mode 0).
+
+**The fix (this task).** A forking def does NOTHING but match and fork before its parallel let; every
+helper runs in a leaf, in a join (the continuation after the fork runs as its own task, in place) or in a
+sequential prelude that builds the tree to fork over:
+
+- `Lst.pmap` (src/chunks.bend) and `Sort.pm` (src/sort.bend): the list is turned into a balanced tree
+  (`LT` / `PT`: `Lst.lt`, the old split recursion WITHOUT the parallel let, sequential) and `Lst.pmap.t`
+  / `Sort.pm.t` fork by matching it; `List.append` joins the results in the continuation.
+- The runner's walks (src/cexec.bend): a FRAME TREE `FT = FTL{leaf frame, its Dict copies} | FTB{frame} |
+  FTN{rows, lrows, l, r}` is built by `CX.ft(sk, cut, rr)` sequentially before the walk (the same cuts and
+  the same Dict copies per split point as the old walks made inside the tree: O(leaves x columns), once),
+  and `CX.p1` / `CX.p2` / `CX.w2` match it and fork; the leaf function (`CX.p1.leaf` etc.) and the joins
+  (`CX.fj`) are the tasks. Shape mismatches become an `FTB` leaf (ok = False, the flat path), as before.
+- bench/w5/scale/forkaudit.py lists, from an emitted C file, every call task inside a forking def's
+  segments (`forking def -> fork-free callee`): the only ones left in the engine are leaf-position
+  (`CX.p1 -> CX.wrapf`, `CX.p2 -> CX.lframe`, `CW.rechunk.go -> CW.flatten`) and join (`-> *_J*`) calls.
+  Run it on any new fork tree.
+
+**Measured after the fix** (PROVISIONAL, loads 5-27 as recorded per process; raw samples in
+bench/w5/scale/results/, the tables in IMPLEMENTING.md "Scaling diagnosis"): the controlled probes 4-6x at
+12 threads (fold 10 -> 2 ms, fresh map 15 -> 3, map + fold 24 -> 4; the old `Lst.pmap` over the same
+leaves 10 -> 5 at 2, 4, 8 and 12 threads); bench/w5/t53x.bend's four walks 2x -> 4-7x; the engine's
+pre-chunked compute batched above the clock (t53.bend mode 3), at load 3.9-5.4 (a second pass; the first,
+at load 9-27, is in IMPLEMENTING.md): filter 7.44 -> 1.88 ms (4.0x), q2 3.38 -> 1.12 (3.0x), q1 3.25 -> 1.25
+(2.6x; 1.25 ms at 4 and 12 threads alike), q3 15.9 -> 12.0 (1.3x), q5 16.4 -> 12.8 (1.3x). Against 16.8:
+filter and q2 meet 3x; q1 does not (a 1.25 ms floor out of 3.25 ms: two fork trees, their preludes, the
+result assembly and the per-leaf evaluator entry, ~0.9 ms that no thread count shrinks; one walk instead
+of two for Filter + Select and a compile-once leaf entry are the next steps); q3 / q5 cannot meet 2x /
+1.5x while group_by and the join run flat (T5.3 item 3; 16.8 assumed a chunked group_by for q3's `s` =
+0.3; measured `s` = 0.75). The 1-thread cost of the chunked compute against the
+reference: q1 3.4 vs 2.5 ms, q2 3.4 vs 2.5, filter 7.6 vs 7.0, q3 15.9 vs 12.0, q5 16.4 vs 11.5 (q5 pays
+the 6 ms flatten of the pre-chunked columns before its flat join). The allocation counts behind the
+1-thread gap (master's G6 instrumentation, exact): the chunked compute of q1 allocates 52k blocks / 9.8 MB
+against the reference's 3k / 7.4 MB, q2 89k / 14.1 MB against 3.6k / 12.6 MB, i.e. 845-1,434 allocations
+per leaf of the evaluator's per-leaf typing and compile (`CX.p1.leaf` / `CX.w2.leaf`); the boundary
+conversions are the megabytes (28 MB in, 3-38 MB out per query). The next 1-thread step is to compile
+each walk's expressions once and run the program per leaf.
+
+**What the runtime would need** (the part our code cannot change): (1) a grow pass that runs fork-free
+tasks whose continuation can fork, or that follows a task's continuation chain instead of rewinding at the
+first fork-free call, would remove the shape rule; (2) a drain that forks again inside an iteration
+(nested fork trees are sequential today: a parallel let met in a drained task runs sequentially, so a fork
+inside a leaf, e.g. the per-column rechunk under a column fork, never adds parallelism); (3) a
+documented statement of the rule in `bend guide shaders` ("one parallel let per def" hints at it, "a heavy
+branch serialises" describes the symptom). Until then the rule is ours to keep: match, fork, and nothing
+else before the parallel let; helpers in leaves, joins or a sequential prelude; check with forkaudit.py.
+
+Remaining limits after the fix, measured: the fixed cost of a fork tree (two turns and their barrier
+waits: 0.07 ms per tree of 256 leaves, 0.2 ms per tree of 64 leaves at 12 threads, by the instrumented
+build), the sequential stages of each query (16.8's `s`: the preludes, the result assembly, the flat
+operators), the per-leaf evaluator entry (parallel, but 1-thread cost), the E cores (the drain is dynamic,
+so a slow lane only costs its last unit) and the load of a shared machine (the 12-thread samples spread
+2x at load 9-27).
 ## 17. v0.2 performance design (strings and reader)
 
 Work package W0 of plans/M_02.txt, design decisions **D5 (strings)** and **D6 (reader)**. The
