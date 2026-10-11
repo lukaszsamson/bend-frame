@@ -74,7 +74,7 @@ def enc_text(s: str) -> bytes:
     return s.encode("utf-8", "surrogateescape")
 
 
-INVALID = ["\udcff", "\udcc3", "\udce2\udc82", "\udcc0\udc80", "\udced\udca0\udc80", "\udcf4\udc90\udc80\udc80", "\udc80", "\udcf0\udc9f\udc98", "\udcfe", "\udcc3(", "\udce2(\udca1"]
+INVALID = ["\udcff", "\udcc3", "\udce2\udc82", "\udcc0\udc80", "\udced\udca0\udc80", "\udcf4\udc90\udc80\udc80", "\udc80", "\udcf0\udc9f\udc98", "\udcfe", "\udcc3(", "\udce2(\udca1", "\udce0\udc80\udc80", "\udce0\udc9f\udcbf", "\udcf0\udc80\udc80\udc80", "\udcf0\udc8f\udcbf\udcbf", "\udced\udc9f\udcbf", "\udcf4\udc8f\udcbf\udcbf", "\udcf5\udc80\udc80\udc80", "\udcc1\udcbf", "\udce0\udca0\udc80"]
 MULTI = ["é", "ñ", "日", "本", "語", "\U0001F600", "€", " ", " ", "�", "\U0010ffff", "￿", "\u0000", "\u0080", "߿", "ࠀ", "\U00010000", "ß", "Ω"]
 U_EDGE = ["0", "1", "4294967295", "4294967294", "4294967296", "4294967300", "00012", "+7", "+0", " 5 ", "5 ", "  ", "-0", "-1", "1_000", "0x1F", "1e3", "1.0", "٣", "99999999999",
           "0000000000000000000000001", "+", "++1", "1 2", "\t7", "7\x0b", "\x0c7", "4294967295 ", " 4294967295", "+4294967295", "+4294967296", "429496729", "42949672950", "00000000000"]
@@ -118,7 +118,7 @@ class Col:
         self.dq = rng.random() < 0.3
         self.nl = rng.random() < 0.3
         self.mbp = rng.choice([0, 0.1, 0.5])
-        self.fm = rng.choice(["dec", "dec", "int", "sci", "bits", "short", "long"])
+        self.fm = rng.choice(["dec", "dec", "int", "sci", "bits", "short", "long", "tiny"])
         self.uniq = 0
 
     def text(self, rng):
@@ -161,6 +161,12 @@ class Col:
                 return "%d.%d" % (rng.randint(-99, 99), rng.randint(0, 99))
             if fm == "sci":
                 return "%.*e" % (rng.randint(0, 8), rng.uniform(-1, 1) * 10 ** rng.randint(-45, 38))
+            if fm == "tiny":
+                # a small mantissa behind many fraction digits (the fast path ends at 10: 10^11 is not exact in f32)
+                m = rng.choice([1, 3, 7, 123, 9999, 16777215, 16777216, 16777217, rng.randint(1, 2 ** 24)])
+                fd = rng.randint(8, 14)
+                digits = str(m).zfill(fd)[-fd:] if len(str(m)) <= fd else str(m)
+                return "%s0.%s" % ("-" if rng.random() < 0.3 else "", digits)
             if fm == "long":
                 return "%d.%s" % (rng.randint(0, 99999), "".join(rng.choice("0123456789") for _ in range(rng.randint(5, 14))))
             if fm == "bits":
