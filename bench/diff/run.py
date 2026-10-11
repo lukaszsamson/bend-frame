@@ -82,7 +82,7 @@ def main(argv=None):
     ap.add_argument("--shrink-secs", type=float, default=90.0, help="time budget per failure group for the minimiser")
     ap.add_argument("--keep", action="store_true", help="keep the scratch programs")
     ap.add_argument("--dict", action="store_true", help="M4: every str input column in the Dictionary storage (BEND_DIFF_DICT=1)")
-    ap.add_argument("--chunked", action="store_true", help="G1 (v0.2 T5.3): also run every case by the chunked engine at grains 2^2 / 2^4 / 2^14 and compare with the reference runs exactly (BEND_DIFF_CHUNKED=1)")
+    ap.add_argument("--chunked", action="store_true", help="G1 (v0.2 T5.3): also run every case by the chunked engine at grains 2^0 / 2^2 / 2^4 / 2^14 and compare with the reference runs exactly (BEND_DIFF_CHUNKED=1)")
     a = ap.parse_args(argv)
     if a.dict:
         os.environ["BEND_DIFF_DICT"] = "1"

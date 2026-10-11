@@ -134,16 +134,16 @@ def main() -> IO(Unit):
 #|q1 n=4: h=1 [same] walks=0 flat=1 cin=0 cout=0
 #|q2 n=4: h=4 [same] walks=0 flat=1 cin=0 cout=0
 #|chain n=4: h=3 [same] walks=0 flat=4 cin=0 cout=0
-#|q1 n=5: h=2 [same] walks=2 flat=0 cin=1 cout=0
+#|q1 n=5: h=2 [same] walks=2 flat=0 cin=1 cout=1
 #|q2 n=5: h=5 [same] walks=1 flat=0 cin=1 cout=1
 #|chain n=5: h=4 [same] walks=5 flat=0 cin=1 cout=1
-#|q1 n=7: h=3 [same] walks=2 flat=0 cin=1 cout=0
+#|q1 n=7: h=3 [same] walks=2 flat=0 cin=1 cout=1
 #|q2 n=7: h=7 [same] walks=1 flat=0 cin=1 cout=1
 #|chain n=7: h=5 [same] walks=5 flat=0 cin=1 cout=1
 #|q1 n=8: h=4 [same] walks=2 flat=0 cin=1 cout=1
 #|q2 n=8: h=8 [same] walks=1 flat=0 cin=1 cout=1
 #|chain n=8: h=6 [same] walks=5 flat=0 cin=1 cout=1
-#|q1 n=9: h=4 [same] walks=2 flat=0 cin=1 cout=0
+#|q1 n=9: h=4 [same] walks=2 flat=0 cin=1 cout=1
 #|q2 n=9: h=9 [same] walks=1 flat=0 cin=1 cout=1
 #|chain n=9: h=6 [same] walks=5 flat=0 cin=1 cout=1
 #|q1 n=15: h=5 [same] walks=2 flat=0 cin=1 cout=1
@@ -171,7 +171,7 @@ def main() -> IO(Unit):
 #|filter to empty, then with_columns + head: h=0 [same] walks=3 flat=0 cin=1 cout=0
 #|zero columns: drop every column (chunked): h=26 [same] walks=2 flat=0 cin=1 cout=0
 #|zero columns: + with_columns lit (flat) + head: h=5 [same] walks=2 flat=2 cin=1 cout=0
-#|zero columns: select([]) after a filter: h=0 [same] walks=2 flat=1 cin=1 cout=1
+#|zero columns: select([]) after a filter: h=0 [same] walks=2 flat=1 cin=1 cout=0
 #|concat chunked + flat: h=52 [same] walks=2 flat=0 cin=2 cout=1
 #|concat flat + chunked: h=55 [same] walks=2 flat=0 cin=2 cout=1
 #|concat two ragged chunked (two dictionaries) + filter: h=22 [same] walks=6 flat=0 cin=2 cout=1

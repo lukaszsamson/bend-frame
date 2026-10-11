@@ -1028,6 +1028,19 @@ Dictionary mode, `make diff-reduce`, the goldens of `make bench-check`), not by 
    R4 (predicate pushdown), R5 (projection pushdown) as result-preserving theorems, and the
    composition of its passes; the `refs` / locality fields of the analysis record. The
    default optimizer does not use any of them.
+10. (v0.2 T5.3) The chunked runner `src/cexec.bend` (`Exec.run_with(Chunked{g}, ..)`,
+   `Lazy.collect_with`, `DF.collect_with` / `DF.collect_raw_with`): the XF stack, the conversions
+   (`CX.of` / `CX.to` over `CFrame.of_frame` / `to_frame`), the ghost static check, the per-leaf
+   walks (`CX.p1` / `CX.p2` / `CX.w2`: the flat evaluator on a leaf-sized frame, the leaf frames joined
+   by `CCols.cat`), the aggregation hoisting (`CX.hoist`), the Dictionary set-aside and per-lane clones
+   (`CX.undict` / `redict` / `dclone` / `wrapf`), the lazy rebalance, the tree-level head / slice /
+   select / drop / rename / concat, the flat fallbacks. Evidence: the G1 differential (`make
+   diff-chunked`, `make diff-smoke`: every generated case by the reference and by the chunked engine at
+   grains 2^0 / 2^2 / 2^4 / 2^14, compared exactly) and tests/cexec_*.bend. What it calls is proven or
+   tested as listed elsewhere in this section: the leaf evaluator and `Exec.fc` are the reference's own
+   code (`fc_filter_mask` holds at every leaf), the chunk layer's laws are LAWS section 21; no
+   theorem relates `Exec.run_with` to `Exec.run_pure` (DESIGN 16.5: differential evidence, not a proof,
+   in v0.2). `release_run` is unchanged: it is about `Exec.run_pure`, which the runner does not touch.
 10. Column and frame level: `Column.gather` / `Column.compact` as cell theorems for every
    kind (section 11 proves the kernels at U32; the F32 / String instances are the same
    template text, BendTT refuses a law at a quantified cell type, and only the Str storage

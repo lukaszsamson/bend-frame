@@ -64,9 +64,10 @@ def evaluate(case, got, exp):
     add("T2.1 raw!=opt", compare(r, o) if r != o else [])
     add("T2.1 raw!=full", compare(r, fu) if r != fu else [])
     # G1 (v0.2 T5.3, run.py --chunked): the chunked engine against the reference, exactly (the same
-    # comparator: only the contract's NaN-payload rule); grains 2^2 / 2^4 on the plan as written, 2^14
-    # through collect
+    # comparator: only the contract's NaN-payload rule); grains 2^0 / 2^2 / 2^4 on the plan as written,
+    # 2^14 through collect
     if "c2" in got:
+        add("G1 raw!=chunked0", compare(r, got["c0"]) if r != got["c0"] else [])
         add("G1 raw!=chunked2", compare(r, got["c2"]) if r != got["c2"] else [])
         add("G1 raw!=chunked4", compare(r, got["c4"]) if r != got["c4"] else [])
         add("G1 opt!=chunked14", compare(o, got["c14"]) if o != got["c14"] else [])

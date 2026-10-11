@@ -165,23 +165,25 @@ def four(+tag: String, eager: E.ResT(C.Frame), +p: P.Plan, e1: P.Env, e2: P.Env,
     IO.print(show(tag, "full", r3))
 
 # G1 (v0.2 T5.3): the four runs above, then the chunked engine (src/cexec.bend) on the plan as written
-# at grains 2^2 and 2^4 (DF.collect_raw_with: compared with raw) and collect at the default grain 2^14
-# (DF.collect_with: compared with opt); run.py --chunked emits this step instead of `four`
-def seven(+tag: String, eager: E.ResT(C.Frame), +p: P.Plan, e1: P.Env, e2: P.Env, e3: P.Env, e4: P.Env, e5: P.Env, e6: P.Env) -> IO(Unit):
+# at grains 2^0, 2^2 and 2^4 (DF.collect_raw_with: compared with raw) and collect at the default grain
+# 2^14 (DF.collect_with: compared with opt); run.py --chunked emits this step instead of `four`
+def eight(+tag: String, eager: E.ResT(C.Frame), +p: P.Plan, e1: P.Env, e2: P.Env, e3: P.Env, e4: P.Env, e5: P.Env, e6: P.Env, e7: P.Env) -> IO(Unit):
   do IO<Unit>:
     r1 : E.ResT(C.Frame) <- DF.collect_raw(p, e1)
     r2 : E.ResT(C.Frame) <- DF.collect(p, e2)
     r3 : E.ResT(C.Frame) <- DF.collect_full(p, e3)
-    r4 : E.ResT(C.Frame) <- DF.collect_raw_with(DF.engine_chunked_at(2n), p, e4)
-    r5 : E.ResT(C.Frame) <- DF.collect_raw_with(DF.engine_chunked_at(4n), p, e5)
-    r6 : E.ResT(C.Frame) <- DF.collect_with(DF.engine_chunked(), p, e6)
+    r4 : E.ResT(C.Frame) <- DF.collect_raw_with(DF.engine_chunked_at(0n), p, e4)
+    r5 : E.ResT(C.Frame) <- DF.collect_raw_with(DF.engine_chunked_at(2n), p, e5)
+    r6 : E.ResT(C.Frame) <- DF.collect_raw_with(DF.engine_chunked_at(4n), p, e6)
+    r7 : E.ResT(C.Frame) <- DF.collect_with(DF.engine_chunked(), p, e7)
     IO.print(show(tag, "eager", eager))
     IO.print(show(tag, "raw", r1))
     IO.print(show(tag, "opt", r2))
     IO.print(show(tag, "full", r3))
-    IO.print(show(tag, "c2", r4))
-    IO.print(show(tag, "c4", r5))
-    IO.print(show(tag, "c14", r6))
+    IO.print(show(tag, "c0", r4))
+    IO.print(show(tag, "c2", r5))
+    IO.print(show(tag, "c4", r6))
+    IO.print(show(tag, "c14", r7))
 '''
 
 LIT_NULL = '''def lit_null(t: D.DType) -> X.Expr:

@@ -52,6 +52,9 @@ def main() -> IO(Unit):
     IO.print(c("literal cast (ghost fails: flat)", 2n, wc([DF.alias(DF.lit_i32(3000000000), "big"), DF.alias(cu(DF.col("num")), "a")])))
     IO.print(c("Filter + Select root: predicate error first", 2n, DF.lazy_select(DF.lazy_filter(T.srct(37), DF.gt(cu(DF.col("num")), DF.lit_u32(5))), [DF.col("id"), DF.col("nope")])))
     IO.print(c("Filter + Select root: select error", 2n, DF.lazy_select(DF.lazy_filter(T.srct(37), DF.gt(DF.col("qty"), DF.lit_u32(5))), [DF.col("id"), DF.col("nope")])))
+    IO.print(c("aggregation cast fails (hoisted: flat rerun)", 2n, wc([DF.alias(DF.sum(cu(DF.col("num"))), "a")])))
+    IO.print(c("expr 1 row 0 vs a later expression's failing aggregation", 2n, wc([DF.alias(cu(DF.col("n")), "b"), DF.alias(DF.sum(cu(DF.col("num"))), "a")])))
+    IO.print(c("operand row 0 before a failing aggregation operand", 2n, wc([DF.alias(DF.add(cu(DF.col("n")), DF.sum(cu(DF.col("num")))), "a")])))
     IO.print(c("try_cast never fails", 2n, wc([DF.alias(DF.try_cast(DF.col("num"), D.TU32{}), "a"), DF.alias(DF.try_cast(DF.col("n"), D.TU32{}), "b")])))
 #|expr 1 row 13 vs expr 2 row 0: error: InvalidOperation: cast str to u32: row 13 holds "bad" [same] walks=1 flat=1 cin=1 cout=1
 #|expr 1 row 0 vs expr 2 row 13: error: InvalidOperation: cast i32 to u32: row 0 holds -4 [same] walks=1 flat=1 cin=1 cout=1
@@ -73,4 +76,7 @@ def main() -> IO(Unit):
 #|literal cast (ghost fails: flat): error: InvalidOperation: cast u32 to i32: row 0 holds 3000000000 [same] walks=0 flat=1 cin=0 cout=0
 #|Filter + Select root: predicate error first: error: InvalidOperation: cast str to u32: row 13 holds "bad" [same] walks=0 flat=1 cin=0 cout=0
 #|Filter + Select root: select error: error: ColumnNotFound: nope [same] walks=0 flat=1 cin=0 cout=0
+#|aggregation cast fails (hoisted: flat rerun): error: InvalidOperation: cast str to u32: row 13 holds "bad" [same] walks=0 flat=1 cin=0 cout=0
+#|expr 1 row 0 vs a later expression's failing aggregation: error: InvalidOperation: cast i32 to u32: row 0 holds -4 [same] walks=0 flat=1 cin=0 cout=0
+#|operand row 0 before a failing aggregation operand: error: InvalidOperation: cast i32 to u32: row 0 holds -4 [same] walks=0 flat=1 cin=0 cout=0
 #|try_cast never fails: h=37 [same] walks=1 flat=0 cin=1 cout=1

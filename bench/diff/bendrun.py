@@ -16,7 +16,7 @@ class BendError(RuntimeError):
     pass
 
 
-HDR = re.compile(r"^-- (d\d+) (eager|raw|opt|full|c2|c4|c14)$", re.M)
+HDR = re.compile(r"^-- (d\d+) (eager|raw|opt|full|c0|c2|c4|c14)$", re.M)
 
 
 def header_for(scratch: Path) -> str:
