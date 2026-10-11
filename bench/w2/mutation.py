@@ -6,7 +6,7 @@ Each mutant changes ONE expression of src/hcode.bend or src/ranks.bend in a temp
 (build/w2/mut*) and runs the tests that cover the file; a test run that still matches its `#|` lines is
 a SURVIVOR. Expected: every mutant KILLED except the ones marked EQUIVALENT below (they change speed or
 an encoding detail the contract cannot see, so no test of the VALUES can kill them).
-The `W*` mutants (the code-point fallback of the rank stage) need the native binary: the interpreter
+The `W*` mutants (the code-point fallback of the rank stage: W1, W3, W4 the Rk.ranks / Rk.dict path, W5-W7 the packed-coder path of Rk.words) need the native binary: the interpreter
 refuses a Chr above U+10FFFF, so bench/w2/w2diff.bend runs them.
 """
 import os
@@ -39,11 +39,18 @@ muts = [
     ("R6 word 2r + 1 dropped", "src/ranks.bend", "Rx.word(e, U32.inc(U32.mul(r, 2)), other)", "(other, 0)", RK, ""),
     ("R7 dict lengths zero", "src/ranks.bend", "~(s => H.Hc.blen(s, 0)), U32.to_nat(k), 0, RLS{strs", "~(s => 0), U32.to_nat(k), 0, RLS{strs", RK, ""),
     ("R8 word offset sentinel dropped", "src/ranks.bend", "RW{tot, mx, bl, Array.set(U32, wo, c, tot)}", "RW{tot, mx, bl, wo}", RK, "EQUIVALENT: the words read past the last entry are the zero padding of pk unless the index wraps, and a tie that long never reaches them (the left key separated the entry in an earlier round)"),
+    ("P1 pk pass A: code points counted as bytes", "src/ranks.bend", "U32.add(b, H.Hc.u8(c))", "U32.inc(b)", RK, ""),
+    ("P2 pk pass B: entry packed at the next offset", "src/ranks.bend", "Pq.c(o, m, po, pl, pk, out, Array.get(U32, wo, e))", "Pq.c(o, m, po, pl, pk, out, Array.get(U32, wo, U32.inc(e)))", RK, ""),
+    ("P3 pk pass A: the byte length of an entry is the last one's", "src/ranks.bend", "PA{po, pl, Array.set(U32, bl, e, b), pk, cm}", "PA{po, pl, Array.set(U32, bl, 0, b), pk, cm}", RK, ""),
+    ("P4 pk pass B: entry read from the wrong start", "src/ranks.bend", "Pq.in(U32.to_nat(m), o, PB{out, w, 0, 16777216, 0}, Array.get(U32, pk, o))", "Pq.in(U32.to_nat(m), o, PB{out, w, 0, 16777216, 0}, Array.get(U32, pk, U32.inc(o)))", RK, ""),
     ("R9 packing: last partial word not kept", "src/ranks.bend", "U32.mul(acc2, U32.sub(1, fu))", "0", RK, ""),
 ]
 
 # native: the fallback for code points above U+10FFFF
 native = [
+    ("W5 pk fallback never taken (max code point ignored)", "src/ranks.bend", "Rk.pw(U32.is_gt(cm, 1114111), k, kd, flip, kd1, a, fr, po, pl, bl, pk)", "Rk.pw(U32.is_gt(cm, 4294967295), k, kd, flip, kd1, a, fr, po, pl, bl, pk)", ""),
+    ("W6 pk fallback round width 8", "src/ranks.bend", "Rk.run(k, kd, flip, 2, mx, a, fr, wo, pl, pk)", "Rk.run(k, kd, flip, 8, mx, a, fr, wo, pl, pk)", ""),
+    ("W7 pk fallback offsets in packed words", "src/ranks.bend", "Rw.go(U32.to_nat(k), 0, 0, 0, 0, 0n, Array.new(U32, kd1, 0), Array.get(U32, pl, 0))", "Rw.go(U32.to_nat(k), 0, 0, 0, 3, 2n, Array.new(U32, kd1, 0), Array.get(U32, pl, 0))", ""),
     ("W1 fallback branch packs bytes", "src/ranks.bend", "      Rk.wide(k, kd, flip, kd1, a, fr, bl)\n    case False{}:", "      Rk.run(k, kd, flip, 8, mx, a, fr, wo, bl, pk)\n    case False{}:", ""),
     ("W3 fallback round width 8", "src/ranks.bend", "Rk.run(k, kd, flip, 2, mx, a, fr, wo, bl, pk)", "Rk.run(k, kd, flip, 8, mx, a, fr, wo, bl, pk)", ""),
     ("W4 fallback code point counts as bytes", "src/ranks.bend", "Rl.go(~(s => Rl.cps(s, 0)), U32.to_nat(k), 0, RLS{a, fr, bl})", "Rl.go(~(s => H.Hc.blen(s, 0)), U32.to_nat(k), 0, RLS{a, fr, bl})", "EQUIVALENT: longer lengths only add rounds and zero words; the ranks do not change"),

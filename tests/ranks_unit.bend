@@ -35,6 +35,15 @@ def mix() -> Array<String>:
 def bound() -> Array<String>:
   rows(["abcdefghijklmnop", "abcdefgh\u{0}", "abcdefg", "abcdefghi", "abcdefgh\u{0}\u{0}", "abcdefgh", "abcdefghijklmno"])
 
+# W2 pk ranks (the packed coder's table starts at 8 words per row, min 16, and doubles): three
+# distinct 20-char keys A = b^20, B = b^19 a, C = b^19 c over 4 rows grow it (60 code points > 32
+# words): B < A < C; 4-byte characters crossing word boundaries: "a" < "a\u{1f600}" < "a\u{1f601}"
+def grown() -> Array<String>:
+  rows(["bbbbbbbbbbbbbbbbbbbb", "bbbbbbbbbbbbbbbbbbba", "bbbbbbbbbbbbbbbbbbbb", "bbbbbbbbbbbbbbbbbbbc"])
+
+def emoji() -> Array<String>:
+  rows(["a\u{1f600}", "a\u{1f601}", "a\u{1f600}", "a", "\u{1f600}a\u{1f600}a", "\u{1f600}a\u{1f600}"])
+
 # the dictionary of the rows of mix(): "" is code 0, then first appearance
 def dmix.go(n: Nat, +i: U32, d: ST.Dict, r: Array<String> & String) -> ST.Dict:
   match n:
@@ -71,6 +80,9 @@ def main() -> IO(Unit):
     IO.print(words(1, 0, rows(["zz"])))
     IO.print(words(1, 4294967295, rows(["zz"])))
     IO.print(words(3, 0, rows(["x", "x", "x"])))
+    IO.print(words(4, 0, grown()))
+    IO.print(words(6, 0, emoji()))
+    IO.print(words(6, 4294967295, emoji()))
     IO.print(dr(dmix()))
     IO.print(dr(dsmall()))
     IO.print(dr(ST.Dict.empty()))
@@ -81,6 +93,9 @@ def main() -> IO(Unit):
 #|[0]
 #|[4294967295]
 #|[0, 0, 0]
+#|[1, 0, 1, 2]
+#|[1, 2, 1, 0, 4, 3]
+#|[4294967294, 4294967293, 4294967294, 4294967295, 4294967291, 4294967292]
 #|[0, 5, 2, 4, 3, 6, 7, 8, 1]
 #|[0, 2, 1]
 #|[0]
