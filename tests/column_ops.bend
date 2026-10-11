@@ -1,4 +1,5 @@
-# Column ops on small columns with nulls: head, slice, clone, gather, compact.
+# Column ops on small columns with nulls: head, slice, clone, gather, compact. Slice is one range
+# copy per buffer (W1f): every dtype, both string storages, empty and past-the-end slices.
 import Base
 import ./../src/dtype.bend as D
 import ./../src/err.bend as E
@@ -64,6 +65,13 @@ def main() -> IO(Unit):
     IO.print(on(c => sh(C.Column.head(c, 99)), mk(ints(), D.TU32{})))
     IO.print(on(c => sh(C.Column.slice(c, 1, 3)), mk(ints(), D.TU32{})))
     IO.print(on(c => sh(C.Column.slice(c, 3, 99)), mk(ints(), D.TU32{})))
+    IO.print(on(c => sh(C.Column.slice(c, 5, 1)), mk(ints(), D.TU32{})))
+    IO.print(on(c => sh(C.Column.slice(c, 99, 1)), mk(ints(), D.TU32{})))
+    IO.print(on(c => sh(C.Column.slice(c, 0, 0)), mk(ints(), D.TU32{})))
+    IO.print(on(c => sh(C.Column.slice(c, 1, 2)), mk(strs(), D.TStr{})))
+    IO.print(on(c => sh(C.Column.slice(C.Column.encode(c), 1, 3)), mk(strs(), D.TStr{})))
+    IO.print(on(c => sh(C.Column.slice(c, 1, 2)), mk([D.SF32{0.5}, D.SNull{}, D.SF32{2.5}, D.SF32{3.5}], D.TF32{})))
+    IO.print(on(c => sh(C.Column.slice(c, 1, 2)), mk([D.SI32{D.I32{7}}, D.SI32{D.I32{8}}, D.SI32{D.I32{9}}], D.TI32{})))
     IO.print(on(c => two(C.Column.clone(c)), mk(strs(), D.TStr{})))
     IO.print(on(c => gat(C.Column.gather(c, arr(K.Kernel.from_list(~U32, [3, 1, 0, 0], 0)), 4)), mk(strs(), D.TStr{})))
     IO.print(on(c => gat(C.Column.gather(c, arr(K.Kernel.from_list(~U32, [2, 4, 0], 0)), 3)), mk(ints(), D.TU32{})))
@@ -75,6 +83,13 @@ def main() -> IO(Unit):
 #|len=5 [10, null, 30, 40, null]
 #|len=3 [null, 30, 40]
 #|len=2 [40, null]
+#|len=0 []
+#|len=0 []
+#|len=0 []
+#|len=2 [null, c]
+#|len=3 [null, c, d]
+#|len=2 [null, 2.5]
+#|len=2 [8, 9]
 #|len=4 [a, null, c, d] | len=4 [a, null, c, d]
 #|len=4 [d, null, a, a]
 #|len=3 [30, null, 10]

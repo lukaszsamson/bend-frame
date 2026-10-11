@@ -616,23 +616,20 @@ def Eval.kl.st(is_and: Bool, +n: U32, +d: Nat, a: Array<U32>, b: Array<U32>) -> 
     case False{}:
       K.Kernel.zip(~U32, ~U32, ~U32, ~(x => y => Eval.kl.or(x, y)), n, d, a, b, 0)
 
-def Eval.kl.some.b(known: Bool, +r: U32) -> Maybe<&2, U32>:
-  match known:
-    case True{}:
-      Some{U32.and(r, 1)}
-    case False{}:
-      None{}
+# state word -> (value, 1) if known (valid), else (0, 0): r AND ok is r's value bit when r >= 2
+# and 0 otherwise (an unboxed K.R, no per-row Maybe: W1d)
+def Eval.kl.r.k(+ok: U32, +r: U32) -> K.R<U32>:
+  K.R{U32.and(r, ok), ok}
 
-# state word -> value if known (valid), else None
-def Eval.kl.some(+r: U32) -> Maybe<&2, U32>:
-  Eval.kl.some.b(U32.is_ge(r, 2), r)
+def Eval.kl.r(+r: U32) -> K.R<U32>:
+  Eval.kl.r.k(Bool.to_u32(U32.is_ge(r, 2)), r)
 
 def Eval.kl.fin(+n: U32, +d: Nat, r: Array<U32> & Array<U32>) -> C.Column:
   (x, ok) = r
   C.CBool{n, d, Eval.cast.allv(n, K.Kernel.popcount(n, ok)), x}
 
 def Eval.kleene(is_and: Bool, +n: U32, +d: Nat, va: C.Valid, vb: C.Valid, xa: Array<U32>, xb: Array<U32>) -> C.Column:
-  Eval.kl.fin(n, d, K.Kernel.map_maybe(~U32, ~U32, ~(r => Eval.kl.some(r)), n, d, Eval.kl.st(is_and, n, d, Eval.kl.enc(n, d, va, xa), Eval.kl.enc(n, d, vb, xb)), 0))
+  Eval.kl.fin(n, d, K.Kernel.map_r(~U32, ~U32, ~(r => Eval.kl.r(r)), n, d, Eval.kl.st(is_and, n, d, Eval.kl.enc(n, d, va, xa), Eval.kl.enc(n, d, vb, xb)), 0))
 
 # and/or: both sides dense -> the plain word op, else Kleene
 def Eval.bin.logic(is_and: Bool, op: X.BinOp, +n: U32, +d: Nat, va: C.Valid, vb: C.Valid, xa: Array<U32>, xb: Array<U32>) -> E.ResT(C.Column):
@@ -674,32 +671,60 @@ def Eval.is_idiv(op: X.BinOp) -> Bool:
     case _:
       False{}
 
-def Eval.u_fdiv(x: U32, +y: U32) -> Maybe<&2, U32>:
-  Bool.pick(Maybe<&2, U32>, U32.is_zero(y), None{}, Some{U32.div(x, y)})
+# the per-row results are unboxed K.R records (W1d): (quotient / remainder, 1), or (0, 0) on a
+# zero divisor (and for i32 MIN // -1). u32: the value is computed for every row and masked by ok
+# (U32.div / U32.mod by 0 are defined: 0 and x). i32: a match on the failure test, as in
+# D.I32.floor_div.k / floor_mod.k (the same terms; measured: computing the i32 quotient on every row
+# and masking is ~15% slower than branching around it)
+def Eval.u_fdiv(+x: U32, +y: U32) -> K.R<U32>:
+  K.Kernel.r_w(Bool.to_u32(U32.is_ne(y, 0)), U32.div(x, y))
 
-def Eval.u_fmod(x: U32, +y: U32) -> Maybe<&2, U32>:
-  Bool.pick(Maybe<&2, U32>, U32.is_zero(y), None{}, Some{U32.mod(x, y)})
+def Eval.u_fmod(+x: U32, +y: U32) -> K.R<U32>:
+  K.Kernel.r_w(Bool.to_u32(U32.is_ne(y, 0)), U32.mod(x, y))
 
-def Eval.i_fdiv(x: U32, y: U32) -> Maybe<&2, U32>:
-  Eval.i32_bits(D.I32.floor_div(D.I32{x}, D.I32{y}))
+def Eval.i_res(q: D.I32) -> K.R<U32>:
+  match q:
+    case D.I32{w}:
+      K.R{w, 1}
 
-def Eval.i_fmod(x: U32, y: U32) -> Maybe<&2, U32>:
-  Eval.i32_bits(D.I32.floor_mod(D.I32{x}, D.I32{y}))
+def Eval.i_fdiv.k(none: Bool, +x: U32, +y: U32) -> K.R<U32>:
+  match none:
+    case True{}:
+      K.R{0, 0}
+    case False{}:
+      +mx = D.I32.mag(D.I32{x})
+      +my = D.I32.mag(D.I32{y})
+      Eval.i_res(D.I32.floor_div.q(Bool.xor(U32.is_ge(x, 2147483648), U32.is_ge(y, 2147483648)), U32.div(mx, my), U32.is_zero(U32.mod(mx, my))))
+
+def Eval.i_fdiv(+x: U32, +y: U32) -> K.R<U32>:
+  Eval.i_fdiv.k(Bool.or(U32.is_zero(y), Bool.and(U32.is_eq(x, 2147483648), U32.is_eq(y, 4294967295))), x, y)
+
+def Eval.i_fmod.k(none: Bool, +x: U32, +y: U32) -> K.R<U32>:
+  match none:
+    case True{}:
+      K.R{0, 0}
+    case False{}:
+      +my = D.I32.mag(D.I32{y})
+      +yneg = U32.is_ge(y, 2147483648)
+      Eval.i_res(D.I32.floor_mod.r(yneg, Bool.xor(U32.is_ge(x, 2147483648), yneg), my, U32.mod(D.I32.mag(D.I32{x}), my)))
+
+def Eval.i_fmod(+x: U32, +y: U32) -> K.R<U32>:
+  Eval.i_fmod.k(U32.is_zero(y), x, y)
 
 # (quotient or remainder words, ok words)
 def Eval.zip.ud(op: X.BinOp, +n: U32, +d: Nat, a: Array<U32>, b: Array<U32>) -> Array<U32> & Array<U32>:
   match op:
     case X.Mod{}:
-      K.Kernel.zip_maybe(~U32, ~U32, ~U32, ~(x => y => Eval.u_fmod(x, y)), n, d, a, b, 0)
+      K.Kernel.zip_r(~U32, ~U32, ~U32, ~(x => y => Eval.u_fmod(x, y)), n, d, a, b, 0)
     case _:
-      K.Kernel.zip_maybe(~U32, ~U32, ~U32, ~(x => y => Eval.u_fdiv(x, y)), n, d, a, b, 0)
+      K.Kernel.zip_r(~U32, ~U32, ~U32, ~(x => y => Eval.u_fdiv(x, y)), n, d, a, b, 0)
 
 def Eval.zip.id(op: X.BinOp, +n: U32, +d: Nat, a: Array<U32>, b: Array<U32>) -> Array<U32> & Array<U32>:
   match op:
     case X.Mod{}:
-      K.Kernel.zip_maybe(~U32, ~U32, ~U32, ~(x => y => Eval.i_fmod(x, y)), n, d, a, b, 0)
+      K.Kernel.zip_r(~U32, ~U32, ~U32, ~(x => y => Eval.i_fmod(x, y)), n, d, a, b, 0)
     case _:
-      K.Kernel.zip_maybe(~U32, ~U32, ~U32, ~(x => y => Eval.i_fdiv(x, y)), n, d, a, b, 0)
+      K.Kernel.zip_r(~U32, ~U32, ~U32, ~(x => y => Eval.i_fdiv(x, y)), n, d, a, b, 0)
 
 def Eval.bin.idiv(t: D.DType, +n: U32, +d: Nat, v: C.Valid, r: Array<U32> & Array<U32>) -> E.ResT(C.Column):
   (x, ok) = r
@@ -1028,17 +1053,19 @@ def Eval.cast.pf(+n: U32, +d: Nat, v: C.Valid, r: Array<F32> & Array<U32>) -> E.
   (x, ok) = r
   Done{Eval.fix(C.CF32{n, d, Eval.okv(n, d, v, ok), x})}
 
+# The per-row conversion results are unboxed K.R records (W1d): (bits, 1), or (0, 0) on a
+# failure (the converted word is computed for every row and masked by ok).
 # u32 -> i32 and i32 -> u32 (DESIGN.md 15.5.5): the same bits when bit 31 is clear
-def Eval.lo31(+w: U32) -> Maybe<&2, U32>:
-  Bool.pick(Maybe<&2, U32>, U32.is_lt(w, 2147483648), Some{w}, None{})
+def Eval.lo31(+w: U32) -> K.R<U32>:
+  K.Kernel.r_w(Bool.to_u32(U32.is_lt(w, 2147483648)), w)
 
 # f32 -> u32: trunc(x) when -1.0 < x < 4294967296.0 (both bounds exact in f32; NaN fails)
-def Eval.f2u(+x: F32) -> Maybe<&2, U32>:
-  Bool.pick(Maybe<&2, U32>, Bool.and(F32.is_gt(x, F32.neg(1.0)), F32.is_lt(x, 4294967296.0)), Some{F32.to_u32(x)}, None{})
+def Eval.f2u(+x: F32) -> K.R<U32>:
+  K.Kernel.r_w(Bool.to_u32(Bool.and(F32.is_gt(x, F32.neg(1.0)), F32.is_lt(x, 4294967296.0))), F32.to_u32(x))
 
 # f32 -> i32: trunc(x) toward zero when -2147483648.0 <= x < 2147483648.0 (NaN fails)
-def Eval.f2i_m(+x: F32) -> Maybe<&2, U32>:
-  Bool.pick(Maybe<&2, U32>, Bool.and(F32.is_ge(x, F32.neg(2147483648.0)), F32.is_lt(x, 2147483648.0)), Some{Eval.f2i(x)}, None{})
+def Eval.f2i_m(+x: F32) -> K.R<U32>:
+  K.Kernel.r_w(Bool.to_u32(Bool.and(F32.is_ge(x, F32.neg(2147483648.0)), F32.is_lt(x, 2147483648.0))), Eval.f2i(x))
 
 # ---- conversions: the try_cast semantics (a failing valid cell becomes null) ------------------
 
@@ -1060,7 +1087,7 @@ def Eval.cast.u(+to: D.DType, +n: U32, +d: Nat, v: C.Valid, x: Array<U32>) -> E.
     case D.TU32{}:
       Done{C.CU32{n, d, v, x}}
     case D.TI32{}:
-      Eval.cast.pw(D.TI32{}, n, d, v, K.Kernel.map_maybe(~U32, ~U32, ~(w => Eval.lo31(w)), n, d, x, 0))
+      Eval.cast.pw(D.TI32{}, n, d, v, K.Kernel.map_r(~U32, ~U32, ~(w => Eval.lo31(w)), n, d, x, 0))
     case D.TF32{}:
       Done{C.CF32{n, d, v, K.Kernel.map(~U32, ~F32, ~(w => U32.to_f32(w)), n, d, x, 0.0)}}
     case D.TStr{}:
@@ -1071,7 +1098,7 @@ def Eval.cast.u(+to: D.DType, +n: U32, +d: Nat, v: C.Valid, x: Array<U32>) -> E.
 def Eval.cast.i(+to: D.DType, +n: U32, +d: Nat, v: C.Valid, x: Array<U32>) -> E.ResT(C.Column):
   match to:
     case D.TU32{}:
-      Eval.cast.pw(D.TU32{}, n, d, v, K.Kernel.map_maybe(~U32, ~U32, ~(w => Eval.lo31(w)), n, d, x, 0))
+      Eval.cast.pw(D.TU32{}, n, d, v, K.Kernel.map_r(~U32, ~U32, ~(w => Eval.lo31(w)), n, d, x, 0))
     case D.TI32{}:
       Done{C.CI32{n, d, v, x}}
     case D.TF32{}:
@@ -1084,9 +1111,9 @@ def Eval.cast.i(+to: D.DType, +n: U32, +d: Nat, v: C.Valid, x: Array<U32>) -> E.
 def Eval.cast.f(+to: D.DType, +n: U32, +d: Nat, v: C.Valid, x: Array<F32>) -> E.ResT(C.Column):
   match to:
     case D.TU32{}:
-      Eval.cast.pw(D.TU32{}, n, d, v, K.Kernel.map_maybe(~F32, ~U32, ~(w => Eval.f2u(w)), n, d, x, 0))
+      Eval.cast.pw(D.TU32{}, n, d, v, K.Kernel.map_r(~F32, ~U32, ~(w => Eval.f2u(w)), n, d, x, 0))
     case D.TI32{}:
-      Eval.cast.pw(D.TI32{}, n, d, v, K.Kernel.map_maybe(~F32, ~U32, ~(w => Eval.f2i_m(w)), n, d, x, 0))
+      Eval.cast.pw(D.TI32{}, n, d, v, K.Kernel.map_r(~F32, ~U32, ~(w => Eval.f2i_m(w)), n, d, x, 0))
     case D.TF32{}:
       Done{C.CF32{n, d, v, x}}
     case D.TStr{}:
@@ -1116,19 +1143,20 @@ def Eval.read_f32(+s: String) -> Maybe<&2, F32>:
 
 # Str -> number / bool reads the text AS IS (DESIGN.md 15.5.5, no trimming): U32.read,
 # I32.read, F32.read, true/false/True/False; a cell that does not read is a failure
-# (a Dictionary reads each distinct entry once, then gathers by code: ST.Strs.map_maybe)
+# (a Dictionary reads each distinct entry once, then gathers by code: ST.Strs.map_r; the readers
+# answer a Maybe, turned into a K.R per entry by K.Kernel.r_of)
 def Eval.cast.s(+to: D.DType, +n: U32, +d: Nat, v: C.Valid, x: ST.Strs) -> E.ResT(C.Column):
   match to:
     case D.TStr{}:
       Done{C.CStr{n, d, v, x}}
     case D.TU32{}:
-      Eval.cast.pw(D.TU32{}, n, d, v, ST.Strs.map_maybe(~U32, ~(s => U32.read(s)), n, d, x, 0))
+      Eval.cast.pw(D.TU32{}, n, d, v, ST.Strs.map_r(~U32, ~(s => K.Kernel.r_of(~U32, U32.read(s), 0)), n, d, x, 0))
     case D.TI32{}:
-      Eval.cast.pw(D.TI32{}, n, d, v, ST.Strs.map_maybe(~U32, ~(s => Eval.i32_bits(D.I32.read(s))), n, d, x, 0))
+      Eval.cast.pw(D.TI32{}, n, d, v, ST.Strs.map_r(~U32, ~(s => K.Kernel.r_of(~U32, Eval.i32_bits(D.I32.read(s)), 0)), n, d, x, 0))
     case D.TBool{}:
-      Eval.cast.pw(D.TBool{}, n, d, v, ST.Strs.map_maybe(~U32, ~(s => Eval.read_bool(s)), n, d, x, 0))
+      Eval.cast.pw(D.TBool{}, n, d, v, ST.Strs.map_r(~U32, ~(s => K.Kernel.r_of(~U32, Eval.read_bool(s), 0)), n, d, x, 0))
     case D.TF32{}:
-      Eval.cast.pf(n, d, v, ST.Strs.map_maybe(~F32, ~(s => Eval.read_f32(s)), n, d, x, 0.0))
+      Eval.cast.pf(n, d, v, ST.Strs.map_r(~F32, ~(s => K.Kernel.r_of(~F32, Eval.read_f32(s), 0.0)), n, d, x, 0.0))
 
 # try_cast (DESIGN.md 15.5.5): every valid cell converted, a failing one becomes null;
 # nulls pass. For a total pair (X.Cast.total) this is also what cast does.

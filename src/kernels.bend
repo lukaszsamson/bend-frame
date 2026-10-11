@@ -348,16 +348,33 @@ def Kernel.first_drop.go(n: Nat, +i: U32, +m: U32, +acc: U32, ra: Array<U32> & U
 def Kernel.first_drop(+n: U32, a: Array<U32>, b: Array<U32>) -> U32:
   Kernel.first_drop.go(U32.to_nat(n), 0, n, n, Array.get(U32, a, 0), Array.get(U32, b, 0))
 
-# out[i] = v and ok[i] = 1 where f(a[i]) = Some{v}, else z and 0; one pass
-# over a (consumed); answers (out, ok), both of 2^d slots
-def Kernel.map_maybe.put(~U: Data, +i: U32, +z: U, out: Array<U>, ok: Array<U32>, m: Maybe<&2, U>) -> Array<U> & Array<U32>:
+# a fallible row result, unboxed: the value and an ok word (1: a value; 0: a failure, and the
+# value is then the dtype default). A single-constructor record of scalars rides in registers
+# through the loop (no per-row allocation, unlike a Maybe; DESIGN.md 16.3 F7, W1d)
+type R<-U: Data> is Data:
+  R{v: U, ok: U32}
+
+# a word result: w where ok = 1, 0 where ok = 0 (ok is 0 or 1; branch-free: w AND -ok)
+def Kernel.r_w(+ok: U32, +w: U32) -> R<U32>:
+  R{U32.and(w, U32.sub(0, ok)), ok}
+
+# a Maybe as a result: Some{v} -> (v, 1), None -> (z, 0) (string conversions, whose readers
+# answer a Maybe anyway)
+def Kernel.r_of(~U: Data, m: Maybe<&2, U>, +z: U) -> R<U>:
   match m:
     case Some{v}:
-      (Array.set(U, out, i, v), Array.set(U32, ok, i, 1))
+      R{v, 1}
     case None{}:
-      (Array.set(U, out, i, z), Array.set(U32, ok, i, 0))
+      R{z, 0}
 
-def Kernel.map_maybe.go(~T: Data, ~U: Data, ~f: T -> Maybe<&2, U>, n: Nat, +i: U32, +z: U, oo: Array<U> & Array<U32>, r: Array<T> & T) -> Array<U> & Array<U32>:
+# out[i] = v and ok[i] = w for f(a[i]) = R{v, w}, i < n; one pass over a (consumed); answers
+# (out, ok), both of 2^d slots (z pads out)
+def Kernel.map_r.put(~U: Data, +i: U32, out: Array<U>, ok: Array<U32>, r: R<U>) -> Array<U> & Array<U32>:
+  match r:
+    case R{v, w}:
+      (Array.set(U, out, i, v), Array.set(U32, ok, i, w))
+
+def Kernel.map_r.go(~T: Data, ~U: Data, ~f: T -> R<U>, n: Nat, +i: U32, oo: Array<U> & Array<U32>, r: Array<T> & T) -> Array<U> & Array<U32>:
   match n:
     case 0n:
       oo
@@ -365,13 +382,13 @@ def Kernel.map_maybe.go(~T: Data, ~U: Data, ~f: T -> Maybe<&2, U>, n: Nat, +i: U
       (out, ok) = oo
       (a, x) = r
       +j = U32.inc(i)
-      Kernel.map_maybe.go(~T, ~U, ~f, p, j, z, Kernel.map_maybe.put(~U, i, z, out, ok, f(x)), Array.get(T, a, j))
+      Kernel.map_r.go(~T, ~U, ~f, p, j, Kernel.map_r.put(~U, i, out, ok, f(x)), Array.get(T, a, j))
 
-def Kernel.map_maybe(~T: Data, ~U: Data, ~f: T -> Maybe<&2, U>, +n: U32, +d: Nat, a: Array<T>, +z: U) -> Array<U> & Array<U32>:
-  Kernel.map_maybe.go(~T, ~U, ~f, U32.to_nat(n), 0, z, (Array.new(U, d, z), Array.new(U32, d, 0)), Array.get(T, a, 0))
+def Kernel.map_r(~T: Data, ~U: Data, ~f: T -> R<U>, +n: U32, +d: Nat, a: Array<T>, +z: U) -> Array<U> & Array<U32>:
+  Kernel.map_r.go(~T, ~U, ~f, U32.to_nat(n), 0, (Array.new(U, d, z), Array.new(U32, d, 0)), Array.get(T, a, 0))
 
-# out[i] = v and ok[i] = 1 where f(a[i], b[i]) = Some{v}, else z and 0 (both consumed)
-def Kernel.zip_maybe.go(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> Maybe<&2, V>, n: Nat, +i: U32, +z: V, oo: Array<V> & Array<U32>, ra: Array<T> & T, rb: Array<U> & U) -> Array<V> & Array<U32>:
+# out[i] = v and ok[i] = w for f(a[i], b[i]) = R{v, w} (both consumed)
+def Kernel.zip_r.go(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> R<V>, n: Nat, +i: U32, oo: Array<V> & Array<U32>, ra: Array<T> & T, rb: Array<U> & U) -> Array<V> & Array<U32>:
   match n:
     case 0n:
       oo
@@ -380,10 +397,10 @@ def Kernel.zip_maybe.go(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> Maybe<&2, V>
       (a, x) = ra
       (b, y) = rb
       +j = U32.inc(i)
-      Kernel.zip_maybe.go(~T, ~U, ~V, ~f, p, j, z, Kernel.map_maybe.put(~V, i, z, out, ok, f(x, y)), Array.get(T, a, j), Array.get(U, b, j))
+      Kernel.zip_r.go(~T, ~U, ~V, ~f, p, j, Kernel.map_r.put(~V, i, out, ok, f(x, y)), Array.get(T, a, j), Array.get(U, b, j))
 
-def Kernel.zip_maybe(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> Maybe<&2, V>, +n: U32, +d: Nat, a: Array<T>, b: Array<U>, +z: V) -> Array<V> & Array<U32>:
-  Kernel.zip_maybe.go(~T, ~U, ~V, ~f, U32.to_nat(n), 0, z, (Array.new(V, d, z), Array.new(U32, d, 0)), Array.get(T, a, 0), Array.get(U, b, 0))
+def Kernel.zip_r(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> R<V>, +n: U32, +d: Nat, a: Array<T>, b: Array<U>, +z: V) -> Array<V> & Array<U32>:
+  Kernel.zip_r.go(~T, ~U, ~V, ~f, U32.to_nat(n), 0, (Array.new(V, d, z), Array.new(U32, d, 0)), Array.get(T, a, 0), Array.get(U, b, 0))
 
 # ---- row cap (DESIGN.md 15.8, B04-i) ---------------------------------------------------------------
 # A frame holds at most 2^23 rows. Kernel.depth_for alone is not a guard: every path that
@@ -414,6 +431,21 @@ def Kernel.copy_into.go(~T: Data, n: Nat, +i: U32, +off: U32, out: Array<T>, r: 
 
 def Kernel.copy_into(~T: Data, +n: U32, +off: U32, out: Array<T>, a: Array<T>) -> Array<T>:
   Kernel.copy_into.go(~T, U32.to_nat(n), 0, off, out, Array.get(T, a, 0))
+
+# out[k] = a[off + k] for k < n (one range copy: Column.slice, W1f) into a fresh array of 2^d
+# slots padded with z; a is consumed. The read index is off + k from the first read on (the
+# first read is spelled U32.add(off, 0) so every read has one shape: Laws.range_cell)
+def Kernel.range.go(~T: Data, n: Nat, +k: U32, +off: U32, out: Array<T>, r: Array<T> & T) -> Array<T>:
+  match n:
+    case 0n:
+      out
+    case 1n+p:
+      (a, x) = r
+      +j = U32.inc(k)
+      Kernel.range.go(~T, p, j, off, Array.set(T, out, k, x), Array.get(T, a, U32.add(off, j)))
+
+def Kernel.range(~T: Data, +n: U32, +d: Nat, +off: U32, a: Array<T>, +z: T) -> Array<T>:
+  Kernel.range.go(~T, U32.to_nat(n), 0, off, Array.new(T, d, z), Array.get(T, a, U32.add(off, 0)))
 
 # a[0..na) then b[0..nb) in a fresh array of 2^d slots padded with z (na + nb <= 2^d); a and b
 # are consumed

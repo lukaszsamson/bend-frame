@@ -509,16 +509,16 @@ def Dict.mm.g(~U: Data, +n: U32, +d: Nat, cc: Array<U32> & Array<U32>, +z: U, r:
   (t, ok) = r
   (Strs.fst(~U, K.Kernel.gather(~U, n, d, t, c1, z)), Strs.fst(~U32, K.Kernel.gather(~U32, n, d, ok, c2, 0)))
 
-def Dict.mm.t(~U: Data, ~f: String -> Maybe<&2, U>, d: Dict, +z: U) -> Array<U> & Array<U32>:
+def Dict.mm.t(~U: Data, ~f: String -> K.R<U>, d: Dict, +z: U) -> Array<U> & Array<U32>:
   match d:
     case Dict{+k, +dd, strs, b, slots, tag}:
-      K.Kernel.map_maybe(~String, ~U, ~f, k, dd, strs, z)
+      K.Kernel.map_r(~String, ~U, ~f, k, dd, strs, z)
 
-# Kernel.map_maybe over the rows (per entry for a Dictionary); answers (out, ok)
-def Strs.map_maybe(~U: Data, ~f: String -> Maybe<&2, U>, +n: U32, +d: Nat, s: Strs, +z: U) -> Array<U> & Array<U32>:
+# Kernel.map_r over the rows (per entry for a Dictionary); answers (out, ok)
+def Strs.map_r(~U: Data, ~f: String -> K.R<U>, +n: U32, +d: Nat, s: Strs, +z: U) -> Array<U> & Array<U32>:
   match s:
     case SRaw{a}:
-      K.Kernel.map_maybe(~String, ~U, ~f, n, d, a, z)
+      K.Kernel.map_r(~String, ~U, ~f, n, d, a, z)
     case SDict{codes, dict}:
       Dict.mm.g(~U, n, d, Array.clone(U32, codes), z, Dict.mm.t(~U, ~f, dict, z))
 

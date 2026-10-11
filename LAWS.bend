@@ -1308,7 +1308,20 @@ law mask_or_cell:
   for hk: {U32.is_lt(k, n) == True{} : Bool}
   {rd_at(U32, K.Kernel.mask_or(n, d, a, b), k) == U32.or(rd_at(U32, a, k), rd_at(U32, b, k)) : U32}
 
-# LAW: Kernel.iota_from writes off + k at every k < n when n <= 2^d (Column.slice's index array)
+# LAW: Kernel.range (Column.slice's range copy, W1f) at the U32 instance: out[k] == a[off + k]
+# at every k < n when n <= 2^d (the read index is any word: rd_at answers what Array.get reads)
+law range_cell:
+  for +d: Nat
+  for +n: U32
+  for +off: U32
+  for a: Array<U32>
+  for +z: U32
+  for +k: U32
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for hk: {U32.is_lt(k, n) == True{} : Bool}
+  {rd_at(U32, K.Kernel.range(~U32, n, d, off, a, z), k) == rd_at(U32, a, U32.add(off, k)) : U32}
+
+# LAW: Kernel.iota_from writes off + k at every k < n when n <= 2^d (Kernel.iota's index arrays)
 law iota_cell:
   for +d: Nat
   for +n: U32
@@ -1460,9 +1473,10 @@ law depth_for_fits:
   {U32.is_le(n, U32.shln(1, K.Kernel.depth_for(n))) == True{} : Bool}
 
 # LAW: slice of a U32 column is the exact subrange: row k of slice(c, off, n) is row off + k of c,
-# for every k below the slice's length (data through gather_contents / iota_cell, validity
-# through the same gather of the mask). The U32 instance stands for the word columns (Bool, I32:
-# same buffers); F32 / String need the kernel theorems at those instances
+# for every k below the slice's length (data through range_cell, validity through the same
+# range copy of the mask; W1f: one range copy per buffer, no index array). The U32 instance
+# stands for the word columns (Bool, I32: same buffers); F32 / String need the kernel theorem at
+# those instances (the template proof is generic: PROOF_contents' range_tcell)
 law slice_cell_u32:
   for +len: U32
   for +depth: Nat
