@@ -2,6 +2,7 @@
 
     cd bench && uv run python diff/run.py --seed 1 --n 1000
     python run.py --reductions --seed 1 --n 2000   # T2.3, see reduce.py
+    python run.py --csv --seed 1 --n 1000          # W6.4, see csvfuzz.py (make csv-fuzz)
     python run.py --seed 1 --n 1000 [--backend interp|native|both] [--batch 200] [--jobs 6]
                   [--out failures.json] [--features reductions] [--all] [--keep]
 
@@ -58,6 +59,11 @@ def main(argv=None):
         argv.remove("--reductions")
         import reduce as _reduce
         return _reduce.main(argv)
+    # W6.4: the CSV reader fuzz harness (v0.2 reader against v0.1) lives in csvfuzz.py; `run.py --csv ...`
+    if "--csv" in argv:
+        argv.remove("--csv")
+        import csvfuzz as _csvfuzz
+        return _csvfuzz.main(argv)
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--n", type=int, default=1000)
