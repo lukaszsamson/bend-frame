@@ -616,8 +616,39 @@ def Column.slice.c(r: Column & Array<U32>) -> Column:
   (c, perm) = r
   c
 
+# rows off .. off+m-1 by one range copy per buffer (Kernel.range, W1f; it was a gather by an
+# iota index array: a 4 MB index for 1M rows). The validity: AllValid stays, a Mask is range
+# copied too. Str: a Raw slice copies the strings, a Dictionary slice keeps the dictionary and
+# range copies the codes.
+def Valid.range(v: Valid, +off: U32, +m: U32, +d: Nat) -> Valid:
+  match v:
+    case AllValid{}:
+      AllValid{}
+    case Mask{mk}:
+      Mask{K.Kernel.range(~U32, m, d, off, mk, 0)}
+
+def Column.slice.s(s: ST.Strs, +off: U32, +m: U32, +d: Nat) -> ST.Strs:
+  match s:
+    case ST.SRaw{a}:
+      ST.SRaw{K.Kernel.range(~String, m, d, off, a, "")}
+    case ST.SDict{codes, dict}:
+      ST.SDict{K.Kernel.range(~U32, m, d, off, codes, 0), dict}
+
+def Column.slice.r(c: Column, +off: U32, +m: U32, +d: Nat) -> Column:
+  match c:
+    case CBool{len, depth, valid, data}:
+      CBool{m, d, Valid.range(valid, off, m, d), K.Kernel.range(~U32, m, d, off, data, 0)}
+    case CU32{len, depth, valid, data}:
+      CU32{m, d, Valid.range(valid, off, m, d), K.Kernel.range(~U32, m, d, off, data, 0)}
+    case CI32{len, depth, valid, data}:
+      CI32{m, d, Valid.range(valid, off, m, d), K.Kernel.range(~U32, m, d, off, data, 0)}
+    case CF32{len, depth, valid, data}:
+      CF32{m, d, Valid.range(valid, off, m, d), K.Kernel.range(~F32, m, d, off, data, 0.0)}
+    case CStr{len, depth, valid, data}:
+      CStr{m, d, Valid.range(valid, off, m, d), Column.slice.s(data, off, m, d)}
+
 def Column.slice.b(c: Column, +off: U32, +m: U32) -> Column:
-  Column.slice.c(Column.gather(c, K.Kernel.iota_from(m, K.Kernel.depth_for(m), off), m))
+  Column.slice.r(c, off, m, K.Kernel.depth_for(m))
 
 def Column.slice.a(+off: U32, +n: U32, r: Column & U32) -> Column:
   (c, +len) = r

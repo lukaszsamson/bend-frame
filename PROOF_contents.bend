@@ -1430,52 +1430,126 @@ def dff_go(f: Nat, +n: U32, +d: Nat, c: Bool, e: {U32.is_le(n, U32.shln(1, d)) =
 def Laws.depth_for_fits(n, h):
   dff_go(31n, n, 0n, U32.is_le(n, 1), {==}, h)
 
+# ---- Kernel.range: out[k] == a[off + k] (Column.slice's range copy, W1f; the map proof's shape) -------
+#
+# The loop reads a at U32.add(off, j) (the first read spelled U32.add(off, 0)) and writes the value read,
+# unchanged, at j: the invariant is the map invariant with f(a[k]) replaced by rd_at(a, off + k). The
+# read index is any word; rd_at answers what Array.get reads (get_w), so no bound on off + k is needed.
+
+def RHyp(~T: Data, +j: U32, +d: Nat, +off: U32, -a: Array<T>, -out: Array<T>) -> Type:
+  @k: U32 -> {U32.is_lt(k, j) == True{} : Bool} -> {Laws.rdN(T, d, out, k) == Laws.rd_at(T, a, U32.add(off, k)) : T}
+
+def RRes(~T: Data, +d: Nat, +off: U32, -a: Array<T>, o: Array<T>, +bound: U32) -> Type:
+  Laws.WFArray(T, d, o) & (@k: U32 -> {U32.is_lt(k, bound) == True{} : Bool} -> {Laws.rdN(T, d, o, k) == Laws.rd_at(T, a, U32.add(off, k)) : T})
+
+def RGoal(~T: Data, fl: Nat, +j: U32, +d: Nat, +off: U32, -a: Array<T>, -out: Array<T>, -r: Array<T> & T) -> Type:
+  RHyp(~T, j, d, off, a, out) -> &o: Array<T> -> {K.Kernel.range.go(~T, fl, j, off, out, r) == o : Array<T>} & RRes(~T, d, off, a, o, Laws.addn(j, fl))
+
+def RSet(~T: Data, p: Nat, +j: U32, +d: Nat, +off: U32, -a: Array<T>, -out: Array<T>, +x: T) -> Type:
+  RHyp(~T, j, d, off, a, out) -> &o: Array<T> -> {K.Kernel.range.go(~T, p, U32.inc(j), off, Array.set(T, out, j, x), Array.get(T, a, U32.add(off, U32.inc(j)))) == o : Array<T>} & RRes(~T, d, off, a, o, Laws.addn(j, 1n+p))
+
+def RC(~T: Data, p: Nat, +j: U32, +d: Nat, +off: U32, -a: Array<T>, -out: Array<T>, -c: Array<T>, +bound: U32) -> Type:
+  RHyp(~T, j, d, off, a, out) -> &o: Array<T> -> {K.Kernel.range.go(~T, p, U32.inc(j), off, c, Array.get(T, a, U32.add(off, U32.inc(j)))) == o : Array<T>} & RRes(~T, d, off, a, o, bound)
+
+def rnext_lt(~T: Data, +d: Nat, +j: U32, +k: U32, +off: U32, -a: Array<T>, -out: Array<T>, -c: Array<T>, +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}, +x: T, g: RHyp(~T, j, d, off, a, out),
+  fj: @k2: U32 -> {Laws.rdN(T, d, c, k2) == Bool.pick(T, Laws.same_at(d, j, k2), x, Laws.rdN(T, d, out, k2)) : T}, +lt: {U32.is_lt(k, j) == True{} : Bool})
+  -> {Laws.rdN(T, d, c, k) == Laws.rd_at(T, a, U32.add(off, k)) : T}:
+  %Equal.sym(T, Laws.rdN(T, d, c, k), Bool.pick(T, Laws.same_at(d, j, k), x, Laws.rdN(T, d, out, k)), fj(k)) : {_ == Laws.rd_at(T, a, U32.add(off, k)) : T}
+  %Equal.sym(Bool, Laws.same_at(d, j, k), False{}, same_false_lt(d, j, k, hj, lt)) : {Bool.pick(T, _, x, Laws.rdN(T, d, out, k)) == Laws.rd_at(T, a, U32.add(off, k)) : T}
+  g(k, lt)
+
+def rnext_b(~T: Data, b: Bool, +d: Nat, +j: U32, +k: U32, +off: U32, -a: Array<T>, -out: Array<T>, -c: Array<T>, +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}, +x: T, ex: {x == Laws.rd_at(T, a, U32.add(off, j)) : T}, g: RHyp(~T, j, d, off, a, out),
+  fj: @k2: U32 -> {Laws.rdN(T, d, c, k2) == Bool.pick(T, Laws.same_at(d, j, k2), x, Laws.rdN(T, d, out, k2)) : T}, s: IncLtU(b, k, j))
+  -> {Laws.rdN(T, d, c, k) == Laws.rd_at(T, a, U32.add(off, k)) : T}:
+  match b:
+    case True{}:
+      rnext_lt(~T, d, j, k, off, a, out, c, hj, x, g, fj, s)
+    case False{}:
+      %Equal.sym(U32, k, j, s) : {Laws.rdN(T, d, c, _) == Laws.rd_at(T, a, U32.add(off, _)) : T}
+      %Equal.sym(T, Laws.rdN(T, d, c, j), Bool.pick(T, Laws.same_at(d, j, j), x, Laws.rdN(T, d, out, j)), fj(j)) : {_ == Laws.rd_at(T, a, U32.add(off, j)) : T}
+      %Equal.sym(Bool, Laws.same_at(d, j, j), True{}, same_at_refl(d, j)) : {Bool.pick(T, _, x, Laws.rdN(T, d, out, j)) == Laws.rd_at(T, a, U32.add(off, j)) : T}
+      ex
+
+def rnext_k(~T: Data, +d: Nat, +j: U32, +k: U32, +off: U32, -a: Array<T>, -out: Array<T>, -c: Array<T>, +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}, +x: T, ex: {x == Laws.rd_at(T, a, U32.add(off, j)) : T}, g: RHyp(~T, j, d, off, a, out),
+  fj: @k2: U32 -> {Laws.rdN(T, d, c, k2) == Bool.pick(T, Laws.same_at(d, j, k2), x, Laws.rdN(T, d, out, k2)) : T}, w: &b: Bool -> IncLtU(b, k, j))
+  -> {Laws.rdN(T, d, c, k) == Laws.rd_at(T, a, U32.add(off, k)) : T}:
+  (b, s) = w
+  rnext_b(~T, b, d, j, k, off, a, out, c, hj, x, ex, g, fj, s)
+
+def rnext(~T: Data, +d: Nat, +j: U32, +off: U32, -a: Array<T>, -out: Array<T>, -c: Array<T>, +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}, +x: T, +ex: {x == Laws.rd_at(T, a, U32.add(off, j)) : T}, g: RHyp(~T, j, d, off, a, out),
+  fj: @k2: U32 -> {Laws.rdN(T, d, c, k2) == Bool.pick(T, Laws.same_at(d, j, k2), x, Laws.rdN(T, d, out, k2)) : T})
+  -> RHyp(~T, U32.inc(j), d, off, a, c):
+  +k => hk => rnext_k(~T, d, j, k, off, a, out, c, hj, x, ex, g, fj, inc_lt_u(k, j, hk))
+
+def range_step2(~T: Data, p: Nat, +j: U32, +d: Nat, +off: U32, a: Array<T>, -out: Array<T>, +x: T, +ex: {x == Laws.rd_at(T, a, U32.add(off, j)) : T}, +hj: {U32.is_lt(j, U32.shln(1, d)) == True{} : Bool}, room: Laws.Room(d, U32.inc(j), p),
+  ih: @a2: Array<T> -> @c: Array<T> -> Laws.WFArray(T, d, c) -> Laws.Room(d, U32.inc(j), p) -> RGoal(~T, p, U32.inc(j), d, off, a2, c, Array.get(T, a2, U32.add(off, U32.inc(j)))),
+  w: &c: Array<T> -> {Array.set(T, out, j, x) == c : Array<T>} & Laws.WFArray(T, d, c) & (@k2: U32 -> {Laws.rdN(T, d, c, k2) == Bool.pick(T, Laws.same_at(d, j, k2), x, Laws.rdN(T, d, out, k2)) : T}) & (@k2: U32 -> {Laws.rd_at(T, out, k2) == Laws.rdN(T, d, out, k2) : T}))
+  -> RSet(~T, p, j, d, off, a, out, x):
+  (c, ec, wc, fj, cv) = w
+  %Equal.sym(Array<T>, Array.set(T, out, j, x), c, ec) : RC(~T, p, j, d, off, a, out, _, Laws.addn(j, 1n+p))
+  %addn_inc(j, p) : RC(~T, p, j, d, off, a, out, c, _)
+  g => ih(a, c, wc, room)(rnext(~T, d, j, off, a, out, c, hj, x, ex, g, fj))
+
+def range_step1(~T: Data, p: Nat, +j: U32, +d: Nat, +off: U32, -a: Array<T>, out: Array<T>, wf: Laws.WFArray(T, d, out), room: Laws.Room(d, j, 1n+p),
+  ih: @a2: Array<T> -> @c: Array<T> -> Laws.WFArray(T, d, c) -> Laws.Room(d, U32.inc(j), p) -> RGoal(~T, p, U32.inc(j), d, off, a2, c, Array.get(T, a2, U32.add(off, U32.inc(j)))),
+  w: &b: Array<T> -> &x: T -> {b == a : Array<T>} & {Array.get(T, a, U32.add(off, j)) == (a, x) : Array<T> & T} & {x == Laws.rd_at(T, a, U32.add(off, j)) : T})
+  -> RGoal(~T, 1n+p, j, d, off, a, out, Array.get(T, a, U32.add(off, j))):
+  (hj, room2) = room
+  (a2, +x, +ea, e1, ex) = w
+  %Equal.sym(Array<T> & T, Array.get(T, a, U32.add(off, j)), (a, x), e1) : RGoal(~T, 1n+p, j, d, off, a, out, _)
+  %ea : RGoal(~T, 1n+p, j, d, off, _, out, (_, x))
+  range_step2(~T, p, j, d, off, a2, out, x, Equal.trans(T, x, Laws.rd_at(T, a, U32.add(off, j)), Laws.rd_at(T, a2, U32.add(off, j)), ex, Equal.sym(T, Laws.rd_at(T, a2, U32.add(off, j)), Laws.rd_at(T, a, U32.add(off, j)), Equal.cong(Array<T>, T, q => Laws.rd_at(T, q, U32.add(off, j)), a2, a, ea))), hj, room2, ih, set_other_w(T, d, out, j, x, wf))
+
+def range_zero(~T: Data, +j: U32, +d: Nat, +off: U32, -a: Array<T>, out: Array<T>, wf: Laws.WFArray(T, d, out),
+  w: &b: Array<T> -> &x: T -> {b == a : Array<T>} & {Array.get(T, a, U32.add(off, j)) == (a, x) : Array<T> & T} & {x == Laws.rd_at(T, a, U32.add(off, j)) : T})
+  -> RGoal(~T, 0n, j, d, off, a, out, Array.get(T, a, U32.add(off, j))):
+  (a2, +x, ea, e1, ex) = w
+  %Equal.sym(Array<T> & T, Array.get(T, a, U32.add(off, j)), (a, x), e1) : RGoal(~T, 0n, j, d, off, a, out, _)
+  g => (out, {==}, wf, g)
+
+# Kernel.range.go: every k < addn(j, fl) holds a[off + k] afterwards
+def range_go(~T: Data, fl: Nat, +j: U32, +d: Nat, +off: U32, a: Array<T>, out: Array<T>, wf: Laws.WFArray(T, d, out), room: Laws.Room(d, j, fl)) -> RGoal(~T, fl, j, d, off, a, out, Array.get(T, a, U32.add(off, j))):
+  match fl:
+    case 0n:
+      range_zero(~T, j, d, off, a, out, wf, get_w(T, a, U32.add(off, j)))
+    case 1n++p:
+      range_step1(~T, p, j, d, off, a, out, wf, room, a2 => c => wc => room2 => range_go(~T, p, U32.inc(j), d, off, a2, c, wc, room2), get_w(T, a, U32.add(off, j)))
+
+def rhyp0(~T: Data, +d: Nat, +off: U32, -a: Array<T>, -out: Array<T>) -> RHyp(~T, 0, d, off, a, out):
+  +k => hk => Empty.absurd({Laws.rdN(T, d, out, k) == Laws.rd_at(T, a, U32.add(off, k)) : T}, lt0(k, hk))
+
+# Kernel.range(n, d, off, a, z): out[k] == a[off + k] for k < n when n <= 2^d
+def range_fin(~T: Data, +d: Nat, +n: U32, +off: U32, -a: Array<T>, +z: T, +k: U32, hk: {U32.is_lt(k, n) == True{} : Bool},
+  w: &o: Array<T> -> {K.Kernel.range.go(~T, U32.to_nat(n), 0, off, Array.new(T, d, z), Array.get(T, a, U32.add(off, 0))) == o : Array<T>} & RRes(~T, d, off, a, o, Laws.addn(0, U32.to_nat(n))))
+  -> {Laws.rd_at(T, K.Kernel.range(~T, n, d, off, a, z), k) == Laws.rd_at(T, a, U32.add(off, k)) : T}:
+  (o, eq, wo, spec) = w
+  %Equal.sym(Array<T>, K.Kernel.range.go(~T, U32.to_nat(n), 0, off, Array.new(T, d, z), Array.get(T, a, U32.add(off, 0))), o, eq) : {Laws.rd_at(T, _, k) == Laws.rd_at(T, a, U32.add(off, k)) : T}
+  %Equal.sym(T, Laws.rd_at(T, o, k), Laws.rdN(T, d, o, k), Laws.rd_at_wf(T, d, o, k, wo)) : {_ == Laws.rd_at(T, a, U32.add(off, k)) : T}
+  spec(k, (%Equal.sym(U32, Laws.addn(0, U32.to_nat(n)), n, B.addn_to_nat(n)) : {U32.is_lt(k, _) == True{} : Bool}; hk))
+
+# the template theorem (any element type: the F32 and String slices use it at their instances)
+def range_tcell(~T: Data, +d: Nat, +n: U32, +off: U32, a: Array<T>, +z: T, +k: U32, fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}, hk: {U32.is_lt(k, n) == True{} : Bool}) -> {Laws.rd_at(T, K.Kernel.range(~T, n, d, off, a, z), k) == Laws.rd_at(T, a, U32.add(off, k)) : T}:
+  range_fin(~T, d, n, off, a, z, k, hk, range_go(~T, U32.to_nat(n), 0, d, off, a, Array.new(T, d, z), Laws.wf_new(T, d, z), B.room_from(d, n, fits))(rhyp0(~T, d, off, a, Array.new(T, d, z))))
+
+def Laws.range_cell(d, n, off, a, z, k, fits, hk):
+  range_tcell(~U32, d, n, off, a, z, k, fits, hk)
+
 # ---- Column.slice of a U32 column is the exact subrange (LAWS.bend section 12) ---------------------------
 #
-# slice(c, off, n) is gather(c, iota_from(m, depth_for(m), off), m) with m = slice_len(off, n, len): the
-# data (and, for a Mask, the validity) go through Kernel.gather with the iota index array, so row k of the
-# result is row off + k of c (gather_contents, iota_cell); depth_for_fits supplies the slot bound.
-
-# the AllValid case
-def slice_av_k(+len: U32, +depth: Nat, -data: Array<U32>, +off: U32, +n: U32, +k: U32, +fits: {U32.is_le(Laws.slice_len(off, n, len), U32.shln(1, K.Kernel.depth_for(Laws.slice_len(off, n, len)))) == True{} : Bool}, +hk: {U32.is_lt(k, Laws.slice_len(off, n, len)) == True{} : Bool},
-  w: &o: Array<U32> -> &pm: Array<U32> -> {K.Kernel.gather.go(~U32, U32.to_nat(Laws.slice_len(off, n, len)), 0, (data, Array.new(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), 0)), Array.get(U32, K.Kernel.iota_from(Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off), 0)) == (o, pm) : Array<U32> & Array<U32>} & GRes(K.Kernel.depth_for(Laws.slice_len(off, n, len)), data, K.Kernel.iota_from(Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off), o, pm, Laws.addn(0, U32.to_nat(Laws.slice_len(off, n, len)))))
-  -> {Laws.ccell(C.Column.slice(C.CU32{len, depth, C.AllValid{}, data}, off, n), k) == Laws.ccell(C.CU32{len, depth, C.AllValid{}, data}, U32.add(off, k)) : D.Scalar}:
-  (o, pm, eq, epm, wo, spec) = w
-  %Equal.sym(Array<U32> & Array<U32>, K.Kernel.gather.go(~U32, U32.to_nat(Laws.slice_len(off, n, len)), 0, (data, Array.new(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), 0)), Array.get(U32, K.Kernel.iota_from(Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off), 0)), (o, pm), eq) : {Laws.ccell(C.Column.slice.c(C.Column.gather.d(C.AllValid{}, C.Column.out.w(D.TU32{}, Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), _))), k) == Laws.ccell(C.CU32{len, depth, C.AllValid{}, data}, U32.add(off, k)) : D.Scalar}
-  %Equal.sym(U32, Laws.rd_at(U32, o, k), Laws.rdN(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), o, k), Laws.rd_at_wf(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), o, k, wo)) : {D.SU32{_} == Laws.ccell(C.CU32{len, depth, C.AllValid{}, data}, U32.add(off, k)) : D.Scalar}
-  %Equal.sym(U32, Laws.rdN(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), o, k), Laws.rd_at(U32, data, Laws.rd_at(U32, K.Kernel.iota_from(Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off), k)), spec(k, (%Equal.sym(U32, Laws.addn(0, U32.to_nat(Laws.slice_len(off, n, len))), Laws.slice_len(off, n, len), B.addn_to_nat(Laws.slice_len(off, n, len))) : {U32.is_lt(k, _) == True{} : Bool}; hk))) : {D.SU32{_} == Laws.ccell(C.CU32{len, depth, C.AllValid{}, data}, U32.add(off, k)) : D.Scalar}
-  %Equal.sym(U32, Laws.rd_at(U32, K.Kernel.iota_from(Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off), k), U32.add(off, k), Laws.iota_cell(K.Kernel.depth_for(Laws.slice_len(off, n, len)), Laws.slice_len(off, n, len), off, k, fits, hk)) : {D.SU32{Laws.rd_at(U32, data, _)} == Laws.ccell(C.CU32{len, depth, C.AllValid{}, data}, U32.add(off, k)) : D.Scalar}
-  {==}
+# slice(c, off, n) is CU32{m, depth_for(m), Valid.range(valid, off, m, ..), Kernel.range(~U32, m, .., off,
+# data, 0)} with m = slice_len(off, n, len) (Column.slice.r, W1f): the data (and, for a Mask, the
+# validity) are range copies, so row k of the result is row off + k of c (range_cell); depth_for_fits
+# supplies the slot bound. Both sides reduce by conversion to the ccell picks.
 
 def slice_av(+len: U32, +depth: Nat, data: Array<U32>, +off: U32, +n: U32, +k: U32, +fits: {U32.is_le(Laws.slice_len(off, n, len), U32.shln(1, K.Kernel.depth_for(Laws.slice_len(off, n, len)))) == True{} : Bool}, +hk: {U32.is_lt(k, Laws.slice_len(off, n, len)) == True{} : Bool})
   -> {Laws.ccell(C.Column.slice(C.CU32{len, depth, C.AllValid{}, data}, off, n), k) == Laws.ccell(C.CU32{len, depth, C.AllValid{}, data}, U32.add(off, k)) : D.Scalar}:
-  slice_av_k(len, depth, data, off, n, k, fits, hk, gather_go(U32.to_nat(Laws.slice_len(off, n, len)), 0, K.Kernel.depth_for(Laws.slice_len(off, n, len)), data, Array.new(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), 0), K.Kernel.iota_from(Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off), Laws.wf_new(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), 0), B.room_from(K.Kernel.depth_for(Laws.slice_len(off, n, len)), Laws.slice_len(off, n, len), fits))(ghyp0(K.Kernel.depth_for(Laws.slice_len(off, n, len)), data, Array.new(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), 0), K.Kernel.iota_from(Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off))))
-
-# the Mask case: the mask is gathered first (its witness w1), then the data (w2)
-def slice_mk_k2(+len: U32, +depth: Nat, -mk: Array<U32>, -data: Array<U32>, +off: U32, +n: U32, +k: U32, +fits: {U32.is_le(Laws.slice_len(off, n, len), U32.shln(1, K.Kernel.depth_for(Laws.slice_len(off, n, len)))) == True{} : Bool}, +hk: {U32.is_lt(k, Laws.slice_len(off, n, len)) == True{} : Bool},
-  om: Array<U32>, wom: Laws.WFArray(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), om), spec1: @k2: U32 -> {U32.is_lt(k2, Laws.addn(0, U32.to_nat(Laws.slice_len(off, n, len)))) == True{} : Bool} -> {Laws.rdN(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), om, k2) == Laws.rd_at(U32, mk, Laws.rd_at(U32, K.Kernel.iota_from(Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off), k2)) : U32},
-  w: &o: Array<U32> -> &pm: Array<U32> -> {K.Kernel.gather.go(~U32, U32.to_nat(Laws.slice_len(off, n, len)), 0, (data, Array.new(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), 0)), Array.get(U32, K.Kernel.iota_from(Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off), 0)) == (o, pm) : Array<U32> & Array<U32>} & GRes(K.Kernel.depth_for(Laws.slice_len(off, n, len)), data, K.Kernel.iota_from(Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off), o, pm, Laws.addn(0, U32.to_nat(Laws.slice_len(off, n, len)))))
-  -> {Laws.ccell(C.Column.slice.c(C.Column.gather.d(C.Mask{om}, C.Column.out.w(D.TU32{}, Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), K.Kernel.gather.go(~U32, U32.to_nat(Laws.slice_len(off, n, len)), 0, (data, Array.new(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), 0)), Array.get(U32, K.Kernel.iota_from(Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off), 0))))), k) == Laws.ccell(C.CU32{len, depth, C.Mask{mk}, data}, U32.add(off, k)) : D.Scalar}:
-  (o, pm, eq, epm, wo, spec) = w
-  %Equal.sym(Array<U32> & Array<U32>, K.Kernel.gather.go(~U32, U32.to_nat(Laws.slice_len(off, n, len)), 0, (data, Array.new(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), 0)), Array.get(U32, K.Kernel.iota_from(Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off), 0)), (o, pm), eq) : {Laws.ccell(C.Column.slice.c(C.Column.gather.d(C.Mask{om}, C.Column.out.w(D.TU32{}, Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), _))), k) == Laws.ccell(C.CU32{len, depth, C.Mask{mk}, data}, U32.add(off, k)) : D.Scalar}
-  %Equal.sym(U32, Laws.rd_at(U32, o, k), Laws.rdN(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), o, k), Laws.rd_at_wf(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), o, k, wo)) : {Bool.pick(D.Scalar, U32.is_ne(Laws.rd_at(U32, om, k), 0), D.SU32{_}, D.SNull{}) == Laws.ccell(C.CU32{len, depth, C.Mask{mk}, data}, U32.add(off, k)) : D.Scalar}
-  %Equal.sym(U32, Laws.rdN(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), o, k), Laws.rd_at(U32, data, Laws.rd_at(U32, K.Kernel.iota_from(Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off), k)), spec(k, (%Equal.sym(U32, Laws.addn(0, U32.to_nat(Laws.slice_len(off, n, len))), Laws.slice_len(off, n, len), B.addn_to_nat(Laws.slice_len(off, n, len))) : {U32.is_lt(k, _) == True{} : Bool}; hk))) : {Bool.pick(D.Scalar, U32.is_ne(Laws.rd_at(U32, om, k), 0), D.SU32{_}, D.SNull{}) == Laws.ccell(C.CU32{len, depth, C.Mask{mk}, data}, U32.add(off, k)) : D.Scalar}
-  %Equal.sym(U32, Laws.rd_at(U32, om, k), Laws.rdN(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), om, k), Laws.rd_at_wf(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), om, k, wom)) : {Bool.pick(D.Scalar, U32.is_ne(_, 0), D.SU32{Laws.rd_at(U32, data, Laws.rd_at(U32, K.Kernel.iota_from(Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off), k))}, D.SNull{}) == Laws.ccell(C.CU32{len, depth, C.Mask{mk}, data}, U32.add(off, k)) : D.Scalar}
-  %Equal.sym(U32, Laws.rdN(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), om, k), Laws.rd_at(U32, mk, Laws.rd_at(U32, K.Kernel.iota_from(Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off), k)), spec1(k, (%Equal.sym(U32, Laws.addn(0, U32.to_nat(Laws.slice_len(off, n, len))), Laws.slice_len(off, n, len), B.addn_to_nat(Laws.slice_len(off, n, len))) : {U32.is_lt(k, _) == True{} : Bool}; hk))) : {Bool.pick(D.Scalar, U32.is_ne(_, 0), D.SU32{Laws.rd_at(U32, data, Laws.rd_at(U32, K.Kernel.iota_from(Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off), k))}, D.SNull{}) == Laws.ccell(C.CU32{len, depth, C.Mask{mk}, data}, U32.add(off, k)) : D.Scalar}
-  %Equal.sym(U32, Laws.rd_at(U32, K.Kernel.iota_from(Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off), k), U32.add(off, k), Laws.iota_cell(K.Kernel.depth_for(Laws.slice_len(off, n, len)), Laws.slice_len(off, n, len), off, k, fits, hk)) : {Bool.pick(D.Scalar, U32.is_ne(Laws.rd_at(U32, mk, _), 0), D.SU32{Laws.rd_at(U32, data, _)}, D.SNull{}) == Laws.ccell(C.CU32{len, depth, C.Mask{mk}, data}, U32.add(off, k)) : D.Scalar}
-  {==}
-
-def slice_mk_k1(+len: U32, +depth: Nat, -mk: Array<U32>, data: Array<U32>, +off: U32, +n: U32, +k: U32, +fits: {U32.is_le(Laws.slice_len(off, n, len), U32.shln(1, K.Kernel.depth_for(Laws.slice_len(off, n, len)))) == True{} : Bool}, +hk: {U32.is_lt(k, Laws.slice_len(off, n, len)) == True{} : Bool},
-  w: &o: Array<U32> -> &pm: Array<U32> -> {K.Kernel.gather.go(~U32, U32.to_nat(Laws.slice_len(off, n, len)), 0, (mk, Array.new(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), 0)), Array.get(U32, K.Kernel.iota_from(Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off), 0)) == (o, pm) : Array<U32> & Array<U32>} & GRes(K.Kernel.depth_for(Laws.slice_len(off, n, len)), mk, K.Kernel.iota_from(Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off), o, pm, Laws.addn(0, U32.to_nat(Laws.slice_len(off, n, len)))))
-  -> {Laws.ccell(C.Column.slice(C.CU32{len, depth, C.Mask{mk}, data}, off, n), k) == Laws.ccell(C.CU32{len, depth, C.Mask{mk}, data}, U32.add(off, k)) : D.Scalar}:
-  (om, pm1, eq1, epm1, wom, spec1) = w
-  %Equal.sym(Array<U32> & Array<U32>, K.Kernel.gather.go(~U32, U32.to_nat(Laws.slice_len(off, n, len)), 0, (mk, Array.new(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), 0)), Array.get(U32, K.Kernel.iota_from(Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off), 0)), (om, pm1), eq1) : {Laws.ccell(C.Column.slice.c(C.Column.gather.c(C.CU32{len, depth, C.AllValid{}, data}, Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), C.Valid.gather.k(_))), k) == Laws.ccell(C.CU32{len, depth, C.Mask{mk}, data}, U32.add(off, k)) : D.Scalar}
-  %Equal.sym(Array<U32>, pm1, K.Kernel.iota_from(Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off), epm1) : {Laws.ccell(C.Column.slice.c(C.Column.gather.d(C.Mask{om}, C.Column.out.w(D.TU32{}, Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), K.Kernel.gather.go(~U32, U32.to_nat(Laws.slice_len(off, n, len)), 0, (data, Array.new(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), 0)), Array.get(U32, _, 0))))), k) == Laws.ccell(C.CU32{len, depth, C.Mask{mk}, data}, U32.add(off, k)) : D.Scalar}
-  slice_mk_k2(len, depth, mk, data, off, n, k, fits, hk, om, wom, spec1, gather_go(U32.to_nat(Laws.slice_len(off, n, len)), 0, K.Kernel.depth_for(Laws.slice_len(off, n, len)), data, Array.new(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), 0), K.Kernel.iota_from(Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off), Laws.wf_new(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), 0), B.room_from(K.Kernel.depth_for(Laws.slice_len(off, n, len)), Laws.slice_len(off, n, len), fits))(ghyp0(K.Kernel.depth_for(Laws.slice_len(off, n, len)), data, Array.new(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), 0), K.Kernel.iota_from(Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off))))
+  Equal.cong(U32, D.Scalar, w => D.SU32{w}, Laws.rd_at(U32, K.Kernel.range(~U32, Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off, data, 0), k), Laws.rd_at(U32, data, U32.add(off, k)), Laws.range_cell(K.Kernel.depth_for(Laws.slice_len(off, n, len)), Laws.slice_len(off, n, len), off, data, 0, k, fits, hk))
 
 def slice_mk(+len: U32, +depth: Nat, mk: Array<U32>, data: Array<U32>, +off: U32, +n: U32, +k: U32, +fits: {U32.is_le(Laws.slice_len(off, n, len), U32.shln(1, K.Kernel.depth_for(Laws.slice_len(off, n, len)))) == True{} : Bool}, +hk: {U32.is_lt(k, Laws.slice_len(off, n, len)) == True{} : Bool})
   -> {Laws.ccell(C.Column.slice(C.CU32{len, depth, C.Mask{mk}, data}, off, n), k) == Laws.ccell(C.CU32{len, depth, C.Mask{mk}, data}, U32.add(off, k)) : D.Scalar}:
-  slice_mk_k1(len, depth, mk, data, off, n, k, fits, hk, gather_go(U32.to_nat(Laws.slice_len(off, n, len)), 0, K.Kernel.depth_for(Laws.slice_len(off, n, len)), mk, Array.new(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), 0), K.Kernel.iota_from(Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off), Laws.wf_new(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), 0), B.room_from(K.Kernel.depth_for(Laws.slice_len(off, n, len)), Laws.slice_len(off, n, len), fits))(ghyp0(K.Kernel.depth_for(Laws.slice_len(off, n, len)), mk, Array.new(U32, K.Kernel.depth_for(Laws.slice_len(off, n, len)), 0), K.Kernel.iota_from(Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off))))
+  %Equal.sym(U32, Laws.rd_at(U32, K.Kernel.range(~U32, Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off, mk, 0), k), Laws.rd_at(U32, mk, U32.add(off, k)), Laws.range_cell(K.Kernel.depth_for(Laws.slice_len(off, n, len)), Laws.slice_len(off, n, len), off, mk, 0, k, fits, hk)) : {Bool.pick(D.Scalar, U32.is_ne(_, 0), D.SU32{Laws.rd_at(U32, K.Kernel.range(~U32, Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off, data, 0), k)}, D.SNull{}) == Laws.ccell(C.CU32{len, depth, C.Mask{mk}, data}, U32.add(off, k)) : D.Scalar}
+  %Equal.sym(U32, Laws.rd_at(U32, K.Kernel.range(~U32, Laws.slice_len(off, n, len), K.Kernel.depth_for(Laws.slice_len(off, n, len)), off, data, 0), k), Laws.rd_at(U32, data, U32.add(off, k)), Laws.range_cell(K.Kernel.depth_for(Laws.slice_len(off, n, len)), Laws.slice_len(off, n, len), off, data, 0, k, fits, hk)) : {Bool.pick(D.Scalar, U32.is_ne(Laws.rd_at(U32, mk, U32.add(off, k)), 0), D.SU32{_}, D.SNull{}) == Laws.ccell(C.CU32{len, depth, C.Mask{mk}, data}, U32.add(off, k)) : D.Scalar}
+  {==}
 
 # slice_len(off, n, len) <= n <= 2^31: the slot bound of depth_for applies
 def slice_fits(+off: U32, +n: U32, +len: U32, h31: {U32.is_le(n, U32.shln(1, 31n)) == True{} : Bool}) -> {U32.is_le(Laws.slice_len(off, n, len), U32.shln(1, K.Kernel.depth_for(Laws.slice_len(off, n, len)))) == True{} : Bool}:

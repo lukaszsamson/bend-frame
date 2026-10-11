@@ -1125,3 +1125,48 @@ Proof lessons (laws_spike.bend):
   (negative control: `xor 2` in `Leafwise`).
 - `CRoom` has no producer: LAWS section 11 assumes it; the leaf-capacity argument (`croom_of_cap`) is a
   real new lemma for W5.
+
+## W1d/f (unboxed fallible maps, range-copy slice)
+
+Performance lessons (C read with a transitive callee audit; numbers PROVISIONAL, 1 thread, load 16-17):
+
+- **What allocated was `Bool.pick` over constructors, not `Maybe` as such.** In the baseline C only the
+  per-row functions written as `Bool.pick(Maybe<&2, U32>, c, Some{v}, None{})` (`Eval.lo31`, `u_fdiv`,
+  `u_fmod`, `f2u`, `f2i_m`) built `term_ctr(CID_SOME, ..)` per row: `Bool.pick` is an ordinary call, both
+  constructors are built before it chooses. A `Maybe` returned from a `match` (`Eval.kl.some.b`,
+  `D.I32.floor_div.k` behind `i_fdiv` / `i_fmod`, `U32.read`) was already unboxed as two words (tag,
+  value) and allocated nothing. So the Kleene and the i32 floor_div / mod passes did not get faster
+  (1.10 vs 1.13, 2.13 vs 2.03 ms); lo31 4.9 -> 0.8 ms and u32 // 2.9 -> 0.9 ms per 1M (minus the 0.4 ms
+  input clone of the kernel bench). Never feed constructors to `Bool.pick` in a row function; `match`
+  the condition or return a single-constructor record.
+- **`K.R{v: U, ok: U32}` (generic, `type R<-U: Data> is Data`) rides in registers**: the row function
+  returns `o[0], o[1]` (two u32), `map_r.put` takes them as two u32 parameters; the `map_r` / `zip_r`
+  loops and every callee have zero `term_ctr` / `term_keep` / `ctr_take` / `rfc_seal` / `blk_*` allocs.
+  The String instance (`Strs.map_r`, per Dictionary entry) has a `blk_keep` per row: the string read.
+- **Branch-free is not always faster**: computing the i32 floor quotient (two magnitudes, a div and a
+  mod) on every row and masking with ok was ~15% slower (2.6 vs 2.2 ms) than a `match` on the failure
+  test that skips the work; for u32 the masked form is right (one guarded `U32_QUO`).
+- **`U32.div(x, 0) = 0`, `U32.mod(x, 0) = x`** in Base, and the C lowering is guarded
+  (`(u32)y == 0 ? 0 : U32_QUO(x, y)`): an unconditional division in a row function is safe; mask the
+  value with `U32.and(w, U32.sub(0, ok))` (`K.Kernel.r_w`) to keep the null slot at the default.
+- **The range copy** (`Kernel.range.go`) is one `blk_read` + one `blk_write` per row, no allocation (the
+  String instance keeps each string: `blk_keep`). Slice of 1M U32 rows 1.5 -> 0.8 ms, with a mask
+  2.9 -> 1.7 ms (no 4 MB iota index, one read stream per buffer instead of two).
+
+Proof lessons:
+
+- **A range copy is the map proof with `f(a[k])` replaced by `rd_at(a, U32.add(off, k))`**: copy the
+  `map_go` chain (hyp / res / goal / set / C shapes, `*next_lt/_b/_k`, `*_step1/2`, `*_zero`, `*_go`,
+  `*hyp0`, `*_fin`) and change the read index; no template value, so no `y` / `ey` carrier. Spell the
+  first read `Array.get(T, a, U32.add(off, 0))` in the kernel so every read has the same shape (the
+  goal's `r` is `Array.get(T, a, U32.add(off, j))` at j = 0). It checked first time under bend and
+  --verdict.
+- **A content law over a constructor-only production term closes by conversion**: `slice_cell_u32` over
+  the new `Column.slice` needed no pair-rewrites (the old gather version rewrote two pending pair
+  results): `Equal.cong(.. SU32 ..)` of `range_cell` for AllValid, two `%` rewrites (mask cell, data
+  cell) then `{==}` for a Mask. Keep production column builders as matches that return constructors
+  (`Column.slice.r`), not pair-returning helpers, when a cell law must see through them.
+- Typing proofs (`PROOF_evalops`) mention the production template terms verbatim: renaming
+  `map_maybe` -> `map_r` and the template lambdas (`~(r => V.Eval.kl.r(r))`,
+  `~(s => K.Kernel.r_of(~U32, U32.read(s), 0))`) is a text replacement; the witnesses (`kl_fin_w`,
+  `cast_pw_w`) take the pair as a parameter and did not change.

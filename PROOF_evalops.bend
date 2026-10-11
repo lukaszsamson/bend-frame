@@ -281,11 +281,11 @@ def binlogic_w(is_and: Bool, op: X.BinOp, +n: U32, +d: Nat, va: C.Valid, vb: C.V
     case C.AllValid{} C.AllValid{}:
       PV.done_w(D.TBool{}, n, V.Eval.fix.w(D.TBool{}, n, d, C.AllValid{}, V.Eval.zip.u(op, n, d, xa, xb)), PV.fixw_w(D.TBool{}, n, d, C.AllValid{}, V.Eval.zip.u(op, n, d, xa, xb)))
     case C.AllValid{} C.Mask{mb}:
-      PV.done_w(D.TBool{}, n, V.Eval.kl.fin(n, d, K.Kernel.map_maybe(~U32, ~U32, ~(r => V.Eval.kl.some(r)), n, d, V.Eval.kl.st(is_and, n, d, V.Eval.kl.enc(n, d, C.AllValid{}, xa), V.Eval.kl.enc(n, d, C.Mask{mb}, xb)), 0)), PV.kl_fin_w(n, d, K.Kernel.map_maybe(~U32, ~U32, ~(r => V.Eval.kl.some(r)), n, d, V.Eval.kl.st(is_and, n, d, V.Eval.kl.enc(n, d, C.AllValid{}, xa), V.Eval.kl.enc(n, d, C.Mask{mb}, xb)), 0)))
+      PV.done_w(D.TBool{}, n, V.Eval.kl.fin(n, d, K.Kernel.map_r(~U32, ~U32, ~(r => V.Eval.kl.r(r)), n, d, V.Eval.kl.st(is_and, n, d, V.Eval.kl.enc(n, d, C.AllValid{}, xa), V.Eval.kl.enc(n, d, C.Mask{mb}, xb)), 0)), PV.kl_fin_w(n, d, K.Kernel.map_r(~U32, ~U32, ~(r => V.Eval.kl.r(r)), n, d, V.Eval.kl.st(is_and, n, d, V.Eval.kl.enc(n, d, C.AllValid{}, xa), V.Eval.kl.enc(n, d, C.Mask{mb}, xb)), 0)))
     case C.Mask{ma} C.AllValid{}:
-      PV.done_w(D.TBool{}, n, V.Eval.kl.fin(n, d, K.Kernel.map_maybe(~U32, ~U32, ~(r => V.Eval.kl.some(r)), n, d, V.Eval.kl.st(is_and, n, d, V.Eval.kl.enc(n, d, C.Mask{ma}, xa), V.Eval.kl.enc(n, d, C.AllValid{}, xb)), 0)), PV.kl_fin_w(n, d, K.Kernel.map_maybe(~U32, ~U32, ~(r => V.Eval.kl.some(r)), n, d, V.Eval.kl.st(is_and, n, d, V.Eval.kl.enc(n, d, C.Mask{ma}, xa), V.Eval.kl.enc(n, d, C.AllValid{}, xb)), 0)))
+      PV.done_w(D.TBool{}, n, V.Eval.kl.fin(n, d, K.Kernel.map_r(~U32, ~U32, ~(r => V.Eval.kl.r(r)), n, d, V.Eval.kl.st(is_and, n, d, V.Eval.kl.enc(n, d, C.Mask{ma}, xa), V.Eval.kl.enc(n, d, C.AllValid{}, xb)), 0)), PV.kl_fin_w(n, d, K.Kernel.map_r(~U32, ~U32, ~(r => V.Eval.kl.r(r)), n, d, V.Eval.kl.st(is_and, n, d, V.Eval.kl.enc(n, d, C.Mask{ma}, xa), V.Eval.kl.enc(n, d, C.AllValid{}, xb)), 0)))
     case C.Mask{ma} C.Mask{mb}:
-      PV.done_w(D.TBool{}, n, V.Eval.kl.fin(n, d, K.Kernel.map_maybe(~U32, ~U32, ~(r => V.Eval.kl.some(r)), n, d, V.Eval.kl.st(is_and, n, d, V.Eval.kl.enc(n, d, C.Mask{ma}, xa), V.Eval.kl.enc(n, d, C.Mask{mb}, xb)), 0)), PV.kl_fin_w(n, d, K.Kernel.map_maybe(~U32, ~U32, ~(r => V.Eval.kl.some(r)), n, d, V.Eval.kl.st(is_and, n, d, V.Eval.kl.enc(n, d, C.Mask{ma}, xa), V.Eval.kl.enc(n, d, C.Mask{mb}, xb)), 0)))
+      PV.done_w(D.TBool{}, n, V.Eval.kl.fin(n, d, K.Kernel.map_r(~U32, ~U32, ~(r => V.Eval.kl.r(r)), n, d, V.Eval.kl.st(is_and, n, d, V.Eval.kl.enc(n, d, C.Mask{ma}, xa), V.Eval.kl.enc(n, d, C.Mask{mb}, xb)), 0)), PV.kl_fin_w(n, d, K.Kernel.map_r(~U32, ~U32, ~(r => V.Eval.kl.r(r)), n, d, V.Eval.kl.st(is_and, n, d, V.Eval.kl.enc(n, d, C.Mask{ma}, xa), V.Eval.kl.enc(n, d, C.Mask{mb}, xb)), 0)))
 
 def bin_cbool(op: X.BinOp, +n: U32, +d: Nat, va: C.Valid, vb: C.Valid, xa: Array<U32>, xb: Array<U32>, +n2: U32, +d2: Nat, +t: D.DType, hok: {X.Expr.type.bin.ok(op, D.TBool{}, D.TBool{}) == Done{t} : E.Res(D.DType)}) -> Laws.ResW(True{}, t, n, V.Eval.bin(op, C.CBool{n, d, va, xa}, C.CBool{n2, d2, vb, xb})):
   match op:
@@ -508,27 +508,27 @@ def Laws.eval_try_cast_typed(to, c, hok):
     case D.TBool{} C.CF32{+n, +d, v, x}:
       Empty.absurd(Laws.ResW(True{}, D.TBool{}, n, V.Eval.try_cast(D.TBool{}, C.CF32{n, d, v, x})), L.false_true(hok))
     case D.TBool{} C.CStr{+n, +d, v, x}:
-      PV.cast_pw_w(D.TBool{}, n, d, v, ST.Strs.map_maybe(~U32, ~(s => V.Eval.read_bool(s)), n, d, x, 0))
+      PV.cast_pw_w(D.TBool{}, n, d, v, ST.Strs.map_r(~U32, ~(s => K.Kernel.r_of(~U32, V.Eval.read_bool(s), 0)), n, d, x, 0))
     case D.TU32{} C.CBool{+n, +d, v, x}:
       (V.Eval.try_cast(D.TU32{}, C.CBool{n, d, v, x}), {==}, ({==}, {==}))
     case D.TU32{} C.CU32{+n, +d, v, x}:
       (V.Eval.try_cast(D.TU32{}, C.CU32{n, d, v, x}), {==}, ({==}, {==}))
     case D.TU32{} C.CI32{+n, +d, v, x}:
-      PV.cast_pw_w(D.TU32{}, n, d, v, K.Kernel.map_maybe(~U32, ~U32, ~(w => V.Eval.lo31(w)), n, d, x, 0))
+      PV.cast_pw_w(D.TU32{}, n, d, v, K.Kernel.map_r(~U32, ~U32, ~(w => V.Eval.lo31(w)), n, d, x, 0))
     case D.TU32{} C.CF32{+n, +d, v, x}:
-      PV.cast_pw_w(D.TU32{}, n, d, v, K.Kernel.map_maybe(~F32, ~U32, ~(w => V.Eval.f2u(w)), n, d, x, 0))
+      PV.cast_pw_w(D.TU32{}, n, d, v, K.Kernel.map_r(~F32, ~U32, ~(w => V.Eval.f2u(w)), n, d, x, 0))
     case D.TU32{} C.CStr{+n, +d, v, x}:
-      PV.cast_pw_w(D.TU32{}, n, d, v, ST.Strs.map_maybe(~U32, ~(s => U32.read(s)), n, d, x, 0))
+      PV.cast_pw_w(D.TU32{}, n, d, v, ST.Strs.map_r(~U32, ~(s => K.Kernel.r_of(~U32, U32.read(s), 0)), n, d, x, 0))
     case D.TI32{} C.CBool{+n, +d, v, x}:
       (V.Eval.try_cast(D.TI32{}, C.CBool{n, d, v, x}), {==}, ({==}, {==}))
     case D.TI32{} C.CU32{+n, +d, v, x}:
-      PV.cast_pw_w(D.TI32{}, n, d, v, K.Kernel.map_maybe(~U32, ~U32, ~(w => V.Eval.lo31(w)), n, d, x, 0))
+      PV.cast_pw_w(D.TI32{}, n, d, v, K.Kernel.map_r(~U32, ~U32, ~(w => V.Eval.lo31(w)), n, d, x, 0))
     case D.TI32{} C.CI32{+n, +d, v, x}:
       (V.Eval.try_cast(D.TI32{}, C.CI32{n, d, v, x}), {==}, ({==}, {==}))
     case D.TI32{} C.CF32{+n, +d, v, x}:
-      PV.cast_pw_w(D.TI32{}, n, d, v, K.Kernel.map_maybe(~F32, ~U32, ~(w => V.Eval.f2i_m(w)), n, d, x, 0))
+      PV.cast_pw_w(D.TI32{}, n, d, v, K.Kernel.map_r(~F32, ~U32, ~(w => V.Eval.f2i_m(w)), n, d, x, 0))
     case D.TI32{} C.CStr{+n, +d, v, x}:
-      PV.cast_pw_w(D.TI32{}, n, d, v, ST.Strs.map_maybe(~U32, ~(s => V.Eval.i32_bits(D.I32.read(s))), n, d, x, 0))
+      PV.cast_pw_w(D.TI32{}, n, d, v, ST.Strs.map_r(~U32, ~(s => K.Kernel.r_of(~U32, V.Eval.i32_bits(D.I32.read(s)), 0)), n, d, x, 0))
     case D.TF32{} C.CBool{+n, +d, v, x}:
       (V.Eval.try_cast(D.TF32{}, C.CBool{n, d, v, x}), {==}, ({==}, {==}))
     case D.TF32{} C.CU32{+n, +d, v, x}:
@@ -538,7 +538,7 @@ def Laws.eval_try_cast_typed(to, c, hok):
     case D.TF32{} C.CF32{+n, +d, v, x}:
       (V.Eval.try_cast(D.TF32{}, C.CF32{n, d, v, x}), {==}, ({==}, {==}))
     case D.TF32{} C.CStr{+n, +d, v, x}:
-      PV.cast_pf_w(n, d, v, ST.Strs.map_maybe(~F32, ~(s => V.Eval.read_f32(s)), n, d, x, 0.0))
+      PV.cast_pf_w(n, d, v, ST.Strs.map_r(~F32, ~(s => K.Kernel.r_of(~F32, V.Eval.read_f32(s), 0.0)), n, d, x, 0.0))
     case D.TStr{} C.CBool{+n, +d, v, x}:
       PV.done_w(D.TStr{}, n, V.Eval.fix.s(n, d, v, ST.SRaw{K.Kernel.map(~U32, ~String, ~(w => V.Eval.show_bool(w)), n, d, x, "")}), PV.fixs_w(n, d, v, ST.SRaw{K.Kernel.map(~U32, ~String, ~(w => V.Eval.show_bool(w)), n, d, x, "")}))
     case D.TStr{} C.CU32{+n, +d, v, x}:
