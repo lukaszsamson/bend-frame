@@ -43,9 +43,12 @@
 import Base
 import ./dtype.bend as D
 import ./err.bend as E
+import ./kernels.bend as K
 import ./column.bend as C
+import ./strs.bend as ST
 import ./schema.bend as S
 import ./expr.bend as X
+import ./analysis.bend as A
 import ./eval.bend as V
 import ./csv.bend as R
 import ./sort.bend as O
@@ -383,11 +386,350 @@ def Exec.run_phys.h(+n: U32, x: P.Plan, env: P.Env) -> E.ResT(C.Frame):
     case other:
       Exec.run_pure(P.Head{n, other}, env)
 
-# the runner Exec.run executes: run_pure with the Sort + Head step at the root
+# ---- the physical Filter + Select step (v0.2 T4.3, DESIGN.md 16.3 F8) -------------------------------
+#
+# A plan whose ROOT is Select{es, Filter{pred, x}} with es a non-empty list of plain columns (the
+# Exec.plain case: Exec.select would run Frame.select_names on the filtered frame) runs x's code and
+# then ONE step, Exec.fs, in place of IFilter{pred} then ISelect{es}: the predicate is evaluated
+# exactly as Eval.filter does (Exec.fs.a .. Exec.fs.q mirror Eval.filter.a .. Eval.filter.q: the
+# same typing, the same Eval.full / Eval.pred / popcount, so the same errors in the same order), then
+# Frame.select_names takes the selected columns out of the UNFILTERED frame (its errors depend on the
+# names only, which the filter keeps), and only those columns are compacted (Exec.fc): AllValid
+# columns of the same length four or three at a time with ONE Kernel.compact4 / compact3 loop (one
+# mask read, one cursor), anything else (a validity mask, a short group, two or one columns left)
+# with Column.compact as Frame.filter_mask does. The columns the select drops are never compacted.
+# Root only, like the Sort + Head step: under any other operator the general path runs. Aliases
+# (Eval.select) take the general path too (DESIGN.md 14 "v0.2 T4.3"). LAWS.bend section 20
+# (filter_select_run, run_phys_obs, collect_obs): the same error, height, names, dtypes, lengths and
+# cells as Exec.run_pure, for every plan, predicate, column list and env.
+
+# a column's one buffer, by element type (the template dispatch of compact3 / compact4)
+type Buf is Type:
+  BU{a: Array<U32>}
+  BF{a: Array<F32>}
+  BS{a: Array<String>}
+
+# what an AllValid column is besides its buffer: the constructor (and a Dictionary's table)
+type Sh is Type:
+  SB{}
+  SU{}
+  SI{}
+  SD{dict: ST.Dict}
+  SX{}
+
+# a column split for the fused compaction: AllValid (length, depth, shell, buffer), or kept whole
+type Fz is Type:
+  FzOk{len: U32, depth: Nat, sh: Sh, b: Buf}
+  FzNo{c: C.Column}
+
+type F3 is Type:
+  F3{b1: Buf, b2: Buf, b3: Buf, m: Array<U32>}
+
+type F4 is Type:
+  F4{b1: Buf, b2: Buf, b3: Buf, b4: Buf, m: Array<U32>}
+
+def Buf.u(a: Array<U32>) -> Buf:
+  BU{a}
+
+def Buf.f(a: Array<F32>) -> Buf:
+  BF{a}
+
+def Buf.s(a: Array<String>) -> Buf:
+  BS{a}
+
+def Exec.mk.u(sh: Sh, a: Array<U32>, +len: U32, +depth: Nat, valid: C.Valid) -> C.Column:
+  match sh:
+    case SB{}:
+      C.CBool{len, depth, valid, a}
+    case SU{}:
+      C.CU32{len, depth, valid, a}
+    case SI{}:
+      C.CI32{len, depth, valid, a}
+    case SD{dict}:
+      C.CStr{len, depth, valid, ST.SDict{a, dict}}
+    case SX{}:
+      C.CU32{len, depth, valid, a}
+
+# the column of a shell and a buffer (an F32 / String buffer decides the constructor itself)
+def Exec.mk(sh: Sh, b: Buf, +len: U32, +depth: Nat, valid: C.Valid) -> C.Column:
+  match b:
+    case BU{a}:
+      Exec.mk.u(sh, a, len, depth, valid)
+    case BF{a}:
+      C.CF32{len, depth, valid, a}
+    case BS{a}:
+      C.CStr{len, depth, valid, ST.SRaw{a}}
+
+def Exec.fz.v(sh: Sh, b: Buf, +len: U32, +depth: Nat, valid: C.Valid) -> Fz:
+  match valid:
+    case C.AllValid{}:
+      FzOk{len, depth, sh, b}
+    case C.Mask{v}:
+      FzNo{Exec.mk(sh, b, len, depth, C.Mask{v})}
+
+def Exec.fz.s(+len: U32, +depth: Nat, valid: C.Valid, data: ST.Strs) -> Fz:
+  match data:
+    case ST.SRaw{a}:
+      Exec.fz.v(SX{}, BS{a}, len, depth, valid)
+    case ST.SDict{codes, dict}:
+      Exec.fz.v(SD{dict}, BU{codes}, len, depth, valid)
+
+# split a column (no copy: the buffer moves)
+def Exec.fz(c: C.Column) -> Fz:
+  match c:
+    case C.CBool{len, depth, valid, data}:
+      Exec.fz.v(SB{}, BU{data}, len, depth, valid)
+    case C.CU32{len, depth, valid, data}:
+      Exec.fz.v(SU{}, BU{data}, len, depth, valid)
+    case C.CI32{len, depth, valid, data}:
+      Exec.fz.v(SI{}, BU{data}, len, depth, valid)
+    case C.CF32{len, depth, valid, data}:
+      Exec.fz.v(SX{}, BF{data}, len, depth, valid)
+    case C.CStr{len, depth, valid, data}:
+      Exec.fz.s(len, depth, valid, data)
+
+# the column back
+def Exec.unfz(z: Fz) -> C.Column:
+  match z:
+    case FzOk{len, depth, sh, b}:
+      Exec.mk(sh, b, len, depth, C.AllValid{})
+    case FzNo{c}:
+      c
+
+# compact3 over three buffers of any element types: ONE loop (templates chosen buffer by buffer;
+# the inputs come back in the record and are dropped here: they were the columns' last owners)
+def Exec.c3.k(~A: Data, ~B: Data, ~C: Data, ~wa: Array<A> -> Buf, ~wb: Array<B> -> Buf, ~wc: Array<C> -> Buf, r: K.C3<A, B, C>) -> F3:
+  match r:
+    case K.C3{o1, o2, o3, m, a1, a2, a3, k}:
+      F3{wa(o1), wb(o2), wc(o3), m}
+
+def Exec.c3.c(~A: Data, ~B: Data, ~wa: Array<A> -> Buf, ~wb: Array<B> -> Buf, +n: U32, +d: Nat, m: Array<U32>, a1: Array<A>, a2: Array<B>, +z1: A, +z2: B, b3: Buf) -> F3:
+  match b3:
+    case BU{a3}:
+      Exec.c3.k(~A, ~B, ~U32, ~wa, ~wb, ~(o => Buf.u(o)), K.Kernel.compact3(~A, ~B, ~U32, n, d, m, a1, a2, a3, z1, z2, 0))
+    case BF{a3}:
+      Exec.c3.k(~A, ~B, ~F32, ~wa, ~wb, ~(o => Buf.f(o)), K.Kernel.compact3(~A, ~B, ~F32, n, d, m, a1, a2, a3, z1, z2, 0.0))
+    case BS{a3}:
+      Exec.c3.k(~A, ~B, ~String, ~wa, ~wb, ~(o => Buf.s(o)), K.Kernel.compact3(~A, ~B, ~String, n, d, m, a1, a2, a3, z1, z2, ""))
+
+def Exec.c3.b(~A: Data, ~wa: Array<A> -> Buf, +n: U32, +d: Nat, m: Array<U32>, a1: Array<A>, +z1: A, b2: Buf, b3: Buf) -> F3:
+  match b2:
+    case BU{a2}:
+      Exec.c3.c(~A, ~U32, ~wa, ~(o => Buf.u(o)), n, d, m, a1, a2, z1, 0, b3)
+    case BF{a2}:
+      Exec.c3.c(~A, ~F32, ~wa, ~(o => Buf.f(o)), n, d, m, a1, a2, z1, 0.0, b3)
+    case BS{a2}:
+      Exec.c3.c(~A, ~String, ~wa, ~(o => Buf.s(o)), n, d, m, a1, a2, z1, "", b3)
+
+def Exec.c3(+n: U32, +d: Nat, m: Array<U32>, b1: Buf, b2: Buf, b3: Buf) -> F3:
+  match b1:
+    case BU{a1}:
+      Exec.c3.b(~U32, ~(o => Buf.u(o)), n, d, m, a1, 0, b2, b3)
+    case BF{a1}:
+      Exec.c3.b(~F32, ~(o => Buf.f(o)), n, d, m, a1, 0.0, b2, b3)
+    case BS{a1}:
+      Exec.c3.b(~String, ~(o => Buf.s(o)), n, d, m, a1, "", b2, b3)
+
+# the same with four buffers (Kernel.compact4)
+def Exec.c4.k(~A: Data, ~B: Data, ~C: Data, ~D: Data, ~wa: Array<A> -> Buf, ~wb: Array<B> -> Buf, ~wc: Array<C> -> Buf, ~wd: Array<D> -> Buf, r: K.C4<A, B, C, D>) -> F4:
+  match r:
+    case K.C4{o1, o2, o3, o4, m, a1, a2, a3, a4, k}:
+      F4{wa(o1), wb(o2), wc(o3), wd(o4), m}
+
+def Exec.c4.d(~A: Data, ~B: Data, ~C: Data, ~wa: Array<A> -> Buf, ~wb: Array<B> -> Buf, ~wc: Array<C> -> Buf, +n: U32, +d: Nat, m: Array<U32>, a1: Array<A>, a2: Array<B>, a3: Array<C>, +z1: A, +z2: B, +z3: C, b4: Buf) -> F4:
+  match b4:
+    case BU{a4}:
+      Exec.c4.k(~A, ~B, ~C, ~U32, ~wa, ~wb, ~wc, ~(o => Buf.u(o)), K.Kernel.compact4(~A, ~B, ~C, ~U32, n, d, m, a1, a2, a3, a4, z1, z2, z3, 0))
+    case BF{a4}:
+      Exec.c4.k(~A, ~B, ~C, ~F32, ~wa, ~wb, ~wc, ~(o => Buf.f(o)), K.Kernel.compact4(~A, ~B, ~C, ~F32, n, d, m, a1, a2, a3, a4, z1, z2, z3, 0.0))
+    case BS{a4}:
+      Exec.c4.k(~A, ~B, ~C, ~String, ~wa, ~wb, ~wc, ~(o => Buf.s(o)), K.Kernel.compact4(~A, ~B, ~C, ~String, n, d, m, a1, a2, a3, a4, z1, z2, z3, ""))
+
+def Exec.c4.c(~A: Data, ~B: Data, ~wa: Array<A> -> Buf, ~wb: Array<B> -> Buf, +n: U32, +d: Nat, m: Array<U32>, a1: Array<A>, a2: Array<B>, +z1: A, +z2: B, b3: Buf, b4: Buf) -> F4:
+  match b3:
+    case BU{a3}:
+      Exec.c4.d(~A, ~B, ~U32, ~wa, ~wb, ~(o => Buf.u(o)), n, d, m, a1, a2, a3, z1, z2, 0, b4)
+    case BF{a3}:
+      Exec.c4.d(~A, ~B, ~F32, ~wa, ~wb, ~(o => Buf.f(o)), n, d, m, a1, a2, a3, z1, z2, 0.0, b4)
+    case BS{a3}:
+      Exec.c4.d(~A, ~B, ~String, ~wa, ~wb, ~(o => Buf.s(o)), n, d, m, a1, a2, a3, z1, z2, "", b4)
+
+def Exec.c4.b(~A: Data, ~wa: Array<A> -> Buf, +n: U32, +d: Nat, m: Array<U32>, a1: Array<A>, +z1: A, b2: Buf, b3: Buf, b4: Buf) -> F4:
+  match b2:
+    case BU{a2}:
+      Exec.c4.c(~A, ~U32, ~wa, ~(o => Buf.u(o)), n, d, m, a1, a2, z1, 0, b3, b4)
+    case BF{a2}:
+      Exec.c4.c(~A, ~F32, ~wa, ~(o => Buf.f(o)), n, d, m, a1, a2, z1, 0.0, b3, b4)
+    case BS{a2}:
+      Exec.c4.c(~A, ~String, ~wa, ~(o => Buf.s(o)), n, d, m, a1, a2, z1, "", b3, b4)
+
+def Exec.c4(+n: U32, +d: Nat, m: Array<U32>, b1: Buf, b2: Buf, b3: Buf, b4: Buf) -> F4:
+  match b1:
+    case BU{a1}:
+      Exec.c4.b(~U32, ~(o => Buf.u(o)), n, d, m, a1, 0, b2, b3, b4)
+    case BF{a1}:
+      Exec.c4.b(~F32, ~(o => Buf.f(o)), n, d, m, a1, 0.0, b2, b3, b4)
+    case BS{a1}:
+      Exec.c4.b(~String, ~(o => Buf.s(o)), n, d, m, a1, "", b2, b3, b4)
+
+# Frame.filter_mask's step (Cols.compact.step) on a split column
+def Exec.fc.one(n: String, +kept: U32, z: Fz, st: Array<U32> & List<&1, C.Named>) -> Array<U32> & List<&1, C.Named>:
+  C.Cols.compact.step(n, kept, Exec.unfz(z), st)
+
+def Exec.fc.k3(n1: String, s1: Sh, n2: String, s2: Sh, n3: String, s3: Sh, +kept: U32, +d: Nat, acc: List<&1, C.Named>, r: F3) -> Array<U32> & List<&1, C.Named>:
+  match r:
+    case F3{o1, o2, o3, m}:
+      (m, C.Named{n3, Exec.mk(s3, o3, kept, d, C.AllValid{})} <> C.Named{n2, Exec.mk(s2, o2, kept, d, C.AllValid{})} <> C.Named{n1, Exec.mk(s1, o1, kept, d, C.AllValid{})} <> acc)
+
+def Exec.fc.t3(ok: Bool, n1: String, +l1: U32, +p1: Nat, s1: Sh, b1: Buf, n2: String, +l2: U32, +p2: Nat, s2: Sh, b2: Buf, n3: String, +l3: U32, +p3: Nat, s3: Sh, b3: Buf, +kept: U32, +d: Nat, st: Array<U32> & List<&1, C.Named>) -> Array<U32> & List<&1, C.Named>:
+  match ok:
+    case True{}:
+      (m, acc) = st
+      Exec.fc.k3(n1, s1, n2, s2, n3, s3, kept, d, acc, Exec.c3(l1, d, m, b1, b2, b3))
+    case False{}:
+      Exec.fc.one(n3, kept, FzOk{l3, p3, s3, b3}, Exec.fc.one(n2, kept, FzOk{l2, p2, s2, b2}, Exec.fc.one(n1, kept, FzOk{l1, p1, s1, b1}, st)))
+
+# three columns: one compact3 loop when all three are AllValid with one length, else one by one
+def Exec.fc.s3(n1: String, z1: Fz, n2: String, z2: Fz, n3: String, z3: Fz, +kept: U32, +d: Nat, st: Array<U32> & List<&1, C.Named>) -> Array<U32> & List<&1, C.Named>:
+  match z1 z2 z3:
+    case FzOk{+l1, p1, s1, b1} FzOk{+l2, p2, s2, b2} FzOk{+l3, p3, s3, b3}:
+      Exec.fc.t3(Bool.and(U32.is_eq(l1, l2), U32.is_eq(l1, l3)), n1, l1, p1, s1, b1, n2, l2, p2, s2, b2, n3, l3, p3, s3, b3, kept, d, st)
+    case y1 y2 y3:
+      Exec.fc.one(n3, kept, y3, Exec.fc.one(n2, kept, y2, Exec.fc.one(n1, kept, y1, st)))
+
+def Exec.fc.k4(n1: String, s1: Sh, n2: String, s2: Sh, n3: String, s3: Sh, n4: String, s4: Sh, +kept: U32, +d: Nat, acc: List<&1, C.Named>, r: F4) -> Array<U32> & List<&1, C.Named>:
+  match r:
+    case F4{o1, o2, o3, o4, m}:
+      (m, C.Named{n4, Exec.mk(s4, o4, kept, d, C.AllValid{})} <> C.Named{n3, Exec.mk(s3, o3, kept, d, C.AllValid{})} <> C.Named{n2, Exec.mk(s2, o2, kept, d, C.AllValid{})} <> C.Named{n1, Exec.mk(s1, o1, kept, d, C.AllValid{})} <> acc)
+
+def Exec.fc.t4(ok: Bool, n1: String, +l1: U32, +p1: Nat, s1: Sh, b1: Buf, n2: String, +l2: U32, +p2: Nat, s2: Sh, b2: Buf, n3: String, +l3: U32, +p3: Nat, s3: Sh, b3: Buf, n4: String, +l4: U32, +p4: Nat, s4: Sh, b4: Buf, +kept: U32, +d: Nat, st: Array<U32> & List<&1, C.Named>) -> Array<U32> & List<&1, C.Named>:
+  match ok:
+    case True{}:
+      (m, acc) = st
+      Exec.fc.k4(n1, s1, n2, s2, n3, s3, n4, s4, kept, d, acc, Exec.c4(l1, d, m, b1, b2, b3, b4))
+    case False{}:
+      Exec.fc.one(n4, kept, FzOk{l4, p4, s4, b4}, Exec.fc.one(n3, kept, FzOk{l3, p3, s3, b3}, Exec.fc.one(n2, kept, FzOk{l2, p2, s2, b2}, Exec.fc.one(n1, kept, FzOk{l1, p1, s1, b1}, st))))
+
+# four columns: one compact4 loop when all four are AllValid with one length, else one by one
+def Exec.fc.s4(n1: String, z1: Fz, n2: String, z2: Fz, n3: String, z3: Fz, n4: String, z4: Fz, +kept: U32, +d: Nat, st: Array<U32> & List<&1, C.Named>) -> Array<U32> & List<&1, C.Named>:
+  match z1 z2 z3 z4:
+    case FzOk{+l1, p1, s1, b1} FzOk{+l2, p2, s2, b2} FzOk{+l3, p3, s3, b3} FzOk{+l4, p4, s4, b4}:
+      Exec.fc.t4(Bool.and(U32.is_eq(l1, l2), Bool.and(U32.is_eq(l1, l3), U32.is_eq(l1, l4))), n1, l1, p1, s1, b1, n2, l2, p2, s2, b2, n3, l3, p3, s3, b3, n4, l4, p4, s4, b4, kept, d, st)
+    case y1 y2 y3 y4:
+      Exec.fc.one(n4, kept, y4, Exec.fc.one(n3, kept, y3, Exec.fc.one(n2, kept, y2, Exec.fc.one(n1, kept, y1, st))))
+
+# Cols.compact.go with the columns grouped: four at a time, then three; two or one left go one by one
+def Exec.fc.go(cols: List<&1, C.Named>, +kept: U32, +d: Nat, st: Array<U32> & List<&1, C.Named>) -> Array<U32> & List<&1, C.Named>:
+  match cols:
+    case Nil{}:
+      st
+    case C.Named{n1, c1} <> Nil{}:
+      C.Cols.compact.step(n1, kept, c1, st)
+    case C.Named{n1, c1} <> C.Named{n2, c2} <> Nil{}:
+      C.Cols.compact.step(n2, kept, c2, C.Cols.compact.step(n1, kept, c1, st))
+    case C.Named{n1, c1} <> C.Named{n2, c2} <> C.Named{n3, c3} <> Nil{}:
+      Exec.fc.s3(n1, Exec.fz(c1), n2, Exec.fz(c2), n3, Exec.fz(c3), kept, d, st)
+    case C.Named{n1, c1} <> C.Named{n2, c2} <> C.Named{n3, c3} <> C.Named{n4, c4} <> rest:
+      Exec.fc.go(rest, kept, d, Exec.fc.s4(n1, Exec.fz(c1), n2, Exec.fz(c2), n3, Exec.fz(c3), n4, Exec.fz(c4), kept, d, st))
+
+# Frame.filter_mask over the selected columns only (mask consumed)
+def Exec.fc(g: C.Frame, m: Array<U32>, +kept: U32) -> C.Frame:
+  match g:
+    case C.Frame{h, cols}:
+      C.Frame.filter_mask.k(kept, Exec.fc.go(cols, kept, K.Kernel.depth_for(U32.add(kept, 1)), (m, Nil{})))
+
+# select then compact; a select error drops the mask
+def Exec.fs.cmp(r: E.ResT(C.Frame), m: Array<U32>, +kept: U32) -> E.ResT(C.Frame):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{g}:
+      Done{Exec.fc(g, m, kept)}
+
+# Eval.filter.a .. Eval.filter.q with the select and the selective compaction at the end
+def Exec.fs.q(f: C.Frame, +es: List<&2, X.Expr>, r: Array<U32> & U32) -> E.ResT(C.Frame):
+  (m, +kept) = r
+  Exec.fs.cmp(C.Frame.select_names(f, V.Eval.names(es)), m, kept)
+
+def Exec.fs.p(f: C.Frame, +es: List<&2, X.Expr>, r: Array<U32> & U32) -> E.ResT(C.Frame):
+  (m, +n) = r
+  Exec.fs.q(f, es, K.Kernel.popcount(n, m))
+
+def Exec.fs.go2(rc: E.ResT(C.Column), f: C.Frame, +es: List<&2, X.Expr>) -> E.ResT(C.Frame):
+  match rc:
+    case Fail{e}:
+      Fail{e}
+    case Done{c}:
+      Exec.fs.p(f, es, V.Eval.pred(c))
+
+def Exec.fs.go(+es: List<&2, X.Expr>, r: C.Frame & E.ResT(C.Column)) -> E.ResT(C.Frame):
+  (f, rc) = r
+  Exec.fs.go2(rc, f, es)
+
+def Exec.fs.t(t: D.DType, f: C.Frame, +pred: X.Expr, +es: List<&2, X.Expr>) -> E.ResT(C.Frame):
+  match t:
+    case D.TBool{}:
+      Exec.fs.go(es, V.Eval.full(f, pred))
+    case other:
+      Fail{E.TypeMismatch{"filter", "bool", D.DType.show(other)}}
+
+def Exec.fs.b(+pred: X.Expr, +es: List<&2, X.Expr>, f: C.Frame, r: E.Res(D.DType)) -> E.ResT(C.Frame):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{t}:
+      Exec.fs.t(t, f, pred, es)
+
+def Exec.fs.a(+pred: X.Expr, +es: List<&2, X.Expr>, r: C.Frame & List<&2, S.Field>) -> E.ResT(C.Frame):
+  (f, s) = r
+  Exec.fs.b(pred, es, f, A.Ana.type(pred, s))
+
+# Eval.filter(f, pred) then Exec.select (plain columns: Frame.select_names), as one step
+def Exec.fs(f: C.Frame, +pred: X.Expr, +es: List<&2, X.Expr>) -> E.ResT(C.Frame):
+  Exec.fs.a(pred, es, S.Frame.schema(f))
+
+def Exec.fsel.s(+pred: X.Expr, +es: List<&2, X.Expr>, stack: List<&1, C.Frame>) -> E.ResT(List<&1, C.Frame>):
+  match stack:
+    case Nil{}:
+      Fail{Exec.underflow()}
+    case f <> t:
+      Exec.push(Exec.fs(f, pred, es), t)
+
+def Exec.fsel.r(+pred: X.Expr, +es: List<&2, X.Expr>, env: P.Env, r: E.ResT(List<&1, C.Frame>)) -> St:
+  match r:
+    case Fail{e}:
+      St{env, Fail{e}}
+    case Done{stack}:
+      St{env, Exec.fsel.s(pred, es, stack)}
+
+# IFilter{pred} then ISelect{es}, as one step over the runner's state
+def Exec.fsel(+pred: X.Expr, +es: List<&2, X.Expr>, st: St) -> St:
+  match st:
+    case St{env, r}:
+      Exec.fsel.r(pred, es, env, r)
+
+def Exec.run_phys.f(plain: Bool, +es: List<&2, X.Expr>, +pred: X.Expr, +y: P.Plan, env: P.Env) -> E.ResT(C.Frame):
+  match plain:
+    case True{}:
+      Exec.fin(Exec.fsel(pred, es, Exec.loop(Exec.mark(Exec.compile(y, Nil{})), St{env, Done{Nil{}}})))
+    case False{}:
+      Exec.run_pure(P.Select{es, P.Filter{pred, y}}, env)
+
+def Exec.run_phys.s(+es: List<&2, X.Expr>, x: P.Plan, env: P.Env) -> E.ResT(C.Frame):
+  match x:
+    case P.Filter{+pred, +y}:
+      Exec.run_phys.f(Exec.plain(es), es, pred, y, env)
+    case other:
+      Exec.run_pure(P.Select{es, other}, env)
+
+# the runner Exec.run executes: run_pure with the Sort + Head step and the Filter + Select step at
+# the root
 def Exec.run_phys(+p: P.Plan, env: P.Env) -> E.ResT(C.Frame):
   match p:
     case P.Head{+n, x}:
       Exec.run_phys.h(n, x, env)
+    case P.Select{+es, x}:
+      Exec.run_phys.s(es, x, env)
     case other:
       Exec.run_pure(other, env)
 
