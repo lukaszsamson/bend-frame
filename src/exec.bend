@@ -891,6 +891,40 @@ def Exec.run(+p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
 def Exec.run_rd(+eng: R.CsvEngine, +p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
   Exec.run.k(P.Plan.schema(p), p, env, eng)
 
+# ---- the engine hook (v0.2 T5.3, DESIGN.md 16.5 D7) ------------------------------------------
+# Everything Exec.run does BEFORE the physical runner, as one step: the plan's schema, the bindings
+# (Exec.validate), every scan read by the CSV engine eng (Exec.mat) into env's scan namespace. The
+# answer is the env the physical runner gets (Exec.run.m's), or the first error, in Exec.run's order.
+# src/cexec.bend (the chunked runner, Exec.run_with) calls it and then runs its own step function;
+# nothing here changes what Exec.run / Lazy.collect do.
+
+def Exec.prep.m(env: P.Env, m: Mat) -> E.ResT(P.Env):
+  match m:
+    case Mat{acc, Some{e}}:
+      Fail{e}
+    case Mat{acc, None{}}:
+      Done{P.Env.set_scans(env, List.reverse(&1, C.Frame, acc))}
+
+def Exec.prep.v(+p: P.Plan, r: P.Env & E.Res(Unit), +eng: R.CsvEngine) -> IO(E.ResT(P.Env)):
+  (env, v) = r
+  match v:
+    case Fail{e}:
+      IO.pure(E.ResT(P.Env), Fail{e})
+    case Done{u}:
+      do IO<E.ResT(P.Env)>:
+        m : Mat <- Exec.mat(Exec.compile(p, Nil{}), Mat{Nil{}, None{}}, eng)
+        return Exec.prep.m(env, m)
+
+def Exec.prep.k(r: E.Res(List<&2, S.Field>), +p: P.Plan, env: P.Env, +eng: R.CsvEngine) -> IO(E.ResT(P.Env)):
+  match r:
+    case Fail{e}:
+      IO.pure(E.ResT(P.Env), Fail{e})
+    case Done{s}:
+      Exec.prep.v(p, Exec.validate(p, env), eng)
+
+def Exec.prep(+eng: R.CsvEngine, +p: P.Plan, env: P.Env) -> IO(E.ResT(P.Env)):
+  Exec.prep.k(P.Plan.schema(p), p, env, eng)
+
 # Polars collect(): the release optimizer (Optimize.release), then run
 def Lazy.collect(+p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
   Exec.run(P.Optimize.release(p), env)

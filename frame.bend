@@ -33,6 +33,7 @@ import ./src/csv.bend as R
 import ./src/fmt.bend as F
 import ./src/plan.bend as P
 import ./src/exec.bend as Q
+import ./src/cexec.bend as QC
 import ./src/dump.bend as Y
 import ./src/table.bend as TV
 
@@ -797,6 +798,29 @@ def collect_raw(p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
 # collect with every scan_csv read by the reader engine (csv_engine_v01 / csv_engine_v02, D7)
 def collect_engine(eng: R.CsvEngine, p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
   Q.Lazy.collect_rd(eng, p, env)
+
+# ---- the execution engine (v0.2 T5.3, DESIGN.md 16.5 D7): OPT-IN ---------------------------------
+# engine_reference() is today's executor (Exec.run), the default of collect / collect_raw and the
+# oracle; engine_chunked() runs the same plan over owned chunk trees (src/cexec.bend: leaves of
+# 2^14 rows, row-wise operators forked over the leaves, sort / join / group_by behind a flatten
+# boundary); engine_chunked_at(g) uses leaves of 2^g rows (tests, the differential). Both answer the
+# same frame or the same error (values, validity, names, height, row order, F32 bits, error texts).
+def engine_reference() -> QC.Engine:
+  QC.Reference{}
+
+def engine_chunked() -> QC.Engine:
+  QC.Engine.chunked()
+
+def engine_chunked_at(g: Nat) -> QC.Engine:
+  QC.Chunked{g}
+
+# collect by the engine
+def collect_with(eng: QC.Engine, p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
+  QC.Lazy.collect_with(eng, p, env)
+
+# collect_raw by the engine (the plan as written)
+def collect_raw_with(eng: QC.Engine, p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
+  QC.Exec.run_with(eng, p, env)
 
 # execute after DF.optimize_full
 def collect_full(p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):

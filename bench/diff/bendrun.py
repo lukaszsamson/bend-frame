@@ -16,7 +16,7 @@ class BendError(RuntimeError):
     pass
 
 
-HDR = re.compile(r"^-- (d\d+) (eager|raw|opt|full)$", re.M)
+HDR = re.compile(r"^-- (d\d+) (eager|raw|opt|full|c2|c4|c14)$", re.M)
 
 
 def header_for(scratch: Path) -> str:
@@ -70,7 +70,7 @@ def run_cases(cases, scratch: Path, mode="interp", timeout=300.0, tag="b", depth
     path.write_text(batch_text(cases, scratch))
     out, rc, secs = run_file(path, mode, timeout)
     got = parse_output(out)
-    done = {c.id for c in cases if len(got.get(c.id, {})) == 4}
+    done = {c.id for c in cases if len(got.get(c.id, {})) == len(emit.runs())}
     if rc != 0 and got:
         # a crash: the last printed case may be cut off (stderr text glued to its dump); rerun it
         done.discard(list(got)[-1])
