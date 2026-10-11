@@ -337,3 +337,10 @@ Baseline: 3612482 (v0.1 RC). The v0.1 data contract (DESIGN §15) does not chang
   Master: 176 laws in 18 sections, 45 mutations, 176 tests, verdict green.
 - Running: W2.3 coder wiring, W6.3 reader integration, T4.2 eval peepholes (LAWS §19),
   T4.3 Filter+Select shortcut (LAWS §20), T5.1 chunks module (LAWS §21).
+- Merged (2026-10-12): W2.3 coder wiring (str group/unique 1M 13.8 s -> 0.18 s), W6.4 CSV fuzz
+  (10k cases clean; csv-fuzz-smoke in make ci), W2 pk ranks, T5.1 chunk trees (+11 laws),
+  T4.3 Filter+Select step (+5 laws), T5.4 describe column fork (aggregate/gather forks measured and
+  removed), T5.2 chunked kernel wrappers (+14 laws; F32 in-order walk anomaly explained and fixed).
+  Master 9bfb9a8: 206 laws, 75 mutations, 190 tests, verdict green.
+- T4.2 (peepholes, branch worktree-agent-ab4e15f1c2ea65971) conflicts with T4.3's proof; T4.4 is
+  integrating them (shared Eval.filter.mask). T5.3 chunked executor running.
