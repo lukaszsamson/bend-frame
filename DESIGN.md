@@ -2731,6 +2731,70 @@ Implementation only; the join's output (rows, order, values, validity, names, er
    `Probe.dd`, `J.Dict` removed). The probe is sequential (17.3.3 default); W2.5 may partition it.
 3. **Assurance**: the packed coder and lookup are tested-only, as the table they replace.
 
+### v0.2 W6.1 / W6.2 (CSV producer and lane; recorded by W6.3)
+
+Implementation choices of src/csvprod.bend and src/csvlane.bend that depart from the letter of 17.4 or that
+later readers of the code need to know; none changes the data contract.
+
+1. **Generated tokenizer**: `Tk.go2` (one flat def, every transition an arm) is written by
+   bench/w6/gen_tk.py between the `# BEGIN GENERATED Tk.go2` / `# END GENERATED Tk.go2` markers of
+   src/csvlane.bend: a flat def cannot share code between arms, so the end-of-field / end-of-record code is
+   repeated per arm. Edit the generator, then run it; never edit between the markers.
+2. **Tokenizer capacity**: a region's field arrays have room for `min(nt + 1, n / w + 1) + 1` rows (nt the
+   producer's terminator count, n the region's bytes, w the width), times w fields: a kept record needs at
+   least w - 1 separators and a terminator, and the extra slot takes a dropped (blank or ragged) record's
+   writes. Bounded by the bytes, not by the terminators (a file of blank lines with w = 1000 would otherwise
+   ask for gigabytes).
+3. **Interpreter stack on long strings**: `String.eq`, `String.lines` and `DF.dump`'s `Dump.esc` are non-tail
+   walks; two live dumps of an ~18K-character string overflow the JS interpreter's stack (`bend file.bend`),
+   the native binary does not. The W6 tests compare dumps by hash and length (bench/w6/cmp.bend) and keep
+   long records and names to a few KB; W6.3's tests do the same (a 3,000-character header name, 5,000 leading
+   blank lines: v0.1's `Csv.lead` is a non-tail walk over them).
+4. **Non-ASCII separators**: the lane compares BYTES with the separator, so a separator above U+007F (a
+   multi-byte UTF-8 sequence) cannot be tokenized there; W6.3 routes such reads to the v0.1 reader (same
+   answer by construction; tests/csv_v02_texts.bend `section_sep`).
+5. **`CO.OS` carries the entries' first local rows** (`fr`, added by W6.3): the EncAuto rule needs the global
+   first row of every entry.
+
+### v0.2 W6.3 (CSV reader integration; 17.4, 17.5, D7)
+
+No change of the data contract (section 15). The v0.2 reader is opt-in (15.6.6); the v0.1 reader stays the
+default and the reference.
+
+1. **Header step** (17.4.1 step 1) reads the file itself, bytes in pieces of `min(piece, 64 KiB)`, and parses
+   only the first non-blank record with the reference parser (decoded by `Csv.u8`, File.read's rules); it
+   does not infer. Inference is done on the regions instead (item 2), so infer_rows of any size never
+   parses a prefix with csvparse.
+2. **Inference by classification** (17.4.5 amended): each region reports, per column, its first local row
+   whose cell does not fit u32 / i32 / f32 / bool and its first row with text (`L.Ln.cls`, the typed loops'
+   own field parsers); with the regions' row offsets that is exactly v0.1's `Csv.pick` over the first
+   infer_rows rows. infer_rows <= 65536: the leading regions are tokenized and classified sequentially until
+   they hold infer_rows rows, and their tokens are reused by the typed pass (one extra classification of
+   ~one region at the default 100); infer_rows = 0 or larger: one forked classification pass over every
+   region, then the typed fork tokenizes again (17.4.5's two passes over the packed bytes).
+3. **EncAuto per region (17.4.7 (a)) is decided in the combine, not in the lanes**: a lane cannot know its
+   global row offset, so it cannot evaluate `max(floor, rows / 64)`; a sound per-lane bound (bytes / width)
+   is too weak to fire on the 41 MB file. Instead the merge evaluates v0.1's rule per entry in region order
+   and STOPS at the first entry over the threshold (a 1M-distinct column merges ~16k entries, not 1M); the
+   rows coded so far are decoded from the dictionary and every later region is decoded from its own
+   entries (one gather of shared strings). The lanes still decode one string per distinct entry per region.
+   17.4.7 (b) (a presized global coder for forced EncDict) is not done: EncDict is a test / opt-in storage.
+4. **Zero-row EncAutoAt{0, _}**: v0.1's builder checks the storage rule once on an empty chunk (dictionary
+   size 1, 0 rows), so a zero-row Str column is Raw under a floor of 0; the v0.2 combine reproduces it
+   (`Csv.v2.x.zero`). EncAuto (floor 16384) never meets it.
+5. **Combine shape**: the columns are built by one balanced fork over a tree of the columns (each column's
+   concatenation and dictionary merge is its own); the summary, the error order and the parts' extraction
+   are sequential. Leaves are v0.1's flat columns (17.5: the chunk hand-off waits for D1's frozen leaves).
+6. **Equivalent mutant**: dropping the check of the producer's final quote parity does not change any
+   answer (the last region's lane ends in mode ME and rejects); it is kept as the cheap early answer.
+7. **Targets (provisional, 17.8)**: 41 MB parse 662-677 ms at 1 thread, 355-364 ms at 12, peak RSS 187-249 MB,
+   the fork phase 5.7x at 12 threads: met. End to end 1.86x (parse) and 1.7-1.8x (q1-q6) at 12 vs 1 thread:
+   the >= 2x target is NOT met; the serial producer (278-288 ms, the File API floor) bounds it at ~2.2x
+   (IMPLEMENTING.md "W6.3" has the samples and loads). The gate machine decides.
+8. **Driver shim** (bench/m2): the driver reads CSV through bench/m2/engine.bend (BF_ENGINE=v02 selects the
+   v0.2 reader); baseline.sh copies bench/m2/engine_v01.bend in as the baseline's engine.bend, and the
+   driver hash covers both files (run.py `driver_hash`).
+
 ## 15. v0.1 contract (frozen)
 
 The exact semantics every M1-M6 agent codes and tests against. Tables over prose;
@@ -3289,6 +3353,29 @@ No round-trip claim for numeric-looking strings under inference (`"007"`, `" 1 "
 `"1.0"` in a str column come back as numbers unless a schema is given): README says so
 (B02-k). Round trip IS claimed for: every dtype under an explicit schema written and
 read by bend-frame (dump equality, NaN payload excepted), and `""` vs null.
+
+#### 15.6.6 Reader engine (v0.2 D7, W6.3: documentation of the selector, not a contract change)
+
+Two readers implement 15.6.1 - 15.6.5: the v0.1 reader (csvparse + the streaming sink, `Csv.read_full`) and
+the v0.2 reader (`Csv.read_v02_full`: header step, flat byte regions, one parallel fork of typed lanes, a
+sequential combine; section 17.4). The v0.1 reader is the REFERENCE and the default of every entry
+(`read_csv*`, `Csv.read*`, scan_csv's `collect` / `collect_raw` / `collect_full`) until W8 flips it. The
+v0.2 reader is opt-in through a `CsvEngine` value (`src/csv.bend`: `CsvV01{}` | `CsvV02{piece}`):
+
+| entry | engine |
+|---|---|
+| `DF.read_csv_engine(eng, path, opts, dtypes, enc)` = `Csv.read_eng` | `eng` (`DF.csv_engine_v01()`, `DF.csv_engine_v02()` = `CsvV02{Pr.piece()}`, 240 KiB pieces) |
+| `DF.read_csv_v02(path)` | v0.2 with `read_csv`'s defaults |
+| `DF.collect_engine(eng, plan, env)` = `Lazy.collect_rd` (`Exec.run_rd`) | every ScanCsv of the plan read by `eng` (strict, the frozen dtypes, as `collect`) |
+| `Csv.read_v02_full(path, opts, dtypes, enc, piece, cap)` | v0.2 with every knob (tests: tiny pieces, a lowered row cap) |
+| bench/m2 driver, `BF_ENGINE=v02` | v0.2 for every CSV input (bench/m2/engine.bend) |
+
+Both engines answer the same `ResT(Frame)`: values, validity, F32 bits, strings, the Str storage (Raw or
+Dictionary, and a Dictionary's codes and size), names, dtypes, column order, error texts, error lines and
+error precedence (tests/csv_v02_*.bend, tests/coverage/csv_engine.bend compare both at the dump and storage
+level). A separator outside ASCII is read by the v0.1 reader under either engine. Under `EncAutoAt{0, den}`
+(a test-only storage rule) a zero-row Str column is Raw in both, as v0.1's builder checks the rule once on
+an empty chunk.
 
 ### 15.7 Sources and Env (B04)
 

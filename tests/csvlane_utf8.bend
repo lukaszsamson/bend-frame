@@ -188,7 +188,7 @@ def Ut.part(+n: U32, co: L.CO, st: M.HN) -> M.HN:
   match co:
     case L.OR{a, v, nulls}:
       Ut.raws(n, a, st)
-    case L.OS{c, v, nulls, k, ents}:
+    case L.OS{c, v, nulls, k, ents, fr}:
       Ut.gathered(n, K.Kernel.gather(~String, n, K.Kernel.depth_for(U32.max(n, 1)), ents, c, ""), st)
     case other:
       st

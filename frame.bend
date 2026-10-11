@@ -437,6 +437,25 @@ def str_auto() -> ST.StrEnc:
 def read_csv_enc(path: String, opts: R.CsvOpts, dtypes: List<&2, D.DType>, enc: ST.StrEnc) -> IO(E.ResT(C.Frame)):
   R.Csv.read_enc(path, opts, dtypes, enc)
 
+# ---- the CSV reader engine (v0.2 W6.3, DESIGN.md 16.5 D7 and 17.4): OPT-IN ----------------------
+# csv_engine_v01() is the v0.1 reader, the reference and the default of every read_csv* / scan_csv
+# collect above; csv_engine_v02() is the v0.2 reader (a producer of flat byte regions, one parallel
+# fork of typed lanes, a sequential combine). Both answer the same frame or the same error (values,
+# validity, F32 bits, strings, dictionary codes, column order and dtypes, error texts and lines).
+def csv_engine_v01() -> R.CsvEngine:
+  R.Csv.engine_v01()
+
+def csv_engine_v02() -> R.CsvEngine:
+  R.Csv.engine_v02()
+
+# read_csv_enc by the reader engine
+def read_csv_engine(eng: R.CsvEngine, path: String, opts: R.CsvOpts, dtypes: List<&2, D.DType>, enc: ST.StrEnc) -> IO(E.ResT(C.Frame)):
+  R.Csv.read_eng(eng, path, opts, dtypes, enc)
+
+# read_csv by the v0.2 reader (',' separator, header, infer_rows 100, Auto strings)
+def read_csv_v02(path: String) -> IO(E.ResT(C.Frame)):
+  R.Csv.read_eng(R.Csv.engine_v02(), path, R.Csv.default(), Nil{}, R.Csv.enc_default())
+
 # every str column Dictionary-encoded (dict) or decoded to Raw (not dict); the values are unchanged
 def encode_strings(f: C.Frame, dict: Bool) -> C.Frame:
   C.Frame.encode(f, dict)
@@ -774,6 +793,10 @@ def collect_show(p: P.Plan, env: P.Env) -> IO(String):
 # execute the plan as written (no rewrite)
 def collect_raw(p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
   Q.Exec.run(p, env)
+
+# collect with every scan_csv read by the reader engine (csv_engine_v01 / csv_engine_v02, D7)
+def collect_engine(eng: R.CsvEngine, p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
+  Q.Lazy.collect_rd(eng, p, env)
 
 # execute after DF.optimize_full
 def collect_full(p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):

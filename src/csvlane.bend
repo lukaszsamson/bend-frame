@@ -1,9 +1,11 @@
 # src/csvlane.bend -- the CSV lane: tokenizer and typed column loops over ONE region
 # (v0.2, W6.2; DESIGN.md 17.4.1 steps 3-4, 17.4.3, 17.4.4).
 #
-# Production form of the W0 spike's lane (bench/spikes/w0_strings/rd.bend, 3.). NOT wired into
-# Csv.read / Csv.scan yet: W6.3 (src/csv.bend) forks it over the regions of src/csvprod.bend and
-# combines the results (error precedence, dictionary merge, row cap, concatenation).
+# Production form of the W0 spike's lane (bench/spikes/w0_strings/rd.bend, 3.). The v0.2
+# reader (src/csv.bend Csv.v2.*, W6.3; opt-in, DESIGN.md 15.6.6) forks it over the regions of
+# src/csvprod.bend and combines the results (error precedence, dictionary merge, row cap, concatenation).
+# W6.3 split the lane into Ln.tok (tokenizer) and Ln.cols (typed loops) and added Ln.cls / Ln.clsr (the
+# classification that inference uses, below).
 #
 #   Ln.lane(ts, w, sep, rg) -> LO       one region in, its typed columns out
 #
@@ -42,9 +44,10 @@
 #   CO.OW{a, v, nulls, bad, bl, bt}   u32 / i32 (two's complement bits) / bool: a[0..n) values (null
 #                                     and bad slots hold 0), v[0..n) validity words
 #   CO.OF{a, v, nulls, bad, bl, bt}   f32 (a: Array<F32>)
-#   CO.OS{c, v, nulls, k, ents}       Dictionary string part: c[0..n) LOCAL codes in first-appearance
+#   CO.OS{c, v, nulls, k, ents, fr}   Dictionary string part: c[0..n) LOCAL codes in first-appearance
 #                                     order (a null row holds the code of the empty content), k
-#                                     entries, ents[0..k) the entries' strings, each decoded ONCE
+#                                     entries, fr[0..k) each entry's first local row (W6.3: the
+#                                     EncAuto rule needs it), ents[0..k) the entries' strings, each decoded ONCE
 #                                     (UTF-8 exactly as the runtime's File.read: an invalid byte
 #                                     is U+FFFD and is read again). Region codes are never
 #                                     exposed: two byte sequences may decode to one string, so the
@@ -965,7 +968,7 @@ def Rw.go(f: Nat, +r: U32, +c: U32, +w: U32, st: LR) -> LR:
 type CO is Type:
   OW{a: Array<U32>, v: Array<U32>, nulls: U32, bad: U32, bl: U32, bt: String}
   OF{a: Array<F32>, v: Array<U32>, nulls: U32, bad: U32, bl: U32, bt: String}
-  OS{c: Array<U32>, v: Array<U32>, nulls: U32, k: U32, ents: Array<String>}
+  OS{c: Array<U32>, v: Array<U32>, nulls: U32, k: U32, ents: Array<String>, fr: Array<U32>}
   OR{a: Array<String>, v: Array<U32>, nulls: U32}
 
 # a column finished: the shared arrays and the lines come back with it
@@ -1029,13 +1032,13 @@ def Col.r.fin(lines: Array<U32>, lr: LR) -> FC:
     case LR{sh, a, v, nulls}:
       FC{sh, lines, OR{a, v, nulls}}
 
-def Col.s.fin3(sh: SH, lines: Array<U32>, c: Array<U32>, v: Array<U32>, +nulls: U32, +k: U32, ents: Array<String>) -> FC:
-  FC{sh, lines, OS{c, v, nulls, k, ents}}
+def Col.s.fin3(sh: SH, lines: Array<U32>, c: Array<U32>, v: Array<U32>, +nulls: U32, +k: U32, ents: Array<String>, fr: Array<U32>) -> FC:
+  FC{sh, lines, OS{c, v, nulls, k, ents, fr}}
 
 def Col.s.fin2(lines: Array<U32>, c: Array<U32>, v: Array<U32>, +nulls: U32, +k: U32, en: EN) -> FC:
   match en:
     case EN{sh, fr, ents}:
-      Col.s.fin3(sh, lines, c, v, nulls, k, ents)
+      Col.s.fin3(sh, lines, c, v, nulls, k, ents, fr)
 
 def Col.s.fin(+c: U32, +w: U32, lines: Array<U32>, ls: LS) -> FC:
   match ls:
@@ -1104,31 +1107,153 @@ def Ln.fin(+n: U32, +rej: U32, +rag: U32, +rgn: U32, cs: CS) -> LO:
 def Ln.rejected(+rag: U32, +rgn: U32, lines: Array<U32>) -> LO:
   LO{0, 1, rag, rgn, lines, Nil{}}
 
-def Ln.tk.k(rejd: Bool, +ts: List<&2, Ty>, +w: U32, +nr: U32, +rag: U32, +rgn: U32, a: Array<U32>, fs: Array<U32>, fe: Array<U32>, fq: Array<U32>, lines: Array<U32>) -> LO:
+# a tokenized region (W6.3): kept rows, rejected, the first ragged record (line, width), the shared
+# arrays (the region's bytes and every field's range and flags) and the kept rows' lines. The typed
+# loops (Ln.cols) or the classification (Ln.cls) read it; Ln.lane is Ln.tok then Ln.cols.
+type TO is Type:
+  TO{n: U32, rej: U32, rag: U32, rgn: U32, sh: SH, lines: Array<U32>}
+
+def Ln.cols.k(rejd: Bool, +ts: List<&2, Ty>, +w: U32, +nr: U32, +rag: U32, +rgn: U32, sh: SH, lines: Array<U32>) -> LO:
   match rejd:
     case True{}:
       Ln.rejected(rag, rgn, lines)
     case False{}:
-      Ln.fin(nr, 0, rag, rgn, Cols.go(ts, nr, 0, w, CS{SH{a, fs, fe, fq}, lines, Nil{}}))
+      Ln.fin(nr, 0, rag, rgn, Cols.go(ts, nr, 0, w, CS{sh, lines, Nil{}}))
 
-def Ln.tk(+ts: List<&2, Ty>, +w: U32, r: Array<U32> & TK) -> LO:
+# the typed columns of a tokenized region (ts: one Ty per column, w of them)
+def Ln.cols(+ts: List<&2, Ty>, +w: U32, to: TO) -> LO:
+  match to:
+    case TO{+nr, +rej, +rag, +rgn, sh, lines}:
+      Ln.cols.k(U32.is_ne(rej, 0), ts, w, nr, rag, rgn, sh, lines)
+
+def Ln.to(r: Array<U32> & TK) -> TO:
   (a, st) = r
   match st:
     case TK{m, cr, f, +nr, ln, rl, fs0, qe, esc, +rag, +rgn, +rej, fs, fe, fq, lines}:
-      Ln.tk.k(U32.is_ne(rej, 0), ts, w, nr, rag, rgn, a, fs, fe, fq, lines)
+      TO{nr, rej, rag, rgn, SH{a, fs, fe, fq}, lines}
 
 def Ln.end(+fin: U32, +n: U32, +w: U32, r: Array<U32> & TK) -> Array<U32> & TK:
   (a, st) = r
   (a, Tk.end(U32.is_eq(fin, 1), n, w, st))
 
-# The lane of one region. rows <= min(nt + 1, n / w + 1) (a kept record has w fields: at least w - 1
-# separators and a terminator), plus one slot: a dropped record (blank, ragged) writes at the next
-# free row without keeping it, so the arrays never wrap.
-def Ln.lane(+ts: List<&2, Ty>, +w: U32, +sep: U32, rg: P.Rg) -> LO:
+# The tokenizer over one region. rows <= min(nt + 1, n / w + 1) (a kept record has w fields: at least
+# w - 1 separators and a terminator), plus one slot: a dropped record (blank, ragged) writes at the
+# next free row without keeping it, so the arrays never wrap.
+def Ln.tok(+w: U32, +sep: U32, rg: P.Rg) -> TO:
   match rg:
     case P.Rg{a, +n, off, +line0, +nt, lfs, +fin}:
       +cap = U32.add(U32.min(U32.inc(nt), U32.inc(U32.div(n, w))), 1)
       +df = K.Kernel.depth_for(U32.max(U32.mul(cap, w), 1))
       +dl = K.Kernel.depth_for(cap)
-      +nw = U32.div(U32.add(n, 3), 4)
-      Ln.tk(ts, w, Ln.end(fin, n, w, Tk.go2(U32.to_nat(U32.inc(n)), MS{}, Tk.nx(sep, n, 0, Array.get(U32, a, 0)), 0, 0, 0, U32.sub(line0, 1), line0, 0, 0, 0, 0, 0, 0, w, sep, n, Array.new(U32, df, 0), Array.new(U32, df, 0), Array.new(U32, df, 0), Array.new(U32, dl, 0))))
+      Ln.to(Ln.end(fin, n, w, Tk.go2(U32.to_nat(U32.inc(n)), MS{}, Tk.nx(sep, n, 0, Array.get(U32, a, 0)), 0, 0, 0, U32.sub(line0, 1), line0, 0, 0, 0, 0, 0, 0, w, sep, n, Array.new(U32, df, 0), Array.new(U32, df, 0), Array.new(U32, df, 0), Array.new(U32, dl, 0))))
+
+# The lane of one region: the tokenizer, then one typed loop per column.
+def Ln.lane(+ts: List<&2, Ty>, +w: U32, +sep: U32, rg: P.Rg) -> LO:
+  Ln.cols(ts, w, Ln.tok(w, sep, rg))
+
+# ---- classification (W6.3: inference, DESIGN.md 17.4.5) ------------------------------------------------
+# Per column of a tokenized region: the first local row + 1 (0: none) whose cell does NOT fit u32, i32,
+# f32, bool (a cell empty after trimming is a null and fits every dtype), and the first row whose cell
+# has text after trimming. The field rules are the typed loops' own parsers (Pu, Pi, Pf, Pb), i.e.
+# v0.1's Csv.ok / Csv.has.c; the reader turns them into v0.1's Csv.pick over the first infer_rows
+# rows with the regions' row offsets (src/csv.bend, Csv.v2.ci.*).
+type CL is Data:
+  CL{fu: U32, fi: U32, ff: U32, fb: U32, fv: U32}
+
+# the loop state (private, single constructor: cold)
+type LC is Type:
+  LC{sh: SH, fu: U32, fi: U32, ff: U32, fb: U32, fv: U32}
+
+def Lc.first(+hit: Bool, +r: U32, +x: U32) -> U32:
+  Ln.sel(Bool.and(hit, U32.is_eq(x, 0)), U32.inc(r), x)
+
+def Lc.put(+r: U32, fs: Array<U32>, fe: Array<U32>, fq: Array<U32>, +fu: U32, +fi: U32, +ff: U32, +fb: U32, +fv: U32, +su: U32, +si: U32, +sf: U32, pv: PV) -> LC:
+  match pv:
+    case PV{a, x, +sb}:
+      LC{SH{a, fs, fe, fq}, Lc.first(U32.is_eq(su, 2), r, fu), Lc.first(U32.is_eq(si, 2), r, fi), Lc.first(U32.is_eq(sf, 2), r, ff), Lc.first(U32.is_eq(sb, 2), r, fb), Lc.first(U32.is_ne(su, 0), r, fv)}
+
+def Lc.f(+r: U32, +s: U32, +e: U32, fs: Array<U32>, fe: Array<U32>, fq: Array<U32>, +fu: U32, +fi: U32, +ff: U32, +fb: U32, +fv: U32, +su: U32, +si: U32, pf: PF) -> LC:
+  match pf:
+    case PF{a, x, +sf}:
+      Lc.put(r, fs, fe, fq, fu, fi, ff, fb, fv, su, si, sf, Pb.field(TR{a, s, e, False{}}))
+
+def Lc.i(+r: U32, +s: U32, +e: U32, +esc: U32, fs: Array<U32>, fe: Array<U32>, fq: Array<U32>, +fu: U32, +fi: U32, +ff: U32, +fb: U32, +fv: U32, +su: U32, pv: PV) -> LC:
+  match pv:
+    case PV{a, x, +si}:
+      Lc.f(r, s, e, fs, fe, fq, fu, fi, ff, fb, fv, su, si, Pf.field(esc, TR{a, s, e, False{}}))
+
+def Lc.u(+r: U32, +s: U32, +e: U32, +esc: U32, fs: Array<U32>, fe: Array<U32>, fq: Array<U32>, +fu: U32, +fi: U32, +ff: U32, +fb: U32, +fv: U32, pv: PV) -> LC:
+  match pv:
+    case PV{a, x, +su}:
+      Lc.i(r, s, e, esc, fs, fe, fq, fu, fi, ff, fb, fv, su, Pi.field(TR{a, s, e, False{}}))
+
+# the trimmed range of the cell: u32, then i32, f32, bool on it
+def Lc.t(+r: U32, +esc: U32, fs: Array<U32>, fe: Array<U32>, fq: Array<U32>, +fu: U32, +fi: U32, +ff: U32, +fb: U32, +fv: U32, tr: TR) -> LC:
+  match tr:
+    case TR{a, +s, +e, go}:
+      Lc.u(r, s, e, esc, fs, fe, fq, fu, fi, ff, fb, fv, Pu.field(TR{a, s, e, False{}}))
+
+def Lc.cell(+r: U32, +fu: U32, +fi: U32, +ff: U32, +fb: U32, +fv: U32, fr: FR) -> LC:
+  match fr:
+    case FR{SH{a, fs, fe, fq}, +s, +e, +qf}:
+      Lc.t(r, U32.div(qf, 2), fs, fe, fq, fu, fi, ff, fb, fv, Tr.both(s, e, a))
+
+def Lc.go(f: Nat, +r: U32, +c: U32, +w: U32, st: LC) -> LC:
+  match f st:
+    case 0n other:
+      other
+    case 1n+p LC{sh, +fu, +fi, +ff, +fb, +fv}:
+      Lc.go(p, U32.inc(r), c, w, Lc.cell(r, fu, fi, ff, fb, fv, Fd.get(U32.add(U32.mul(r, w), c), sh)))
+
+# the columns' classes so far (newest first) with the shared arrays
+type CC is Type:
+  CC{sh: SH, acc: List<&1, CL>}
+
+def Lc.push(acc: List<&1, CL>, lc: LC) -> CC:
+  match lc:
+    case LC{sh, +fu, +fi, +ff, +fb, +fv}:
+      CC{sh, CL{fu, fi, ff, fb, fv} <> acc}
+
+def Lc.col(+nr: U32, +c: U32, +w: U32, st: CC) -> CC:
+  match st:
+    case CC{sh, acc}:
+      Lc.push(acc, Lc.go(U32.to_nat(nr), 0, c, w, LC{sh, 0, 0, 0, 0, 0}))
+
+def Lc.cols(f: Nat, +nr: U32, +c: U32, +w: U32, st: CC) -> CC:
+  match f:
+    case 0n:
+      st
+    case 1n+p:
+      Lc.cols(p, nr, U32.inc(c), w, Lc.col(nr, c, w, st))
+
+# a tokenized region and its columns' classes (in column order)
+type TC is Type:
+  TC{to: TO, cl: List<&1, CL>}
+
+def Ln.cls.k(+n: U32, +rej: U32, +rag: U32, +rgn: U32, lines: Array<U32>, cc: CC) -> TC:
+  match cc:
+    case CC{sh, acc}:
+      TC{TO{n, rej, rag, rgn, sh, lines}, List.reverse(&1, CL, acc)}
+
+# the classes of the w columns of a tokenized region (a rejected region classifies no row); the region
+# comes back for the typed loops
+def Ln.cls(+w: U32, to: TO) -> TC:
+  match to:
+    case TO{+n, +rej, +rag, +rgn, sh, lines}:
+      Ln.cls.k(n, rej, rag, rgn, lines, Lc.cols(U32.to_nat(w), Ln.sel(U32.is_ne(rej, 0), 0, n), 0, w, CC{sh, Nil{}}))
+
+# a region classified and handed back (its field arrays dropped): the forked inference pass of
+# infer_rows = 0, which tokenizes again for the typed pass (17.4.5: two passes over the packed bytes,
+# no second read)
+type CR is Type:
+  CR{rg: P.Rg, n: U32, cl: List<&1, CL>}
+
+def Ln.clsr.k(+n: U32, off: U32, line0: U32, nt: U32, lfs: U32, fin: U32, tc: TC) -> CR:
+  match tc:
+    case TC{TO{+m, rej, rag, rgn, SH{a, fs, fe, fq}, lines}, cl}:
+      CR{P.Rg{a, n, off, line0, nt, lfs, fin}, m, cl}
+
+def Ln.clsr(+w: U32, +sep: U32, rg: P.Rg) -> CR:
+  match rg:
+    case P.Rg{a, +n, +off, +line0, +nt, +lfs, +fin}:
+      Ln.clsr.k(n, off, line0, nt, lfs, fin, Ln.cls(w, Ln.tok(w, sep, P.Rg{a, n, off, line0, nt, lfs, fin})))

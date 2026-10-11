@@ -1866,3 +1866,81 @@ What T4.3 (Filter + Select shortcut, `filter_select_run`) needs:
   slots of a compact3/4); a Raw Str column's strings are `Array<String>` (templates allow it; no law at
   String yet) and a Dictionary's codes are U32.
 - The count wraps mod 2^32 like popcount; the row cap (2^23) keeps it exact.
+
+## W6.3 (CSV reader integration: src/csv.bend Csv.v2.*, the engine selector)
+
+The v0.2 reader is wired in behind an opt-in engine (DESIGN.md 15.6.6): `Csv.read_v02_full` / `Csv.read_eng`,
+the facade's `read_csv_engine`, `read_csv_v02`, `collect_engine` (scan_csv's collect: `Exec.run_rd`), and the
+bench/m2 driver's `BF_ENGINE=v02` (bench/m2/engine.bend). The v0.1 reader stays the default and the oracle.
+Design of record: DESIGN.md 14 "v0.2 W6.3" (header step, inference by classification, EncAuto in the combine).
+
+Correctness evidence (all compare DF.dump AND the Str storage: Raw / Dictionary size / a hash of the codes,
+tests/lib/v02cmp.bend, because DF.dump does not show storage):
+- tests/csv_v02_adv.bend: the 102 adversarial files x {explicit schema at pieces 1, 3, 7, 64, 4096, 245760;
+  EncRaw; EncDict; EncAutoAt{2,4} / {0,1} / {3,2}; one dtype too many; row cap 3} (15 runs per file);
+- tests/csv_v02_infer.bend: the same files x {infer_rows 100, 0, 1, 2, 3, 5, 10, 70000; Raw; AutoAt; the header
+  flag flipped, with and without the schema; cap 3} (23 runs per file);
+- tests/csv_v02_texts.bend: 45 scenario texts of tests/csv_*.bend and the B02 regressions plus header-step edges
+  (CR / CR CR / CRLF before and in the header, multi-line headers and their error lines, long header records and
+  5,000 leading blank lines crossing the header step's pieces, the `§` separator fall back, 3,000-row files);
+- tests/coverage/csv_engine.bend: the coverage fixtures and scan_csv collects through both engines;
+- bench/w6/mut63.py: 18 mutants of the new code (header line, CR, classification offsets / limits, the head
+  stopping rule, EncAuto row / code off by one, the merge stop, the fall back prefix, ragged order and line, the
+  count error, the row cap, the zero-row storage rule, the f32 / has-value classes): 17 killed, 1 equivalent.
+- The first mutation run found a real difference: v0.1's builder checks EncAuto's rule once on an EMPTY chunk
+  (dictionary size 1, 0 rows), so under EncAutoAt{0, _} a zero-row Str column is Raw. Reproduced
+  (`Csv.v2.x.zero`); EncAuto's floor 16384 never meets it. A test that stops at the first difference hides
+  every later one: rerun the mutation set after fixing a finding (here every mutant had looked "killed" by it).
+
+Bend lessons:
+- **A forked builder over a list needs a tree, not a split**: a recursive def cannot destructure a computed
+  pair (`(a, b) = split(xs)` is refused) and cannot call a helper that calls it back (mutual recursion), so
+  "fork over the halves of a list" is: list -> leaves -> pair until one (the P.Rt.of shape) -> structural
+  recursion with `a b = f(l) f(r)` (`Csv.v2.kt.*`, `Csv.v2.bfork`).
+- `x : T <- IO.pure(T, f(..))` forces `f` before the next `IO.now()` (call-by-value), the way to time a pure
+  phase; a `+x : T = f(..)` let of a Type value is refused ("+res can be used many times, so its type must be
+  Data"). Timestamps used twice are `+t : Nat <- IO.now()`.
+- A test-side header step that reads its own pieces (`min(piece, 64 KiB)`) lets every tiny-piece run cross
+  piece boundaries in the blank-line, record and end-of-file phases for free.
+- v0.1's `Csv.lead` is a non-tail walk over the leading blank lines: ~2^15 of them overflow the JS
+  interpreter's stack (the native binary is fine); the tests keep 5,000.
+
+Performance (PROVISIONAL, shared machine, bench/m2 `run --provisional --engine v02`, medians of 5 fresh
+interleaved processes, raw samples in bench/m2/results/w63-*-prov.jsonl; phases from bench/w6/p63.bend):
+
+| cell (41 MB sales file, read_csv defaults) | threads | v0.1 (baseline 3612482) | v0.2 | target |
+|---|---:|---:|---:|---|
+| parse e2e | 1 | 5,346 ms (RSS 1,314 MB) | 677 ms [658..683] (RSS 187 MB) | <= 1.5 s |
+| parse e2e | 4 | 2,854 ms | 410 ms [408..416] | |
+| parse e2e | 12 | 2,437 ms (RSS 1,315 MB) | 364 ms [360..379] (RSS 219 MB) | <= 0.6 s |
+| parse phase (phases mode) | 1 / 4 / 12 | 5,239 / 2,918 / 2,474 ms | 662 / 397 / 355 ms (RSS 216 / 227 / 249 MB) | RSS <= 400 MB |
+| q1..q6 e2e, 1 thread | 1 | 5,171 .. 8,802 ms | 670 .. 1,060 ms (0.12-0.14 of v0.1) | |
+| q1..q6 e2e, 12 threads | 12 | 2,438 .. 2,627 ms | 366 .. 669 ms (q2 sampled during a load spike of 20-28) | |
+
+Load (1 min) 4.7-8.7 during the parse cells, 3.9-28 during q1-q6; every process validated against the frozen
+expected outputs (bench/m2/expected.json: 240 valid, 0 invalid). Scaling 12 vs 1 end to end: 1.86x (parse),
+1.71-1.83x (q1, q3-q6): the >= 2x end-to-end target is NOT met on this machine. Phases (p63, 5 interleaved
+processes per thread count, load 37-43, raw bench/w6/results/w63-phases-prov.jsonl), medians in ms:
+
+| threads | header step | producer | head classify | fork (lanes) | combine | total | RSS |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 1 | 288 | 4 | 357 | 25 | 674 | 177 MB |
+| 4 | 1 | 283 | 5 | 100 | 10 | 403 | 188 MB |
+| 12 | 1 | 278 | 4 | 63 | 10 | 356 | 207 MB |
+
+The fork phase scales 5.7x at 12 threads (>= 4x met). The producer (278-288 ms, the File API floor: one cons cell
+per byte built and freed on the IO thread, W6.1) is serial and is 78 % of the 12-thread time, so the end-to-end
+ceiling is 674 / (288 + 4 + 1 + 10) ~ 2.2x even with an infinitely fast fork; the combine was 20-24 ms serial until
+the columns were built by a fork over the columns (9-11 ms at 12 threads). The 1M-distinct key file
+(hc/t_1000000.csv, Raw by EncAuto's fall back): v0.1 1,285-1,430 / 932-989 ms, v0.2 616-648 / 282-304 ms at 1 / 12
+threads (3 samples each, same content hash), RSS ~0.7-0.8 GB (1M Raw strings) vs v0.1 0.86-0.93 GB.
+
+Emitted C (bench/w6/p63.bend -o build/w6/p63.c, the frame.bend program): the new loops are flat native loops:
+`Csv.v2.ggo` on U32 (the code remap into the column, spin_30: 3 blk_read + 1 blk_write per row, no reference
+count, no allocation); `Csv.v2.ggo` on String (the Raw fall back, spin_28: 1 blk_read, 1 blk_write and one
+`blk_keep` per row: the row SHARES its region's entry string, the inherent cost of Raw from entries); the merge
+`Csv.v2.mgo` (spin_29: one `Dict.code` per region entry, not per row); the classification `Lc.*` (spins 158 / 184 /
+211 / 236 / 249 / 268: no allocation on the fast paths; the allocations counted transitively are the f32 slow
+path's decoded text and F32.read, as in Lf.go); the header step `Csv.v2.hgo` (spin_233) conses one cell per byte
+of the FIRST NON-BLANK RECORD only (bounded by the header record; blank lines allocate nothing). The producer
+(Pk.go spin_194 / 219), tokenizer (Tk.go2 spin_284) and typed loops are W6.1 / W6.2's, unchanged.

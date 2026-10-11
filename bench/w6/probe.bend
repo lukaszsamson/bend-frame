@@ -147,7 +147,7 @@ def Ck.one(co: L.CO, +n: U32, +h: U32) -> U32:
       Ck.w(n, a, v, h)
     case L.OF{a, v, nulls, bad, bl, bt}:
       Ck.f(n, a, v, h)
-    case L.OS{c, v, nulls, k, ents}:
+    case L.OS{c, v, nulls, k, ents, fr}:
       Ck.s(n, c, v, k, ents, h)
     case L.OR{a, v, nulls}:
       Ck.r(n, a, v, h)
