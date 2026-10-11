@@ -197,7 +197,7 @@ themselves are real tests (`make test` runs them and compares every dump with it
 | `optimize` | [api_plans](../tests/coverage/api_plans.bend) | n/a [11] | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | n/a | 4 |
 | `optimize_full` | [api_plans](../tests/coverage/api_plans.bend) | n/a [11] | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | n/a | 2 |
 | `show` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 3 |
-| `dump` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 19 |
+| `dump` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 20 |
 | `dump_frame` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [6] | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 3 |
 | `describe` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 5 |
 | `clone` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [6] | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 1 |
@@ -269,11 +269,11 @@ reach these", not as line coverage. Reported, not gated.
 |---|---|---|---|---|---|
 | `frame.bend` | 185 | 172 | 184 | 184 | 1 |
 | `src/analysis.bend` | 44 | 0 | 44 | 44 | 0 |
-| `src/cexec.bend` | 335 | 1 | 326 | 326 | 9 |
-| `src/chunks.bend` | 217 | 31 | 190 | 198 | 19 |
+| `src/cexec.bend` | 336 | 1 | 327 | 327 | 9 |
+| `src/chunks.bend` | 219 | 31 | 192 | 200 | 19 |
 | `src/ckernels.bend` | 206 | 48 | 7 | 147 | 59 |
 | `src/column.bend` | 160 | 29 | 158 | 158 | 2 |
-| `src/csv.bend` | 412 | 15 | 403 | 411 | 1 |
+| `src/csv.bend` | 415 | 15 | 406 | 414 | 1 |
 | `src/csvlane.bend` | 152 | 1 | 152 | 152 | 0 |
 | `src/csvparse.bend` | 20 | 1 | 19 | 19 | 1 |
 | `src/csvprod.bend` | 33 | 2 | 33 | 33 | 0 |
@@ -292,12 +292,12 @@ reach these", not as line coverage. Reported, not gated.
 | `src/radix.bend` | 16 | 0 | 16 | 16 | 0 |
 | `src/ranks.bend` | 78 | 2 | 78 | 78 | 0 |
 | `src/schema.bend` | 23 | 8 | 20 | 23 | 0 |
-| `src/sort.bend` | 83 | 3 | 81 | 81 | 2 |
+| `src/sort.bend` | 84 | 3 | 82 | 82 | 2 |
 | `src/strs.bend` | 92 | 10 | 90 | 90 | 2 |
 | `src/table.bend` | 72 | 1 | 72 | 72 | 0 |
-| **total** | **3513** | **470** | **3203** | **3410** | **103** |
+| **total** | **3520** | **470** | **3210** | **3417** | **103** |
 
-97.1 % of the 3513 defs are reachable from the tests (91.2 % through the facade alone).
+97.1 % of the 3520 defs are reachable from the tests (91.2 % through the facade alone).
 
 Unreached defs:
 
