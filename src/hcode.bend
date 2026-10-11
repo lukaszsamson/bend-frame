@@ -4,7 +4,7 @@
 #
 # Codes the first n rows of `a` (Array<String>, 2^d slots, d >= depth_for(n)) by first appearance:
 #   codes[i] = first + (the number of distinct strings among rows 0..i-1 that differ from row i's
-#              and first appeared before it), i.e. exactly Sort.str_codes' codes (ids from `first`,
+#              and first appeared before it), i.e. exactly v0.1 Sort.str_codes' codes (ids from `first`,
 #              group_by 1, unique / ranks 0); rows >= n and slots >= next - first hold 0;
 #   next     = first + the number of distinct strings (the next free id);
 #   fr[e]    = the first row of entry e = id - first (the representative row; e < next - first);
@@ -40,6 +40,10 @@
 # Cost (every row walks its cons string once for the hash, a hit walks two more): the cons-string
 # walk is inherent while rows are Array<String> (DESIGN 17.1.5: 2-4 ns per code point); the probe
 # loop itself allocates nothing per row (the table state rides the spin loop's registers).
+#
+# Callers (W2.3): group_by keys and unique (src/groupby.bend Grp.enc.s / Grp.enc.sk: Hc.code.h, ids
+# from 1), Raw n_unique (src/eval.bend Eval.nu.str: Hc.code.h, the entry count), the sort words of a
+# Raw column (src/ranks.bend Rk.words: Hc.code.fnv, ids from 0, then the rank stage).
 #
 # Idioms (DESIGN.md section 9): helpers above callers; Nat fuel first; pairs taken apart in the next
 # helper's parameter; templates ~T.

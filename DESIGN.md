@@ -189,6 +189,9 @@ src/kernels.bend           template array loops                               [s
 src/column.bend            Valid, Column, Named, Frame + column ops           [sonnet]
 src/schema.bend            Field, Schema ops, Frame.schema                    [sonnet]
 src/expr.bend              UnOp/BinOp/AggOp/Expr, Expr.type/name/refs         [sonnet]
+src/radix.bend             Radix.sort, WS: the (word, row) LSD radix sort (T3.2; own file since W2.3)
+src/hcode.bend             Hc.code: the flat distinct-key string coder (v0.2 W2.1, wired W2.3)
+src/ranks.bend             Rk.words / Rk.dict: lexical ranks of string entries (W2.2, wired W2.3)
 src/eval.bend              Eval.expr: dtype×op dispatch onto kernels           [opus]
 src/sort.bend              argsort, multi-key stable sort, Sort.frame          [opus]
 src/groupby.bend           GroupBy.run                                         [opus]
@@ -963,8 +966,10 @@ Dictionary mode, `make diff-reduce`, the goldens of `make bench-check`), not by 
 3. Per-entry maps over a Dictionary: `Strs.map` / `Strs.map_p` / `Dict.map.*` / `Dict.mp.t` /
    `Dict.mm.*` (string predicates `contains_literal` / `starts_with` / `ends_with`, `len_chars`, `is_in` on
    a Str column: computed once per entry, then gathered by code).
-4. Rank order of a Dictionary: `Dict.ranks` (`Dict.rk.*`), `Sort.dict_words`, `Eval.zd.ord.*`
-   (Str `<` / `<=` / `>` / `>=`, sort keys over Dictionary codes).
+4. Rank order of a Dictionary: `Rk.dict` (src/ranks.bend, the v0.2 rank stage: `Rl.*`, `Rw.*`,
+   `Pb.*`, `Rf.*` / `Rq.*`, `Rx.*`, `Rg.*`, `Rk.*`; v0.1's Base-Map `Dict.ranks` until W2.3, now only a
+   test reference in tests/lib/v01str.bend), `Sort.dict_words`, `Sort.kd*`, `Eval.zd.ord.*`, `Eval.ds.ext*`
+   (Str `<` / `<=` / `>` / `>=`, sort keys over Dictionary codes, min / max).
 5. Str evaluators beyond fill_null and when's storage: comparisons (items 2, 4), string
    predicates and `len_chars` (item 3), casts to and from `str`, `is_in`, and `when`'s
    validity (`Eval.when.valid`); and over every dtype, the cell values of the evaluator: the
@@ -978,11 +983,15 @@ Dictionary mode, `make diff-reduce`, the goldens of `make bench-check`), not by 
    per-row encoder of section 14 is proven, its use inside `src/csv.bend` is not), the writer
    and every round trip; IO in general (plan section 6 "IO boundary").
 7. group_by and join: the group encoders (`Grp.codes`, `Grp.enc.*`, `Grp.rank` / `Grp.prank`,
-   `Grp.densify`, also behind `unique`), the grouped scatter accumulators (the plan's "per-group
+   `Grp.densify`, also behind `unique`; a Raw string key is coded by the flat coder `Hc.code.h`,
+   src/hcode.bend, since W2.3: `Hc.*`, with its own probe hypothesis "the probe for s stops at a
+   slot that is empty or holds s", stated in the file's header, not a law, as v0.1's Base-Map
+   coder had none either), Raw n_unique (`Eval.nu.str`, the same coder's entry count), the grouped scatter accumulators (the plan's "per-group
    invariant for count and U32 sum given valid group ids" was not reached), the aggregations,
    the hash join (`src/join.bend`'s own `Dict`, `Probe`, `Dense`), semi / anti, and the
    partition correctness of both. Sort: the stable LSD radix argsort and its order words
-   (`Sort.*`, `Radix.sort`), including stability.
+   (`Sort.*`, `Radix.*` / `WS.*` in src/radix.bend since W2.3), including stability; the order
+   words of a Raw string key (`Rk.words` = `Hc.code.fnv` then the rank stage, item 4).
 8. Floats: every F32 result (Neumaier sums, mean, std / var / median, describe quantiles,
    the 15.5.2 order words, casts, `F32.show` / `F32.read`). Checked against an exact or f64
    reference with the T2.3 bound (`make diff-reduce`), not proven.

@@ -56,11 +56,11 @@ themselves are real tests (`make test` runs them and compares every dump with it
 
 | operation | success | null | empty | invalid | eager | lazy | 0col | other test files |
 |---|---|---|---|---|---|---|---|---|
-| `col` | [agg](../tests/coverage/agg.bend), [expr_arith](../tests/coverage/expr_arith.bend), +5 | [agg](../tests/coverage/agg.bend), [expr_arith](../tests/coverage/expr_arith.bend), +5 | [agg](../tests/coverage/agg.bend), [expr_arith](../tests/coverage/expr_arith.bend), +5 | [agg](../tests/coverage/agg.bend), [expr_cmp](../tests/coverage/expr_cmp.bend), +3 | [agg](../tests/coverage/agg.bend), [expr_arith](../tests/coverage/expr_arith.bend), +5 | [agg](../tests/coverage/agg.bend), [expr_arith](../tests/coverage/expr_arith.bend), +5 |  | 58 |
+| `col` | [agg](../tests/coverage/agg.bend), [expr_arith](../tests/coverage/expr_arith.bend), +5 | [agg](../tests/coverage/agg.bend), [expr_arith](../tests/coverage/expr_arith.bend), +5 | [agg](../tests/coverage/agg.bend), [expr_arith](../tests/coverage/expr_arith.bend), +5 | [agg](../tests/coverage/agg.bend), [expr_cmp](../tests/coverage/expr_cmp.bend), +3 | [agg](../tests/coverage/agg.bend), [expr_arith](../tests/coverage/expr_arith.bend), +5 | [agg](../tests/coverage/agg.bend), [expr_arith](../tests/coverage/expr_arith.bend), +5 |  | 59 |
 | `lit_*` (lit_u32, lit_f32, lit_str, lit_bool) | [expr_arith](../tests/coverage/expr_arith.bend), [expr_cmp](../tests/coverage/expr_cmp.bend), +4 | [expr_arith](../tests/coverage/expr_arith.bend), [expr_cmp](../tests/coverage/expr_cmp.bend), +3 | [expr_lit](../tests/coverage/expr_lit.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [expr_arith](../tests/coverage/expr_arith.bend), [expr_cmp](../tests/coverage/expr_cmp.bend), +4 | [expr_arith](../tests/coverage/expr_arith.bend), [expr_cmp](../tests/coverage/expr_cmp.bend), +4 | yes | 30 |
 | `lit_i32*` (lit_i32, lit_i32_neg) | [expr_cmp](../tests/coverage/expr_cmp.bend), [expr_lit](../tests/coverage/expr_lit.bend) | [expr_cmp](../tests/coverage/expr_cmp.bend), [expr_lit](../tests/coverage/expr_lit.bend) | [expr_lit](../tests/coverage/expr_lit.bend) | [expr_lit](../tests/coverage/expr_lit.bend) | [expr_cmp](../tests/coverage/expr_cmp.bend), [expr_lit](../tests/coverage/expr_lit.bend) | [expr_cmp](../tests/coverage/expr_cmp.bend), [expr_lit](../tests/coverage/expr_lit.bend) | yes | 5 |
 | `lit_null` | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) |  | 5 |
-| `alias` | [agg](../tests/coverage/agg.bend), [expr_arith](../tests/coverage/expr_arith.bend), +5 | [agg](../tests/coverage/agg.bend), [expr_arith](../tests/coverage/expr_arith.bend), +5 | [agg](../tests/coverage/agg.bend), [expr_arith](../tests/coverage/expr_arith.bend), +5 | [agg](../tests/coverage/agg.bend), [expr_cmp](../tests/coverage/expr_cmp.bend), +3 | [agg](../tests/coverage/agg.bend), [expr_arith](../tests/coverage/expr_arith.bend), +5 | [agg](../tests/coverage/agg.bend), [expr_arith](../tests/coverage/expr_arith.bend), +5 |  | 53 |
+| `alias` | [agg](../tests/coverage/agg.bend), [expr_arith](../tests/coverage/expr_arith.bend), +5 | [agg](../tests/coverage/agg.bend), [expr_arith](../tests/coverage/expr_arith.bend), +5 | [agg](../tests/coverage/agg.bend), [expr_arith](../tests/coverage/expr_arith.bend), +5 | [agg](../tests/coverage/agg.bend), [expr_cmp](../tests/coverage/expr_cmp.bend), +3 | [agg](../tests/coverage/agg.bend), [expr_arith](../tests/coverage/expr_arith.bend), +5 | [agg](../tests/coverage/agg.bend), [expr_arith](../tests/coverage/expr_arith.bend), +5 |  | 54 |
 | `cast` | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | n/a | 14 |
 | `cast_*` (cast_f32, cast_u32) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | n/a | 4 |
 | `try_cast` | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | n/a | 6 |
@@ -69,9 +69,9 @@ themselves are real tests (`make test` runs them and compares every dump with it
 | `i32*` (i32, i32_neg) | [expr_lit](../tests/coverage/expr_lit.bend) | n/a [3] | n/a [4] | [expr_lit](../tests/coverage/expr_lit.bend) | [expr_lit](../tests/coverage/expr_lit.bend) | n/a [5] |  | 1 |
 | `named` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [6] | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] | n/a | 2 |
 | `column` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 2 |
-| `from_columns` | [api_frames](../tests/coverage/api_frames.bend), [csv_write](../tests/coverage/csv_write.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend), [csv_write](../tests/coverage/csv_write.bend) | n/a [7] |  | 6 |
+| `from_columns` | [api_frames](../tests/coverage/api_frames.bend), [csv_write](../tests/coverage/csv_write.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend), [csv_write](../tests/coverage/csv_write.bend) | n/a [7] |  | 7 |
 | `closed_*` (closed_both, closed_left, closed_right, closed_neither) | [expr_cond](../tests/coverage/expr_cond.bend) | [expr_cond](../tests/coverage/expr_cond.bend) | [expr_cond](../tests/coverage/expr_cond.bend) | [expr_cond](../tests/coverage/expr_cond.bend) | [expr_cond](../tests/coverage/expr_cond.bend) | [expr_cond](../tests/coverage/expr_cond.bend) |  | 1 |
-| `sort_key` | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | yes | 2 |
+| `sort_key` | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | yes | 3 |
 | `asc` | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | yes | 5 |
 | `desc` | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | yes | 6 |
 
@@ -114,15 +114,15 @@ themselves are real tests (`make test` runs them and compares every dump with it
 
 | operation | success | null | empty | invalid | eager | lazy | 0col | other test files |
 |---|---|---|---|---|---|---|---|---|
-| `sum` | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | n/a | 23 |
+| `sum` | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | n/a | 24 |
 | `mean` | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | n/a | 12 |
-| `min` | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | n/a | 5 |
-| `max` | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | n/a | 6 |
+| `min` | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | n/a | 6 |
+| `max` | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | n/a | 7 |
 | `count` | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | n/a | 5 |
-| `len` | [agg](../tests/coverage/agg.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | [agg](../tests/coverage/agg.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | n/a | 11 |
+| `len` | [agg](../tests/coverage/agg.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | [agg](../tests/coverage/agg.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | n/a | 12 |
 | `first` | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | n/a | 3 |
 | `last` | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | n/a | 3 |
-| `n_unique` | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | n/a | 6 |
+| `n_unique` | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | n/a | 7 |
 | `std` | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | n/a | 2 |
 | `var` | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | n/a | 1 |
 | `median` | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | n/a | 3 |
@@ -131,11 +131,11 @@ themselves are real tests (`make test` runs them and compares every dump with it
 
 | operation | success | null | empty | invalid | eager | lazy | 0col | other test files |
 |---|---|---|---|---|---|---|---|---|
-| `select` | [agg](../tests/coverage/agg.bend), [api_plans](../tests/coverage/api_plans.bend), +6 | [agg](../tests/coverage/agg.bend), [api_plans](../tests/coverage/api_plans.bend), +6 | [agg](../tests/coverage/agg.bend), [api_plans](../tests/coverage/api_plans.bend), +6 | [expr_arith](../tests/coverage/expr_arith.bend), [expr_cmp](../tests/coverage/expr_cmp.bend), +3 | [agg](../tests/coverage/agg.bend), [api_plans](../tests/coverage/api_plans.bend), +6 | [agg](../tests/coverage/agg.bend), [api_plans](../tests/coverage/api_plans.bend), +6 | yes | 45 |
+| `select` | [agg](../tests/coverage/agg.bend), [api_plans](../tests/coverage/api_plans.bend), +6 | [agg](../tests/coverage/agg.bend), [api_plans](../tests/coverage/api_plans.bend), +6 | [agg](../tests/coverage/agg.bend), [api_plans](../tests/coverage/api_plans.bend), +6 | [expr_arith](../tests/coverage/expr_arith.bend), [expr_cmp](../tests/coverage/expr_cmp.bend), +3 | [agg](../tests/coverage/agg.bend), [api_plans](../tests/coverage/api_plans.bend), +6 | [agg](../tests/coverage/agg.bend), [api_plans](../tests/coverage/api_plans.bend), +6 | yes | 46 |
 | `with_columns` | [agg](../tests/coverage/agg.bend), [expr_lit](../tests/coverage/expr_lit.bend), +1 | [agg](../tests/coverage/agg.bend), [expr_lit](../tests/coverage/expr_lit.bend), +1 | [agg](../tests/coverage/agg.bend), [expr_lit](../tests/coverage/expr_lit.bend), +1 | [verbs_basic](../tests/coverage/verbs_basic.bend) | [agg](../tests/coverage/agg.bend), [expr_lit](../tests/coverage/expr_lit.bend), +1 | [agg](../tests/coverage/agg.bend), [expr_lit](../tests/coverage/expr_lit.bend), +1 | yes | 6 |
 | `filter` | [agg](../tests/coverage/agg.bend), [api_plans](../tests/coverage/api_plans.bend), +1 | [agg](../tests/coverage/agg.bend), [api_plans](../tests/coverage/api_plans.bend), +1 | [agg](../tests/coverage/agg.bend), [api_plans](../tests/coverage/api_plans.bend), +1 | [verbs_basic](../tests/coverage/verbs_basic.bend) | [agg](../tests/coverage/agg.bend), [api_plans](../tests/coverage/api_plans.bend), +1 | [agg](../tests/coverage/agg.bend), [api_plans](../tests/coverage/api_plans.bend), +1 | yes | 27 |
-| `sort` | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | yes | 7 |
-| `group_by` | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) |  | 11 |
+| `sort` | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | yes | 8 |
+| `group_by` | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) |  | 12 |
 | `head` | [api_plans](../tests/coverage/api_plans.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | [api_plans](../tests/coverage/api_plans.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | [api_plans](../tests/coverage/api_plans.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | n/a [8] | [api_plans](../tests/coverage/api_plans.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | [api_plans](../tests/coverage/api_plans.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | yes | 14 |
 | `inner_join` | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | n/a | 3 |
 | `left_join` | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | n/a | 2 |
@@ -145,7 +145,7 @@ themselves are real tests (`make test` runs them and compares every dump with it
 | `rename` | [verbs_basic](../tests/coverage/verbs_basic.bend), [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend), [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend), [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend), [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend), [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend), [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | yes | 3 |
 | `slice` | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | n/a [9] | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | yes | 3 |
 | `tail` | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | n/a [10] | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | yes | 3 |
-| `unique` | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | yes | 4 |
+| `unique` | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | yes | 5 |
 | `concat_vertical` | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | yes | 7 |
 
 ### Lazy plan builders
@@ -195,7 +195,7 @@ themselves are real tests (`make test` runs them and compares every dump with it
 | `optimize` | [api_plans](../tests/coverage/api_plans.bend) | n/a [11] | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | n/a | 4 |
 | `optimize_full` | [api_plans](../tests/coverage/api_plans.bend) | n/a [11] | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | n/a | 2 |
 | `show` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 3 |
-| `dump` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 11 |
+| `dump` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 14 |
 | `dump_frame` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [6] | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 2 |
 | `describe` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 4 |
 | `clone` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [6] | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 1 |
@@ -212,7 +212,7 @@ themselves are real tests (`make test` runs them and compares every dump with it
 | `read_csv_schema` | [csv_read](../tests/coverage/csv_read.bend), [csv_write](../tests/coverage/csv_write.bend) | [csv_read](../tests/coverage/csv_read.bend), [csv_write](../tests/coverage/csv_write.bend) | [csv_read](../tests/coverage/csv_read.bend), [csv_write](../tests/coverage/csv_write.bend) | [csv_read](../tests/coverage/csv_read.bend), [csv_write](../tests/coverage/csv_write.bend) | [csv_read](../tests/coverage/csv_read.bend), [csv_write](../tests/coverage/csv_write.bend) | [csv_read](../tests/coverage/csv_read.bend) |  | 2 |
 | `read_csv_enc` | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) |  | 1 |
 | `str_*` (str_raw, str_dict, str_auto) | [csv_read](../tests/coverage/csv_read.bend), [csv_storage](../tests/coverage/csv_storage.bend) | [csv_read](../tests/coverage/csv_read.bend), [csv_storage](../tests/coverage/csv_storage.bend) | [csv_read](../tests/coverage/csv_read.bend), [csv_storage](../tests/coverage/csv_storage.bend) | [csv_read](../tests/coverage/csv_read.bend), [csv_storage](../tests/coverage/csv_storage.bend) | [csv_read](../tests/coverage/csv_read.bend), [csv_storage](../tests/coverage/csv_storage.bend) | n/a [15] |  | 1 |
-| `encode_strings` | [csv_storage](../tests/coverage/csv_storage.bend) | [csv_storage](../tests/coverage/csv_storage.bend) | [csv_storage](../tests/coverage/csv_storage.bend) | n/a [16] | [csv_storage](../tests/coverage/csv_storage.bend) | n/a [17] |  | 1 |
+| `encode_strings` | [csv_storage](../tests/coverage/csv_storage.bend) | [csv_storage](../tests/coverage/csv_storage.bend) | [csv_storage](../tests/coverage/csv_storage.bend) | n/a [16] | [csv_storage](../tests/coverage/csv_storage.bend) | n/a [17] |  | 2 |
 | `dict_columns` | [csv_storage](../tests/coverage/csv_storage.bend) | [csv_storage](../tests/coverage/csv_storage.bend) | [csv_storage](../tests/coverage/csv_storage.bend) | n/a [16] | [csv_storage](../tests/coverage/csv_storage.bend) | n/a [17] |  | 1 |
 | `scan_csv` | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) |  | 7 |
 | `scan_csv_opts` | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) |  | 4 |
@@ -245,7 +245,7 @@ themselves are real tests (`make test` runs them and compares every dump with it
 
 Method: a static call graph (see the header of `scripts/coverage_matrix.py`). A def *mentions* another def
 when its body names it (qualified through the file's import aliases, or bare inside its own module).
-Entry points are the 324 defs that a test (or a `tests/**/lib` helper a test imports) calls directly,
+Entry points are the 349 defs that a test (or a `tests/**/lib` helper a test imports) calls directly,
 `frame.bend` defs and `src/` defs alike. A def is *reached* when a path of mentions leads to it. Two
 reach columns: **via facade** follows only the entries that are `frame.bend` defs (what the public API
 alone can reach); **reached** adds the `src/` defs the tests call directly (the proof-style and unit tests).
@@ -257,27 +257,32 @@ reach these", not as line coverage. Reported, not gated.
 |---|---|---|---|---|---|
 | `frame.bend` | 175 | 162 | 174 | 174 | 1 |
 | `src/analysis.bend` | 44 | 0 | 44 | 44 | 0 |
-| `src/column.bend` | 151 | 26 | 149 | 149 | 2 |
+| `src/column.bend` | 160 | 28 | 158 | 158 | 2 |
 | `src/csv.bend` | 296 | 14 | 287 | 295 | 1 |
+| `src/csvlane.bend` | 135 | 1 | 0 | 135 | 0 |
 | `src/csvparse.bend` | 20 | 1 | 19 | 19 | 1 |
-| `src/dtype.bend` | 40 | 25 | 28 | 40 | 0 |
-| `src/dump.bend` | 39 | 1 | 39 | 39 | 0 |
+| `src/csvprod.bend` | 33 | 2 | 0 | 28 | 5 |
+| `src/dtype.bend` | 40 | 25 | 24 | 36 | 4 |
+| `src/dump.bend` | 39 | 2 | 39 | 39 | 0 |
 | `src/err.bend` | 3 | 3 | 3 | 3 | 0 |
-| `src/eval.bend` | 295 | 12 | 290 | 293 | 2 |
-| `src/exec.bend` | 51 | 9 | 51 | 51 | 0 |
+| `src/eval.bend` | 315 | 14 | 308 | 313 | 2 |
+| `src/exec.bend` | 56 | 10 | 56 | 56 | 0 |
 | `src/expr.bend` | 45 | 8 | 45 | 45 | 0 |
-| `src/fmt.bend` | 98 | 3 | 98 | 98 | 0 |
-| `src/groupby.bend` | 152 | 1 | 152 | 152 | 0 |
-| `src/join.bend` | 151 | 2 | 150 | 150 | 1 |
-| `src/kernels.bend` | 67 | 29 | 61 | 67 | 0 |
+| `src/fmt.bend` | 113 | 3 | 113 | 113 | 0 |
+| `src/groupby.bend` | 172 | 1 | 172 | 172 | 0 |
+| `src/hcode.bend` | 22 | 6 | 21 | 22 | 0 |
+| `src/join.bend` | 152 | 3 | 151 | 151 | 1 |
+| `src/kernels.bend` | 71 | 33 | 63 | 71 | 0 |
 | `src/plan.bend` | 123 | 11 | 122 | 122 | 1 |
+| `src/radix.bend` | 16 | 0 | 16 | 16 | 0 |
+| `src/ranks.bend` | 61 | 2 | 61 | 61 | 0 |
 | `src/schema.bend` | 23 | 8 | 20 | 23 | 0 |
-| `src/sort.bend` | 70 | 4 | 69 | 69 | 1 |
-| `src/strs.bend` | 98 | 5 | 98 | 98 | 0 |
-| `src/table.bend` | 68 | 0 | 68 | 68 | 0 |
-| **total** | **2009** | **324** | **1967** | **1999** | **10** |
+| `src/sort.bend` | 76 | 3 | 74 | 74 | 2 |
+| `src/strs.bend` | 92 | 8 | 92 | 92 | 0 |
+| `src/table.bend` | 72 | 1 | 72 | 72 | 0 |
+| **total** | **2354** | **349** | **2134** | **2334** | **20** |
 
-99.5 % of the 2009 defs are reachable from the tests (97.9 % through the facade alone).
+99.2 % of the 2354 defs are reachable from the tests (90.7 % through the facade alone).
 
 Unreached defs:
 
@@ -285,7 +290,9 @@ Unreached defs:
 - `src/column.bend`: `Column.depth`, `Column.rename`
 - `src/csv.bend`: `Csv.parse_enc`
 - `src/csvparse.bend`: `parse`
+- `src/csvprod.bend`: `Pr.piece`, `Rt.leaves`, `Rt.of`, `Rt.pair`, `Rt.top`
+- `src/dtype.bend`: `I32.floor_div`, `I32.floor_div.k`, `I32.floor_mod`, `I32.floor_mod.k`
 - `src/eval.bend`: `Eval.is_stat`, `SKind.is_agg`
 - `src/join.bend`: `JoinHow.show`
 - `src/plan.bend`: `Plan.sources`
-- `src/sort.bend`: `Sort.sign`
+- `src/sort.bend`: `Sort.none`, `Sort.sign`

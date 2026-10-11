@@ -1,4 +1,5 @@
-# W2.1 / W2.2 native probes (v0.2): the flat coder Hc.code and the rank stage vs v0.1.
+# W2.1 / W2.2 native probes (v0.2): the flat coder Hc.code and the rank stage vs v0.1 (the v0.1
+# functions come from tests/lib/v01str.bend since W2.3 deleted them from src/).
 #   ~/.bend/bin/bend bench/w2/w2.bend -o build/w2/w2
 #   build/w2/w2 [--threads N] <shape> <n> <mode>
 # shape: distinct prefix longprefix skew equal low uni empty nul aligned wide   (tests/lib/w2gen.bend)
@@ -12,7 +13,7 @@
 #                        gather_ms) and the rank stage's rows back
 #                rparts  the stage opened up: code_ms off_ms pack_ms rounds_ms (incl. the rank
 #                        scatter) gather_ms
-#                dold / dnew  ST.Dict.ranks (v0.1) vs Rk.dict on the dictionary of the rows' distinct
+#                dold / dnew  Dict.ranks (v0.1) vs Rk.dict on the dictionary of the rows' distinct
 #                        entries (k = distinct strings + 1)
 # mode frame:    never used for measuring: it only makes frame.bend's reader reachable so the program
 #                has the same hot types as a program importing the library (DESIGN 17.1.3)
@@ -23,7 +24,7 @@ import Base
 import ./../../frame.bend as DF
 import ./../../src/kernels.bend as K
 import ./../../src/strs.bend as ST
-import ./../../src/sort.bend as SO
+import ./../../tests/lib/v01str.bend as V1
 import ./../../src/hcode.bend as H
 import ./../../src/ranks.bend as R
 import ./../../tests/lib/w2gen.bend as G
@@ -70,10 +71,10 @@ def fin.ck(+mode: String, +shape: String, +n: U32, +chars: U32, +t0: Nat, +t1: N
 def fin.cs(+mode: String, +shape: String, +n: U32, +chars: U32, +t0: Nat, +t1: Nat, codes: Array<U32>, +k: U32, a: Array<String>) -> IO(Unit):
   fin.ck(mode, shape, n, chars, t0, t1, k, a, chk(n, codes))
 
-def run.old.k(+mode: String, +shape: String, +n: U32, +chars: U32, +t0: Nat, r: Array<String> & Array<U32> & SO.CS) -> IO(Unit):
+def run.old.k(+mode: String, +shape: String, +n: U32, +chars: U32, +t0: Nat, r: Array<String> & Array<U32> & V1.CS) -> IO(Unit):
   (strs, codes, cs) = r
   match cs:
-    case SO.CS{m, +k}:
+    case V1.CS{m, +k}:
       do IO<Unit>:
         t1 : Nat <- IO.now()
         fin.cs(mode, shape, n, chars, t0, t1, codes, k, strs)
@@ -189,7 +190,7 @@ def dict.rank(+new: Bool, +mode: String, +shape: String, +n: U32, +chars: U32, +
     case True{}:
       dict.fin(mode, shape, n, chars, k, t0, a, R.Rk.dict(d))
     case False{}:
-      dict.fin(mode, shape, n, chars, k, t0, a, ST.Dict.ranks(d))
+      dict.fin(mode, shape, n, chars, k, t0, a, V1.Dict.ranks(d))
 
 def dict.run(+new: Bool, +mode: String, +shape: String, +n: U32, +chars: U32, a: Array<String>, d: ST.Dict) -> IO(Unit):
   match d:
@@ -240,15 +241,15 @@ def mode_of(+s: String) -> Mode:
 def run.mode(m: Mode, +mode: String, +shape: String, +n: U32, +d: Nat, +chars: U32, +t0: Nat, a: Array<String>) -> IO(Unit):
   match m:
     case MOld{}:
-      run.old.k(mode, shape, n, chars, t0, SO.Sort.str_codes_par(n, d, 0, a))
+      run.old.k(mode, shape, n, chars, t0, V1.Sort.str_codes_par(n, d, 0, a))
     case MOldSeq{}:
-      run.old.k(mode, shape, n, chars, t0, SO.Sort.str_codes(n, d, 0, a))
+      run.old.k(mode, shape, n, chars, t0, V1.Sort.str_codes(n, d, 0, a))
     case MNew{}:
       run.new.k(mode, shape, n, chars, t0, H.Hc.code.fnv(n, d, 0, a))
     case MNewH{}:
       run.new.k(mode, shape, n, chars, t0, H.Hc.code(~(s => H.Hc.hash.h(s)), n, d, 0, a))
     case MROld{}:
-      run.rold.k(shape, n, chars, t0, SO.Sort.str_words(n, d, 0, a))
+      run.rold.k(shape, n, chars, t0, V1.Sort.str_words(n, d, 0, a))
     case MRNew{}:
       run.rnew.k(shape, n, chars, t0, R.Rk.words(n, d, 0, a))
     case MRStage{}:
