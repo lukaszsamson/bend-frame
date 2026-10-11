@@ -273,7 +273,7 @@ reach these", not as line coverage. Reported, not gated.
 | `src/chunks.bend` | 219 | 33 | 190 | 200 | 19 |
 | `src/ckernels.bend` | 206 | 48 | 7 | 147 | 59 |
 | `src/column.bend` | 160 | 29 | 158 | 158 | 2 |
-| `src/csv.bend` | 476 | 18 | 467 | 475 | 1 |
+| `src/csv.bend` | 478 | 18 | 469 | 477 | 1 |
 | `src/csvlane.bend` | 152 | 1 | 152 | 152 | 0 |
 | `src/csvparse.bend` | 20 | 1 | 19 | 19 | 1 |
 | `src/csvprod.bend` | 33 | 2 | 33 | 33 | 0 |
@@ -295,9 +295,9 @@ reach these", not as line coverage. Reported, not gated.
 | `src/sort.bend` | 84 | 3 | 82 | 82 | 2 |
 | `src/strs.bend` | 92 | 10 | 90 | 90 | 2 |
 | `src/table.bend` | 72 | 1 | 72 | 72 | 0 |
-| **total** | **3727** | **481** | **3416** | **3627** | **100** |
+| **total** | **3729** | **481** | **3418** | **3629** | **100** |
 
-97.3 % of the 3727 defs are reachable from the tests (91.7 % through the facade alone).
+97.3 % of the 3729 defs are reachable from the tests (91.7 % through the facade alone).
 
 Unreached defs:
 
