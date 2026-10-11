@@ -9,3 +9,4 @@ __pycache__/
 .claude/
 
 bench/m2/.expected.lock
+bench/data
