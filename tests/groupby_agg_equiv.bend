@@ -1,8 +1,9 @@
 # group_by with several aggregates over 2^14 rows and more (v0.2 T5.4, DESIGN.md 16.4 D4 / 14 T5.4).
 # The T5.4 fork of the aggregate scatters (2x2, each lane owning a clone of the group ids) was built,
-# measured and REMOVED: it did not pay on q3 (bench/w5/t54_groupby_fork.patch is the exact patch). This
-# test keeps the contract that fork had to meet, so any later fork of the aggregates (or a fused
-# single-pass scatter) is held to it:
+# measured and REMOVED: it did not pay on q3 (bench/w5/t54_groupby_fork.patch is the exact patch). The T5.4b
+# fused single-pass scatter (one read of the group ids for every aggregate; bench/w5/t54b_groupby_fused.patch)
+# passed this test, was measured and REMOVED too (DESIGN.md 14 T5.4b). This test keeps the contract those
+# had to meet, so any later fork of the aggregates (or a fused scatter) is held to it:
 #   * for 2, 3, 4, 7 and 8 aggregates over 20000 rows (nulls, F32 NaN / -0.0 / inf, str min, a literal,
 #     Len, First / Last, NUnique, Median) every result column equals (dump, F32 bits) the same
 #     aggregate run ALONE

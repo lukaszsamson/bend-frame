@@ -1,0 +1,60 @@
+# T5.4b group_by: raw measurements (PROVISIONAL, shared machine, load per process in the lines; 1 thread;
+# build/gbp.bend = bench/w5/t54.bend + stages 40-42; per-process means over all reps (first rep dropped),
+# mean / median over all reps of all processes, binaries interleaved per process; stage k as in t54.bend:
+# 3 = groupby_q3 (4 aggregates), 31 = sum + mean, 32 = key + len, 40 / 41 / 42 = encode_keep / + densify / + key gather)
+
+## (1) key clone removed only (s1) and the fused scatter with runtime op dispatch (s2) vs master (base)
+# load at start (8.51953125, 8.12890625, 7.396484375)
+## k=3 procs=4 reps=20 threads=1
+  gbp_base   mean   9.20  median   9.0  vs-first 1.000  proc-means [9.25, 9.15, 9.15, 9.25]  load [8.7, 9.4, 9.6, 8.3]
+  gbp_s1     mean   9.16  median   9.0  vs-first 0.996  proc-means [9.1, 9.1, 9.4, 9.05]  load [8.9, 9.3, 9.6, 8.8]
+  gbp_s2     mean  13.57  median  13.0  vs-first 1.476  proc-means [13.85, 14.15, 13.25, 13.05]  load [9.0, 9.1, 9.3, 9.1]
+## k=31 procs=4 reps=20 threads=1
+  gbp_base   mean   6.92  median   7.0  vs-first 1.000  proc-means [7.1, 6.85, 6.75, 7]  load [8.1, 7.2, 7.0, 6.1]
+  gbp_s1     mean   6.94  median   7.0  vs-first 1.002  proc-means [6.75, 7.45, 6.85, 6.7]  load [7.9, 7.4, 6.6, 6.3]
+  gbp_s2     mean  13.93  median  14.0  vs-first 2.011  proc-means [13.65, 13.3, 15.25, 13.5]  load [7.7, 7.6, 6.4, 6.4]
+## k=32 procs=4 reps=20 threads=1
+  gbp_base   mean   3.91  median   4.0  vs-first 1.000  proc-means [4, 3.8, 3.85, 4]  load [6.1, 5.7, 5.8, 6.0]
+  gbp_s1     mean   3.67  median   4.0  vs-first 0.939  proc-means [3.75, 3.75, 3.45, 3.75]  load [6.0, 5.9, 6.0, 6.3]
+  gbp_s2     mean   3.95  median   4.0  vs-first 1.010  proc-means [3.8, 3.7, 4.5, 3.8]  load [6.0, 6.1, 6.0, 6.3]
+
+## (2) dispatch-free probe of the fused loop (hack1: every F lane Grp.nm, every W lane an add: WRONG results;
+## it measures the memory pattern and the flat loop of the fused kernel only), k=3
+  gbp_base   mean   9.25  median   9.0  proc-means [9.5, 9.05, 9.2]  load [6.1, 5.8, 5.6]
+  gbp_hack1  mean   9.48  median   9.0  proc-means [9.75, 9.2, 9.5]  load [5.8, 5.9, 5.5]
+
+## (3) where the stage goes (base = master; s2 has the same key coding)
+# load at start (4.9794921875, 5.9912109375, 6.64453125)
+## k=40 procs=3 reps=20 threads=1
+  gbp_base   mean   1.15  median   1.0  vs-first 1.000  proc-means [1.2, 1.1, 1.15]  load [5.0, 5.2, 5.2]
+  gbp_s2     mean   1.07  median   1.0  vs-first 0.928  proc-means [1, 1.15, 1.05]  load [5.0, 5.0, 5.1]
+## k=41 procs=3 reps=20 threads=1
+  gbp_base   mean   3.03  median   3.0  vs-first 1.000  proc-means [3.05, 3, 3.05]  load [5.0, 4.7, 4.6]
+  gbp_s2     mean   3.00  median   3.0  vs-first 0.989  proc-means [2.9, 3.1, 3]  load [4.8, 4.7, 4.5]
+## k=42 procs=3 reps=20 threads=1
+  gbp_base   mean   3.00  median   3.0  vs-first 1.000  proc-means [3.05, 3.05, 2.9]  load [4.6, 5.0, 5.6]
+  gbp_s2     mean   2.90  median   3.0  vs-first 0.967  proc-means [2.85, 2.9, 2.95]  load [4.8, 4.9, 6.0]
+## k=32 procs=3 reps=20 threads=1
+  gbp_base   mean   4.40  median   4.0  vs-first 1.000  proc-means [4.1, 5.05, 4.05]  load [5.7, 7.4, 9.0]
+  gbp_s2     mean   3.82  median   4.0  vs-first 0.867  proc-means [3.75, 3.9, 3.8]  load [5.4, 5.5, 9.0]
+
+[exited with code 0]
+
+## (4) final code (s3 = borrowed key + one-pass Dictionary / Bool densify) and s4 = s3 with Bool.pick replaced by
+## arithmetic in dens.put / bw.go / kd.go (REJECTED: slower)
+17:21  up 24 days,  6:40, 23 users, load averages: 8.71 9.36 9.61
+# load at start (8.71435546875, 9.35888671875, 9.61279296875)
+## k=3 procs=4 reps=20 threads=1
+  gbp_base   mean   9.60  median   9.0  vs-first 1.000  proc-means [9.3, 9.25, 10.55, 9.3]  load [8.6, 7.0, 6.8, 6.6]
+  gbp_s3     mean   8.16  median   8.0  vs-first 0.850  proc-means [8.15, 8.15, 8.15, 8.2]  load [8.3, 7.3, 6.7, 6.6]
+  gbp_s4     mean   8.39  median   8.0  vs-first 0.874  proc-means [8.15, 8.55, 8.6, 8.25]  load [7.8, 7.5, 6.9, 6.8]
+## k=41 procs=4 reps=20 threads=1
+  gbp_base   mean   3.17  median   3.0  vs-first 1.000  proc-means [3.2, 3.35, 3.05, 3.1]  load [6.7, 8.4, 8.5, 7.6]
+  gbp_s3     mean   2.79  median   3.0  vs-first 0.878  proc-means [2.7, 2.85, 2.85, 2.75]  load [6.9, 7.9, 8.1, 7.6]
+  gbp_s4     mean   3.16  median   3.0  vs-first 0.996  proc-means [3.25, 3.2, 3.1, 3.1]  load [7.4, 7.6, 7.9, 7.7]
+## k=32 procs=4 reps=20 threads=1
+  gbp_base   mean   4.06  median   4.0  vs-first 1.000  proc-means [4.4, 4, 4, 3.85]  load [7.8, 8.5, 8.6, 9.4]
+  gbp_s3     mean   2.85  median   3.0  vs-first 0.702  proc-means [2.95, 2.75, 2.95, 2.75]  load [8.0, 8.5, 8.6, 9.4]
+  gbp_s4     mean   3.21  median   3.0  vs-first 0.791  proc-means [3.05, 3.1, 3.55, 3.15]  load [8.3, 8.7, 9.0, 9.3]
+
+[exited with code 0]

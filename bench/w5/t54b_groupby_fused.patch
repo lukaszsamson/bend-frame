@@ -1,0 +1,535 @@
+--- a/src/groupby.bend	2026-10-11 17:15:16
++++ b/src/groupby.bend	2026-10-11 17:03:22
+@@ -1158,13 +1158,530 @@
+     case ASt{f, g, Done{acc}}:
+       Grp.aout.split(X.Expr.name(e), rest, X.Expr.split_agg(e), f, g, acc)
+ 
+-def Grp.aout(ags: List<&2, X.Expr>, st: ASt) -> ASt:
++# ---- fused scatter (T5.4b) -------------------------------------------------------------------------------
++#
++# The per-aggregate scatters (Grp.scat) each read the group ids, one value array and one mask and update one
++# accumulator array: four aggregates read the ids four times. The fused loop (Grp.fz.go) reads the group id
++# ONCE per row and updates up to four accumulators: two F32 lanes (value array F32, accumulator KS = the
++# Neumaier state) and two word lanes (value array U32, accumulator MW). Every lane has a runtime op code (a
++# loop-invariant register, so the per-row dispatch is a predictable branch) instead of a template, so one
++# compiled loop serves every combination of aggregations. The update of each lane is the update the
++# per-aggregate scatter made (Grp.nm, Grp.mw, the fmin / fmax steps), the rows still visited in ascending
++# order, so an F32 sum is one sequential Neumaier pass in input-row order per group (DESIGN.md 16.4 D4) and
++# every result is bit-identical. Lane kinds (fixed by the aggregation and the dtype, planned by Grp.pl.*):
++#   F lanes  0 sum   1 mean   (Grp.nm)   2 min   3 max (fmin / fmax over (seen = k, value = s))   4 nop
++#   W lanes  0 sum (u32 / i32 wrapping add)   1 add the mask (Len: all-ones mask; Count: the validity)
++#            2 / 3 min / max u32   4 / 5 min / max i32   6 last (the row index)   7 nop
++# Not fused (they keep the per-aggregate code: Grp.agg): std / var / median / n_unique / first, mean over u32 /
++# i32, anything over Bool / Str, and the whole group_by when it has a single aggregation or more than
++# Grp.fz.max_groups() groups (the accumulators of a wide group_by miss the cache: the extra pass that turns the
++# 2-word accumulators into the output columns and the larger working set cost more than the ids' second read).
++
++def Grp.fz.max_groups() -> U32:
++  65536
++
++type FIn is Type:
++  FIn{op: U32, vals: Array<F32>, mask: Array<U32>}
++
++type WIn is Type:
++  WIn{op: U32, vals: Array<U32>, mask: Array<U32>}
++
++# the accumulators after a pass: the group ids (handed back) and the lanes' arrays, newest first
++type FSt is Type:
++  FSt{gids: Array<U32>, qf: List<&1, Array<KS>>, qw: List<&1, Array<MW>>}
++
++def Grp.fz.f.m(~op: F32 -> F32 -> F32, acc: KS, +x: F32, +v: U32) -> KS:
++  match acc:
++    case KS{+s, +c, +k}:
++      KS{Bool.pick(F32, U32.is_zero(v), s, Bool.pick(F32, U32.is_zero(k), x, op(s, x))), c, U32.or(k, v)}
++
++def Grp.fz.f(+op: U32, acc: KS, +x: F32, +v: U32) -> KS:
++  match op:
++    case 2:
++      Grp.fz.f.m(~(p => q => K.Kernel.fmin(p, q)), acc, x, v)
++    case 3:
++      Grp.fz.f.m(~(p => q => K.Kernel.fmax(p, q)), acc, x, v)
++    case 4:
++      acc
++    case _:
++      Grp.nm(acc, x, v)
++
++def Grp.fz.w.add(acc: MW, +x: U32, +v: U32) -> MW:
++  match acc:
++    case MW{s, +m}:
++      MW{s, U32.add(m, U32.and(x, U32.sub(0, v)))}
++
++def Grp.fz.w.cnt(acc: MW, +v: U32) -> MW:
++  match acc:
++    case MW{s, +m}:
++      MW{s, U32.add(m, v)}
++
++def Grp.fz.w.last(acc: MW, +i: U32) -> MW:
++  match acc:
++    case MW{s, m}:
++      MW{s, i}
++
++def Grp.fz.w(+op: U32, acc: MW, +x: U32, +v: U32, +i: U32) -> MW:
++  match op:
++    case 0:
++      Grp.fz.w.add(acc, x, v)
++    case 1:
++      Grp.fz.w.cnt(acc, v)
++    case 2:
++      Grp.mw(~(p => q => U32.min(p, q)), acc, x, v)
++    case 3:
++      Grp.mw(~(p => q => U32.max(p, q)), acc, x, v)
++    case 4:
++      Grp.mw(~(p => q => V.Eval.i32_min(p, q)), acc, x, v)
++    case 5:
++      Grp.mw(~(p => q => V.Eval.i32_max(p, q)), acc, x, v)
++    case 6:
++      Grp.fz.w.last(acc, i)
++    case _:
++      acc
++
++# one row: the four lanes' new accumulators (the accumulator arrays come back)
++def Grp.fz.put(+of1: U32, +of2: U32, +ow1: U32, +ow2: U32, +i: U32, x1: F32, v1: U32, x2: F32, v2: U32, y1: U32, w1: U32, y2: U32, w2: U32, +g: U32, r1: Array<KS> & KS, r2: Array<KS> & KS, r3: Array<MW> & MW, r4: Array<MW> & MW) -> Array<KS> & Array<KS> & Array<MW> & Array<MW>:
++  (a1, o1) = r1
++  (a2, o2) = r2
++  (a3, o3) = r3
++  (a4, o4) = r4
++  (Array.set(KS, a1, g, Grp.fz.f(of1, o1, x1, v1)), Array.set(KS, a2, g, Grp.fz.f(of2, o2, x2, v2)), Array.set(MW, a3, g, Grp.fz.w(ow1, o3, y1, w1, i)), Array.set(MW, a4, g, Grp.fz.w(ow2, o4, y2, w2, i)))
++
++# THE fused loop (spin loop of the emitted C): one read of the group id per row, four lanes updated; the
++# value and mask arrays are read in place (a 1-slot mask / nop array reads the same slot for every row) and
++# dropped at the end, the ids and the accumulators come back. Allocates nothing per row.
++def Grp.fz.go(+of1: U32, +of2: U32, +ow1: U32, +ow2: U32, n: Nat, +i: U32, st: Array<KS> & Array<KS> & Array<MW> & Array<MW>, rg: Array<U32> & U32, rx1: Array<F32> & F32, rm1: Array<U32> & U32, rx2: Array<F32> & F32, rm2: Array<U32> & U32, ry1: Array<U32> & U32, rn1: Array<U32> & U32, ry2: Array<U32> & U32, rn2: Array<U32> & U32) -> Array<U32> & Array<KS> & Array<KS> & Array<MW> & Array<MW>:
++  match n:
++    case 0n:
++      (a1, a2, a3, a4) = st
++      (gs, g) = rg
++      (xs1, x1) = rx1
++      (ms1, v1) = rm1
++      (xs2, x2) = rx2
++      (ms2, v2) = rm2
++      (ys1, y1) = ry1
++      (ns1, w1) = rn1
++      (ys2, y2) = ry2
++      (ns2, w2) = rn2
++      (gs, a1, a2, a3, a4)
++    case 1n+p:
++      (a1, a2, a3, a4) = st
++      (gs, +g) = rg
++      (xs1, x1) = rx1
++      (ms1, v1) = rm1
++      (xs2, x2) = rx2
++      (ms2, v2) = rm2
++      (ys1, y1) = ry1
++      (ns1, w1) = rn1
++      (ys2, y2) = ry2
++      (ns2, w2) = rn2
++      +j = U32.inc(i)
++      Grp.fz.go(of1, of2, ow1, ow2, p, j, Grp.fz.put(of1, of2, ow1, ow2, i, x1, v1, x2, v2, y1, w1, y2, w2, g, Array.get(KS, a1, g), Array.get(KS, a2, g), Array.get(MW, a3, g), Array.get(MW, a4, g)), Array.get(U32, gs, j), Array.get(F32, xs1, j), Array.get(U32, ms1, j), Array.get(F32, xs2, j), Array.get(U32, ms2, j), Array.get(U32, ys1, j), Array.get(U32, ns1, j), Array.get(U32, ys2, j), Array.get(U32, ns2, j))
++
++# one pass over the rows for the lanes (f1, f2, w1, w2); the accumulators are fresh 2^dg-slot arrays
++def Grp.fz.call(+n: U32, +dg: Nat, gids: Array<U32>, f1: FIn, f2: FIn, w1: WIn, w2: WIn) -> Array<U32> & Array<KS> & Array<KS> & Array<MW> & Array<MW>:
++  match f1 f2 w1 w2:
++    case FIn{+o1, x1, m1} FIn{+o2, x2, m2} WIn{+p1, y1, k1} WIn{+p2, y2, k2}:
++      Grp.fz.go(o1, o2, p1, p2, U32.to_nat(n), 0, (Array.new(KS, dg, KS{0.0, 0.0, 0}), Array.new(KS, dg, KS{0.0, 0.0, 0}), Array.new(MW, dg, MW{0, 0}), Array.new(MW, dg, MW{0, 0})), Array.get(U32, gids, 0), Array.get(F32, x1, 0), Array.get(U32, m1, 0), Array.get(F32, x2, 0), Array.get(U32, m2, 0), Array.get(U32, y1, 0), Array.get(U32, k1, 0), Array.get(U32, y2, 0), Array.get(U32, k2, 0))
++
++def Grp.fz.chunk.b(qf: List<&1, Array<KS>>, qw: List<&1, Array<MW>>, r: Array<U32> & Array<KS> & Array<KS> & Array<MW> & Array<MW>) -> FSt:
++  (gids, a1, a2, a3, a4) = r
++  FSt{gids, a2 <> (a1 <> qf), a4 <> (a3 <> qw)}
++
++def Grp.fz.chunk(+n: U32, +dg: Nat, f1: FIn, f2: FIn, w1: WIn, w2: WIn, st: FSt) -> FSt:
++  match st:
++    case FSt{gids, qf, qw}:
++      Grp.fz.chunk.b(qf, qw, Grp.fz.call(n, dg, gids, f1, f2, w1, w2))
++
++# nop lanes pad a chunk (always the tail of a lane list)
++def Grp.fz.fnop() -> FIn:
++  FIn{4, Array.new(F32, 0n, 0.0), Array.new(U32, 0n, 1)}
++
++def Grp.fz.wnop() -> WIn:
++  WIn{7, Array.new(U32, 0n, 0), Array.new(U32, 0n, 1)}
++
++def Grp.fz.f2.b(a: FIn, t: List<&1, FIn>) -> FIn & FIn & List<&1, FIn>:
++  match t:
++    case Nil{}:
++      (a, Grp.fz.fnop(), Nil{})
++    case b <> r:
++      (a, b, r)
++
++def Grp.fz.f2(l: List<&1, FIn>) -> FIn & FIn & List<&1, FIn>:
++  match l:
++    case Nil{}:
++      (Grp.fz.fnop(), Grp.fz.fnop(), Nil{})
++    case a <> t:
++      Grp.fz.f2.b(a, t)
++
++def Grp.fz.w2.b(a: WIn, t: List<&1, WIn>) -> WIn & WIn & List<&1, WIn>:
++  match t:
++    case Nil{}:
++      (a, Grp.fz.wnop(), Nil{})
++    case b <> r:
++      (a, b, r)
++
++def Grp.fz.w2(l: List<&1, WIn>) -> WIn & WIn & List<&1, WIn>:
++  match l:
++    case Nil{}:
++      (Grp.fz.wnop(), Grp.fz.wnop(), Nil{})
++    case a <> t:
++      Grp.fz.w2.b(a, t)
++
++# k chunks of (two F lanes, two W lanes) over the lanes in order; fx / wx hold the next chunk's lanes and
++# the rest of the lists (a pair taken apart here, so the recursion goes through its own argument)
++def Grp.fz.all(k: Nat, +n: U32, +dg: Nat, fx: FIn & FIn & List<&1, FIn>, wx: WIn & WIn & List<&1, WIn>, st: FSt) -> FSt:
++  match k:
++    case 0n:
++      st
++    case 1n+p:
++      (f1, f2, fr) = fx
++      (w1, w2, wr) = wx
++      Grp.fz.all(p, n, dg, Grp.fz.f2(fr), Grp.fz.w2(wr), Grp.fz.chunk(n, dg, f1, f2, w1, w2, st))
++
++# ceil(a / 2) vs ceil(b / 2): the number of chunks
++def Grp.fz.chunks(+a: U32, +b: U32) -> Nat:
++  U32.to_nat(U32.max(U32.div(U32.inc(a), 2), U32.div(U32.inc(b), 2)))
++
++# ---- the plan: one entry per aggregation, in order -----------------------------------------------------------
++type AP is Type:
++  APLit{name: String, c: C.Column}
++  APOld{name: String, op: X.AggOp, c: C.Column}
++  APW{name: String, t: D.DType, op: U32}
++  APF{name: String, kind: U32}
++  APLast{name: String, c: C.Column}
++
++# plan entries and lane lists, newest first; the counts of F and W lanes
++type PS is Type:
++  PS{plan: List<&1, AP>, fl: List<&1, FIn>, wl: List<&1, WIn>, nf: U32, nw: U32}
++
++type PSt is Type:
++  PSt{f: C.Frame, r: E.ResT(PS)}
++
++def Grp.pl.addf(ap: AP, l: FIn, ps: PS) -> PS:
++  match ps:
++    case PS{plan, fl, wl, +nf, nw}:
++      PS{ap <> plan, l <> fl, wl, U32.inc(nf), nw}
++
++def Grp.pl.addw(ap: AP, l: WIn, ps: PS) -> PS:
++  match ps:
++    case PS{plan, fl, wl, nf, +nw}:
++      PS{ap <> plan, fl, l <> wl, nf, U32.inc(nw)}
++
++def Grp.pl.addp(ap: AP, ps: PS) -> PS:
++  match ps:
++    case PS{plan, fl, wl, nf, nw}:
++      PS{ap <> plan, fl, wl, nf, nw}
++
++# per-aggregate code: the column goes to Grp.agg after the loops
++def Grp.pl.old(op: X.AggOp, +name: String, c: C.Column, ps: PS) -> PS:
++  Grp.pl.addp(APOld{name, op, c}, ps)
++
++# F32: sum, mean, min, max
++def Grp.pl.f(op: X.AggOp, +name: String, +n: U32, +d: Nat, v: C.Valid, x: Array<F32>, ps: PS) -> PS:
++  match op:
++    case X.Sum{}:
++      Grp.pl.addf(APF{name, 0}, FIn{0, x, C.Valid.materialize(v, 0n)}, ps)
++    case X.Mean{}:
++      Grp.pl.addf(APF{name, 1}, FIn{1, x, C.Valid.materialize(v, 0n)}, ps)
++    case X.Min{}:
++      Grp.pl.addf(APF{name, 2}, FIn{2, x, C.Valid.materialize(v, 0n)}, ps)
++    case X.Max{}:
++      Grp.pl.addf(APF{name, 3}, FIn{3, x, C.Valid.materialize(v, 0n)}, ps)
++    case _:
++      Grp.pl.old(op, name, C.CF32{n, d, v, x}, ps)
++
++# U32 / I32: sum, min, max (the lane op codes of the W lanes; mean keeps the per-aggregate code)
++def Grp.pl.w(op: X.AggOp, t: D.DType, +name: String, +n: U32, +d: Nat, v: C.Valid, x: Array<U32>, ps: PS) -> PS:
++  match op t:
++    case X.Sum{} _:
++      Grp.pl.addw(APW{name, t, 0}, WIn{0, x, C.Valid.materialize(v, 0n)}, ps)
++    case X.Min{} D.TI32{}:
++      Grp.pl.addw(APW{name, t, 4}, WIn{4, x, C.Valid.materialize(v, 0n)}, ps)
++    case X.Min{} _:
++      Grp.pl.addw(APW{name, t, 2}, WIn{2, x, C.Valid.materialize(v, 0n)}, ps)
++    case X.Max{} D.TI32{}:
++      Grp.pl.addw(APW{name, t, 5}, WIn{5, x, C.Valid.materialize(v, 0n)}, ps)
++    case X.Max{} _:
++      Grp.pl.addw(APW{name, t, 3}, WIn{3, x, C.Valid.materialize(v, 0n)}, ps)
++    case _ _:
++      Grp.pl.old(op, name, C.Column.mk_w(t, n, d, v, x), ps)
++
++def Grp.pl.num(op: X.AggOp, +name: String, c: C.Column, ps: PS) -> PS:
++  match c:
++    case C.CF32{+n, +d, v, x}:
++      Grp.pl.f(op, name, n, d, v, x, ps)
++    case C.CU32{+n, +d, v, x}:
++      Grp.pl.w(op, D.TU32{}, name, n, d, v, x, ps)
++    case C.CI32{+n, +d, v, x}:
++      Grp.pl.w(op, D.TI32{}, name, n, d, v, x, ps)
++    case other:
++      Grp.pl.old(op, name, other, ps)
++
++# Count: the valid rows (only the validity is read; the column is dropped, as Grp.agg.count does)
++def Grp.pl.count(+name: String, r: C.Column & C.Valid, ps: PS) -> PS:
++  (c, v) = r
++  Grp.pl.addw(APW{name, D.TU32{}, 1}, WIn{1, Array.new(U32, 0n, 0), C.Valid.materialize(v, 0n)}, ps)
++
++# Len: every row counts (all-ones mask)
++def Grp.pl.len(+name: String, ps: PS) -> PS:
++  Grp.pl.addw(APW{name, D.TU32{}, 1}, WIn{1, Array.new(U32, 0n, 0), Array.new(U32, 0n, 1)}, ps)
++
++# Last: the lane records the last row of each group (null or not); the column is gathered at it afterwards
++def Grp.pl.last(+name: String, c: C.Column, ps: PS) -> PS:
++  Grp.pl.addw(APLast{name, c}, WIn{6, Array.new(U32, 0n, 0), Array.new(U32, 0n, 1)}, ps)
++
++def Grp.pl.col(op: X.AggOp, +name: String, c: C.Column, ps: PS) -> PS:
++  match op:
++    case X.Count{}:
++      Grp.pl.count(name, C.Column.take_valid(c), ps)
++    case X.Last{}:
++      Grp.pl.last(name, c, ps)
++    case X.Sum{}:
++      Grp.pl.num(op, name, c, ps)
++    case X.Mean{}:
++      Grp.pl.num(op, name, c, ps)
++    case X.Min{}:
++      Grp.pl.num(op, name, c, ps)
++    case X.Max{}:
++      Grp.pl.num(op, name, c, ps)
++    case _:
++      Grp.pl.old(op, name, c, ps)
++
++def Grp.pl.full(op: X.AggOp, +name: String, ps: PS, r: C.Frame & E.ResT(C.Column)) -> PSt:
++  (f, rc) = r
++  match rc:
++    case Fail{e}:
++      PSt{f, Fail{e}}
++    case Done{c}:
++      PSt{f, Done{Grp.pl.col(op, name, c, ps)}}
++
++# a literal-only input (sum(lit 2)): the 1-row aggregation, repeated per group afterwards
++def Grp.pl.lit(+name: String, ps: PS, r: C.Frame & E.ResT(C.Column)) -> PSt:
++  (f, rc) = r
++  match rc:
++    case Fail{e}:
++      PSt{f, Fail{e}}
++    case Done{c}:
++      PSt{f, Done{Grp.pl.addp(APLit{name, c}, ps)}}
++
++def Grp.pl.kind(lit: Bool, lenfree: Bool, +op: X.AggOp, +inner: X.Expr, +name: String, +rest: List<&2, X.Expr>, f: C.Frame, ps: PS) -> PSt:
++  match lit lenfree:
++    case True{} _:
++      Grp.pl.lit(name, ps, V.Eval.expr(f, X.Agg{op, inner}))
++    case False{} True{}:
++      PSt{f, Done{Grp.pl.len(name, ps)}}
++    case False{} False{}:
++      Grp.pl.full(op, name, ps, Grp.eval(Grp.mv(inner, rest, Nil{}), f, inner))
++
++def Grp.pl.split(+name: String, +rest: List<&2, X.Expr>, s: Maybe<&2, X.AggSplit>, f: C.Frame, ps: PS) -> PSt:
++  match s:
++    case None{}:
++      PSt{f, Fail{Grp.bug("non-aggregation")}}
++    case Some{X.AggSplit{+op, +inner}}:
++      Grp.pl.kind(Bool.and(Grp.is_klit(V.Eval.kind(inner)), Bool.not(Grp.is_len(op))), Bool.and(Grp.is_len(op), Grp.simple(inner)), op, inner, name, rest, f, ps)
++
++def Grp.pl.step(+e: X.Expr, +rest: List<&2, X.Expr>, st: PSt) -> PSt:
++  match st:
++    case PSt{f, Fail{err}}:
++      PSt{f, Fail{err}}
++    case PSt{f, Done{ps}}:
++      Grp.pl.split(X.Expr.name(e), rest, X.Expr.split_agg(e), f, ps)
++
++# every aggregation's input evaluated in list order (moves as the per-aggregate path: Grp.mv), so the first
++# failing input wins; no accumulation has run yet and none can fail (static type checks ran before)
++def Grp.pl(ags: List<&2, X.Expr>, st: PSt) -> PSt:
+   match ags:
+     case Nil{}:
+       st
+     case +a <> +t:
+-      Grp.aout(t, Grp.aout.step(a, t, st))
++      Grp.pl(t, Grp.pl.step(a, t, st))
+ 
++# ---- finishing: the accumulators as output columns ---------------------------------------------------------
++
++# word accumulators (sum, Len, Count: 2^dg slots of MW, no validity) -> a column of dtype t
++def Grp.wrap.wm(t: D.DType, +ng: U32, +dg: Nat, first: Array<U32>, r: Array<U32> & Array<MW>) -> Groups & E.ResT(C.Column):
++  (gids, acc) = r
++  (Groups{ng, gids, first}, Done{C.Column.mk_w(t, ng, dg, C.AllValid{}, K.Kernel.map(~MW, ~U32, ~(a => Grp.mw.m(a)), ng, dg, acc, 0))})
++
++# F32 min / max accumulators (KS: s = the value, k = seen)
++def Grp.ks_v(a: KS) -> F32:
++  match a:
++    case KS{s, c, k}:
++      s
++
++def Grp.wrap.fm.b(+ng: U32, +dg: Nat, first: Array<U32>, gids: Array<U32>, aa: Array<KS> & Array<KS>) -> Groups & E.ResT(C.Column):
++  (a1, a2) = aa
++  (Groups{ng, gids, first}, Done{C.CF32{ng, dg, Grp.valid(ng, K.Kernel.map(~KS, ~U32, ~(a => Grp.ks_ok(a)), ng, dg, a1, 0)), K.Kernel.map(~KS, ~F32, ~(a => Grp.ks_v(a)), ng, dg, a2, 0.0)}})
++
++def Grp.wrap.fm(+ng: U32, +dg: Nat, first: Array<U32>, r: Array<U32> & Array<KS>) -> Groups & E.ResT(C.Column):
++  (gids, acc) = r
++  Grp.wrap.fm.b(ng, dg, first, gids, Array.clone(KS, acc))
++
++def Grp.fz.wcol(t: D.DType, +op: U32, +ng: U32, +dg: Nat, first: Array<U32>, r: Array<U32> & Array<MW>) -> Groups & E.ResT(C.Column):
++  match op:
++    case 0:
++      Grp.wrap.wm(t, ng, dg, first, r)
++    case 1:
++      Grp.wrap.wm(t, ng, dg, first, r)
++    case _:
++      Grp.wrap.mw(t, ng, dg, first, r)
++
++def Grp.fz.fcol(+kind: U32, +ng: U32, +dg: Nat, first: Array<U32>, r: Array<U32> & Array<KS>) -> Groups & E.ResT(C.Column):
++  match kind:
++    case 0:
++      Grp.wrap.fsum(ng, dg, first, r)
++    case 1:
++      Grp.wrap.mean(ng, dg, first, r)
++    case _:
++      Grp.wrap.fm(ng, dg, first, r)
++
++def Grp.fz.wg(t: D.DType, +op: U32, g: Groups, a: Array<MW>) -> Groups & E.ResT(C.Column):
++  match g:
++    case Groups{+ng, gids, first}:
++      Grp.fz.wcol(t, op, ng, K.Kernel.depth_for(ng), first, (gids, a))
++
++def Grp.fz.fg(+kind: U32, g: Groups, a: Array<KS>) -> Groups & E.ResT(C.Column):
++  match g:
++    case Groups{+ng, gids, first}:
++      Grp.fz.fcol(kind, ng, K.Kernel.depth_for(ng), first, (gids, a))
++
++# the last row of each group (MW.m) gathered from the column
++def Grp.fz.lg(c: C.Column, g: Groups, a: Array<MW>) -> Groups & E.ResT(C.Column):
++  match g:
++    case Groups{+ng, gids, first}:
++      Grp.agg.last.b(ng, first, c, (gids, K.Kernel.map(~MW, ~U32, ~(x => Grp.mw.m(x)), ng, K.Kernel.depth_for(ng), a, 0)))
++
++# the results of the loops, popped in plan order
++type BSt is Type:
++  BSt{st: ASt, qf: List<&1, Array<KS>>, qw: List<&1, Array<MW>>}
++
++def Grp.fz.b.w(+name: String, t: D.DType, +op: U32, f: C.Frame, g: Groups, acc: List<&1, C.Named>, qf: List<&1, Array<KS>>, qw: List<&1, Array<MW>>) -> BSt:
++  match qw:
++    case a <> r:
++      BSt{Grp.aout.put(name, f, acc, Grp.fz.wg(t, op, g, a)), qf, r}
++    case Nil{}:
++      BSt{ASt{f, g, Fail{Grp.bug("fused lane")}}, qf, Nil{}}
++
++def Grp.fz.b.f(+name: String, +kind: U32, f: C.Frame, g: Groups, acc: List<&1, C.Named>, qf: List<&1, Array<KS>>, qw: List<&1, Array<MW>>) -> BSt:
++  match qf:
++    case a <> r:
++      BSt{Grp.aout.put(name, f, acc, Grp.fz.fg(kind, g, a)), r, qw}
++    case Nil{}:
++      BSt{ASt{f, g, Fail{Grp.bug("fused lane")}}, Nil{}, qw}
++
++def Grp.fz.b.l(+name: String, c: C.Column, f: C.Frame, g: Groups, acc: List<&1, C.Named>, qf: List<&1, Array<KS>>, qw: List<&1, Array<MW>>) -> BSt:
++  match qw:
++    case a <> r:
++      BSt{Grp.aout.put(name, f, acc, Grp.fz.lg(c, g, a)), qf, r}
++    case Nil{}:
++      BSt{ASt{f, g, Fail{Grp.bug("fused lane")}}, qf, Nil{}}
++
++def Grp.fz.b.ap(ap: AP, f: C.Frame, g: Groups, acc: List<&1, C.Named>, qf: List<&1, Array<KS>>, qw: List<&1, Array<MW>>) -> BSt:
++  match ap:
++    case APLit{name, c}:
++      BSt{Grp.aout.lit.b(name, f, acc, c, g), qf, qw}
++    case APOld{name, op, c}:
++      BSt{Grp.aout.put(name, f, acc, Grp.agg(op, g, c)), qf, qw}
++    case APW{name, t, op}:
++      Grp.fz.b.w(name, t, op, f, g, acc, qf, qw)
++    case APF{name, kind}:
++      Grp.fz.b.f(name, kind, f, g, acc, qf, qw)
++    case APLast{name, c}:
++      Grp.fz.b.l(name, c, f, g, acc, qf, qw)
++
++def Grp.fz.b.step(ap: AP, bs: BSt) -> BSt:
++  match bs:
++    case BSt{ASt{f, g, Fail{e}}, qf, qw}:
++      BSt{ASt{f, g, Fail{e}}, qf, qw}
++    case BSt{ASt{f, g, Done{acc}}, qf, qw}:
++      Grp.fz.b.ap(ap, f, g, acc, qf, qw)
++
++def Grp.fz.b(plan: List<&1, AP>, bs: BSt) -> BSt:
++  match plan:
++    case Nil{}:
++      bs
++    case ap <> t:
++      Grp.fz.b(t, Grp.fz.b.step(ap, bs))
++
++def Grp.fz.bs(bs: BSt) -> ASt:
++  match bs:
++    case BSt{st, qf, qw}:
++      st
++
++# the loops over the planned lanes, then the finishing walk; the ids come back into the groups
++def Grp.fz.exec.b(plan: List<&1, AP>, f: C.Frame, +ng: U32, first: Array<U32>, acc: List<&1, C.Named>, r: FSt) -> ASt:
++  match r:
++    case FSt{gids, qf, qw}:
++      Grp.fz.bs(Grp.fz.b(List.reverse(&1, AP, plan), BSt{ASt{f, Groups{ng, gids, first}, Done{acc}}, List.reverse(&1, Array<KS>, qf), List.reverse(&1, Array<MW>, qw)}))
++
++def Grp.fz.exec(+nf: U32, +nw: U32, plan: List<&1, AP>, fl: List<&1, FIn>, wl: List<&1, WIn>, f: C.Frame, +n: U32, +ng: U32, gids: Array<U32>, first: Array<U32>, acc: List<&1, C.Named>) -> ASt:
++  Grp.fz.exec.b(plan, f, ng, first, acc, Grp.fz.all(Grp.fz.chunks(nf, nw), n, K.Kernel.depth_for(ng), Grp.fz.f2(List.reverse(&1, FIn, fl)), Grp.fz.w2(List.reverse(&1, WIn, wl)), FSt{gids, Nil{}, Nil{}}))
++
++def Grp.fz.ps(ps: PS, f: C.Frame, g: Groups, acc: List<&1, C.Named>, +n: U32) -> ASt:
++  match ps:
++    case PS{plan, fl, wl, nf, nw}:
++      match g:
++        case Groups{ng, gids, first}:
++          Grp.fz.exec(nf, nw, plan, fl, wl, f, n, ng, gids, first, acc)
++
++def Grp.fz.after(r: PSt, g: Groups, acc: List<&1, C.Named>, +n: U32) -> ASt:
++  match r:
++    case PSt{f, Fail{e}}:
++      ASt{f, g, Fail{e}}
++    case PSt{f, Done{ps}}:
++      Grp.fz.ps(ps, f, g, acc, n)
++
++def Grp.fz.start(+ags: List<&2, X.Expr>, f: C.Frame, g: Groups, acc: List<&1, C.Named>, +n: U32) -> ASt:
++  Grp.fz.after(Grp.pl(ags, PSt{f, Done{PS{Nil{}, Nil{}, Nil{}, 0, 0}}}), g, acc, n)
++
++def Grp.aout.old(ags: List<&2, X.Expr>, st: ASt) -> ASt:
++  match ags:
++    case Nil{}:
++      st
++    case +a <> +t:
++      Grp.aout.old(t, Grp.aout.step(a, t, st))
++
++def Grp.two.b(es: List<&2, X.Expr>) -> Bool:
++  match es:
++    case Nil{}:
++      False{}
++    case _:
++      True{}
++
++# at least two aggregations
++def Grp.two(es: List<&2, X.Expr>) -> Bool:
++  match es:
++    case Nil{}:
++      False{}
++    case +a <> t:
++      Grp.two.b(t)
++
++def Grp.aout.sel(fuse: Bool, +ags: List<&2, X.Expr>, f: C.Frame, g: Groups, acc: List<&1, C.Named>, +n: U32) -> ASt:
++  match fuse:
++    case True{}:
++      Grp.fz.start(ags, f, g, acc, n)
++    case False{}:
++      Grp.aout.old(ags, ASt{f, g, Done{acc}})
++
++def Grp.aout.g(+ags: List<&2, X.Expr>, f: C.Frame, +n: U32, acc: List<&1, C.Named>, g: Groups) -> ASt:
++  match g:
++    case Groups{+ng, gids, first}:
++      Grp.aout.sel(Bool.and(Grp.two(ags), U32.is_le(ng, Grp.fz.max_groups())), ags, f, Groups{ng, gids, first}, acc, n)
++
++def Grp.aout.h(+ags: List<&2, X.Expr>, acc: List<&1, C.Named>, g: Groups, r: C.Frame & U32) -> ASt:
++  (f, +n) = r
++  Grp.aout.g(ags, f, n, acc, g)
++
++# every aggregation of the group_by, in order: fused (Grp.fz.*) or one scatter each (Grp.aout.old)
++def Grp.aout(+ags: List<&2, X.Expr>, st: ASt) -> ASt:
++  match st:
++    case ASt{f, g, Fail{e}}:
++      ASt{f, g, Fail{e}}
++    case ASt{f, g, Done{acc}}:
++      Grp.aout.h(ags, acc, g, C.Frame.height(f))
++
+ # ---- entry point -----------------------------------------------------------------------------------------
+ 
+ def GroupBy.fin(st: ASt) -> E.ResT(C.Frame):

@@ -288,10 +288,11 @@ def Grp.enc.mm(+n: U32, +d: Nat, r: Array<U32> & Array<U32> & MM) -> Codes:
     case MM{+mn, +mx}:
       Grp.enc.pick(U32.is_gt(mn, mx), U32.is_lt(U32.sub(mx, mn), Grp.range()), n, d, mn, mx, w, m)
 
-# a word column (validity materialised to 2^d slots) to codes
+# a word column to codes (the validity as a mask array: 1 slot of 1 when AllValid, read with wrapping
+# indices as every other mask here; before T5.4b it was a 2^d-slot array of ones, filled per call)
 def Grp.enc.num(+n: U32, +d: Nat, r: Array<U32> & C.Valid) -> Codes:
   (w, v) = r
-  Grp.enc.mm(n, d, Grp.mm.go(U32.to_nat(n), 0, 4294967295, 0, Array.get(U32, w, 0), Array.get(U32, C.Valid.materialize(v, d), 0)))
+  Grp.enc.mm(n, d, Grp.mm.go(U32.to_nat(n), 0, 4294967295, 0, Array.get(U32, w, 0), Array.get(U32, C.Valid.materialize(v, 0n), 0)))
 
 # the packed coder's first-appearance ids (from 0) + 1, the null rows 0: v0.1's codes from 1
 def Grp.enc.p1(+n: U32, +d: Nat, codes: Array<U32>, v: C.Valid) -> Array<U32> & C.Valid:
@@ -343,34 +344,189 @@ def Grp.enc.strk(+n: U32, +d: Nat, v: C.Valid, hj: H.HJ) -> C.Column & Codes:
     case H.HJ{+next, strs, hs, ix, codes, po, pl, pk, cur, pd}:
       Grp.enc.strk.b(n, d, strs, U32.inc(next), Grp.enc.p1(n, d, codes, v))
 
-def Grp.enc.dk.b(+n: U32, +d: Nat, codes: Array<U32>, dict: ST.Dict, +k: U32, r: Array<U32> & C.Valid) -> C.Column & Codes:
-  (w, v) = r
+# ---- borrowed key encoding (T5.4b) ---------------------------------------------------------------------
+#
+# Grp.encode consumes its column; group_by must keep the key column for the output gather at `first`
+# (Grp.kout), so before T5.4b `Grp.encode_keep` cloned it (4 MiB per 1M-row key, the only row-sized copy
+# of q3's group_by). The encoders only READ the key's data buffer and write a fresh word array
+# (Sort.xmap allocated one anyway and dropped the clone), so one borrowed pass does both: out[i] = f(x[i]),
+# null rows 0, and the data buffer and the mask come back. The mask is borrowed too; it is cloned only
+# when the key has nulls (Grp.enc.num consumes its copy through the min/max pass and the zipk / rank
+# stage; a key without nulls has no mask array at all: 1 slot of 1).
+
+# out[i] = f(x[i]) for i < n, 0 for a null row (mask 0); x and the mask come back (a 1-slot mask reads the
+# same slot for every row)
+def Grp.bw.go(~T: Data, ~f: T -> U32, n: Nat, +i: U32, out: Array<U32>, rx: Array<T> & T, rm: Array<U32> & U32) -> Array<U32> & Array<T> & Array<U32>:
+  match n:
+    case 0n:
+      (a, x) = rx
+      (m, v) = rm
+      (out, a, m)
+    case 1n+p:
+      (a, x) = rx
+      (m, +v) = rm
+      +j = U32.inc(i)
+      Grp.bw.go(~T, ~f, p, j, Array.set(U32, out, i, Bool.pick(U32, U32.is_ne(v, 0), f(x), 0)), Array.get(T, a, j), Array.get(U32, m, j))
+
+# the validity as the mask array the pass reads (1 slot of 1 when AllValid) and whether it is a real mask
+def Grp.vm(v: C.Valid) -> Array<U32> & Bool:
+  match v:
+    case C.AllValid{}:
+      (Array.new(U32, 0n, 1), False{})
+    case C.Mask{m}:
+      (m, True{})
+
+def Grp.vback(+real: Bool, m: Array<U32>) -> C.Valid:
+  match real:
+    case True{}:
+      C.Mask{m}
+    case False{}:
+      C.AllValid{}
+
+def Grp.bk.b(~T: Data, +real: Bool, r: Array<U32> & Array<T> & Array<U32>) -> Array<U32> & Array<T> & C.Valid:
+  (out, x, m) = r
+  (out, x, Grp.vback(real, m))
+
+def Grp.bk.a(~T: Data, ~f: T -> U32, +n: U32, +d: Nat, x: Array<T>, r: Array<U32> & Bool) -> Array<U32> & Array<T> & C.Valid:
+  (m, +real) = r
+  Grp.bk.b(~T, real, Grp.bw.go(~T, ~f, U32.to_nat(n), 0, Array.new(U32, d, 0), Array.get(T, x, 0), Array.get(U32, m, 0)))
+
+# the words f(x) (null rows 0), the data buffer and the validity, both handed back
+def Grp.bk(~T: Data, ~f: T -> U32, +n: U32, +d: Nat, v: C.Valid, x: Array<T>) -> Array<U32> & Array<T> & C.Valid:
+  Grp.bk.a(~T, ~f, n, d, x, Grp.vm(v))
+
+# Bool: codes 1 / 2, null 0, k = 3 (Grp.encode)
+def Grp.ek.bool.b(+n: U32, +d: Nat, r: Array<U32> & Array<U32> & C.Valid) -> C.Column & Codes:
+  (out, x, v) = r
+  (C.CBool{n, d, v, x}, Codes{3, out})
+
+def Grp.ek.bool(+n: U32, +d: Nat, v: C.Valid, x: Array<U32>) -> C.Column & Codes:
+  Grp.ek.bool.b(n, d, Grp.bk(~U32, ~(w => U32.inc(w)), n, d, v, x))
+
+# a word column (U32 / I32): the order words, then Grp.enc.num on a copy of the validity
+def Grp.ek.nw.c(t: D.DType, +n: U32, +d: Nat, r: Array<U32> & Array<U32> & C.Valid, v2: C.Valid) -> C.Column & Codes:
+  (w, x, v1) = r
+  (C.Column.mk_w(t, n, d, v1, x), Grp.enc.num(n, d, (w, v2)))
+
+def Grp.ek.nw.b(~f: U32 -> U32, t: D.DType, +n: U32, +d: Nat, x: Array<U32>, vv: C.Valid & C.Valid) -> C.Column & Codes:
+  (v1, v2) = vv
+  Grp.ek.nw.c(t, n, d, Grp.bk(~U32, ~f, n, d, v1, x), v2)
+
+def Grp.ek.nw(~f: U32 -> U32, t: D.DType, +n: U32, +d: Nat, v: C.Valid, x: Array<U32>) -> C.Column & Codes:
+  Grp.ek.nw.b(~f, t, n, d, x, C.Valid.clone(v))
+
+def Grp.ek.nf.c(+n: U32, +d: Nat, r: Array<U32> & Array<F32> & C.Valid, v2: C.Valid) -> C.Column & Codes:
+  (w, x, v1) = r
+  (C.CF32{n, d, v1, x}, Grp.enc.num(n, d, (w, v2)))
+
+def Grp.ek.nf.b(+n: U32, +d: Nat, x: Array<F32>, vv: C.Valid & C.Valid) -> C.Column & Codes:
+  (v1, v2) = vv
+  Grp.ek.nf.c(n, d, Grp.bk(~F32, ~(w => SO.Sort.fword(w)), n, d, v1, x), v2)
+
+def Grp.ek.nf(+n: U32, +d: Nat, v: C.Valid, x: Array<F32>) -> C.Column & Codes:
+  Grp.ek.nf.b(n, d, x, C.Valid.clone(v))
+
+# a Dictionary column: code + 1, null rows 0, k = entries + 1 (Grp.enc.dict); the codes and the dictionary stay
+# in the column
+def Grp.enc.dk.b(+n: U32, +d: Nat, dict: ST.Dict, +k: U32, r: Array<U32> & Array<U32> & C.Valid) -> C.Column & Codes:
+  (w, codes, v) = r
   (C.CStr{n, d, v, ST.SDict{codes, dict}}, Codes{U32.inc(k), w})
 
-def Grp.enc.dk.a(+n: U32, +d: Nat, v: C.Valid, cc: Array<U32> & Array<U32>, r: ST.Dict & U32) -> C.Column & Codes:
-  (c1, c2) = cc
+def Grp.enc.dk.a(+n: U32, +d: Nat, v: C.Valid, codes: Array<U32>, r: ST.Dict & U32) -> C.Column & Codes:
   (dict, +k) = r
-  Grp.enc.dk.b(n, d, c1, dict, k, SO.Sort.words.z(n, SO.Sort.xmap(~U32, ~(w => U32.inc(w)), n, d, 0, c2), v))
+  Grp.enc.dk.b(n, d, dict, k, Grp.bk(~U32, ~(w => U32.inc(w)), n, d, v, codes))
 
 def Grp.enc.sk(+n: U32, +d: Nat, v: C.Valid, x: ST.Strs) -> C.Column & Codes:
   match x:
     case ST.SRaw{a}:
       Grp.enc.strk(n, d, v, H.Hc.code.pk(~(h => h), n, d, a))
     case ST.SDict{codes, dict}:
-      Grp.enc.dk.a(n, d, v, Array.clone(U32, codes), ST.Dict.size(dict))
+      Grp.enc.dk.a(n, d, v, codes, ST.Dict.size(dict))
 
-def Grp.enc.cl(r: C.Column & C.Column) -> C.Column & Codes:
-  (c1, c2) = r
-  (c1, Grp.encode(c2))
-
-# Grp.encode that hands the column back (strings are read in place, the
-# other dtypes are cloned: one cheap word pass)
+# Grp.encode that hands the column back: nothing is cloned (Raw strings are read in place by the coder, every
+# other key by the borrowed pass above; a key WITH nulls copies its validity mask once)
 def Grp.encode_keep(c: C.Column) -> C.Column & Codes:
   match c:
     case C.CStr{+n, +d, v, x}:
       Grp.enc.sk(n, d, v, x)
+    case C.CBool{+n, +d, v, x}:
+      Grp.ek.bool(n, d, v, x)
+    case C.CU32{+n, +d, v, x}:
+      Grp.ek.nw(~(w => w), D.TU32{}, n, d, v, x)
+    case C.CI32{+n, +d, v, x}:
+      Grp.ek.nw(~(w => SO.Sort.iword(w)), D.TI32{}, n, d, v, x)
+    case C.CF32{+n, +d, v, x}:
+      Grp.ek.nf(n, d, v, x)
+
+# ---- a single Dictionary / Bool key: codes and groups in ONE pass (T5.4b) ----------------------------------
+#
+# GroupBy.first with one key: the key's codes (code + 1, null rows 0: Grp.bk's pass) were written to a fresh
+# array that Grp.densify read straight back. Here the densify reads the data buffer and the mask in place
+# and applies the same map (null -> 0, else x + 1) on the fly, so the write and the read of the 4 MiB codes
+# array are gone: the group ids come out of the key's own buffers, which are handed back (the key output is
+# gathered from them at `first`). Same table, same first-appearance numbering (Grp.dens.put), same `first`.
+def Grp.kd.go(n: Nat, +i: U32, st: U32 & Array<U32> & Array<U32> & Array<U32>, rc: Array<U32> & U32, rm: Array<U32> & U32) -> Array<U32> & Array<U32> & Groups:
+  match n:
+    case 0n:
+      (next, table, gids, first) = st
+      (c, x) = rc
+      (m, v) = rm
+      (c, m, Groups{next, gids, first})
+    case 1n+p:
+      (+next, table, gids, first) = st
+      (c, +x) = rc
+      (m, +v) = rm
+      +j = U32.inc(i)
+      +y = Bool.pick(U32, U32.is_ne(v, 0), U32.inc(x), 0)
+      Grp.kd.go(p, j, Grp.dens.put(i, next, y, gids, first, Array.get(U32, table, y)), Array.get(U32, c, j), Array.get(U32, m, j))
+
+def Grp.kd.b(+real: Bool, r: Array<U32> & Array<U32> & Groups) -> Array<U32> & C.Valid & Groups:
+  (c, m, g) = r
+  (c, Grp.vback(real, m), g)
+
+def Grp.kd.a(+n: U32, +d: Nat, +k: U32, codes: Array<U32>, r: Array<U32> & Bool) -> Array<U32> & C.Valid & Groups:
+  (m, +real) = r
+  Grp.kd.b(real, Grp.kd.go(U32.to_nat(n), 0, (0, Array.new(U32, K.Kernel.depth_for(k), 0), Array.new(U32, d, 0), Array.new(U32, K.Kernel.depth_for(U32.inc(n)), 0)), Array.get(U32, codes, 0), Array.get(U32, m, 0)))
+
+# the groups of the codes x + 1 (null rows 0; k = the code bound), the buffer and the validity handed back
+def Grp.kd(+n: U32, +d: Nat, +k: U32, v: C.Valid, codes: Array<U32>) -> Array<U32> & C.Valid & Groups:
+  Grp.kd.a(n, d, k, codes, Grp.vm(v))
+
+def Grp.key1.o(+n: U32, +d: Nat, r: C.Column & Codes) -> C.Column & Groups:
+  (c, cd) = r
+  match cd:
+    case Codes{+k, c2}:
+      (c, Grp.densify(n, d, k, c2))
+
+def Grp.key1.bool.b(+n2: U32, +d2: Nat, r: Array<U32> & C.Valid & Groups) -> C.Column & Groups:
+  (x, v, g) = r
+  (C.CBool{n2, d2, v, x}, g)
+
+def Grp.key1.dict.c(+n2: U32, +d2: Nat, dict: ST.Dict, r: Array<U32> & C.Valid & Groups) -> C.Column & Groups:
+  (codes, v, g) = r
+  (C.CStr{n2, d2, v, ST.SDict{codes, dict}}, g)
+
+def Grp.key1.dict.b(+n: U32, +d: Nat, +n2: U32, +d2: Nat, v: C.Valid, codes: Array<U32>, r: ST.Dict & U32) -> C.Column & Groups:
+  (dict, +k) = r
+  Grp.key1.dict.c(n2, d2, dict, Grp.kd(n, d, U32.inc(k), v, codes))
+
+def Grp.key1.s(+n: U32, +d: Nat, +n2: U32, +d2: Nat, v: C.Valid, x: ST.Strs) -> C.Column & Groups:
+  match x:
+    case ST.SDict{codes, dict}:
+      Grp.key1.dict.b(n, d, n2, d2, v, codes, ST.Dict.size(dict))
     case other:
-      Grp.enc.cl(C.Column.clone(other))
+      Grp.key1.o(n, d, Grp.encode_keep(C.CStr{n2, d2, v, other}))
+
+# the key column (handed back) and its groups, for a single key: a Dictionary or Bool column takes the one
+# pass above, every other key Grp.encode_keep then the densify
+def Grp.key1(+n: U32, +d: Nat, c: C.Column) -> C.Column & Groups:
+  match c:
+    case C.CBool{+n2, +d2, v, x}:
+      Grp.key1.bool.b(n2, d2, Grp.kd(n, d, 3, v, x))
+    case C.CStr{+n2, +d2, v, x}:
+      Grp.key1.s(n, d, n2, d2, v, x)
+    case other:
+      Grp.key1.o(n, d, Grp.encode_keep(other))
 
 def Grp.combine.b(small: Bool, +n: U32, +d: Nat, +kg: U32, +kc: U32, a: Array<U32>, b: Array<U32>) -> Codes:
   match small:
@@ -1112,27 +1268,28 @@ def Grp.compact(+n: U32, +d: Nat, cd: Codes) -> Codes:
     case Codes{+k, c}:
       Grp.to_codes(Grp.densify(n, d, k, c))
 
-def GroupBy.first.one(+n: U32, +d: Nat, aggs: List<&2, X.Expr>, f: C.Frame, name: String, r: C.Column & Codes) -> E.ResT(C.Frame):
-  (c1, cd) = r
-  GroupBy.group(n, d, aggs, f, (C.Named{name, c1} <> Nil{}, cd))
-
 def GroupBy.first.many(+n: U32, +d: Nat, aggs: List<&2, X.Expr>, f: C.Frame, name: String, rest: List<&1, C.Named>, r: C.Column & Codes) -> E.ResT(C.Frame):
   (c1, cd) = r
   GroupBy.group(n, d, aggs, f, Grp.codes(rest, n, d, (C.Named{name, c1} <> Nil{}, Grp.compact(n, d, cd))))
 
-def GroupBy.first.c(+n: U32, +d: Nat, aggs: List<&2, X.Expr>, f: C.Frame, name: String, rest: List<&1, C.Named>, r: C.Column & Codes) -> E.ResT(C.Frame):
+# a single key: the key and its groups in one go (Grp.key1); several keys: the codes of the first, then the others
+def GroupBy.first.g(aggs: List<&2, X.Expr>, f: C.Frame, name: String, r: C.Column & Groups) -> E.ResT(C.Frame):
+  (c1, g) = r
+  GroupBy.out(aggs, f, C.Named{name, c1} <> Nil{}, g)
+
+def GroupBy.first.s(+n: U32, +d: Nat, aggs: List<&2, X.Expr>, f: C.Frame, name: String, col: C.Column, rest: List<&1, C.Named>) -> E.ResT(C.Frame):
   match rest:
     case Nil{}:
-      GroupBy.first.one(n, d, aggs, f, name, r)
+      GroupBy.first.g(aggs, f, name, Grp.key1(n, d, col))
     case other:
-      GroupBy.first.many(n, d, aggs, f, name, other, r)
+      GroupBy.first.many(n, d, aggs, f, name, other, Grp.encode_keep(col))
 
 def GroupBy.first(+n: U32, +d: Nat, aggs: List<&2, X.Expr>, f: C.Frame, kc: List<&1, C.Named>) -> E.ResT(C.Frame):
   match kc:
     case Nil{}:
       GroupBy.group(n, d, aggs, f, (Nil{}, Codes{1, Array.new(U32, d, 0)}))
     case C.Named{name, col} <> t:
-      GroupBy.first.c(n, d, aggs, f, name, t, Grp.encode_keep(col))
+      GroupBy.first.s(n, d, aggs, f, name, col, t)
 
 def GroupBy.keyed.b(aggs: List<&2, X.Expr>, kc: List<&1, C.Named>, r: C.Frame & U32) -> E.ResT(C.Frame):
   (f, +n) = r
