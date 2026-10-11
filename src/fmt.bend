@@ -520,10 +520,53 @@ def Fmt.d.fin(+h: U32, r: List<&1, C.Named> & E.ResT(List<&1, C.Named>)) -> C.Fr
   (kept, out) = r
   (C.Frame{h, List.reverse(&1, C.Named, kept)}, Fmt.d.build(out))
 
+# ---- the columns in a balanced fork (v0.2 T5.4, DESIGN.md 16.4 D4) -----------------------------------
+# Each column's statistics are independent (a column is taken out of the list by its lane and handed
+# back; every pass of one column stays sequential, so the F32 sums keep their single in-order pass).
+# A lane returns its column and its result; the results are then folded in column order, so the
+# first failing column wins exactly as in Fmt.d.go. Small frames (under Fmt.fork_rows() rows) and
+# single-column frames take the sequential walk.
+
+# rows from which the columns fork: measured at 1M, 128k, 64k, 32k and 16k rows (bench/w5/t54.bend k = 10,
+# 44, 43, 42, 41): 55 -> 29, 7 -> 4, 4 -> 2 ms at 12 threads, and no change at 32k (2 ms) and 16k (1 ms),
+# where a lane is under ~0.5 ms and the fork only costs its wake-up; one thread is unchanged everywhere
+def Fmt.fork_rows() -> U32:
+  65536
+
+type DJ is Type:
+  DJ{kept: C.Named, nm: String, res: E.ResT(C.Column)}
+
+def Fmt.d.job.k(+nm: String, r: C.Column & E.ResT(C.Column)) -> DJ:
+  (c, res) = r
+  DJ{C.Named{nm, c}, nm, res}
+
+def Fmt.d.job(+u: U32, nc: C.Named) -> DJ:
+  match nc:
+    case C.Named{nm, c}:
+      Fmt.d.job.k(nm, Fmt.d.col(c))
+
+def Fmt.d.fold.k(kept: C.Named, nm: String, res: E.ResT(C.Column), st: List<&1, C.Named> & E.ResT(List<&1, C.Named>)) -> List<&1, C.Named> & E.ResT(List<&1, C.Named>):
+  (k0, out) = st
+  (kept <> k0, Fmt.d.push(out, nm, res))
+
+def Fmt.d.fold(js: List<&1, DJ>, st: List<&1, C.Named> & E.ResT(List<&1, C.Named>)) -> List<&1, C.Named> & E.ResT(List<&1, C.Named>):
+  match js:
+    case Nil{}:
+      st
+    case DJ{kept, nm, res} <> t:
+      Fmt.d.fold(t, Fmt.d.fold.k(kept, nm, res, st))
+
+def Fmt.d.run(big: Bool, cols: List<&1, C.Named>) -> List<&1, C.Named> & E.ResT(List<&1, C.Named>):
+  match big:
+    case True{}:
+      Fmt.d.fold(O.Sort.pm(~C.Named, ~DJ, ~U32, ~(u => nc => Fmt.d.job(u, nc)), 0, cols), (Nil{}, Done{Nil{}}))
+    case False{}:
+      Fmt.d.go(cols, (Nil{}, Done{Nil{}}))
+
 def Fmt.describe(f: C.Frame) -> C.Frame & E.ResT(C.Frame):
   match f:
     case C.Frame{+h, cols}:
-      Fmt.d.fin(h, Fmt.d.go(cols, (Nil{}, Done{Nil{}})))
+      Fmt.d.fin(h, Fmt.d.run(U32.is_le(Fmt.fork_rows(), h), cols))
 
 # ---- Fmt.fixed: F32 with a fixed number of decimals ---------------------------------
 # Exact: matches Python/Rust `{x:.Np}` on the f32 value (decimal expansion of the
