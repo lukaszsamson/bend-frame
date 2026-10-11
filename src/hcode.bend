@@ -44,7 +44,8 @@
 #
 # Callers (W2.3): group_by keys and unique (src/groupby.bend Grp.enc.s / Grp.enc.sk: Hc.code.pk, ids
 # + 1), Raw n_unique (src/eval.bend Eval.nu.str: Hc.code.pk, the entry count), the sort words of a
-# Raw column (src/ranks.bend Rk.words: Hc.code.fnv, ids from 0, then the rank stage).
+# Raw column (src/ranks.bend Rk.words: Hc.code.pk too since W2 pk ranks, ids from 0, then the rank
+# stage over pk's flat entries; Hc.code / .fnv / .h have no caller in src/ now).
 #
 # Idioms (DESIGN.md section 9): helpers above callers; Nat fuel first; pairs taken apart in the next
 # helper's parameter; templates ~T.

@@ -226,3 +226,51 @@ Exit status is 1 on any finding: a `bound`, `special`, `null`, `err`, `lazy`, `o
 crash or an infrastructure error (a `model` mismatch means Bend did not follow the contract's reduction
 order: the selftest asserts the faithful model gives none; `minmax` is describe's min/max versus 15.5.2,
 which tests/diff/r0001.bend and r0002.bend pin). There is no allowlist of known kinds: a finding of any kind fails the run (`tests/test_exit.py`).
+
+## W6.4: CSV reader fuzz (the v0.2 reader against the v0.1 reader)
+
+```
+make csv-fuzz SEED=1 N=10000                 # ~2.5 min on 8 jobs; exit 1 on any failure
+cd bench && uv run python diff/run.py --csv --seed 1 --n 1000    # the same driver through run.py
+python3 bench/diff/csvfuzz.py --seed 1 --show c000017            # the full texts of one case (v0.1, v0.2 at the first piece)
+make csv-fuzz-check                          # the harness's own regression, no Bend (bench/diff/tests/test_csvfuzz.py)
+make csv-fuzz-smoke                          # check + 2 fixed seeds x 1500 cases (deterministic, ~1 min)
+make csv-fuzz-mutants                        # mutants of the v0.2 reader must make the fuzz run fail (~15 min)
+```
+
+| file | job |
+|------|-----|
+| `csvgen.py` | the seeded generator: a file (bytes) plus a read spec; feature list in its docstring, every feature is a tag |
+| `csvfuzz.py` | the driver: batches in parallel native processes, crash isolation, shrinking (lines, bytes, spec), the report; `--runner`, `--scratch`, `--show` |
+| `csvfuzz.bend` | the native runner (`build/csvfuzz/runner`, built on demand): reads a manifest, runs `Csv.read_full` (v0.1) and `Csv.read_v02_full` at each piece size through tests/lib/v02cmp.bend's `Run.file` |
+| `csvfuzz_mut.py` | detection power: mutants of the v0.2 reader (bench/w6/mut63.py's list plus producer / lane mutants) applied to a COPY of the sources, each run through the harness |
+| `tests/test_csvfuzz.py` | the harness's regression: generator determinism and a coverage floor; the driver with a fake runner (difference and crash exit 1, a difference shrinks to its one byte) |
+
+**What is compared.** One case = one file + one spec (header flag; explicit dtype letters, perturbed ones, a
+wrong count, or inference with `infer_rows` in {0, 1..10, 100, 70000}; Raw / Dictionary / Auto / AutoAt storage;
+separator `,` `;` TAB `|` space `:` and the non-ASCII `e-acute` `U+65E5` `U+1F600` `U+20AC`; row cap). The file is read
+by the v0.1 reader (the reference) and by the v0.2 reader at piece sizes 1, 2, 3, 7, 64, 4096 and 245760 (the
+default; the 22,000-36,000-row `big` files, 0.3 %, use 4096, a mid size and the default so that the default piece
+makes several regions). The texts compared are `DF.dump` (values, validity, F32 bits, strings, names, dtypes,
+order, errors with text and line: exact, only the contract's NaN rule) plus the Str storage of every column
+(Raw, or the Dictionary's size and a hash of its codes). No tolerance, no allowlist: any difference, crash or
+timeout fails the run.
+
+**Generator.** Quoted fields with separators, quotes, LF, CRLF, CR; doubled quotes at random positions; blank lines
+(before the header, between records, at the end; one-column files with null rows); no final newline; CR-only and
+mixed line endings; ragged records (also the header); unterminated quotes, a quote in mid-field, text after a
+closing quote, `"` CR; empty file, blank-only, header-only, BOM, one column, up to 300 columns; multibyte UTF-8
+including 4-byte, invalid bytes of every kind (lone / truncated sequences, overlong, surrogates, > U+10FFFF), NUL;
+records longer than a piece (to 9,000 bytes; the files of `big` are far larger); u32 max and overflow, i32
+min / max and overflow, leading + and -, space and tab padding, F32 subnormal / huge / NaN / inf spellings,
+many-digit mantissas, exponents, bool spellings; values that change the inferred dtype late in the file; empty
+cells versus `""`; competing errors (ragged, bad cells in several columns and regions, malformed quoting, at
+different rows); byte-level mutations (insert, delete, duplicate, swap, truncate structural bytes) of generated
+files and of the 102 adversarial files of tests/csvadv (bench/w6/gen_adv.py, 12 % of the cases). The generator
+never says what the answer is; the oracle is the v0.1 reader.
+
+**Report.** Counts per generator tag, per outcome of the v0.1 reader (a frame, or each error kind with its text
+normalised), and error-injecting tags x outcome, so a run shows that its cases reached typed values AND each error
+class. Failures are shrunk (specs to defaults, lines, bytes, repeated to a fixed point; each round tests its
+candidates in parallel) and written to `build/csvfuzz/seed<SEED>/failures.json` (the file as hex, its spec, the
+failing piece, the first difference, both full texts of the minimal case).

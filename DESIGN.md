@@ -911,6 +911,15 @@ Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 | `zipv_cell`, `zipv_valid`, `zipv_unfused`, `zipv_unfused_f32` | `Kernel.zipv` (= `zipv.go`); the unfused side `Kernel.mask_data` (Eval.fix), `Kernel.zip`, `Kernel.mask_and` (Eval.vand of two masks) | cells: `n <= 2^d`, `k < n`; `zipv_valid` none. An AllValid side as the 1-slot ones array: `mask_and`'s cell is `1 & w`, equal to Eval.vand's reuse of the other mask only on 0/1 words (the P0 invariant `WFMaskedW`, not restated here). Instances u32 add, f32 mul (template proofs `zvo_cell`, `zvv_go`, `zv_unfused`) | bend, --verdict |
 | `pred_count_cell`, `pred_count_count`, `pred_count_keeps` | `Kernel.pred_count` (= `pred_count.go`); `Kernel.popcount` | cell and count: `n <= 2^d` (the count law runs the cell theorem on clones at every row, so it needs the same room), `k < n`; keeps: none. Instance q1's `ok & (qty > lit)`. The relation to Eval's unfused filter predicate (Kleene `&`, `Eval.pred`'s AND with the validity) is the cell's shape, not a theorem: T4.2's peephole law | bend, --verdict |
 | `compact3_unfused`, `compact4_unfused`, `compact3_contents`, `compact4_contents` | `Kernel.compact3` / `compact4` (= `compact3.go` / `compact4.go`); `Kernel.compact_keep` (Column.compact's per-buffer loop), `Kernel.popcount` | unfused: none (any n, d, mask: a term equality); contents: `CRoom(to_nat n, 0, 0, d, m)`, the same precondition as `compact_contents` (not derived: `croom_of_cap` is T5.1's). Instances: unfused at u32/u32/f32(/u32), contents at U32 | bend, --verdict |
+| `ch_rng_range` (section 21, v0.2 T5.1) | `Ch.rng` (= `Ch.rng.go`, the builder's leaf copy that hands its source back) against `Kernel.range` | none (a term equality, any n, d, off: the simulation of PROOF_fused's `mpb_sim`); `range_cell` then gives the cells | bend, --verdict |
+| `cw_of` | `CW.of` (= `CW.of.k`, `CW.of.go`, `CW.of.rest`, `CWS.push` / `CWS.merge` / `CWS.collapse(.go)`, `Ch.tz`, `Ch.rng`): the chunk builder at any grain g, both the one-leaf path (the buffer moved) and the binary-counter path | `n <= 2^ds`, `WFArray(ds, src)`; no fuel argument (the out-of-fuel branch is correct too). Claims: the tree is `WFChunks` (exact Nat counts at every node), has n rows, and row m is `src[m]` (`TreeAt`) | bend, --verdict |
+| `cw_flatten`, `cw_roundtrip` | `CW.flatten` (= `CW.flat`, one `Kernel.copy_into` per leaf); `CW.flatten` after `CW.of` | flatten: `WFChunks(t)`, `rows(t) <= 2^dd` (ragged and empty leaves included); round trip: the builder's hypotheses and `n <= 2^dd`. Claims: slot m of the flat buffer is the tree's logical row m (`ncell`); `flatten(of(src))[j] == src[j]` for every j < n. CF / CS (F32, Raw strings) are the same generated text, tested (tests/chunks_sizes.bend: F32 by bits) | bend, --verdict |
+| `cw_rechunk` | `CW.rechunk` (= `CW.rechunk.k/.go`; a fitting subtree flattened into one leaf of 2^g slots) | `WFChunks(t)`. Claims: the answer is `WFChunks`, same row count, same logical rows | bend, --verdict |
+| `cw_head` | `CW.head` (= `CW.head.j`, `CW.rows`, `Ch.ssub`, `U32.min`) | `WFChunks(t)`. Claims: `WFChunks`, `min(h, rows)` rows (as naturals), the first rows of t. Not claimed: `CW.drop` / `CW.slice` (tested only; stated open in LAWS section 21) | bend, --verdict |
+| `cw_concat` | `CW.concat.cap` (= `concat.a/.b/.k`, `Ch.fits2`, `Ch.over`): the node smart constructor | `WFChunks` of both sides. Claims: an accepted concat is ONE node over the two trees (so its rows are a's then b's by `ncell`'s definition), `WFChunks`, rows within the cap; the check is wrap-free (`b <= cap - a` after `a <= cap`) | bend, --verdict |
+| `croom_of_cap` | the precondition of per-leaf compaction (T5.2's wrappers over `Kernel.compact_keep` / `compact3` / `compact4` into a leaf of the SAME capacity) | `n <= 2^d`, the mask's words 0/1 (`WFWords(True, d, mask)`, the P0 mask invariant). Claims: `CRoom(n, 0, 0, d, mask)`, i.e. it DERIVES section 11's CRoom hypothesis at a chunk leaf (the cursor k <= i < n <= 2^d) | bend, --verdict |
+| `cmap_shape`, `cmap_leafwise` | `CW.map` (one balanced parallel let per node, `Kernel.map` at the leaves), at the `mask_not` instance; ported from the W0 spike | `WFChunks(t)`. Claims: counts and shape kept (`ShapeWF`); every leaf is the flat map of the input leaf (`map_cell`) | bend, --verdict |
+| `cw_fits` | `CW.fits` (= `CW.fits.j`): the lockstep shape walk behind `CFrame.check` (WFCFrame) | none. Claims: the tree comes back unchanged and True means `skel(t) == s` (same shape, same rows / lrows / leaf n everywhere). Not claimed: the frame-level `CFrame.check` over the column list (T5.3) | bend, --verdict |
 | sections 1-5b (schema, typing, plan schema, optimizer schema level, slots) | as listed in the table above | as stated per law | bend, --verdict |
 
 What the release chain does NOT cover, stated exactly:
@@ -2830,10 +2839,8 @@ the pre-W2.3 build's; tests/strwire.bend passes on both builds).
    (peak RSS of lp_group_300k 585 vs 477 MB with `Hc.code.h`, one process each; v0.1 803 MB).
 2. **Sort words of a Raw column** (`Sort.str_words`, a Raw sort key): `Rk.words` = `Hc.code.fnv` +
    the rank stage (17.3.2), unchanged from W2.2; the key is now BORROWED (`Rk.words` hands the rows
-   back), which removes T3.2's item 5 exception (no `Column.clone` of a Raw key). Not moved to the
-   packed coder: the rank stage reads entries through their first rows (`fr`) and UTF-8 byte lengths
-   (`bl`), which `Hc.code.pk` does not answer; on repeated keys read from a CSV the hits still walk
-   the representative string (open, IMPLEMENTING W2.3).
+   back), which removes T3.2's item 5 exception (no `Column.clone` of a Raw key). W2.3 left it on
+   `Hc.code.fnv`; **superseded by "W2 pk ranks" (item 7 below)**.
 3. **`Dict.ranks` callers** (`Sort.kd`, `Sort.dict_words`, `Eval.zd.ord.m`, `Eval.ds.ext`) use
    `Rk.dict`. `ST.Dict.ranks` (Base Map) is DELETED from src/strs.bend; with `Sort.str_codes`,
    `Sort.codes.*`, `Sort.code.*`, `CS`, `Sort.pcodes`, `Sort.pmerge*`, `Sort.kbc*`, `Sort.str_fork`,
@@ -2850,6 +2857,65 @@ the pre-W2.3 build's; tests/strwire.bend passes on both builds).
    are about `ST.Ix.seek`, untouched; `make proofs`, `make verdict`, `make mutation-check` green. The
    coder, the packed coder and the rank stage are tested-only, as the v0.1 code they replace (8.1,
    "Not proven" items 4 and 7 updated).
+7. **W2 pk ranks (amends item 2; 17.3.1 / 17.3.2 integration)**: `Rk.words` (Sort.str_words, a Raw sort
+   key) codes with `Hc.code.pk` (identity mix, ids from 0: the same codes as `Hc.code.fnv`) and the rank
+   stage reads the DISTINCT entries from pk's flat code point array (`po`, `pl`, `pk`): pass A (one spin
+   loop per entry over its code points) answers the UTF-8 byte lengths and the largest code point, then
+   `Rw.go` (word offsets, unchanged) and pass B packs each entry into the exact-size big-endian word
+   array; the rounds, the scatter and the gather are unchanged (`Rk.ranks.pk`, same ranks as
+   `Rk.ranks`). No cons string is walked after the coder's single hashing walk, so a hash hit of the
+   coder no longer touches the scattered representative string. The entries' first rows `fr` are NOT
+   derived: they existed only to find the strings again, and the rows go back to the caller untouched
+   (the stage's `fr` slot is a pass-through). **Fallback kept**: a code point above U+10FFFF (largest
+   code point of pass A) makes the rounds run over pk as it is (it already is one code point per
+   word; offsets = the prefix sums of `pl`, 2 words per round). `Rk.ranks` / `Rk.dict` (strings) are
+   unchanged. Sort words are identical to v0.1's (ranks_diff, w2-diff 396 checks incl. the wide shape,
+   wire.sh). Cost: pk holds 4 bytes per code point of the distinct keys until the stage packs them
+   (peak RSS of a 1M-row sort over 1M distinct keys of 22 / 37 chars: +16 % / +26 % vs the fnv path,
+   the pk doubling's peak; unchanged for 20k repeated keys). Measured in IMPLEMENTING "W2 pk ranks".
+
+### v0.2 T5.1 (chunk trees, src/chunks.bend; section 16.1 D1)
+
+1. **Flatten is a structural recursion**, not an explicit work stack: `CW.flat(r, off + lrows,
+   CW.flat(l, off, out))`. The node's `lrows` gives the right child's offset without reading the left
+   child, so no pair has to be opened (R3) and no fuel is needed (a ragged tree of many empty leaves
+   would have exhausted the spike's `rows / 1024` fuel); the recursion depth is the tree's depth. Cost as
+   the spike's (0.6 ms per 1M-row column, PROVISIONAL).
+2. **WFChunks' node fact is stated over naturals**: `lrows == rows(l)` and `to_nat(lrows) + to_nat(rows(r))
+   == to_nat(rows)` (exact, no wrap), instead of the word equation plus `lrows <= rows`. Equivalent; the
+   Nat form is what the proofs consume (the word arithmetic is done once, in PROOF_chunks' bridge lemmas
+   `to_nat_add` / `sub_nat`).
+3. **Rechunk flattens every fitting subtree into one leaf**, not sibling-leaf pairs merged by
+   `Kernel.append` bottom-up: the pairwise cascade copied each row once per level and allocated a full
+   2^G leaf per merge (10.5 ms per 1M rows from 1024-row leaves, PROVISIONAL); flattening the largest
+   subtree whose rows fit 2^G copies every moved row once (0.6-0.9 ms). Still decided by row counts only
+   (the parent's lrows and rows - lrows), so every tree of a frame takes the same shape, and empty leaves
+   vanish.
+4. **A column of at most 2^G rows (not "fewer than") is one leaf**, its flat buffer moved (no copy); the
+   empty frame is therefore one leaf `WL{0, ds, src}` per column (the moved buffer), not `WL{0, 0n, [0]}`.
+   `CW.empty()` is the 1-slot leaf for trees built from nothing (concat of zero-column frames, collapse of
+   an empty stack).
+5. **The builder's out-of-fuel branch** emits the rest as one leaf of the SOURCE depth ds (rest <= n <=
+   2^ds), so the builder law needs no fuel-sufficiency argument (the fuel n >> G always suffices).
+6. **Slice copies the boundary leaf** (`CW.drop`: one `Kernel.range` of the kept rows of the first kept
+   leaf, at most 2^G rows); head copies nothing (it shortens the boundary leaf's n and drops right
+   subtrees). Both are O(nodes); the leaves outside the cut are dropped.
+7. **`croom_of_cap` takes the mask's 0/1 words as `WFWords(True, d, mask)`** (the P0 mask invariant) instead
+   of the spike's forall over rows: a forall hypothesis is affine and cannot be used at every step of an
+   induction; a Type-level invariant can be duplicated (`clone_words`).
+8. **The concat row-cap check is wrap-free** (`a <= cap` and `b <= cap - a`, `Ch.fits2`); the error is
+   `Kernel.check_rows.cap`'s text on the saturating sum (v0.1 `Cat.join`'s text at the real cap).
+9. **Dictionary concat** merges b's entries into a's dictionary (`Dict.merge`, as v0.1 `Strs.append`) and
+   re-codes b's codes leaf by leaf with the merge map THREADED through one sequential tree walk (`CW.remap`:
+   an accumulator holding the map and a stack of rebuilt trees), not cloned per leaf; a Raw / Dictionary
+   pair decodes the Dictionary side leaf by leaf (`CS.of_codes`), as v0.1 decodes both sides to Raw. One
+   Dict per column, codes in a CW of the data's shape.
+10. **Fork across columns** is `Lst.pmap`: the column list split in halves (`Lst.split`) and the halves
+    sent to the two sides of a parallel let, recursively (no 1-vs-rest chain), the per-column work
+    sequential; used by `CFrame.of_frame`, `to_frame` and the per-column ops (head, slice, rechunk).
+11. **Not in this task (T5.2 / T5.3)**: the chunked kernel wrappers beyond `CW.map`, the runner, the
+    frame-level WFCFrame law over the column list. `CF` / `CS` and the column / frame layer are tested,
+    not proven (LAWS section 21's closing comment lists the open items).
 
 ### v0.2 T4.2 (fusion peepholes F1-F5 in the evaluator; section 16.3)
 

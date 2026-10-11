@@ -1988,7 +1988,7 @@ cons-list `Eval.nuniq`; the v0.1 text is kept byte-identical as the test referen
   are unchanged. No new kernel loop: the wiring calls `Hc.jgo` (W2.4's spin), `Sort.xmap.go`,
   `Kernel.mask_data`, `Sort.wm.go` / `wgm.go` (T3.2's). `blk_copy` sites in the driver 61 -> 57 (the Raw
   sort key clone among them).
-- **Open**: `Rk.words` still codes with `Hc.code.fnv` (the rank stage needs `fr` and UTF-8 byte
+- **Open (closed by "W2 pk ranks" below)**: `Rk.words` still codes with `Hc.code.fnv` (the rank stage needs `fr` and UTF-8 byte
   lengths, which `Hc.code.pk` does not answer). Sorting 1M rows of 20k repeated 22-char keys read
   from a CSV takes 2.3 s vs 1.6 s for 1M distinct keys (scratch probe, load ~12, includes the gather):
   the hits walk scattered representative strings. A pk-based `Rk.words` (fr from the codes in one
@@ -2092,3 +2092,221 @@ What T4.3 / W5 need:
 - Not proven (DESIGN 8): the stack-machine level equivalence of `Eval.runz(Eval.fuse(code))` with
   `Eval.run(code)` (lend / replace, stack plumbing, kinds): covered by tests/eval_fused's 473-expression
   x 2-operator differential and 32-predicate filter differential.
+
+## W6.4 (CSV fuzz harness: bench/diff/csvgen.py, csvfuzz.py, csvfuzz.bend)
+
+The v0.2 reader against the v0.1 reader on random files. `make csv-fuzz SEED=.. N=..` (bench/diff/README.md "W6.4"). One
+native runner (`build/csvfuzz/runner`, bench/diff/csvfuzz.bend, ~7 s to build) reads a manifest of cases (path, dtype
+letters or `-`, header, separator code point, infer_rows, storage rule, row cap, piece list) and prints one line per case
+through tests/lib/v02cmp.bend's `Run.file` (DF.dump + the Str storage signature, v0.1 as reference, v0.2 at each piece):
+the same comparison as tests/csv_v02_*.bend, now over generated files. The Python side generates, batches (100 cases per
+process, 8 processes), isolates a crashing batch by rerunning its cases one by one, shrinks and reports.
+
+Results (provisional, loaded machine, load 20-40): seeds 21..25 x 2,000 = 10,000 cases, 69,908 reads (case x piece
+size 1, 2, 3, 7, 64, 4096, 245760; the 23 `big` files 4096, a mid size, 245760), 0 failures, ~35 s per 2,000 cases on 8
+jobs (3:05 for all five, runner build included); before the last generator changes seeds 1 and 11..15 (11,000 more cases)
+were clean as well. Outcome mix of the v0.1 reader over the 10,000: 3,688 frames and 624 empty frames, ~1,900 bad cells
+(u32 / i32 / f32 / bool), 1,477 ragged, 1,360 malformed quoting, 389 dtype-count errors, 168 row-cap errors, ~250
+duplicate names, 41 refused separators. No v0.2 defect found: the W6.3 differential tests already cover the contract
+surface; the harness adds the random combinations (options x file shape x piece size) and the byte-level mutations.
+
+Detection power (`make csv-fuzz-mutants`, bench/diff/csvfuzz_mut.py: mutants applied to a COPY of src/ and built into a
+mutant runner, each must make `csvfuzz.py --n 1500..2000` fail): bench/w6/mut63.py's 18 mutants: 17 killed, 1 survived
+(the documented equivalent "odd parity ignored"); 8 more of the producer and lane (cut at an LF inside quotes, trim keeps
+CR / space, i32 min rejected, overlong E0 accepted, no capital `True`, f32 fast path mantissa and fraction-digit limits):
+8 killed, but only after two generator fixes the first run asked for: the overlong 3- and 4-byte UTF-8 forms were
+missing from the invalid-byte pool (E0 80 80, F0 80 80 80, ED 9F BF ...), and no f32 text had a small mantissa behind
+11-14 fraction digits (the fast path ends at 10 because 10^11 is not exact in f32). Lesson: a mutation run of the
+HARNESS tells which generator pools are too thin; do it whenever a pool is edited.
+
+Harness lessons:
+- Generator pitfalls that made most files useless: a CR after a closing quote is malformed and a lone CR inside a bare
+  field merges two records, so a mixed-ending file with any CR was ~50 % `malformed`; CR now appears in a mixed file only
+  for 15 % of the files, and error events (ragged, malformed, bad cells) are rare unless the case is a "competing" one
+  (explicit schema forced 80 % of the time, or the bad cell would be inferred away). The report prints the outcome mix so
+  a run shows how many cases reached typed values.
+- Files above one default piece (245,760 bytes) are needed to get several regions at the default piece size; they
+  are 0.3 % of the cases (22-36k rows, 0.3-1.5 MB, ~4 s each) with a short piece list (a piece of 1 on 1 MB is hopeless).
+- A `.bend` runner that parses its own manifest: `+x` on a `List<String>` from `IO.args()` is refused ("must be Data");
+  `tests/lib/v02cmp.bend`'s `promote` gives a `List<&2, String>` that may be duplicated. `bend --check-only` of the runner takes
+  0.4 s, the native build 7 s, so one binary serves every case (no per-batch generated program, unlike bench/diff's
+  interpreted batches).
+- Do not leave another agent's `bisect.py` in a scratch directory you run Python scripts from: it shadows the stdlib
+  (`python3 -I script.py` ignores the script directory).
+- A shrink needs no oracle: the predicate is "the runner still prints DIFF"; candidates of a round run as one parallel
+  batch and the smallest failing one wins (lines, then bytes, then the spec to defaults, to a fixed point).
+## W2 pk ranks (Rk.words over Hc.code.pk; src/ranks.bend)
+
+`Rk.words` (Sort.str_words, a Raw sort key) now codes with `H.Hc.code.pk(~(h => h), ..)` and the rank
+stage reads the distinct entries from pk's flat code point array. Why: a hash hit of `Hc.code` (the
+fnv path) walks the representative cons String, a hot type whose cells sit wherever the CSV parser
+allocated them (dependent misses per code point); pk copies each distinct key's code points into one
+flat array during the single hashing walk and a hit compares flat-vs-flat.
+
+- **Passes** (all over the k DISTINCT entries, never the rows): `Rk.ranks.pk` -> pass A `Pa.go` (per
+  entry, the spin loop `Pa.in` over its code points: bytes += `Hc.u8(c)`, cm = max) -> `Rw.go`
+  (offsets from the byte lengths, unchanged) -> pass B `Pq.go` (per entry, the spin loop `Pq.in`
+  over its code points: `Pb.cp` into the exact-size word array, the existing packer) -> `Rk.run`
+  (the rounds, unchanged). The source array rides through the loops as the read-ahead pair
+  `(pk, x)` (the `Rw.go` idiom) and the output is a separate array (an in-place pack is possible:
+  writes stay at or below the read index; not done, +25 % of pk is transient and the code stays plain).
+- **fr is not derived.** `fr` (an entry's first row) only served to find the strings again; the stage
+  never needs the rows once the entries are flat, and the rows go straight back to the caller. The
+  stage's `fr` slot carries the coder's `ix` array unused. (Deriving it would cost an n-row pass for
+  nothing.) Entries sit contiguous in id order in pk (`po[e+1] = po[e] + pl[e]`).
+- **Fallback** (a code point > U+10FFFF, seen by pass A's max): pk is already one code point per word,
+  so `Rk.pw` calls `Rk.run(.., upr = 2, ..)` over it with offsets = prefix sums of `pl`
+  (`Rw.go`, wadd 0, wsh 0): cheaper than the old fallback, which re-walked the strings. Bytes are never
+  packed in that case. Tested natively (bench/w2/w2diff.bend `wide`, mutants W5-W7).
+- **Emitted C** (bench/strbench.bend, `bench/w2/spins.py`): the spin loops and what each allocates per
+  code point / entry. `Pa.in` = spin_625 (blk_read only), `Pa.go` = spin_622 (one `PA` record per
+  entry, none per code point), `Pq.in` = spin_635 (blk_read; it calls spin_169 = `Pb.cp`, which has no count / copy /
+  alloc ops: the PB state rides the registers), `Pq.go` = spin_631.
+  No `blk_copy`, `blk_half` or `blk_node` in any of them. Nothing is allocated per row anywhere in
+  the stage: the row-sized work is the coder (`Hc.jgo`) and the gather.
+- **Measured** (bench/strbench.bend `sort raw`, columns id,s,v,x read from CSV, 1M rows, sort of all
+  columns by s, `--threads 1`, 7 fresh processes per cell interleaved baseline (HEAD 42da6ba, fnv) /
+  candidate, PROVISIONAL: load 8-59 at the process starts, median 13-20, 1 ms clock;
+  bench/w2/results/pkranks_provisional.jsonl has every sample). ms median [min..max], samples in
+  run order; RSS = max resident set from /usr/bin/time -l:
+  - 20k distinct 22-char keys repeated (rep): 1,052 [831..1,209] -> 241 [213..247] ms (4.4x); RSS
+    1,154 -> 1,141 MB. Candidate samples 241, 229, 213, 235, 247, 245, 242; baseline 1,133, 1,052, 831,
+    1,209, 993, 1,000, 1,074.
+  - 1M distinct 22-char keys: 634 [557..677] -> 567 [496..1,719] ms; RSS 1,166 -> 1,353 MB (+16 %).
+    Candidate 496, 567, 647, 518, 526, 752, 1,719 (loaded); baseline 614, 566, 677, 557, 634, 638, 650.
+  - 1M distinct 37-char keys, 31-char shared prefix, shuffled (lp): 884 [847..3,061] -> 875 [799..2,666]
+    ms; RSS 1,539 -> 1,942 MB (+26 %). Candidate 975, 861, 872, 875, 881, 799, 2,666; baseline 884, 892,
+    877, 884, 871, 847, 3,061.
+  Repeated keys are now no slower than distinct ones per row (the hits are flat); distinct keys are a
+  wash in time (pk's copy per code point against the fnv path's second walk of nothing) and cost memory.
+- **Price: RSS.** pk is presized at 8 words per row and doubles; the doubling's peak (old + new arrays,
+  e.g. 128 + 256 MB for 37 M code points) is what the table shows. The packed words (1 byte per ASCII
+  code point) are freed with pk after the stage. Cutting it needs a coder that packs UTF-8 bytes
+  during the walk instead of copying code points (4x less, no pass A / B, the fallback re-walks), a
+  new coder variant in src/hcode.bend; not done here (the task keeps Hc.code.pk as it is).
+- **Gotchas**: a record holding `wo` cannot also be passed with it to the next call (affine: "consumed
+  more than once"): the packed state `PQ` carries `wo` out and `Rk.pq.r` takes it from there. Array.get
+  past the last code point (the read-ahead of the loop's last step) is masked, harmless.
+- Differentials: tests/ranks_diff.bend (every shape, flip 0 / 2^32 - 1, Dictionary), tests/ranks_unit.bend
+  (+ a table that doubles and 4-byte characters across word boundaries), `make w2-diff` (396 checks incl.
+  `wide`), bench/w2/wire.sh. Mutants P1-P4 (interpreter tests) and W5-W7 (native fallback) in
+  bench/w2/mutation.py.
+## T5.1 (W5 chunk trees: src/chunks.bend; LAWS section 21, PROOF_chunks.bend)
+
+What was done: `src/chunks.bend` (no executor wiring): the monomorphic trees `CW` / `CF` / `CS`
+(`WL{n, d, a} | WN{rows, lrows, l, r}`, generated from one template so the three copies are the same
+text), `CStrs` (Raw `CS` or a Dictionary's codes `CW` + ONE Dict), `CValid`, `CColumn`, `CNamed`,
+`CFrame`; builder `X.of` (one leaf, the buffer moved, at most 2^G rows; else a read-ahead leaf loop of
+`Ch.rng` copies folded by a binary counter), `X.flatten` / `X.to_flat` (a one-leaf tree of the asked
+depth is moved), `X.rechunk` (fitting subtrees flattened into one leaf), `X.head` / `X.drop` /
+`X.slice`, `X.concat(.cap)` (one node, wrap-free cap check), `X.skel` / `X.fits` (the lockstep walk),
+`CW.map` (template, one fork per node), `CW.remap` / `CS.of_codes` (threaded dictionary walks), the
+column layer (`CColumn.of/to/op/cat/fits/skel`) and the frame layer (`CFrame.of_frame` / `to_frame` /
+`head` / `slice` / `rechunk` / `rebalance` (the occupancy policy) / `concat(.cap)` / `check` (WFCFrame)),
+forked across columns by `Lst.pmap`. Laws: 11 in LAWS section 21 (`ch_rng_range`, `cw_of`, `cw_flatten`,
+`cw_roundtrip`, `cw_concat`, `croom_of_cap`, `cmap_shape`, `cmap_leafwise`, `cw_rechunk`, `cw_head`,
+`cw_fits`) proven in PROOF_chunks.bend, `make proofs` / `make verdict` green; 12 in-place mutation
+controls (W5, all caught). Tests: tests/chunks_basic.bend (grain 2^2, every shape worked out by hand),
+tests/chunks_sizes.bend (2^14 +- 1, 3*2^14+5, 2^20; u32 / f32 NaN -0.0 inf subnormal / strings),
+tests/chunks_frame.bend (every dtype, nulls, Raw and Dictionary, concat with different dictionaries,
+head / slice / rechunk / rebalance, empty and zero-column frames, WFCFrame negatives).
+
+Performance (PROVISIONAL: 2^20 rows, grain 2^14, 5 fresh processes x 10 reps per cell, interleaved,
+1-minute load 36-46; bench/w5/results/t51.jsonl, t51_summary.txt; medians, ms):
+
+- one U32 column: build 0.8 (the binary counter + one `Ch.rng` per leaf), flatten 0.6 (one
+  `Kernel.copy_into` per leaf), a clone 0.2 for scale; the same at 1 / 4 / 12 threads (sequential per
+  column by design).
+- rechunk 1024 leaves of 1024 rows to 64 leaves: 0.6-0.9. The first version (sibling leaves merged
+  bottom-up by `Kernel.append`) took 10.5: every level re-copied every row and allocated a full 2^G
+  leaf per merge; flattening the largest fitting subtree copies each row once.
+- a 7-column frame (5 u32, 2 f32), forked across columns: build 5.5 at 1 thread, 3.6 at 4 and 12;
+  flatten 5.3 / 3.3 / 3.5. The column fork gives 1.5x on this loaded machine (7 lanes at most,
+  bandwidth bound); 7 x 0.8 = 5.6 sequential matches the 1-thread cell. Conversions stay at the source
+  boundary (DESIGN 16.5): 3.5 ms each way per 7 x 1M frame is more than q1's fused compute.
+
+Emitted C (`bend bench/w5/chunks.bend -o build/w5/chunks.c`; `python3 -I bench/w2/spins.py`): the leaf
+copy `Ch.rng.go` is ONE spin loop per element type (u32: 2 `blk_read`, 1 `blk_write`, nothing else per
+row; params f,k,off,out,r,r), flatten's `Kernel.copy_into.go` likewise (2 / 1); the leaf loop
+`CW.of.go` allocates 4 cells PER LEAF (the stack cons, the leaf, the pending pair), `CWS.merge` 3 per
+merge; `CW.flat`, `CW.rechunk.go`, `CW.head` are ordinary recursions over the user tree (no
+`blk_half` / `blk_node`: no Array is split by its ANode, no `Array.fork`).
+
+Bend lessons:
+
+- **lrows makes tree recursions R3-clean**: a walk that needs the left child's size before visiting the
+  right child (flatten's offset, the rechunk decision for both children) reads it off the node; no pair
+  is opened, no explicit stack, no fuel.
+- **State through a tree without mutual recursion**: thread ONE accumulator through nested calls
+  (`f(r, f(l, acc))`); when a tree must be rebuilt, the accumulator carries a stack of finished trees and
+  a non-recursive `join(rows, lrows, acc)` pops two and pushes the node (`CW.remap`, `CS.of_codes`).
+- **Forking over a cons list in halves**: `Lst.pmap.go(fuel, small, k, (a, b))` takes the pending split
+  as a parameter and splits each half in the recursive calls' argument lists (read-ahead); templates over
+  `Type`-kinded elements (`~A: Type`) work, with the per-element function as `~(p => x => f(p, x))`
+  and its data parameter passed separately.
+- **A match on a non-first parameter does not reduce when the earlier one is symbolic** (`match f more:
+  case _ False{}` in production; `go(f, False, ..)` is stuck for a variable f): the proof matches f too.
+
+Proof lessons (PROOF_chunks.bend):
+
+- **`%e : P(_)` needs the goal to be `P(rhs e)` and leaves `P(lhs e)`** (most iterations were getting this
+  direction wrong; when the checker shows expected / observed swapped, use `Equal.sym`).
+- **Big closed Nat literals are unary**: `{to_nat(2^23) + to_nat(2^23) == to_nat(2^24)}` by `{==}`
+  overflows the checker's stack. Keep every bound symbolic: `to_nat_addn(x, f, bound)` takes ANY word
+  as the bound (the induction only needs "no intermediate word is maximal", refuted by `j < bound`).
+- **The U32 <-> Nat bridge**: `add_addn` (x + addn(0, f) == addn(x, f), from `add_inc_r`),
+  `to_nat_add` (U32.add is the Nat sum below a bound word), `u32_eq_of_nat` (via `addn_to_nat`),
+  `cancel_add` (8 carry cases, (w + h) - h == w) and `sub_addn` / `sub_nat` (U32.sub is the Nat
+  difference when it does not wrap). Model the trees in Nat (`ncell` with Nat subtraction) and the tree
+  proofs never need a word subtraction lemma (the spike's `sub_lt_of_lt_add` gap does not arise).
+- **Erased terms cannot reach `+` parameters**: `crows(t)` of an erased tree cannot be passed to
+  `nle_of_u` / `u32_eq_of_nat` / `min_nat` (they match the word). Get the count live (`rows_w` matches the
+  tree and hands it back with `{crows(t) == r}`), state counts as Nat equalities, and write Nat lemmas
+  whose "middle" is erased (`nat_le_of_sum`, `nat_add_cancel_l`, `nat_lt_sub`). A lemma may take extra
+  live parameters the production function does not have (`rcgo`'s `rt`, a live copy of the row count).
+- **Witness style for everything that rebuilds**: a lemma takes the live tree / stack / buffer and
+  answers `&x: {f(..) == x} & facts(x)`; the caller rewrites the production term with the equation and
+  matches the witness. Live arrays a kernel theorem consumes (`range_go`, `wf_size`) come from
+  `PC.clone_eq` with equations back to the erased source (`mk_leaf` clones the source per leaf).
+- **Recursion through a helper**: the helper takes the recursive call as a lambda (`merge_j`'s `ih`,
+  `of_step_c`'s `ih`) so no def calls a def below it.
+- **A forall is affine; one forall per subtree**: flatten's spec is ONE forall per subtree (`FlatUp`:
+  every slot below st + rows is out's below st and the tree's row from st on) so a node uses each
+  child's fact once per slot; two separate foralls (rows, low slots) needed the right child's twice.
+- **`+` on the LAST component of a Sigma destructuring** fails with "an annotated term (cannot infer)";
+  leave it affine and pass it to a `+` parameter. A `match` cannot follow `%` statements: put the
+  rewrites inside the branches. A let whose value is `(%e : T; t)` needs a helper def (no annotation).
+- **--verdict found a kernel mismatch the TS checker accepted** (`coll_nil`: `%lay : {Nat.add(_, x) ==
+  e}` against a goal `{x == e}` that matches only after reducing `Nat.add(0n, x)`, inside a Sigma
+  component). Rewritten with explicit `Equal.trans` / `Equal.cong` it passes. TODOs mask the kernel
+  check, so bisect with ALL laws proven: keep a prefix of PROOF_chunks.bend and drop the section-21
+  laws it does not prove (a temp copy, `bend PROOF.bend --verdict` per prefix; ~10 runs).
+
+What T5.2 (chunked kernel wrappers) needs:
+
+- Pattern: `CW.map` (one parallel let per node, `Kernel.*` at the leaf, counts copied); its laws are
+  the template: a `Leafwise`-style congruence with the existing cell lemma at the leaf (`PC.map_cell`,
+  `zip_cell`, ...). Lockstep walks over two or more trees match `WL/WL` and `WN/WN` and answer a dummy
+  leaf on a shape mismatch (WFCFrame, checked once at the boundary by `CFrame.check`, `cw_fits`, rules
+  that out).
+- Per-leaf compaction INTO THE SAME CAPACITY: `croom_of_cap(n, d, mask, fits, bits)` gives
+  `compact_contents` / `compact3_contents` / `compact4_contents`' CRoom at the leaf from `n <= 2^d` and
+  the mask's `WFWords(True, d, mask)`; the output leaf is `WL{kept, d, out}` with kept the cursor
+  (`pred_count`'s count or popcount), ragged. Run `CFrame.rebalance(g, f)` after a row-dropping
+  operator (rows < leaves * 2^g / 2 -> rechunk every column; decided by counts only).
+- Sequential reductions in row order (the F32 Neumaier walk, D4): thread the `NS` accumulator through
+  `f(r, f(l, acc))` as `CW.flat` threads its buffer (no stack, no fuel).
+- Masks: `CValid` is `CAllValid` or `CMask{CW}` of the data's shape; `CValid.mat(v, skel)` makes an
+  AllValid side a ones tree of a given skeleton (`CW.ones`).
+
+What T5.3 (the chunked runner) needs:
+
+- Boundary: `CFrame.of_frame(Ch.grain(), f)` / `CFrame.to_frame(cf)` (forked across columns; a frame of
+  at most 2^14 rows costs nothing: one leaf per column, the buffers moved both ways);
+  `CFrame.check(cf)` (WFCFrame) once at the boundary, never per kernel. Head / slice / concat / rechunk
+  exist at the frame level (`CFrame.head/slice/concat(.cap)/rechunk/rebalance`); concat's error text is
+  v0.1's at the real cap (the schema check is the caller's, as `Concat.two` does it before data work).
+- Ops on a whole frame go through `CFrame.op(COp, f)` (`OHead`, `ODrop`, `ORechunk`); the same row-count
+  decisions on every data and mask tree keep one shape per frame.
+- Open (stated in LAWS section 21's closing comment): drop / slice, the CF / CS instances, the column /
+  frame layer, the dictionary remap / decode walks.

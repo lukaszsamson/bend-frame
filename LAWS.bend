@@ -23,6 +23,7 @@ import ./src/plan.bend as P
 import ./src/exec.bend as Q
 import ./src/eval.bend as V
 import ./src/dump.bend as DP
+import ./src/chunks.bend as CH
 
 # ---- helpers used only to state laws ----------------------------------------------
 
@@ -3511,3 +3512,221 @@ law peep_f5_or:
 law peep_f5_dtype:
   for +lit: F32
   {V.Eval.f5.plan(X.Bin{X.And{}, X.Col{"ok"}, X.Bin{X.Gt{}, X.Col{"qty"}, X.Lit{D.SF32{lit}}}}, q1_schema()) == None{} : Maybe<&2, List<&2, V.P5>>}
+
+# =====================================================================================
+# 21. Chunk trees (v0.2 T5.1, DESIGN.md 16.1 D1): src/chunks.bend's word tree CW (Bool/U32/I32
+#     payloads, validity masks, dictionary codes; CF / CS are the same text over F32 / String)
+# =====================================================================================
+#
+# The model is Nat-indexed: crows(t) is the row count, ncell(t, m) the logical cell at row m (a leaf
+# reads its buffer at addn(0, m); a node answers its left child below lrows, else its right child at
+# m - lrows, a NAT subtraction: no word arithmetic is stated over the trees). WFChunks(t): every leaf
+# fits its slots (n <= 2^d) and is a well-formed array; every node's counts are exact: lrows ==
+# crows(l) and lrows + crows(r) == rows as natural numbers (so no sum of row counts wrapped).
+# TreeAt(t, st, src): row m of t is row st + m of the flat buffer src (the builder's spec; flatten's is
+# the same relation read the other way). The claims are the bridge of DESIGN.md 16.6 in offset form:
+# builders and flatten in the model, their round trip, rechunk / head / concat preserving WFChunks and
+# the logical cells, the per-leaf compaction precondition croom_of_cap, the chunked map's congruence.
+
+def crows(t: CH.CW) -> U32:
+  match t:
+    case CH.WL{n, d, a}:
+      n
+    case CH.WN{rows, lrows, l, r}:
+      rows
+
+def nrows(t: CH.CW) -> Nat:
+  U32.to_nat(crows(t))
+
+def ncell(t: CH.CW, +m: Nat) -> U32:
+  match t:
+    case CH.WL{n, d, a}:
+      rd_at(U32, a, addn(0, m))
+    case CH.WN{rows, +lrows, l, r}:
+      Bool.pick(U32, Nat.is_lt(m, U32.to_nat(lrows)), ncell(l, m), ncell(r, Nat.sub(m, U32.to_nat(lrows))))
+
+def WFChunks(t: CH.CW) -> Type:
+  match t:
+    case CH.WL{n, +d, a}:
+      {U32.is_le(n, U32.shln(1, d)) == True{} : Bool} & WFArray(U32, d, a)
+    case CH.WN{rows, +lrows, l, r}:
+      {lrows == crows(l) : U32} & {Nat.add(U32.to_nat(lrows), nrows(r)) == U32.to_nat(rows) : Nat} & WFChunks(l) & WFChunks(r)
+
+# row m of t is row st + m of src, for every row of t
+def TreeAt(-t: CH.CW, +st: Nat, -src: Array<U32>) -> Type:
+  @m: Nat -> {Nat.is_lt(m, nrows(t)) == True{} : Bool} -> {ncell(t, m) == rd_at(U32, src, addn(0, Nat.add(st, m))) : U32}
+
+# LAW (the builder's leaf copy): Ch.rng IS Kernel.range with the source handed back (so one flat buffer
+# feeds every leaf of a build; range_cell then gives the leaf's cells)
+law ch_rng_range:
+  for +n: U32
+  for +d: Nat
+  for +off: U32
+  for a: Array<U32>
+  for +z: U32
+  {CH.Ch.rng(~U32, n, d, off, a, z) == (K.Kernel.range(~U32, n, d, off, a, z), a) : Array<U32> & Array<U32>}
+
+# LAW (the builder): CW.of builds a well-formed tree of exactly n rows whose row m is row m of the
+# source, for any grain (the one-leaf case moves the buffer; the binary-counter case copies the leaves
+# with Ch.rng and folds them; no fuel argument: the out-of-fuel branch is correct too)
+def OfW(+n: U32, +ds: Nat, +g: Nat, -src: Array<U32>) -> Type:
+  &t: CH.CW -> {CH.CW.of(n, ds, g, src) == t : CH.CW} & WFChunks(t) & {crows(t) == n : U32} & TreeAt(t, 0n, src)
+
+law cw_of:
+  for +n: U32
+  for +ds: Nat
+  for +g: Nat
+  for src: Array<U32>
+  for fits: {U32.is_le(n, U32.shln(1, ds)) == True{} : Bool}
+  for wf: WFArray(U32, ds, src)
+  OfW(n, ds, g, src)
+
+# flatten's answer: a well-formed buffer of 2^dd slots whose row m is row m of t
+def FlatW(+dd: Nat, -t: CH.CW) -> Type:
+  &o: Array<U32> -> {CH.CW.flatten(dd, t) == o : Array<U32>} & WFArray(U32, dd, o) & (@m: Nat -> {Nat.is_lt(m, nrows(t)) == True{} : Bool} -> {rdN(U32, dd, o, addn(0, m)) == ncell(t, m) : U32})
+
+# LAW (the bridge): flatten (one Kernel.copy_into per leaf, left to right, the right child at
+# off + lrows) lays a well-formed tree's rows out in order, ragged and empty leaves included, whenever
+# its rows fit the 2^dd slots
+law cw_flatten:
+  for +dd: Nat
+  for t: CH.CW
+  for wf: WFChunks(t)
+  for fits: {U32.is_le(crows(t), U32.shln(1, dd)) == True{} : Bool}
+  FlatW(dd, t)
+
+# LAW (the round trip): flatten(of(src)) is src, row by row (any grain, any n that fits both buffers)
+law cw_roundtrip:
+  for +n: U32
+  for +ds: Nat
+  for +g: Nat
+  for +dd: Nat
+  for src: Array<U32>
+  for fits: {U32.is_le(n, U32.shln(1, ds)) == True{} : Bool}
+  for wf: WFArray(U32, ds, src)
+  for fitd: {U32.is_le(n, U32.shln(1, dd)) == True{} : Bool}
+  for +j: U32
+  for hj: {U32.is_lt(j, n) == True{} : Bool}
+  {rdN(U32, dd, CH.CW.flatten(dd, CH.CW.of(n, ds, g, src)), j) == rd_at(U32, src, j) : U32}
+
+# a concat's answer: refused (any error), or the one node over a and b, well formed, within the cap
+def ConcatOK(+cap: U32, -a: CH.CW, -b: CH.CW, r: E.ResT(CH.CW)) -> Type:
+  match r:
+    case Fail{e}:
+      Unit
+    case Done{t}:
+      {t == CH.WN{U32.add(crows(a), crows(b)), crows(a), a, b} : CH.CW} & WFChunks(t) & {U32.is_le(crows(t), cap) == True{} : Bool}
+
+# LAW (the node smart constructor, concat): an accepted concat is ONE node over the two trees (so its
+# rows are a's then b's by ncell's definition), well formed, its exact row sum within the cap (the
+# check is wrap-free: b <= cap - a after a <= cap)
+law cw_concat:
+  for +cap: U32
+  for a: CH.CW
+  for b: CH.CW
+  for wa: WFChunks(a)
+  for wb: WFChunks(b)
+  ConcatOK(cap, a, b, CH.CW.concat.cap(cap, a, b))
+
+# LAW (cursor capacity, the per-leaf compaction precondition): a leaf's mask of 0/1 words (the P0 mask
+# invariant, WFWords with bits) over n <= 2^d rows gives compact_contents' CRoom: the compaction's cursor
+# k <= i < n <= 2^d at every step, so a leaf compacts into a leaf of the SAME capacity (no kept + 1 slot).
+# Discharges section 11's CRoom hypothesis for compact_contents / compact3_contents / compact4_contents
+# at a chunk leaf.
+law croom_of_cap:
+  for +n: U32
+  for +d: Nat
+  for mask: Array<U32>
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for bits: WFWords(True{}, d, mask)
+  CRoom(U32.to_nat(n), 0, 0, d, mask)
+
+# the shape half of WFChunks: counts exact, leaves fitting their slots (no WFArray of the leaves)
+def ShapeWF(t: CH.CW) -> Type:
+  match t:
+    case CH.WL{n, +d, a}:
+      {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+    case CH.WN{rows, +lrows, l, r}:
+      {lrows == crows(l) : U32} & {Nat.add(U32.to_nat(lrows), nrows(r)) == U32.to_nat(rows) : Nat} & ShapeWF(l) & ShapeWF(r)
+
+# LAW (the chunked map keeps counts and shape; ported from the W0 spike's cmap_shape): the mask_not
+# instance of CW.map, one balanced fork per node
+law cmap_shape:
+  for t: CH.CW
+  for wf: WFChunks(t)
+  {crows(CH.CW.map(~(x => U32.xor(x, 1)), t)) == crows(t) : U32} & ShapeWF(CH.CW.map(~(x => U32.xor(x, 1)), t))
+
+# t2 reads, at every leaf, as the flat mask_not of t1's leaf, with the same shape and counts
+def Leafwise(t1: CH.CW, t2: CH.CW) -> Type:
+  match t1 t2:
+    case CH.WL{n1, d1, a1} CH.WL{n2, d2, a2}:
+      {n2 == n1 : U32} & {d2 == d1 : Nat} & (@k: U32 -> {U32.is_lt(k, n1) == True{} : Bool} -> {rd_at(U32, a2, k) == U32.xor(rd_at(U32, a1, k), 1) : U32})
+    case CH.WN{r1, l1, x1, y1} CH.WN{r2, l2, x2, y2}:
+      {r2 == r1 : U32} & {l2 == l1 : U32} & Leafwise(x1, x2) & Leafwise(y1, y2)
+    case _ _:
+      Empty
+
+# LAW (the chunked map is the flat map leaf by leaf: a node congruence whose leaf lemma is
+# PROOF_contents' map_cell, the term behind mask_not_cell; ported from the W0 spike's cmap_leafwise)
+law cmap_leafwise:
+  for t: CH.CW
+  for wf: WFChunks(t)
+  Leafwise(t, CH.CW.map(~(x => U32.xor(x, 1)), t))
+
+# rechunk's answer: a well-formed tree with t's rows, row by row
+def RechunkW(+g: Nat, -t: CH.CW) -> Type:
+  &t2: CH.CW -> {CH.CW.rechunk(g, t) == t2 : CH.CW} & WFChunks(t2) & {crows(t2) == crows(t) : U32} & (@m: Nat -> {Nat.is_lt(m, nrows(t)) == True{} : Bool} -> {ncell(t2, m) == ncell(t, m) : U32})
+
+# LAW (rechunk preserves the logical rows): every subtree whose rows fit 2^g becomes one leaf of 2^g
+# slots (CW.flatten of the subtree; the decision read off the parent's exact counts lrows, rows - lrows),
+# the rest keeps its nodes: WFChunks, the row count and every logical row are kept, ragged and empty
+# leaves included
+law cw_rechunk:
+  for +g: Nat
+  for t: CH.CW
+  for wf: WFChunks(t)
+  RechunkW(g, t)
+
+# head's answer: well formed, min(h, rows) rows, the first rows of t
+def HeadW(-t: CH.CW, +h: U32) -> Type:
+  &t2: CH.CW -> {CH.CW.head(t, h) == t2 : CH.CW} & WFChunks(t2) & {nrows(t2) == Nat.min(U32.to_nat(h), nrows(t)) : Nat} & (@m: Nat -> {Nat.is_lt(m, nrows(t2)) == True{} : Bool} -> {ncell(t2, m) == ncell(t, m) : U32})
+
+# LAW (the cut): head drops the leaves past h and shortens the boundary leaf (no row copied): the answer
+# is well formed, has min(h, rows) rows and they are t's first rows
+law cw_head:
+  for t: CH.CW
+  for +h: U32
+  for wf: WFChunks(t)
+  HeadW(t, h)
+
+# a tree's skeleton (shape and counts, no payload): the model CW.skel answers
+def skel(t: CH.CW) -> CH.Skel:
+  match t:
+    case CH.WL{n, d, a}:
+      CH.KLeaf{n}
+    case CH.WN{rows, lrows, l, r}:
+      CH.KNode{rows, lrows, skel(l), skel(r)}
+
+# the lockstep walk's answer: the tree handed back unchanged, and a True verdict only for t's skeleton
+def FitsW(-t: CH.CW, -s: CH.Skel) -> Type:
+  &t2: CH.CW -> &ok: Bool -> {CH.CW.fits(t, s) == (t2, ok) : CH.CW & Bool} & {t2 == t : CH.CW} & ({ok == True{} : Bool} -> {skel(t) == s : CH.Skel})
+
+# LAW (the WFCFrame lockstep walk is sound): CW.fits hands the tree back and answers True only when the
+# tree has exactly the skeleton s (same shape, same rows / lrows at every node, same n at every leaf), so
+# two trees accepted against one skeleton pair leaves of equal n in any lockstep leaf walk
+law cw_fits:
+  for t: CH.CW
+  for s: CH.Skel
+  FitsW(t, s)
+
+# STATED OPEN in section 21 (no law: tested only, see tests/chunks_*.bend; listed in DESIGN.md section 8):
+#  - CW.drop / CW.slice (the front cut: one Kernel.range copy of the boundary leaf, range_cell's leaf
+#    lemma; the node bookkeeping is head's with subtraction on the left);
+#  - the CF / CS instances (the same generated text over F32 / String; as elsewhere in LAWS the claims are
+#    stated at the U32 instance) and the column / frame layer (CColumn.of / to, CFrame.of_frame /
+#    to_frame, CFrame.check: per tree they are cw_of, cw_flatten, cw_fits; the frame-level statement
+#    over the column list is T5.3's);
+#  - the Dictionary concat's code remap (Ch.gat, a gather handing its source back, and the tree walk
+#    CW.remap) and the decode walk CS.of_codes;
+#  - WFArray of Kernel.map's output inside the chunked map (cmap_shape keeps the shape half only, as the
+#    W0 spike did).
