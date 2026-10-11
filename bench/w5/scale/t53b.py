@@ -47,18 +47,35 @@ def report(path):
     keys = sorted({(r.get("exe", "cand"), r.get("mode", 3)) for r in allr})
     for k in keys:
         print(f"\n## exe {k[0]}, mode {k[1]} ({'chunked, pre-chunked source' if k[1] == 3 else 'reference, flat env'})")
-        report1([r for r in allr if (r.get("exe", "cand"), r.get("mode", 3)) == k])
+        report1([r for r in allr if (r.get("exe", "cand"), r.get("mode", 3)) == k], k[1])
+    # every binary and mode must answer the same hash per op (the chunked result is flattened and hashed
+    # after the clock, the reference's hashed as it is: bench/m2/driver.bend's Hc.frame)
+    for op in sorted({r["op"] for r in allr}):
+        chks = {r["chk"] for r in allr if r["op"] == op}
+        print(f"hash {op}: {'equal across binaries and modes' if len(chks) == 1 else 'DIFFER ' + str(sorted(chks))}")
+    # the 1-thread chunked compute against the reference compute (mode 3 / mode 4 medians)
+    ref = {r["op"]: [] for r in allr}
+    for r in allr:
+        if r.get("mode", 3) == 4 and r["threads"] == 1:
+            ref[r["op"]].append(r["sample_ms"])
+    print("\n| exe | op | chunked 1 thr | reference 1 thr | chunked / reference |\n|---|---|---|---|---|")
+    for e in sorted({r.get("exe", "cand") for r in allr if r.get("mode", 3) == 3}):
+        for op in sorted(ref):
+            ch = [r["sample_ms"] for r in allr if r.get("exe", "cand") == e and r.get("mode", 3) == 3 and r["op"] == op and r["threads"] == 1]
+            if ch and ref[op]:
+                print(f"| {e} | {op} | {S.median(ch):.2f} | {S.median(ref[op]):.2f} | {S.median(ch) / S.median(ref[op]):.2f} |")
 
 
-def report1(recs):
+def report1(recs, mode=3):
     cells = {}
     for r in recs:
         cells.setdefault((r["op"], r["threads"]), []).append(r)
     loads = [r["load0"] for r in recs] + [r["load1"] for r in recs]
     ops = sorted({r["op"] for r in recs})
     threads = sorted({r["threads"] for r in recs})
-    print(f"# {len(recs)} processes, 1-minute load {min(loads)}..{max(loads)}; compute = CX.run_x over a pre-chunked "
-          f"source, ms per run (window of 8 runs / 8)")
+    what = "CX.run_x over a pre-chunked source" if mode == 3 else "Exec.run_phys over a flat env (the reference)"
+    print(f"# {len(recs)} processes, 1-minute load {min(loads)}..{max(loads)}; compute = {what}, ms per run "
+          f"(window of 8 runs / 8)")
     print("| op | " + " | ".join(f"{t} thr: median (raw per process)" for t in threads) + " | 4-vs-1 | 12-vs-1 | 16.8 G2 | hashes |")
     print("|---|" + "---|" * (len(threads) + 4))
     for op in ops:
@@ -72,8 +89,8 @@ def report1(recs):
             ss = [r["sample_ms"] for r in rs]
             med[t] = S.median(ss)
             cols.append(f"{med[t]:.2f} ({', '.join(f'{s:.2f}' for s in ss)})")
-        r4 = f"{med[1] / med[4]:.2f}x" if 1 in med and 4 in med else "-"
-        r12 = f"{med[1] / med[12]:.2f}x" if 1 in med and 12 in med else "-"
+        r4 = f"{med[1] / med[4]:.2f}x" if 1 in med and med.get(4) else "-"
+        r12 = f"{med[1] / med[12]:.2f}x" if 1 in med and med.get(12) else "-"
         chks = {r["chk"] for t in threads for r in cells.get((op, t), [])}
         print(f"| {op} | " + " | ".join(cols) + f" | {r4} | {r12} | >= {G2.get(op, '-')}x | {'equal' if len(chks) == 1 else 'DIFFER'} |")
 

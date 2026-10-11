@@ -21,11 +21,14 @@
 #
 # Row-wise operators reuse the FLAT EVALUATOR at every leaf (V.Eval.full / V.Eval.pred / K.Kernel.popcount /
 # Q.Exec.fc on a leaf-sized C.Frame: every v0.1 semantic, the fused kernels and their laws at the leaf),
-# forked over the frame's tree with ONE balanced parallel let per node (AGENT_BRIEF_M2 rule 3); a
-# with_columns / select evaluates ALL its k expressions per leaf in one walk (16.3 F9); a filter is two
-# walks (the predicate's mask per leaf, then the per-leaf compaction, Q.Exec.fc: compact3 / compact4). The
-# ragged result is rebalanced (CH.CFrame.rebalance, 16.1's occupancy policy) lazily, by the next walk that
-# reads it (CX.wi), never before a flatten boundary.
+# forked over the frame's tree with ONE balanced parallel let per node (AGENT_BRIEF_M2 rule 3); the walk's
+# expressions are typed and compiled ONCE against the frame's schema and the leaves run the compiled code
+# (T5.5: CX.pc / CX.cel / CX.erun); a with_columns / select evaluates ALL its k expressions per leaf in one
+# walk (16.3 F9), a with_columns walking only the columns its expressions read; a filter whose predicate has
+# an F5 plan is ONE walk (T5.5, CX.p3: the F5 passes then the per-leaf compaction, Q.Exec.fc), any other
+# filter two walks (the predicate's mask per leaf, then the per-leaf compaction). The ragged result is
+# rebalanced (CH.CFrame.rebalance, 16.1's occupancy policy) lazily, by the next walk that reads it (CX.wi),
+# never before a flatten boundary.
 # An aggregation INSIDE a row-wise expression (`x - mean(x)`, `qty > max(qty)`) is evaluated once, by the
 # flat evaluator over the columns it reads (borrowed when flat, a flattened copy when chunked), and the
 # per-leaf walk sees its value as a literal (CX.hoist).

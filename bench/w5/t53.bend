@@ -235,8 +235,13 @@ def T.r.k2(+op: String, +par: U32, r: P.Env & P.Plan, ss: C.Frame & C.Frame, pp:
   (s1, s2) = ss
   T.r.go(P.Optimize.release(T.plan(op, par, T.splan(s1), pl)), T.r.pre(T.b.k(), Nil{}, DF.clone(s2), pp))
 
+def T.r.env2(+op: String, +par: U32, s: C.Frame, pp: C.Frame & C.Frame) -> IO(R):
+  (p1, p2) = pp
+  T.r.k2(op, par, DF.source("products", p1), DF.clone(s), DF.clone(p2))
+
+# (the plan's products Source takes its schema from a clone of the products frame, as mode 3's)
 def T.rbatch(+op: String, +par: U32, s: C.Frame, p: C.Frame) -> IO(R):
-  T.r.k2(op, par, DF.source("products", C.Frame.empty()), DF.clone(s), DF.clone(p))
+  T.r.env2(op, par, s, DF.clone(p))
 
 def T.pre.k2(+g: Nat, env: P.Env, +p: P.Plan, s: C.Frame) -> IO(R):
   T.pre(g, env, p, s)
