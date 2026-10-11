@@ -2,7 +2,8 @@
 
 Production code: `src/csvprod.bend` (the piece producer) and `src/csvlane.bend` (the lane). Design:
 DESIGN.md section 17 (17.4 D6 reader, 17.5 chunk hand-off, 17.6 obligations); lessons and the numbers:
-IMPLEMENTING.md "W6.1 / W6.2". Neither is wired into `Csv.read` / `Csv.scan` yet (W6.3).
+IMPLEMENTING.md "W6.1 / W6.2". W6.3 wired them into the opt-in v0.2 reader (`src/csv.bend` `Csv.v2.*`,
+`Csv.read_v02_full`; DESIGN.md 15.6.6, IMPLEMENTING.md "W6.3").
 
 | file | what |
 |---|---|
@@ -15,6 +16,8 @@ IMPLEMENTING.md "W6.1 / W6.2". Neither is wired into `Csv.read` / `Csv.scan` yet
 | `run_probe.py` | interleaved fresh-process runner: load, wall / user, instructions retired, cycles, RSS, raw samples in JSONL |
 | `cops.py` | per-loop reference-count / copy / allocation counts of an emitted C file, loops found by their locals' names |
 | `gen_tk.py` | writes `Tk.go2` (the tokenizer loop, one flat def) into `src/csvlane.bend` |
+| `p63.bend` | W6.3 phase probe of the integrated reader: header step, producer, head classification, fork, combine (`build/w6/p63 [--threads N] <file> [piece]`) |
+| `mut63.py` | W6.3 mutation controls of `Csv.v2.*` / `Lc.*` against tests/csv_v02_*.bend (17 killed, 1 documented equivalent) |
 | `results/*.jsonl` | raw samples of the provisional runs |
 
 Tests (`make test` runs them): `tests/csvprod.bend` (region starts equal the reference parser's record starts for

@@ -351,42 +351,10 @@ def Dict.same.k(rx: Dict & U32, ry: Dict & U32) -> Dict & Dict & Bool:
 def Dict.same(x: Dict, y: Dict) -> Dict & Dict & Bool:
   Dict.same.k(Dict.size(x), Dict.size(y))
 
-# ---- order -----------------------------------------------------------------------------------
-
-# rank[c] = the position of entry c among the entries in String order (Base Map's crit-bit
-# order: code points, a prefix first; Sort.str_words ranks Raw strings by the same Map)
-def Dict.rk.ins(+c: U32, m: Map<&2, U32>, s: String) -> Map<&2, U32>:
-  Map.set(&2, U32, m, s, c)
-
-def Dict.rk.go(n: Nat, +c: U32, m: Map<&2, U32>, r: Array<String> & String) -> Array<String> & Map<&2, U32>:
-  match n:
-    case 0n:
-      (strs, s) = r
-      (strs, m)
-    case 1n+p:
-      (strs, s) = r
-      +j = U32.inc(c)
-      Dict.rk.go(p, j, Dict.rk.ins(c, m, s), Array.get(String, strs, j))
-
-def Dict.rk.put(+pos: U32, rk: Array<U32>, kv: Sigma<&2, &2, String, _ => U32>) -> Array<U32>:
-  (key, v) = kv
-  Array.set(U32, rk, v, pos)
-
-def Dict.rk.list(xs: List<&2, Sigma<&2, &2, String, _ => U32>>, +pos: U32, rk: Array<U32>) -> Array<U32>:
-  match xs:
-    case Nil{}:
-      rk
-    case kv <> t:
-      Dict.rk.list(t, U32.inc(pos), Dict.rk.put(pos, rk, kv))
-
-def Dict.rk.fin(+k: U32, +dd: Nat, +b: Nat, slots: Array<SSlot>, +tag: U32, r: Array<String> & Map<&2, U32>) -> Dict & Array<U32>:
-  (strs, m) = r
-  (Dict{k, dd, strs, b, slots, tag}, Dict.rk.list(Map.to_list(&2, U32, m), 0, Array.new(U32, dd, 0)))
-
-def Dict.ranks(d: Dict) -> Dict & Array<U32>:
-  match d:
-    case Dict{+k, +dd, strs, +b, slots, +tag}:
-      Dict.rk.fin(k, dd, b, slots, tag, Dict.rk.go(U32.to_nat(k), 0, Map.new(&2, U32), Array.get(String, strs, 0)))
+# ---- order ----------------------------------------------------------------------------------
+# The ranks of a dictionary's entries (code-point order, a prefix first) are R.Rk.dict in
+# src/ranks.bend (v0.2 W2.3; the v0.1 Base-Map Dict.ranks is kept as the test reference in
+# tests/lib/v01str.bend).
 
 # ---- Strs ------------------------------------------------------------------------------------
 

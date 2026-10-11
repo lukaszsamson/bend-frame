@@ -189,6 +189,9 @@ src/kernels.bend           template array loops                               [s
 src/column.bend            Valid, Column, Named, Frame + column ops           [sonnet]
 src/schema.bend            Field, Schema ops, Frame.schema                    [sonnet]
 src/expr.bend              UnOp/BinOp/AggOp/Expr, Expr.type/name/refs         [sonnet]
+src/radix.bend             Radix.sort, WS: the (word, row) LSD radix sort (T3.2; own file since W2.3)
+src/hcode.bend             Hc.code: the flat distinct-key string coder (v0.2 W2.1, wired W2.3)
+src/ranks.bend             Rk.words / Rk.dict: lexical ranks of string entries (W2.2, wired W2.3)
 src/eval.bend              Eval.expr: dtype×op dispatch onto kernels           [opus]
 src/sort.bend              argsort, multi-key stable sort, Sort.frame          [opus]
 src/groupby.bend           GroupBy.run                                         [opus]
@@ -975,8 +978,10 @@ Dictionary mode, `make diff-reduce`, the goldens of `make bench-check`), not by 
 3. Per-entry maps over a Dictionary: `Strs.map` / `Strs.map_p` / `Dict.map.*` / `Dict.mp.t` /
    `Dict.mm.*` (string predicates `contains_literal` / `starts_with` / `ends_with`, `len_chars`, `is_in` on
    a Str column: computed once per entry, then gathered by code).
-4. Rank order of a Dictionary: `Dict.ranks` (`Dict.rk.*`), `Sort.dict_words`, `Eval.zd.ord.*`
-   (Str `<` / `<=` / `>` / `>=`, sort keys over Dictionary codes).
+4. Rank order of a Dictionary: `Rk.dict` (src/ranks.bend, the v0.2 rank stage: `Rl.*`, `Rw.*`,
+   `Pb.*`, `Rf.*` / `Rq.*`, `Rx.*`, `Rg.*`, `Rk.*`; v0.1's Base-Map `Dict.ranks` until W2.3, now only a
+   test reference in tests/lib/v01str.bend), `Sort.dict_words`, `Sort.kd*`, `Eval.zd.ord.*`, `Eval.ds.ext*`
+   (Str `<` / `<=` / `>` / `>=`, sort keys over Dictionary codes, min / max).
 5. Str evaluators beyond fill_null and when's storage: comparisons (items 2, 4), string
    predicates and `len_chars` (item 3), casts to and from `str`, `is_in`, and `when`'s
    validity (`Eval.when.valid`); and over every dtype, the cell values of the evaluator: the
@@ -990,11 +995,15 @@ Dictionary mode, `make diff-reduce`, the goldens of `make bench-check`), not by 
    per-row encoder of section 14 is proven, its use inside `src/csv.bend` is not), the writer
    and every round trip; IO in general (plan section 6 "IO boundary").
 7. group_by and join: the group encoders (`Grp.codes`, `Grp.enc.*`, `Grp.rank` / `Grp.prank`,
-   `Grp.densify`, also behind `unique`), the grouped scatter accumulators (the plan's "per-group
+   `Grp.densify`, also behind `unique`; a Raw string key is coded by the packed flat coder
+   `Hc.code.pk`, src/hcode.bend, since W2.3: `Hc.*`, with its own probe hypothesis "the probe for s stops at a
+   slot that is empty or holds s", stated in the file's header, not a law, as v0.1's Base-Map
+   coder had none either), Raw n_unique (`Eval.nu.str`, the same coder's entry count), the grouped scatter accumulators (the plan's "per-group
    invariant for count and U32 sum given valid group ids" was not reached), the aggregations,
    the hash join (`src/join.bend`'s own `Dict`, `Probe`, `Dense`), semi / anti, and the
    partition correctness of both. Sort: the stable LSD radix argsort and its order words
-   (`Sort.*`, `Radix.sort`), including stability.
+   (`Sort.*`, `Radix.*` / `WS.*` in src/radix.bend since W2.3), including stability; the order
+   words of a Raw string key (`Rk.words` = `Hc.code.fnv` then the rank stage, item 4).
 8. Floats: every F32 result (Neumaier sums, mean, std / var / median, describe quantiles,
    the 15.5.2 order words, casts, `F32.show` / `F32.read`). Checked against an exact or f64
    reference with the T2.3 bound (`make diff-reduce`), not proven.
@@ -2705,7 +2714,7 @@ n_unique / median tests, diff-smoke and the m2 content hashes (q4 `chk` / `dump`
    pair (v0.1 answered fresh zero-padded arrays when a pass ran). Every caller (n_unique, median,
    group_by ranks, the sort) reads rows below n only.
 5. **Raw string keys still code a clone** (T3.2 brief: `Sort.str_words` / `str_codes` / `pcodes`
-   and their callers stay as they are for W2): a `SRaw` key is cloned and coded by `Sort.words` as
+   and their callers stay as they are for W2; resolved by W2.3: borrowed through `Rk.words`): a `SRaw` key is cloned and coded by `Sort.words` as
    in v0.1; numeric, Bool and Dictionary keys are borrowed in place (`Sort.split` /
    `Sort.unsplit`), a Dictionary key through `Dict.ranks` and the rank lookup inside the words pass.
 ### v0.2 W2.4 (the join's string table)
@@ -2730,6 +2739,110 @@ Implementation only; the join's output (rows, order, values, validity, names, er
    held through the probe). No per-lane table, no `Dict.clone` / `Str.copy` (`Probe.fork`,
    `Probe.dd`, `J.Dict` removed). The probe is sequential (17.3.3 default); W2.5 may partition it.
 3. **Assurance**: the packed coder and lookup are tested-only, as the table they replace.
+
+### v0.2 W6.1 / W6.2 (CSV producer and lane; recorded by W6.3)
+
+Implementation choices of src/csvprod.bend and src/csvlane.bend that depart from the letter of 17.4 or that
+later readers of the code need to know; none changes the data contract.
+
+1. **Generated tokenizer**: `Tk.go2` (one flat def, every transition an arm) is written by
+   bench/w6/gen_tk.py between the `# BEGIN GENERATED Tk.go2` / `# END GENERATED Tk.go2` markers of
+   src/csvlane.bend: a flat def cannot share code between arms, so the end-of-field / end-of-record code is
+   repeated per arm. Edit the generator, then run it; never edit between the markers.
+2. **Tokenizer capacity**: a region's field arrays have room for `min(nt + 1, n / w + 1) + 1` rows (nt the
+   producer's terminator count, n the region's bytes, w the width), times w fields: a kept record needs at
+   least w - 1 separators and a terminator, and the extra slot takes a dropped (blank or ragged) record's
+   writes. Bounded by the bytes, not by the terminators (a file of blank lines with w = 1000 would otherwise
+   ask for gigabytes).
+3. **Interpreter stack on long strings**: `String.eq`, `String.lines` and `DF.dump`'s `Dump.esc` are non-tail
+   walks; two live dumps of an ~18K-character string overflow the JS interpreter's stack (`bend file.bend`),
+   the native binary does not. The W6 tests compare dumps by hash and length (bench/w6/cmp.bend) and keep
+   long records and names to a few KB; W6.3's tests do the same (a 3,000-character header name, 5,000 leading
+   blank lines: v0.1's `Csv.lead` is a non-tail walk over them).
+4. **Non-ASCII separators**: the lane compares BYTES with the separator, so a separator above U+007F (a
+   multi-byte UTF-8 sequence) cannot be tokenized there; W6.3 routes such reads to the v0.1 reader (same
+   answer by construction; tests/csv_v02_texts.bend `section_sep`).
+5. **`CO.OS` carries the entries' first local rows** (`fr`, added by W6.3): the EncAuto rule needs the global
+   first row of every entry.
+
+### v0.2 W6.3 (CSV reader integration; 17.4, 17.5, D7)
+
+No change of the data contract (section 15). The v0.2 reader is opt-in (15.6.6); the v0.1 reader stays the
+default and the reference.
+
+1. **Header step** (17.4.1 step 1) reads the file itself, bytes in pieces of `min(piece, 64 KiB)`, and parses
+   only the first non-blank record with the reference parser (decoded by `Csv.u8`, File.read's rules); it
+   does not infer. Inference is done on the regions instead (item 2), so infer_rows of any size never
+   parses a prefix with csvparse.
+2. **Inference by classification** (17.4.5 amended): each region reports, per column, its first local row
+   whose cell does not fit u32 / i32 / f32 / bool and its first row with text (`L.Ln.cls`, the typed loops'
+   own field parsers); with the regions' row offsets that is exactly v0.1's `Csv.pick` over the first
+   infer_rows rows. infer_rows <= 65536: the leading regions are tokenized and classified sequentially until
+   they hold infer_rows rows, and their tokens are reused by the typed pass (one extra classification of
+   ~one region at the default 100); infer_rows = 0 or larger: one forked classification pass over every
+   region, then the typed fork tokenizes again (17.4.5's two passes over the packed bytes).
+3. **EncAuto per region (17.4.7 (a)) is decided in the combine, not in the lanes**: a lane cannot know its
+   global row offset, so it cannot evaluate `max(floor, rows / 64)`; a sound per-lane bound (bytes / width)
+   is too weak to fire on the 41 MB file. Instead the merge evaluates v0.1's rule per entry in region order
+   and STOPS at the first entry over the threshold (a 1M-distinct column merges ~16k entries, not 1M); the
+   rows coded so far are decoded from the dictionary and every later region is decoded from its own
+   entries (one gather of shared strings). The lanes still decode one string per distinct entry per region.
+   17.4.7 (b) (a presized global coder for forced EncDict) is not done: EncDict is a test / opt-in storage.
+4. **Zero-row EncAutoAt{0, _}**: v0.1's builder checks the storage rule once on an empty chunk (dictionary
+   size 1, 0 rows), so a zero-row Str column is Raw under a floor of 0; the v0.2 combine reproduces it
+   (`Csv.v2.x.zero`). EncAuto (floor 16384) never meets it.
+5. **Combine shape**: the columns are built by one balanced fork over a tree of the columns (each column's
+   concatenation and dictionary merge is its own); the summary, the error order and the parts' extraction
+   are sequential. Leaves are v0.1's flat columns (17.5: the chunk hand-off waits for D1's frozen leaves).
+6. **Equivalent mutant**: dropping the check of the producer's final quote parity does not change any
+   answer (the last region's lane ends in mode ME and rejects); it is kept as the cheap early answer.
+7. **Targets (provisional, 17.8)**: 41 MB parse 662-677 ms at 1 thread, 355-364 ms at 12, peak RSS 187-249 MB,
+   the fork phase 5.7x at 12 threads: met. End to end 1.86x (parse) and 1.7-1.8x (q1-q6) at 12 vs 1 thread:
+   the >= 2x target is NOT met; the serial producer (278-288 ms, the File API floor) bounds it at ~2.2x
+   (IMPLEMENTING.md "W6.3" has the samples and loads). The gate machine decides.
+8. **Driver shim** (bench/m2): the driver reads CSV through bench/m2/engine.bend (BF_ENGINE=v02 selects the
+   v0.2 reader); baseline.sh copies bench/m2/engine_v01.bend in as the baseline's engine.bend, and the
+   driver hash covers both files (run.py `driver_hash`).
+### v0.2 W2.3 (wiring the flat coder and the rank stage)
+
+Implementation only; group_by / unique / n_unique / sort / min / max / Str comparisons give v0.1's
+values, validity, names, row order and errors (bench/w2/wire.sh: 8,762 frame-level content hashes over
+11 key shapes x 9 sizes up to 100k (+ 300k / 1M cells) x 4 null patterns, Raw and Dictionary, equal to
+the pre-W2.3 build's; tests/strwire.bend passes on both builds).
+
+1. **Amends 17.3.4 (group_by / unique / n_unique rows)**: a Raw key is coded by `Hc.code.pk` (W2.4's
+   packed coder: one walk per row hashes AND copies the code points, a hash hit compares flat words),
+   not by `Hc.code(~ST.Str.hash, .., first = 1)`. Same codes: pk's ids are `Hc.code(first = 0)`'s, so
+   group_by adds 1 in the pass that zeroes the null rows (`Grp.enc.p1`: `Sort.xmap` + 1, then
+   `Sort.words.z`, as the Dictionary key already did); `k` = distinct + 1 as before. Measured both
+   (provisional, IMPLEMENTING W2.3): equal within noise on 1M distinct short keys (median 189 vs 232 ms, ranges overlapping), pk
+   ~15 % slower on distinct 45-char keys (lp 300k: 112 vs 93 ms), pk 2.2x faster on repeated keys read
+   from a CSV (1M rows, 20k distinct 22-char keys: 525 vs 1,163 ms; n_unique 535 vs 2,851), because a
+   hit of `Hc.code` walks the representative cons string at a scattered place (W2.4's finding).
+   Cost: pk holds 4 bytes per code point of the distinct keys, presized at 8 words per row and doubled
+   (peak RSS of lp_group_300k 585 vs 477 MB with `Hc.code.h`, one process each; v0.1 803 MB).
+2. **Sort words of a Raw column** (`Sort.str_words`, a Raw sort key): `Rk.words` = `Hc.code.fnv` +
+   the rank stage (17.3.2), unchanged from W2.2; the key is now BORROWED (`Rk.words` hands the rows
+   back), which removes T3.2's item 5 exception (no `Column.clone` of a Raw key). Not moved to the
+   packed coder: the rank stage reads entries through their first rows (`fr`) and UTF-8 byte lengths
+   (`bl`), which `Hc.code.pk` does not answer; on repeated keys read from a CSV the hits still walk
+   the representative string (open, IMPLEMENTING W2.3).
+3. **`Dict.ranks` callers** (`Sort.kd`, `Sort.dict_words`, `Eval.zd.ord.m`, `Eval.ds.ext`) use
+   `Rk.dict`. `ST.Dict.ranks` (Base Map) is DELETED from src/strs.bend; with `Sort.str_codes`,
+   `Sort.codes.*`, `Sort.code.*`, `CS`, `Sort.pcodes`, `Sort.pmerge*`, `Sort.kbc*`, `Sort.str_fork`,
+   `Sort.str_codes_par`, `Sort.ranks.*`, `Sort.str_words.b/.c` (src/sort.bend) and `Eval.nuniq*`,
+   `Eval.distinct*` (the cons-list n_unique, src/eval.bend) it lives on only as the v0.1 REFERENCE of
+   the differential tests, byte-identical, in tests/lib/v01str.bend.
+4. **Raw n_unique** = `Hc.code.pk`'s entry count over the valid rows (`Eval.dropnull` as before) plus
+   one for any null (15.2.5); `PROOF_evalops.bend`'s witness `aggdense_nu_s` names `Eval.nu.str`
+   instead of `Eval.nuniq` (a witness, not a claim: no law changed).
+5. **`Radix.*` and `WS` moved to src/radix.bend** (byte-identical; sort.bend, ranks.bend, eval.bend and
+   groupby.bend import it) to break the ranks.bend -> sort.bend import cycle; eval.bend no longer
+   imports sort.bend. No PROOF / LAWS file named them.
+6. **Proof-import audit**: LAWS.bend unchanged; the Probe / EncProbe / MergeProbe / FindProbe premises
+   are about `ST.Ix.seek`, untouched; `make proofs`, `make verdict`, `make mutation-check` green. The
+   coder, the packed coder and the rank stage are tested-only, as the v0.1 code they replace (8.1,
+   "Not proven" items 4 and 7 updated).
 
 ## 15. v0.1 contract (frozen)
 
@@ -3289,6 +3402,29 @@ No round-trip claim for numeric-looking strings under inference (`"007"`, `" 1 "
 `"1.0"` in a str column come back as numbers unless a schema is given): README says so
 (B02-k). Round trip IS claimed for: every dtype under an explicit schema written and
 read by bend-frame (dump equality, NaN payload excepted), and `""` vs null.
+
+#### 15.6.6 Reader engine (v0.2 D7, W6.3: documentation of the selector, not a contract change)
+
+Two readers implement 15.6.1 - 15.6.5: the v0.1 reader (csvparse + the streaming sink, `Csv.read_full`) and
+the v0.2 reader (`Csv.read_v02_full`: header step, flat byte regions, one parallel fork of typed lanes, a
+sequential combine; section 17.4). The v0.1 reader is the REFERENCE and the default of every entry
+(`read_csv*`, `Csv.read*`, scan_csv's `collect` / `collect_raw` / `collect_full`) until W8 flips it. The
+v0.2 reader is opt-in through a `CsvEngine` value (`src/csv.bend`: `CsvV01{}` | `CsvV02{piece}`):
+
+| entry | engine |
+|---|---|
+| `DF.read_csv_engine(eng, path, opts, dtypes, enc)` = `Csv.read_eng` | `eng` (`DF.csv_engine_v01()`, `DF.csv_engine_v02()` = `CsvV02{Pr.piece()}`, 240 KiB pieces) |
+| `DF.read_csv_v02(path)` | v0.2 with `read_csv`'s defaults |
+| `DF.collect_engine(eng, plan, env)` = `Lazy.collect_rd` (`Exec.run_rd`) | every ScanCsv of the plan read by `eng` (strict, the frozen dtypes, as `collect`) |
+| `Csv.read_v02_full(path, opts, dtypes, enc, piece, cap)` | v0.2 with every knob (tests: tiny pieces, a lowered row cap) |
+| bench/m2 driver, `BF_ENGINE=v02` | v0.2 for every CSV input (bench/m2/engine.bend) |
+
+Both engines answer the same `ResT(Frame)`: values, validity, F32 bits, strings, the Str storage (Raw or
+Dictionary, and a Dictionary's codes and size), names, dtypes, column order, error texts, error lines and
+error precedence (tests/csv_v02_*.bend, tests/coverage/csv_engine.bend compare both at the dump and storage
+level). A separator outside ASCII is read by the v0.1 reader under either engine. Under `EncAutoAt{0, den}`
+(a test-only storage rule) a zero-row Str column is Raw in both, as v0.1's builder checks the rule once on
+an empty chunk.
 
 ### 15.7 Sources and Env (B04)
 

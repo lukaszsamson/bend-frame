@@ -36,7 +36,9 @@ import ./strs.bend as ST
 import ./schema.bend as S
 import ./expr.bend as X
 import ./analysis.bend as A
-import ./sort.bend as O
+import ./radix.bend as RD
+import ./hcode.bend as H
+import ./ranks.bend as R
 
 type SKind is Data:
   KFull{}
@@ -524,8 +526,8 @@ def Eval.zip.s(op: X.BinOp, +n: U32, +d: Nat, a: Array<String>, b: Array<String>
 # the two dictionaries are the same (tag, then every entry verified), else after re-coding the
 # smaller dictionary into the larger (an entry the larger lacks gets Dict.miss(), never equal
 # to a code); < <= > >= compare ranks: the second dictionary is merged into the first and the
-# merged entries are ranked once (Dict.ranks: Base Map order = code points, a prefix first,
-# the order String.is_lt implements). Mixed storages decode the Dictionary side.
+# merged entries are ranked once (R.Rk.dict, the rank stage of src/ranks.bend: code points, a
+# prefix first, the order String.is_lt implements). Mixed storages decode the Dictionary side.
 
 def Eval.zd.snd(r: Array<U32> & Array<U32>) -> Array<U32>:
   (a, b) = r
@@ -574,7 +576,7 @@ def Eval.zd.ord.w(op: X.BinOp, +n: U32, +d: Nat, ca: Array<U32>, cb: Array<U32>,
 
 def Eval.zd.ord.m(op: X.BinOp, +n: U32, +d: Nat, ca: Array<U32>, cb: Array<U32>, r: ST.Dict & ST.Dict & Array<U32>) -> Array<U32>:
   (db, dm, mb) = r
-  Eval.zd.ord.w(op, n, d, ca, cb, mb, ST.Dict.ranks(dm))
+  Eval.zd.ord.w(op, n, d, ca, cb, mb, R.Rk.dict(dm))
 
 # both sides ranked in the order of the merged entries (a's codes are kept by the merge)
 def Eval.zd.ord(op: X.BinOp, +n: U32, +d: Nat, ca: Array<U32>, da: ST.Dict, cb: Array<U32>, db: ST.Dict) -> Array<U32>:
@@ -1300,28 +1302,19 @@ def Eval.dropnull.a(r: C.Column & U32) -> C.Column:
 def Eval.dropnull(c: C.Column) -> C.Column:
   Eval.dropnull.a(C.Column.len(c))
 
-# distinct values of a sorted list (eq = equality of neighbours)
-def Eval.distinct.go(~T: Data, ~eq: T -> T -> Bool, xs: List<&2, T>, +prev: T, acc: U32) -> U32:
-  match xs:
-    case Nil{}:
-      acc
-    case +h <> t:
-      Eval.distinct.go(~T, ~eq, t, h, U32.add(acc, U32.sub(1, Bool.to_u32(eq(prev, h)))))
+# n_unique over Raw strings (v0.2 W2.3): the number of distinct strings among a[0..k) = the
+# packed flat coder's entry count (H.Hc.code.pk: first-appearance ids from 0, so next = the
+# distinct count; one walk per row hashes and packs it, a hash hit compares flat words; no cons
+# list of rows, no sort). The
+# caller (Eval.agg -> Eval.dropnull) passes the VALID rows only and adds one for any null
+# (DESIGN 15.2.5).
+def Eval.nu.str.k(hj: H.HJ) -> U32:
+  match hj:
+    case H.HJ{next, a, hs, ix, codes, po, pl, pk, cur, pd}:
+      next
 
-def Eval.distinct(~T: Data, ~eq: T -> T -> Bool, xs: List<&2, T>) -> U32:
-  match xs:
-    case Nil{}:
-      0
-    case +h <> t:
-      Eval.distinct.go(~T, ~eq, t, h, 1)
-
-def Eval.nuniq.l(~T: Data, ~le: T -> T -> Bool, ~eq: T -> T -> Bool, r: Array<T> & List<&2, T>) -> U32:
-  (a, xs) = r
-  Eval.distinct(~T, ~eq, List.sort(~T, ~le, xs))
-
-# the number of distinct values among a[0..k) (sort, then count runs)
-def Eval.nuniq(~T: Data, ~le: T -> T -> Bool, ~eq: T -> T -> Bool, +k: U32, a: Array<T>) -> U32:
-  Eval.nuniq.l(~T, ~le, ~eq, K.Kernel.to_list(~T, k, a))
+def Eval.nu.str(+k: U32, a: Array<String>) -> U32:
+  Eval.nu.str.k(H.Hc.code.pk(~(h => h), k, K.Kernel.depth_for(k), a))
 
 # n_unique over WORDS (Bool / U32 / I32 as they are, F32 as its 15.5.2 order words): a stable radix
 # sort of the words (the sort of Sort / median; the pair's second array is a scratch perm that is
@@ -1356,7 +1349,7 @@ def Eval.nu.sorted(+k: U32, st: Array<U32> & Array<U32>) -> U32:
 
 # the number of distinct words among ws[0..k)
 def Eval.nu.words(+k: U32, ws: Array<U32>) -> U32:
-  Eval.nu.sorted(k, O.Radix.sort(k, K.Kernel.depth_for(k), (ws, Array.new(U32, K.Kernel.depth_for(k), 0))))
+  Eval.nu.sorted(k, RD.Radix.sort(k, K.Kernel.depth_for(k), (ws, Array.new(U32, K.Kernel.depth_for(k), 0))))
 
 # a Bool column has at most two values: presence bits (1 = some false, 2 = some true)
 def Eval.nu.bits(+m: U32) -> U32:
@@ -1446,7 +1439,7 @@ def Eval.med.g(+k: U32, +d: Nat, x: Array<F32>, st: Array<U32> & Array<U32>) -> 
 
 def Eval.med.a(+k: U32, +d: Nat, r: Array<F32> & Array<F32>) -> F32:
   (x1, x2) = r
-  Eval.med.g(k, d, x2, O.Radix.sort(k, d, (K.Kernel.map(~F32, ~U32, ~(w => K.Kernel.fword(w)), k, d, x1, 0), K.Kernel.iota(k, d))))
+  Eval.med.g(k, d, x2, RD.Radix.sort(k, d, (K.Kernel.map(~F32, ~U32, ~(w => K.Kernel.fword(w)), k, d, x1, 0), K.Kernel.iota(k, d))))
 
 # the median of a[0..k) (k >= 1): a stable radix sort by the 15.5.2 order words (NaN greatest,
 # -0.0 = 0.0 keeping input order), then Eval.med.at
@@ -1566,7 +1559,7 @@ def Eval.agg.sr(op: X.AggOp, +k: U32, x: Array<String>) -> E.ResT(C.Column):
     case X.Last{}:
       Done{Eval.unit(Eval.nz(k, D.SStr{Eval.at(~String, x, U32.sub(k, 1))}), D.TStr{})}
     case X.NUnique{}:
-      Done{Eval.unit(D.SU32{Eval.nuniq(~String, ~(a => b => String.is_le(a, b)), ~(a => b => String.eq(a, b)), k, x)}, D.TU32{})}
+      Done{Eval.unit(D.SU32{Eval.nu.str(k, x)}, D.TU32{})}
     case X.Sum{}:
       Fail{Eval.bug("sum over str")}
     case X.Mean{}:
@@ -1615,7 +1608,7 @@ def Eval.ds.ext.r(+max: Bool, +k: U32, codes: Array<U32>, r: ST.Dict & Array<U32
   Eval.ds.ext.q(max, k, codes, rk, ST.Dict.size(dict))
 
 def Eval.ds.ext(+max: Bool, +k: U32, codes: Array<U32>, dict: ST.Dict) -> String:
-  Eval.ds.ext.r(max, k, codes, ST.Dict.ranks(dict))
+  Eval.ds.ext.r(max, k, codes, R.Rk.dict(dict))
 
 # distinct codes among codes[0..k)
 def Eval.ds.nu.k(+k: U32, codes: Array<U32>, r: ST.Dict & U32) -> U32:
