@@ -15,8 +15,10 @@
 #     law fc_filter_mask.
 #   * `tkc`: Cols.take over cm(cols) is cm over Cols.take(cols); `sel`: the select loop over the
 #     filtered frame against the select loop over the unfiltered one; law select_filter_mask.
-#   * the evaluator chain Exec.fs.a .. q against Eval.filter.a .. q (law filter_select_step) and the
-#     runner's last two steps (laws filter_select_run_eq, filter_select_run).
+#   * Exec.fs against Eval.filter then Exec.select: both call Eval.filter.mask (one function: the F5
+#     pred_count passes or the general predicate; v0.2 T4.4), so the law splits on its result once
+#     (pr / pk) and needs nothing about the predicate (law filter_select_step); and the runner's
+#     last two steps (laws filter_select_run_eq, filter_select_run).
 import Base
 import ./src/dtype.bend as D
 import ./src/err.bend as E
@@ -1071,7 +1073,7 @@ def Laws.select_filter_mask(f, m, kept, ns):
       sfm.k(h, cols, m, kept, ns, ldup(cols), PC.clone_eq(U32, m))
 
 
-# ---- the evaluator chain: Exec.fs.a .. q against Eval.filter.a .. q -------------------------------------
+# ---- the step: Exec.fs.r .. q against Eval.filter.r .. q over one mask result ---------------------------
 
 def FD(-f: C.Frame) -> Type:
   &a: C.Frame -> &b: C.Frame -> {a == f : C.Frame} & {b == f : C.Frame}
@@ -1104,50 +1106,23 @@ def pq(f: C.Frame, +es: List<&2, X.Expr>, r: Array<U32> & U32, +hp: {Q.Exec.plai
     case (m, +kept):
       (%Equal.sym(Bool, Q.Exec.plain(es), True{}, hp) : {Q.Exec.fs.cmp(C.Frame.select_names(f, V.Eval.names(es)), m, kept) == Q.Exec.select.k(_, C.Frame.filter_mask(f, m, kept), es) : E.ResT(C.Frame)}; pq.k(f, m, kept, V.Eval.names(es), fdup(f), PC.clone_eq(U32, m)))
 
-def pp(f: C.Frame, +es: List<&2, X.Expr>, r: Array<U32> & U32, +hp: {Q.Exec.plain(es) == True{} : Bool}) -> {Q.Exec.fs.p(f, es, r) == Laws.fsres(V.Eval.filter.p(f, r), es) : E.ResT(C.Frame)}:
-  match r:
-    case (m, +n):
-      pq(f, es, K.Kernel.popcount(n, m), hp)
+# Exec.fs.k / Exec.fs.r against Eval.filter.k / Eval.filter.r: one split on the mask result, then pq
+def pk(+es: List<&2, X.Expr>, x: C.Frame & (Array<U32> & U32), +hp: {Q.Exec.plain(es) == True{} : Bool}) -> {Q.Exec.fs.k(es, x) == Laws.fsres(V.Eval.filter.k(x), es) : E.ResT(C.Frame)}:
+  match x:
+    case (f, r):
+      pq(f, es, r, hp)
 
-def pgo2(rc: E.ResT(C.Column), f: C.Frame, +es: List<&2, X.Expr>, +hp: {Q.Exec.plain(es) == True{} : Bool}) -> {Q.Exec.fs.go2(rc, f, es) == Laws.fsres(V.Eval.filter.go2(rc, f), es) : E.ResT(C.Frame)}:
-  match rc:
-    case Fail{e}:
-      {==}
-    case Done{c}:
-      pp(f, es, V.Eval.pred(c), hp)
-
-def pgo(+es: List<&2, X.Expr>, r: C.Frame & E.ResT(C.Column), +hp: {Q.Exec.plain(es) == True{} : Bool}) -> {Q.Exec.fs.go(es, r) == Laws.fsres(V.Eval.filter.go(r), es) : E.ResT(C.Frame)}:
-  match r:
-    case (f, rc):
-      pgo2(rc, f, es, hp)
-
-def pt(t: D.DType, f: C.Frame, +pred: X.Expr, +es: List<&2, X.Expr>, +hp: {Q.Exec.plain(es) == True{} : Bool}) -> {Q.Exec.fs.t(t, f, pred, es) == Laws.fsres(V.Eval.filter.t(t, f, pred), es) : E.ResT(C.Frame)}:
-  match t:
-    case D.TBool{}:
-      pgo(es, V.Eval.full(f, pred), hp)
-    case D.TU32{}:
-      {==}
-    case D.TI32{}:
-      {==}
-    case D.TF32{}:
-      {==}
-    case D.TStr{}:
-      {==}
-
-def pb(+pred: X.Expr, +es: List<&2, X.Expr>, f: C.Frame, r: E.Res(D.DType), +hp: {Q.Exec.plain(es) == True{} : Bool}) -> {Q.Exec.fs.b(pred, es, f, r) == Laws.fsres(V.Eval.filter.b(pred, f, r), es) : E.ResT(C.Frame)}:
+def pr(+es: List<&2, X.Expr>, r: E.ResT(C.Frame & (Array<U32> & U32)), +hp: {Q.Exec.plain(es) == True{} : Bool}) -> {Q.Exec.fs.r(es, r) == Laws.fsres(V.Eval.filter.r(r), es) : E.ResT(C.Frame)}:
   match r:
     case Fail{e}:
       {==}
-    case Done{t}:
-      pt(t, f, pred, es, hp)
+    case Done{x}:
+      pk(es, x, hp)
 
-def pa(+pred: X.Expr, +es: List<&2, X.Expr>, r: C.Frame & List<&2, S.Field>, +hp: {Q.Exec.plain(es) == True{} : Bool}) -> {Q.Exec.fs.a(pred, es, r) == Laws.fsres(V.Eval.filter.a(pred, r), es) : E.ResT(C.Frame)}:
-  match r:
-    case (f, s):
-      pb(pred, es, f, A.Ana.type(pred, s), hp)
-
+# Exec.fs and Eval.filter share the mask computation (V.Eval.filter.mask, the F5 passes or the
+# general predicate): the law holds for EVERY mask result, so it needs nothing about the predicate
 def Laws.filter_select_step(f, pred, es, hp):
-  pa(pred, es, S.Frame.schema(f), hp)
+  pr(es, V.Eval.filter.mask(f, pred), hp)
 
 # ---- the runner ---------------------------------------------------------------------------------------
 

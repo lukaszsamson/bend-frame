@@ -426,6 +426,8 @@ def Laws.mark_reads(code, all, dead, later):
       Laws.mark_reads(t, all, dead, later)
     case V.IStr{op, pat} <> +t:
       Laws.mark_reads(t, all, dead, later)
+    case V.IFz{fz, orig} <> +t:
+      Laws.mark_reads(t, all, dead, later)
     case V.IMove{n} <> +t:
       Equal.cong(List<&2, String>, List<&2, String>, x => n <> x, V.Eval.reads(V.Eval.mark(t, all, dead, later)), V.Eval.reads(t), Laws.mark_reads(t, all, dead, later))
 
@@ -468,6 +470,8 @@ def Laws.mark_moves_ok(code, all, dead, later, h):
     case V.IClip{lo, hi} <> +t:
       Laws.mark_moves_ok(t, all, dead, later, h)
     case V.IStr{op, pat} <> +t:
+      Laws.mark_moves_ok(t, all, dead, later, h)
+    case V.IFz{fz, orig} <> +t:
       Laws.mark_moves_ok(t, all, dead, later, h)
     case V.IMove{n} <> t:
       Empty.absurd({Laws.moves_ok(V.Eval.mark(V.IMove{n} <> t, all, dead, later), all, dead, later) == True{} : Bool}, L.false_true(h))

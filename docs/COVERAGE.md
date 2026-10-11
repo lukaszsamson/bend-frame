@@ -137,17 +137,17 @@ themselves are real tests (`make test` runs them and compares every dump with it
 | `filter` | [agg](../tests/coverage/agg.bend), [api_plans](../tests/coverage/api_plans.bend), +1 | [agg](../tests/coverage/agg.bend), [api_plans](../tests/coverage/api_plans.bend), +1 | [agg](../tests/coverage/agg.bend), [api_plans](../tests/coverage/api_plans.bend), +1 | [verbs_basic](../tests/coverage/verbs_basic.bend) | [agg](../tests/coverage/agg.bend), [api_plans](../tests/coverage/api_plans.bend), +1 | [agg](../tests/coverage/agg.bend), [api_plans](../tests/coverage/api_plans.bend), +1 | yes | 27 |
 | `sort` | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | yes | 8 |
 | `group_by` | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) |  | 12 |
-| `head` | [api_plans](../tests/coverage/api_plans.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | [api_plans](../tests/coverage/api_plans.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | [api_plans](../tests/coverage/api_plans.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | n/a [8] | [api_plans](../tests/coverage/api_plans.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | [api_plans](../tests/coverage/api_plans.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | yes | 14 |
+| `head` | [api_plans](../tests/coverage/api_plans.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | [api_plans](../tests/coverage/api_plans.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | [api_plans](../tests/coverage/api_plans.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | n/a [8] | [api_plans](../tests/coverage/api_plans.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | [api_plans](../tests/coverage/api_plans.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | yes | 15 |
 | `inner_join` | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | n/a | 3 |
 | `left_join` | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | n/a | 2 |
 | `semi_join` | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | n/a | 4 |
 | `anti_join` | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | n/a | 4 |
 | `drop` | [verbs_basic](../tests/coverage/verbs_basic.bend), [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend), [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend), [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend), [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend), [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend), [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | yes | 4 |
 | `rename` | [verbs_basic](../tests/coverage/verbs_basic.bend), [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend), [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend), [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend), [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend), [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend), [verbs_sort_join](../tests/coverage/verbs_sort_join.bend) | yes | 3 |
-| `slice` | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | n/a [9] | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | yes | 3 |
+| `slice` | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | n/a [9] | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | yes | 4 |
 | `tail` | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | n/a [10] | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | yes | 3 |
 | `unique` | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | yes | 5 |
-| `concat_vertical` | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | yes | 7 |
+| `concat_vertical` | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | [verbs_basic](../tests/coverage/verbs_basic.bend) | yes | 8 |
 
 ### Lazy plan builders
 
@@ -196,9 +196,9 @@ themselves are real tests (`make test` runs them and compares every dump with it
 | `optimize` | [api_plans](../tests/coverage/api_plans.bend) | n/a [11] | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | n/a | 4 |
 | `optimize_full` | [api_plans](../tests/coverage/api_plans.bend) | n/a [11] | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | [api_plans](../tests/coverage/api_plans.bend) | n/a | 2 |
 | `show` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 3 |
-| `dump` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 15 |
-| `dump_frame` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [6] | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 2 |
-| `describe` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 4 |
+| `dump` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 18 |
+| `dump_frame` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [6] | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 3 |
+| `describe` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 5 |
 | `clone` | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | n/a [6] | [api_frames](../tests/coverage/api_frames.bend) | n/a [7] |  | 1 |
 | `then` | [api_frames](../tests/coverage/api_frames.bend), [csv_write](../tests/coverage/csv_write.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend), [csv_write](../tests/coverage/csv_write.bend) | n/a [7] |  | 2 |
 | `then_io` | [api_frames](../tests/coverage/api_frames.bend), [csv_write](../tests/coverage/csv_write.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend) | [api_frames](../tests/coverage/api_frames.bend), [csv_write](../tests/coverage/csv_write.bend) | n/a [7] |  | 1 |
@@ -217,7 +217,7 @@ themselves are real tests (`make test` runs them and compares every dump with it
 | `read_csv_v02` | [csv_engine](../tests/coverage/csv_engine.bend) | [csv_engine](../tests/coverage/csv_engine.bend) | [csv_engine](../tests/coverage/csv_engine.bend) | [csv_engine](../tests/coverage/csv_engine.bend) | [csv_engine](../tests/coverage/csv_engine.bend) | n/a [15] |  | 0 |
 | `collect_engine` | [csv_engine](../tests/coverage/csv_engine.bend) | [csv_engine](../tests/coverage/csv_engine.bend) | [csv_engine](../tests/coverage/csv_engine.bend) | [csv_engine](../tests/coverage/csv_engine.bend) | n/a [16] | [csv_engine](../tests/coverage/csv_engine.bend) |  | 0 |
 | `str_*` (str_raw, str_dict, str_auto) | [csv_read](../tests/coverage/csv_read.bend), [csv_storage](../tests/coverage/csv_storage.bend) | [csv_read](../tests/coverage/csv_read.bend), [csv_storage](../tests/coverage/csv_storage.bend) | [csv_read](../tests/coverage/csv_read.bend), [csv_storage](../tests/coverage/csv_storage.bend) | [csv_read](../tests/coverage/csv_read.bend), [csv_storage](../tests/coverage/csv_storage.bend) | [csv_read](../tests/coverage/csv_read.bend), [csv_storage](../tests/coverage/csv_storage.bend) | n/a [17] |  | 1 |
-| `encode_strings` | [csv_storage](../tests/coverage/csv_storage.bend) | [csv_storage](../tests/coverage/csv_storage.bend) | [csv_storage](../tests/coverage/csv_storage.bend) | n/a [18] | [csv_storage](../tests/coverage/csv_storage.bend) | n/a [19] |  | 2 |
+| `encode_strings` | [csv_storage](../tests/coverage/csv_storage.bend) | [csv_storage](../tests/coverage/csv_storage.bend) | [csv_storage](../tests/coverage/csv_storage.bend) | n/a [18] | [csv_storage](../tests/coverage/csv_storage.bend) | n/a [19] |  | 3 |
 | `dict_columns` | [csv_storage](../tests/coverage/csv_storage.bend) | [csv_storage](../tests/coverage/csv_storage.bend) | [csv_storage](../tests/coverage/csv_storage.bend) | n/a [18] | [csv_storage](../tests/coverage/csv_storage.bend) | n/a [19] |  | 1 |
 | `scan_csv` | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) |  | 7 |
 | `scan_csv_opts` | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) | [csv_read](../tests/coverage/csv_read.bend) |  | 4 |
@@ -252,7 +252,7 @@ themselves are real tests (`make test` runs them and compares every dump with it
 
 Method: a static call graph (see the header of `scripts/coverage_matrix.py`). A def *mentions* another def
 when its body names it (qualified through the file's import aliases, or bare inside its own module).
-Entry points are the 368 defs that a test (or a `tests/**/lib` helper a test imports) calls directly,
+Entry points are the 464 defs that a test (or a `tests/**/lib` helper a test imports) calls directly,
 `frame.bend` defs and `src/` defs alike. A def is *reached* when a path of mentions leads to it. Two
 reach columns: **via facade** follows only the entries that are `frame.bend` defs (what the public API
 alone can reach); **reached** adds the `src/` defs the tests call directly (the proof-style and unit tests).
@@ -264,36 +264,40 @@ reach these", not as line coverage. Reported, not gated.
 |---|---|---|---|---|---|
 | `frame.bend` | 180 | 167 | 179 | 179 | 1 |
 | `src/analysis.bend` | 44 | 0 | 44 | 44 | 0 |
+| `src/chunks.bend` | 217 | 31 | 0 | 198 | 19 |
+| `src/ckernels.bend` | 206 | 48 | 0 | 147 | 59 |
 | `src/column.bend` | 160 | 29 | 158 | 158 | 2 |
 | `src/csv.bend` | 412 | 15 | 403 | 411 | 1 |
 | `src/csvlane.bend` | 152 | 1 | 152 | 152 | 0 |
 | `src/csvparse.bend` | 20 | 1 | 19 | 19 | 1 |
 | `src/csvprod.bend` | 33 | 2 | 33 | 33 | 0 |
 | `src/dtype.bend` | 40 | 25 | 24 | 36 | 4 |
-| `src/dump.bend` | 39 | 2 | 39 | 39 | 0 |
+| `src/dump.bend` | 39 | 3 | 39 | 39 | 0 |
 | `src/err.bend` | 3 | 3 | 3 | 3 | 0 |
-| `src/eval.bend` | 315 | 14 | 308 | 313 | 2 |
-| `src/exec.bend` | 58 | 10 | 58 | 58 | 0 |
-| `src/expr.bend` | 45 | 8 | 45 | 45 | 0 |
-| `src/fmt.bend` | 113 | 3 | 113 | 113 | 0 |
+| `src/eval.bend` | 477 | 23 | 470 | 475 | 2 |
+| `src/exec.bend` | 95 | 10 | 95 | 95 | 0 |
+| `src/expr.bend` | 45 | 9 | 45 | 45 | 0 |
+| `src/fmt.bend` | 119 | 3 | 119 | 119 | 0 |
 | `src/groupby.bend` | 174 | 1 | 174 | 174 | 0 |
-| `src/hcode.bend` | 51 | 8 | 48 | 51 | 0 |
+| `src/hcode.bend` | 51 | 8 | 32 | 51 | 0 |
 | `src/join.bend` | 132 | 5 | 128 | 132 | 0 |
-| `src/kernels.bend` | 83 | 40 | 63 | 83 | 0 |
+| `src/kernels.bend` | 83 | 45 | 75 | 83 | 0 |
 | `src/plan.bend` | 123 | 11 | 122 | 122 | 1 |
 | `src/radix.bend` | 16 | 0 | 16 | 16 | 0 |
-| `src/ranks.bend` | 61 | 2 | 61 | 61 | 0 |
+| `src/ranks.bend` | 78 | 2 | 78 | 78 | 0 |
 | `src/schema.bend` | 23 | 8 | 20 | 23 | 0 |
-| `src/sort.bend` | 76 | 3 | 74 | 74 | 2 |
-| `src/strs.bend` | 92 | 9 | 90 | 90 | 2 |
+| `src/sort.bend` | 83 | 3 | 81 | 81 | 2 |
+| `src/strs.bend` | 92 | 10 | 90 | 90 | 2 |
 | `src/table.bend` | 72 | 1 | 72 | 72 | 0 |
-| **total** | **2517** | **368** | **2446** | **2501** | **16** |
+| **total** | **3169** | **464** | **2671** | **3075** | **94** |
 
-99.4 % of the 2517 defs are reachable from the tests (97.2 % through the facade alone).
+97.0 % of the 3169 defs are reachable from the tests (84.3 % through the facade alone).
 
 Unreached defs:
 
 - `frame.bend`: `Err`
+- `src/chunks.bend`: `CColumn.len`, `CF.concat`, `CF.concat.a`, `CF.concat.b`, `CF.concat.cap`, `CF.concat.k`, `CF.leaves`, `CF.leaves.j`, `CF.slice`, `CFrame.empty`, `CS.concat`, `CS.concat.a`, `CS.concat.b`, `CS.concat.cap`, `CS.concat.k`, `CS.leaves`, `CS.leaves.j`, `CS.slice`, `CW.map`
+- `src/ckernels.bend`: `CK.mapp.ff`, `CK.mapp.fw`, `CK.mapp.wf`, `CK.mappb.fw`, `CK.mappb.fw.j`, `CK.mappb.fw.l`, `CK.mappb.wf`, `CK.mappb.wf.j`, `CK.mappb.wf.l`, `CK.pc.ff`, `CK.pc.ff.j`, `CK.pc.ff.l`, `CK.pc.fw`, `CK.pc.fw.j`, `CK.pc.fw.l`, `CK.pc.wf`, `CK.pc.wf.j`, `CK.pc.wf.l`, `CK.zip.fff`, `CK.zip.fwf`, `CK.zip.fww`, `CK.zip.wfw`, `CK.zip.wwf`, `CK.zipb.fff`, `CK.zipb.fff.j`, `CK.zipb.fff.l`, `CK.zipb.ffw`, `CK.zipb.ffw.j`, `CK.zipb.ffw.l`, `CK.zipb.fwf`, `CK.zipb.fwf.j`, `CK.zipb.fwf.l`, `CK.zipb.fww`, `CK.zipb.fww.j`, `CK.zipb.fww.l`, `CK.zipb.wfw`, `CK.zipb.wfw.j`, `CK.zipb.wfw.l`, `CK.zipb.wwf`, `CK.zipb.wwf.j`, `CK.zipb.wwf.l`, `CK.zipv.ffw`, `CK.zipv.ffw.j`, `CK.zipv.ffw.l`, `CK.zipv.fwf`, `CK.zipv.fwf.j`, `CK.zipv.fwf.l`, `CK.zipv.fww`, `CK.zipv.fww.j`, `CK.zipv.fww.l`, `CK.zipv.wff`, `CK.zipv.wff.j`, `CK.zipv.wff.l`, `CK.zipv.wfw`, `CK.zipv.wfw.j`, `CK.zipv.wfw.l`, `CK.zipv.wwf`, `CK.zipv.wwf.j`, `CK.zipv.wwf.l`
 - `src/column.bend`: `Column.depth`, `Column.rename`
 - `src/csv.bend`: `Csv.parse_enc`
 - `src/csvparse.bend`: `parse`

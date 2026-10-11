@@ -3170,6 +3170,351 @@ law compact4_contents:
   CSpec(U32, U32.to_nat(n), 0, 0, d, a1, m, c4_o1(U32, U32, U32, U32, K.Kernel.compact4(~U32, ~U32, ~U32, ~U32, n, d, m, a1, a2, a3, a4, z1, z2, z3, z4))) & CSpec(U32, U32.to_nat(n), 0, 0, d, a2, m, c4_o2(U32, U32, U32, U32, K.Kernel.compact4(~U32, ~U32, ~U32, ~U32, n, d, m, a1, a2, a3, a4, z1, z2, z3, z4))) & CSpec(U32, U32.to_nat(n), 0, 0, d, a3, m, c4_o3(U32, U32, U32, U32, K.Kernel.compact4(~U32, ~U32, ~U32, ~U32, n, d, m, a1, a2, a3, a4, z1, z2, z3, z4))) & CSpec(U32, U32.to_nat(n), 0, 0, d, a4, m, c4_o4(U32, U32, U32, U32, K.Kernel.compact4(~U32, ~U32, ~U32, ~U32, n, d, m, a1, a2, a3, a4, z1, z2, z3, z4)))
 
 # =====================================================================================
+# 19. Fusion peepholes (v0.2 T4.2, DESIGN.md 16.3 F1-F5): the fused evaluator's operations equal the
+#     unfused operations they replace, and the peephole pass fires on exactly its windows
+# =====================================================================================
+#
+# The production terms: the column-level fused operations src/eval.bend runs for a fused fragment
+# (Eval.fz.z1 F1, Eval.fz.z2 F2 / F3, Eval.fz.z0 F4, Eval.f5.c the F5 pass) against the operations the
+# unfused stack machine runs for the code they replace (Eval.bin over the literal's broadcast column
+# Eval.const_col, Eval.cast, Eval.fill, Eval.pred), and one scan step of the peephole pass (Eval.fz.step)
+# on each window. Every fused operation answers Some{column} when it fires and hands its operands
+# back unchanged (a borrowed column goes back into the frame as it was); the result column has the
+# unfused result's dtype and length, and the same cell (ccell: value and validity) at every row below
+# the length. Stated at one instance per peephole (section 10's note on templates; the proofs reuse
+# PROOF_fused's template lemmas, so another instance is a restatement): F1 u32 `x > lit` and f32
+# `lit - x` (the literal on each side), F2 u32 `a + b` (dense: the very same column as Eval.bin's;
+# masked: the cells), F3 `f32(a) * b`, F4 u32 fill with 0, F5 q1's `ok & (qty > lit)` pass.
+# NOT stated (DESIGN.md section 8): the stack-machine level equivalence of a fused instruction with
+# the code it replaces (Eval.runz against Eval.run: lend / replace and the stack plumbing; the
+# fallback IS that code), the other template instances, and the equality of the two kept counts as
+# a filter computes them (pred_count's count is popcount of its own mask, and the masks agree cell
+# by cell; the compaction reads only those cells).
+
+# the column of a fused answer (a dummy when the operation did not fire: the laws say it fires)
+def z1_col(r: V.Z1R) -> C.Column:
+  match r:
+    case V.Z1R{Some{c}, a}:
+      c
+    case V.Z1R{None{}, a}:
+      C.CU32{0, 0n, C.AllValid{}, Array.new(U32, 0n, 0)}
+
+def z2_col(r: V.Z2R) -> C.Column:
+  match r:
+    case V.Z2R{Some{c}, a, b}:
+      c
+    case V.Z2R{None{}, a, b}:
+      C.CU32{0, 0n, C.AllValid{}, Array.new(U32, 0n, 0)}
+
+def z0_col(r: V.Z0R) -> C.Column:
+  match r:
+    case V.Z0R{ok, c}:
+      c
+
+def res_col(r: E.ResT(C.Column)) -> C.Column:
+  match r:
+    case Done{c}:
+      c
+    case Fail{e}:
+      C.CU32{0, 0n, C.AllValid{}, Array.new(U32, 0n, 0)}
+
+# ---- F2: the null-propagating zip (Eval.fz.z2) ----------------------------------------------------
+
+# LAW (F2, both operands dense): the fused a + b fires, hands both columns back, and its column IS
+# Eval.bin's (one zipb loop = the zip Eval.bin runs; Eval.vand and Eval.fix do nothing on AllValid)
+law peep_f2_dense:
+  for +n: U32
+  for +d: Nat
+  for +d2: Nat
+  for a: Array<U32>
+  for b: Array<U32>
+  {V.Eval.fz.z2(X.Add{}, V.PNone{}, V.PNone{}, C.CU32{n, d, C.AllValid{}, a}, C.CU32{n, d2, C.AllValid{}, b}) == V.Z2R{Some{res_col(V.Eval.bin(X.Add{}, C.CU32{n, d, C.AllValid{}, a}, C.CU32{n, d2, C.AllValid{}, b}))}, C.CU32{n, d, C.AllValid{}, a}, C.CU32{n, d2, C.AllValid{}, b}} : V.Z2R}
+
+# ---- F1: a literal operand as a scalar (Eval.fz.z1) ------------------------------------------------
+
+# LAW (F1, literal right, u32 `x > lit`, a dense column): the fused cell (one map_pb loop, the literal
+# a scalar parameter) is Eval.bin's cell over the literal's broadcast column (Eval.const_col: the
+# column the unfused code builds), at every row below n
+law peep_f1:
+  for +n: U32
+  for +d: Nat
+  for a: Array<U32>
+  for +lit: U32
+  for +k: U32
+  for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for +hk: {U32.is_lt(k, n) == True{} : Bool}
+  {ccell(z1_col(V.Eval.fz.z1(X.Gt{}, D.SU32{lit}, False{}, V.PNone{}, C.CU32{n, d, C.AllValid{}, a})), k) == ccell(res_col(V.Eval.bin(X.Gt{}, C.CU32{n, d, C.AllValid{}, a}, V.Eval.const_col(D.SU32{lit}, D.TU32{}, n))), k) : D.Scalar}
+
+# LAW (F1, literal left, f32 `lit - x`, q2's `1.0 - discount` without the fill): the same against
+# Eval.bin over the broadcast on the left (its depth is depth_for(n): n <= 2^31, the row cap's bound)
+law peep_f1_left:
+  for +n: U32
+  for +d: Nat
+  for a: Array<F32>
+  for +lit: F32
+  for +k: U32
+  for +h31: {U32.is_le(n, U32.shln(1, 31n)) == True{} : Bool}
+  for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for +hk: {U32.is_lt(k, n) == True{} : Bool}
+  {ccell(z1_col(V.Eval.fz.z1(X.Sub{}, D.SF32{lit}, True{}, V.PNone{}, C.CF32{n, d, C.AllValid{}, a})), k) == ccell(res_col(V.Eval.bin(X.Sub{}, V.Eval.const_col(D.SF32{lit}, D.TF32{}, n), C.CF32{n, d, C.AllValid{}, a})), k) : D.Scalar}
+
+# LAW (F1 hands the operand back): the fused `x > lit` fires and answers its column unchanged
+law peep_f1_back:
+  for +n: U32
+  for +d: Nat
+  for a: Array<U32>
+  for +lit: U32
+  {V.Eval.fz.z1(X.Gt{}, D.SU32{lit}, False{}, V.PNone{}, C.CU32{n, d, C.AllValid{}, a}) == V.Z1R{Some{C.CBool{n, d, C.AllValid{}, K.Kernel.map_p(~U32, ~U32, ~U32, ~(q => x => Bool.to_u32(U32.is_gt(x, q))), n, d, a, lit, 0)}}, C.CU32{n, d, C.AllValid{}, a}} : V.Z1R}
+
+# LAW (F2, both operands masked): the fused a + b fires, hands both columns back, and its column is
+# zipv's value output under the AND of the masks (Eval.vand's Kernel.mask_and, as Eval.bin's)
+law peep_f2_mask_back:
+  for +n: U32
+  for +d: Nat
+  for +d2: Nat
+  for a: Array<U32>
+  for ma: Array<U32>
+  for b: Array<U32>
+  for mb: Array<U32>
+  {V.Eval.fz.z2(X.Add{}, V.PNone{}, V.PNone{}, C.CU32{n, d, C.Mask{ma}, a}, C.CU32{n, d2, C.Mask{mb}, b}) == V.Z2R{Some{C.CU32{n, d, C.Mask{K.Kernel.mask_and(n, d, ma, mb)}, zv_o(U32, U32, U32, K.Kernel.zipv(~U32, ~U32, ~U32, ~(x => y => U32.add(x, y)), n, d, a, ma, b, mb, 0))}}, C.CU32{n, d, C.Mask{ma}, a}, C.CU32{n, d2, C.Mask{mb}, b}} : V.Z2R}
+
+# LAW (F3 only folds a total cast): a cast that can fail (str -> u32) on a fused zip's side does not
+# fire: both columns come back untouched and the unfused code (with the strict cast's own pass, row
+# order and error) runs
+law peep_f3_strict:
+  for +op: X.BinOp
+  for +n: U32
+  for +d: Nat
+  for v: C.Valid
+  for x: ST.Strs
+  for +n2: U32
+  for +d2: Nat
+  for vb: C.Valid
+  for b: Array<F32>
+  {V.Eval.fz.z2(op, V.PCast{D.TU32{}}, V.PNone{}, C.CStr{n, d, v, x}, C.CF32{n2, d2, vb, b}) == V.Z2R{None{}, C.CStr{n, d, v, x}, C.CF32{n2, d2, vb, b}} : V.Z2R}
+
+# ---- F4: fill_null with the dtype default (Eval.fz.z0) ------------------------------------------------
+
+# LAW (F4 fires on the default): fill_null(c, 0) over a masked u32 column is the column's own payload
+# with validity AllValid (no pass over the data)
+law peep_f4:
+  for +n: U32
+  for +d: Nat
+  for m: Array<U32>
+  for a: Array<U32>
+  {V.Eval.fz.z0(V.PFill{D.SU32{0}}, C.CU32{n, d, C.Mask{m}, a}) == V.Z0R{True{}, C.CU32{n, d, C.AllValid{}, a}} : V.Z0R}
+
+# LAW (F4 is NOT a no-op): at a null row (mask word 0, whose slot holds the default 0: P0) the input
+# cell is null and the fused fill's cell is the value 0
+law peep_f4_not_noop:
+  for +n: U32
+  for +d: Nat
+  for m: Array<U32>
+  for a: Array<U32>
+  for +k: U32
+  for +hm: {rd_at(U32, m, k) == 0 : U32}
+  for +ha: {rd_at(U32, a, k) == 0 : U32}
+  {ccell(C.CU32{n, d, C.Mask{m}, a}, k) == D.SNull{} : D.Scalar} & {ccell(z0_col(V.Eval.fz.z0(V.PFill{D.SU32{0}}, C.CU32{n, d, C.Mask{m}, a})), k) == D.SU32{0} : D.Scalar}
+
+# LAW (F4 fires only on the default): any other literal leaves the column untouched (the unfused
+# fill_null, Kernel.choose with the literal, runs)
+law peep_f4_other:
+  for +lit: U32
+  for +n: U32
+  for +d: Nat
+  for v: C.Valid
+  for a: Array<U32>
+  for h: {U32.is_zero(lit) == False{} : Bool}
+  {V.Eval.fz.z0(V.PFill{D.SU32{lit}}, C.CU32{n, d, v, a}) == V.Z0R{False{}, C.CU32{n, d, v, a}} : V.Z0R}
+
+# ---- the peephole pass: one scan step on each window (Eval.fz.step) ------------------------------------
+
+# LAW: `col n` then a literal and a fused op: Z1 with the literal on the RIGHT, the column borrowed
+law fuse_lit_right:
+  for +out: List<&2, V.Instr>
+  for +n: String
+  for +v: D.Scalar
+  for +ty: D.DType
+  for +op: X.BinOp
+  for +rest: List<&2, V.Instr>
+  for h: {V.Eval.fz.op_ok(op) == True{} : Bool}
+  {V.Eval.fz.step(V.FzS{out, V.ICol{n} <> V.IConst{v, ty} <> V.IBin{op} <> rest}) == V.FzS{V.IFz{V.Z1{op, v, False{}, V.ORef{n, False{}}, V.PNone{}}, V.ICol{n} <> V.IConst{v, ty} <> V.IBin{op} <> Nil{}} <> out, rest} : V.FzS}
+
+# LAW: a literal, then `col n` and a fused op: Z1 with the literal on the LEFT
+law fuse_lit_left:
+  for +out: List<&2, V.Instr>
+  for +n: String
+  for +v: D.Scalar
+  for +ty: D.DType
+  for +op: X.BinOp
+  for +rest: List<&2, V.Instr>
+  for h: {V.Eval.fz.op_ok(op) == True{} : Bool}
+  {V.Eval.fz.step(V.FzS{out, V.IConst{v, ty} <> V.ICol{n} <> V.IBin{op} <> rest}) == V.FzS{V.IFz{V.Z1{op, v, True{}, V.ORef{n, False{}}, V.PNone{}}, V.IConst{v, ty} <> V.ICol{n} <> V.IBin{op} <> Nil{}} <> out, rest} : V.FzS}
+
+# LAW: two distinct frame columns (the second moved, its last read) and a fused op: Z2 over both, the
+# first borrowed
+law fuse_two:
+  for +out: List<&2, V.Instr>
+  for +na: String
+  for +nb: String
+  for +op: X.BinOp
+  for +rest: List<&2, V.Instr>
+  for h: {V.Eval.fz.op_ok(op) == True{} : Bool}
+  for hn: {String.eq(na, nb) == False{} : Bool}
+  {V.Eval.fz.step(V.FzS{out, V.ICol{na} <> V.IMove{nb} <> V.IBin{op} <> rest}) == V.FzS{V.IFz{V.Z2{op, V.ORef{na, False{}}, V.PNone{}, V.ORef{nb, True{}}, V.PNone{}}, V.ICol{na} <> V.IMove{nb} <> V.IBin{op} <> Nil{}} <> out, rest} : V.FzS}
+
+# LAW: a fill of a frame column with a literal, nothing fused after it: Z0 (F4 alone)
+law fuse_fill:
+  for +out: List<&2, V.Instr>
+  for +n: String
+  for +v: D.Scalar
+  for +ty: D.DType
+  for +rest: List<&2, V.Instr>
+  {V.Eval.fz.step(V.FzS{out, V.ICol{n} <> V.IConst{v, ty} <> V.IFill{} <> V.IWhen{} <> rest}) == V.FzS{V.IFz{V.Z0{V.ORef{n, False{}}, V.PFill{v}}, V.ICol{n} <> V.IConst{v, ty} <> V.IFill{} <> Nil{}} <> out, V.IWhen{} <> rest} : V.FzS}
+
+# LAW: Kleene `&` is not fused (F7): the stack op passes through as is
+law fuse_kleene:
+  for +out: List<&2, V.Instr>
+  for +rest: List<&2, V.Instr>
+  {V.Eval.fz.step(V.FzS{out, V.IBin{X.And{}} <> rest}) == V.FzS{V.IBin{X.And{}} <> out, rest} : V.FzS}
+
+# LAW: the same column on both sides is not a Z2 (one column cannot be lent twice): the first read
+# stays a plain copy
+law fuse_same:
+  for +out: List<&2, V.Instr>
+  for +n: String
+  for +op: X.BinOp
+  for +rest: List<&2, V.Instr>
+  {V.Eval.fz.step(V.FzS{out, V.ICol{n} <> V.IMove{n} <> V.IBin{op} <> rest}) == V.FzS{V.ICol{n} <> out, V.IMove{n} <> V.IBin{op} <> rest} : V.FzS}
+
+# ---- F3: a total cast folded into the zip ------------------------------------------------------------
+
+# LAW (F3 fires, the operands back): f32(a) * b over a dense u32 and a dense f32 column is ONE zipb loop
+# with Eval.cast.u's U32.to_f32 composed in front of Eval.zip.fa's product, both columns handed back
+law peep_f3_back:
+  for +n: U32
+  for +d: Nat
+  for +d2: Nat
+  for a: Array<U32>
+  for b: Array<F32>
+  {V.Eval.fz.z2(X.Mul{}, V.PCast{D.TF32{}}, V.PNone{}, C.CU32{n, d, C.AllValid{}, a}, C.CF32{n, d2, C.AllValid{}, b}) == V.Z2R{Some{C.CF32{n, d, C.AllValid{}, zb_o(U32, F32, F32, K.Kernel.zipb(~U32, ~F32, ~F32, ~(x => y => F32.mul(U32.to_f32(x), y)), n, d, a, b, 0.0))}}, C.CU32{n, d, C.AllValid{}, a}, C.CF32{n, d2, C.AllValid{}, b}} : V.Z2R}
+
+# LAW (F3 against v0.1's two passes): the fused cell is Eval.bin's product over Eval.cast's column (the
+# cast's rounding, then the product's: no reassociation, no FMA)
+law peep_f3:
+  for +n: U32
+  for +d: Nat
+  for +d2: Nat
+  for a: Array<U32>
+  for b: Array<F32>
+  for +k: U32
+  for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for +hk: {U32.is_lt(k, n) == True{} : Bool}
+  {ccell(z2_col(V.Eval.fz.z2(X.Mul{}, V.PCast{D.TF32{}}, V.PNone{}, C.CU32{n, d, C.AllValid{}, a}, C.CF32{n, d2, C.AllValid{}, b})), k) == ccell(res_col(V.Eval.bin(X.Mul{}, res_col(V.Eval.cast(D.TF32{}, C.CU32{n, d, C.AllValid{}, a})), C.CF32{n, d2, C.AllValid{}, b})), k) : D.Scalar}
+
+# ---- F5: the filter predicate's mask and kept count in one loop (Eval.f5.c) ----------------------------
+
+def f5r_m(r: V.F5R) -> Array<U32>:
+  match r:
+    case V.F5R{ok, m, k, a, va, c}:
+      m
+
+def f5r_k(r: V.F5R) -> U32:
+  match r:
+    case V.F5R{ok, m, k, a, va, c}:
+      k
+
+# LAW (F5 fires on q1's pass, the operands back): `ok & (qty > lit)` over a dense bool column's words
+# (the mask so far) and a dense u32 column is one pred_count loop with Eval.zip.u's Gt template; the
+# words, the ones array and the column come back unchanged
+law peep_f5_back:
+  for +n: U32
+  for +d: Nat
+  for ok: Array<U32>
+  for q: Array<U32>
+  for +lit: U32
+  {V.Eval.f5.c(X.Gt{}, ok, V.Eval.fz.ones(), C.CU32{n, d, C.AllValid{}, q}, D.SU32{lit}) == V.F5R{True{}, pc_m(U32, U32, K.Kernel.pred_count(~U32, ~U32, ~U32, ~(p => x => y => U32.and(x, Bool.to_u32(U32.is_gt(y, p)))), n, d, lit, ok, V.Eval.fz.ones(), q, V.Eval.fz.ones())), pc_k(U32, U32, K.Kernel.pred_count(~U32, ~U32, ~U32, ~(p => x => y => U32.and(x, Bool.to_u32(U32.is_gt(y, p)))), n, d, lit, ok, V.Eval.fz.ones(), q, V.Eval.fz.ones())), ok, V.Eval.fz.ones(), C.CU32{n, d, C.AllValid{}, q}} : V.F5R}
+
+# LAW (F5 against v0.1's mask): row i of the fused mask is row i of the mask v0.1's filter computes
+# for `ok & (qty > lit)` over the same dense columns: Eval.pred of Eval.bin(And, ok, Eval.bin(Gt, qty,
+# the literal's broadcast column))
+law peep_f5_cell:
+  for +n: U32
+  for +d: Nat
+  for ok: Array<U32>
+  for q: Array<U32>
+  for +lit: U32
+  for +i: U32
+  for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for +hi: {U32.is_lt(i, n) == True{} : Bool}
+  {rd_at(U32, f5r_m(V.Eval.f5.c(X.Gt{}, ok, V.Eval.fz.ones(), C.CU32{n, d, C.AllValid{}, q}, D.SU32{lit})), i) == rd_at(U32, Pair.fst(Array<U32>, U32, V.Eval.pred(res_col(V.Eval.bin(X.And{}, C.CBool{n, d, C.AllValid{}, ok}, res_col(V.Eval.bin(X.Gt{}, C.CU32{n, d, C.AllValid{}, q}, V.Eval.const_col(D.SU32{lit}, D.TU32{}, n))))))), i) : U32}
+
+# LAW (F5's count): the kept count of the pass is Kernel.popcount of its mask (what v0.1 computes from
+# its mask; the two masks agree at every row below n: peep_f5_cell)
+law peep_f5_count:
+  for +n: U32
+  for +d: Nat
+  for ok: Array<U32>
+  for q: Array<U32>
+  for +lit: U32
+  for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  {f5r_k(V.Eval.f5.c(X.Gt{}, ok, V.Eval.fz.ones(), C.CU32{n, d, C.AllValid{}, q}, D.SU32{lit})) == Pair.snd(Array<U32>, U32, K.Kernel.popcount(n, f5r_m(V.Eval.f5.c(X.Gt{}, ok, V.Eval.fz.ones(), C.CU32{n, d, C.AllValid{}, q}, D.SU32{lit})))) : U32}
+
+# LAW (F4 against v0.1's fill_null): over a masked u32 column whose null slot at row k holds the
+# default (P0: the pick below is the slot itself), the fused fill's cell at k is Eval.fill's against the
+# literal 0's broadcast column (Kernel.choose into the column's buffer, which must be well formed)
+law peep_f4_cell:
+  for +n: U32
+  for +d: Nat
+  for m: Array<U32>
+  for a: Array<U32>
+  for +k: U32
+  for wf: WFArray(U32, d, a)
+  for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for +hk: {U32.is_lt(k, n) == True{} : Bool}
+  for +p0: {Bool.pick(U32, U32.is_ne(rd_at(U32, m, k), 0), rd_at(U32, a, k), 0) == rd_at(U32, a, k) : U32}
+  {ccell(z0_col(V.Eval.fz.z0(V.PFill{D.SU32{0}}, C.CU32{n, d, C.Mask{m}, a})), k) == ccell(res_col(V.Eval.fill(C.CU32{n, d, C.Mask{m}, a}, V.Eval.const_col(D.SU32{0}, D.TU32{}, n))), k) : D.Scalar}
+
+# LAW (F2, both operands masked, against v0.1's three passes): the fused cell of a + b (one zipv loop:
+# the null slots reset to 0 and the validity the AND, in the same loop) is the cell of Eval.bin's
+# column (Eval.vand's mask_and, the zip, Eval.fix's mask_data) at every row below n
+law peep_f2_mask:
+  for +n: U32
+  for +d: Nat
+  for +d2: Nat
+  for a: Array<U32>
+  for ma: Array<U32>
+  for b: Array<U32>
+  for mb: Array<U32>
+  for +k: U32
+  for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for +hk: {U32.is_lt(k, n) == True{} : Bool}
+  {ccell(z2_col(V.Eval.fz.z2(X.Add{}, V.PNone{}, V.PNone{}, C.CU32{n, d, C.Mask{ma}, a}, C.CU32{n, d2, C.Mask{mb}, b})), k) == ccell(res_col(V.Eval.bin(X.Add{}, C.CU32{n, d, C.Mask{ma}, a}, C.CU32{n, d2, C.Mask{mb}, b})), k) : D.Scalar}
+
+# ---- F5's selector: the plan of a predicate (Eval.f5.plan, static: the schema's dtypes) ----------------
+
+def q1_schema() -> List<&2, S.Field>:
+  S.Field{"ok", D.TBool{}} <> S.Field{"qty", D.TU32{}} <> Nil{}
+
+# LAW (F5 fires on q1's predicate): `ok & (qty > lit)` over a bool `ok` and a u32 `qty` is ONE pass
+# (the bool column and the comparison in one pred_count loop)
+law peep_f5_plan:
+  for +lit: U32
+  {V.Eval.f5.plan(X.Bin{X.And{}, X.Col{"ok"}, X.Bin{X.Gt{}, X.Col{"qty"}, X.Lit{D.SU32{lit}}}}, q1_schema()) == Some{V.T5BC{"ok", X.Gt{}, "qty", D.SU32{lit}} <> Nil{}} : Maybe<&2, List<&2, V.P5>>}
+
+# LAW (Kleene `|` is not F5): `ok | (qty > lit)` keeps a row where one side is true and the other null,
+# which no conjunction of masks computes: no plan, the predicate is evaluated
+law peep_f5_or:
+  for +lit: U32
+  {V.Eval.f5.plan(X.Bin{X.Or{}, X.Col{"ok"}, X.Bin{X.Gt{}, X.Col{"qty"}, X.Lit{D.SU32{lit}}}}, q1_schema()) == None{} : Maybe<&2, List<&2, V.P5>>}
+
+# LAW (F5 needs the literal's dtype to be the column's): `ok & (qty > lit)` with an f32 literal
+# against the u32 column (refused by typing anyway) has no plan
+law peep_f5_dtype:
+  for +lit: F32
+  {V.Eval.f5.plan(X.Bin{X.And{}, X.Col{"ok"}, X.Bin{X.Gt{}, X.Col{"qty"}, X.Lit{D.SF32{lit}}}}, q1_schema()) == None{} : Maybe<&2, List<&2, V.P5>>}
+
+# =====================================================================================
 # 21. Chunk trees (v0.2 T5.1, DESIGN.md 16.1 D1): src/chunks.bend's word tree CW (Bool/U32/I32
 #     payloads, validity masks, dictionary codes; CF / CS are the same text over F32 / String)
 # =====================================================================================
