@@ -1,4 +1,5 @@
-# W2.1: Hc.code (src/hcode.bend) against the v0.1 coder Sort.str_codes, on every key shape.
+# W2.1: Hc.code (src/hcode.bend) against the v0.1 coder Sort.str_codes (kept in tests/lib/v01str.bend since
+# W2.3 deleted it from src/), on every key shape.
 # Per shape and size n, for first = 0 and first = 1 (unique / ranks, group_by), the new coder must
 # answer: the same `next`; the same codes in ALL 2^d slots (0 beyond n); fr = the first row of
 # every entry (computed from the reference codes: row i is new iff its code is the next free one);
@@ -8,18 +9,18 @@
 import Base
 import ./lib/w2gen.bend as G
 import ./../src/kernels.bend as K
-import ./../src/sort.bend as SO
+import ./lib/v01str.bend as V1
 import ./../src/hcode.bend as H
 
 type OR is Type:
   OR{a: Array<String>, codes: Array<U32>, next: U32}
 
-def Or.fin(a: Array<String>, c: Array<U32>, cs: SO.CS) -> OR:
+def Or.fin(a: Array<String>, c: Array<U32>, cs: V1.CS) -> OR:
   match cs:
-    case SO.CS{m, +next}:
+    case V1.CS{m, +next}:
       OR{a, c, next}
 
-def Or.of(r: Array<String> & Array<U32> & SO.CS) -> OR:
+def Or.of(r: Array<String> & Array<U32> & V1.CS) -> OR:
   (a, c, cs) = r
   Or.fin(a, c, cs)
 
@@ -67,7 +68,7 @@ def Cmp.k(+n: U32, +d: Nat, +first: U32, o: OR, h: H.HC) -> Bool:
 
 def Hd.one(~hash: String -> H.HB, +n: U32, +first: U32, +sh: G.Shape) -> Bool:
   +d = G.Gen.depth(n)
-  Cmp.k(n, d, first, Or.of(SO.Sort.str_codes(n, d, first, G.Gen.mk(n, sh))), H.Hc.code(~hash, n, d, first, G.Gen.mk(n, sh)))
+  Cmp.k(n, d, first, Or.of(V1.Sort.str_codes(n, d, first, G.Gen.mk(n, sh))), H.Hc.code(~hash, n, d, first, G.Gen.mk(n, sh)))
 
 def Hd.fail(+ok: Bool, +n: U32, +first: U32, rest: String) -> String:
   match ok:

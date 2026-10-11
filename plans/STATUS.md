@@ -330,3 +330,10 @@ Baseline: 3612482 (v0.1 RC). The v0.1 data contract (DESIGN §15) does not chang
 - Wave 2 running: W2.1+W2.2 (coder, ranks; new modules), T3.1 (liveness/moves + law),
   T3.2+T3.4 (sort pipeline, Sort+Head gather + law), T3.3 (group_by moves),
   W6.1+W6.2 (reader producer + lane; new modules).
+- Merged (2026-10-11/12): T3.3 group_by moves; W2.1/W2.2 coder + ranks modules; T3.1 liveness
+  moves (+5 laws); W6.1/W6.2 reader producer + lane (41 MB: 0.62 s / 0.34 s at 1 / 12 thr,
+  RSS 131 MB, not wired); T3.2/T3.4 sort pipeline + Sort+Head (q4 44 -> 16 ms); W2.4 join on
+  the packed flat table (1M distinct join ~0.8-1.3 s); T4.1 fused kernels (+17 laws).
+  Master: 176 laws in 18 sections, 45 mutations, 176 tests, verdict green.
+- Running: W2.3 coder wiring, W6.3 reader integration, T4.2 eval peepholes (LAWS §19),
+  T4.3 Filter+Select shortcut (LAWS §20), T5.1 chunks module (LAWS §21).

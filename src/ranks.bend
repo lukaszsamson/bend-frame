@@ -11,7 +11,7 @@
 # them). It runs the flat coder (src/hcode.bend, first-appearance codes from 0) and then the stage
 # on the k entries: ranks are computed per ENTRY and mapped to the rows by one gather
 # (`word[row] = rank[code[row]]`; flip is folded into the k ranks, not the n words).
-# Rk.dict is `ST.Dict.ranks`: the same ranks of a Dictionary's k entries (rank[code]; slots >= k
+# Rk.dict is v0.1's `ST.Dict.ranks` (deleted by W2.3; tests/lib/v01str.bend): the same ranks of a Dictionary's k entries (rank[code]; slots >= k
 # hold 0), the dictionary handed back.
 #
 # The stage (Rk.ranks), for k distinct entries `a[fr[e]]` with UTF-8 byte lengths bl[e] (bl is
@@ -40,16 +40,16 @@
 # Memory: pk = the entries' bytes / 4 words, wo, bl, gid, perm and the radix scratch: O(k) words,
 # transient. No rank cache (no invalidation story); the stage is O(k x rounds) per request.
 #
-# NOT WIRED yet (W2.3). Import note: this module imports sort.bend for `Radix.sort` (the single use is
-# `Rx.sorted`), so sort.bend cannot import it: W2.3 moves Radix.* (depends on kernels only) to a module
-# both import, or wires str_words from a module above both.
+# Callers (W2.3): Sort.str_words / a Raw sort key (src/sort.bend: Rk.words, the key borrowed), a
+# Dictionary sort key and Sort.dict_words, Dictionary min / max and comparisons between dictionaries
+# (src/eval.bend: Rk.dict). `Radix.sort` comes from src/radix.bend (the single use is `Rx.sorted`).
 #
 # Idioms (DESIGN.md section 9): helpers above callers; Nat fuel first; pairs taken apart in the next
 # helper's parameter; templates ~T.
 import Base
 import ./kernels.bend as K
 import ./strs.bend as ST
-import ./sort.bend as SO
+import ./radix.bend as RD
 import ./hcode.bend as H
 
 # the stage's answer: the entries' rows, their ranks (2^kd slots: rank[e], 0 beyond k)
@@ -288,7 +288,7 @@ def Rx.sorted(+k: U32, +kd: Nat, r: KS & Array<U32>) -> RX & Array<U32>:
   (ks, perm) = r
   match ks:
     case KS{rx, ws}:
-      Rx.sorted.k(rx, SO.Radix.sort(k, kd, (ws, perm)))
+      Rx.sorted.k(rx, RD.Radix.sort(k, kd, (ws, perm)))
 
 def Rx.by(+kk: KK, +k: U32, +kd: Nat, +r: U32, st: RX & Array<U32>) -> RX & Array<U32>:
   (rx, perm) = st
@@ -446,7 +446,7 @@ def Rk.words.c(+n: U32, +d: Nat, +flip: U32, hc: H.HC) -> Array<String> & Array<
 def Rk.words(+n: U32, +d: Nat, +flip: U32, a: Array<String>) -> Array<String> & Array<U32>:
   Rk.words.c(n, d, flip, H.Hc.code.fnv(n, d, 0, a))
 
-# ST.Dict.ranks(dict) with the flat stage: (dict, rank by code), 2^dd slots
+# v0.1's ST.Dict.ranks(dict) with the flat stage: (dict, rank by code), 2^dd slots
 def Rk.dict.r(+k: U32, +dd: Nat, +b: Nat, slots: Array<ST.SSlot>, +tag: U32, rk: RK) -> ST.Dict & Array<U32>:
   match rk:
     case RK{strs, fr, rank}:

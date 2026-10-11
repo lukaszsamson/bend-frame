@@ -1,7 +1,7 @@
 # src/csvprod.bend -- the CSV piece producer (v0.2, W6.1; DESIGN.md 17.4.1 / 17.4.2 / 17.5).
 #
-# Production form of the W0 spike's producer (bench/spikes/w0_strings/rd.bend, 1. and 2.). NOT
-# wired into Csv.read / Csv.scan yet: W6.3 (src/csv.bend) drives it after its header step.
+# Production form of the W0 spike's producer (bench/spikes/w0_strings/rd.bend, 1. and 2.). The
+# v0.2 reader (src/csv.bend Csv.v2.*, W6.3; opt-in, DESIGN.md 15.6.6) drives it after its header step.
 #
 # What it does. `Pr.regions(path, off0, line0, piece)` reads the file from byte `off0` (the start
 # of the first data record, answered by the header step) in pieces of `piece` bytes with

@@ -313,7 +313,7 @@ def Hr.as.fin(+m: U32, +off: U32, +nulls: U32, oc: Array<U32>, ov: Array<U32>, c
 
 def Hr.as.part(+m: U32, co: L.CO, st: AS) -> AS:
   match co st:
-    case L.OS{c, v, +nb, +k, ents} AS{+off, oc, ov, +nulls, dict}:
+    case L.OS{c, v, +nb, +k, ents, fr} AS{+off, oc, ov, +nulls, dict}:
       Hr.as.fin(m, off, U32.add(nulls, nb), oc, ov, c, v, Hr.rm.go(U32.to_nat(k), 0, (dict, Array.new(U32, K.Kernel.depth_for(U32.max(k, 1)), 0)), Array.get(String, ents, 0)))
     case _ other:
       other
