@@ -8,6 +8,10 @@
   uv run --project bench python bench/m2/run.py summary results/NAME.jsonl [...] [--max-load X] [--raw]
   uv run --project bench python bench/m2/run.py micro --label NAME [--procs 3] [--threads 1 4 12]
   uv run --project bench python bench/m2/run.py list                          # the frozen workload list
+  uv run --project bench python bench/m2/run.py build baseline|candidate|both --instrument   # G6 instrumented binaries
+  uv run --project bench python bench/m2/run.py g6 --label NAME [--smoke] [--only GLOB ...]  # G6: copy/alloc table
+  uv run --project bench python bench/m2/run.py g6report results/g6-NAME.jsonl [-o out.md]   # re-render the table
+  (run --instrument: any `run` against the instrumented binaries; the records are marked and never timed)
 
 Only the standard library is needed (the `uv run` form is the documented one; python3 works too).
 
@@ -40,10 +44,21 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 sys.path.insert(0, str(HERE))
 import workloads as WL  # noqa: E402
+import instrument as IN  # noqa: E402
 
 BEND = os.path.expanduser(os.environ.get("BEND", "~/.bend/bin/bend"))
 BUILD = ROOT / "build" / "m2"
 BIN = {"baseline": BUILD / "baseline" / "driver", "candidate": BUILD / "candidate" / "driver"}
+INSTRUMENT = False     # G6: run the instrumented binaries (build/m2/<which>-g6): counters, never timings
+
+
+def set_instrument(on: bool):
+    """Rebind BIN to the G6 instrumented binaries (bench/m2/instrument.py). Every function that finds a binary or its
+    BUILD.json goes through BIN, so the runner, the staleness check and the records follow."""
+    global INSTRUMENT
+    INSTRUMENT = on
+    for k in ("baseline", "candidate"):
+        BIN[k] = BUILD / (k + ("-g6" if on else "")) / "driver"
 RESULTS = HERE / "results"
 EXPECTED = HERE / "expected.json"
 INPUTS = HERE / "inputs.json"
@@ -97,7 +112,7 @@ def git_info() -> dict:
 
 
 def build_info(which: str):
-    p = BUILD / which / "BUILD.json"
+    p = BIN[which].parent / "BUILD.json"
     return json.loads(p.read_text()) if p.exists() else None
 
 
@@ -132,6 +147,8 @@ def cmd_build(a):
             args = ["bash", str(HERE / "baseline.sh")] + (["--force"] if a.force else [])
         else:
             args = ["bash", str(HERE / "baseline.sh"), "--candidate"] + (["--force"] if a.force else [])
+        if getattr(a, "instrument", False):
+            args.append("--instrument")
         rc = subprocess.call(args, cwd=ROOT)
         if rc != 0:
             sys.exit(rc)
@@ -146,6 +163,13 @@ def check_binaries(binaries, allow_stale):
         if bi is None:
             print(f"warning: no BUILD.json for {b}", file=sys.stderr)
             continue
+        if INSTRUMENT:
+            if not bi.get("instrument"):
+                sys.exit(f"{BIN[b]} is not an instrumented build (BUILD.json lacks instrument): "
+                         f"`python3 bench/m2/run.py build {b} --instrument`")
+            ih = sha256_file(HERE / "instrument.py")
+            if bi.get("instrument_hash") != ih:
+                sys.exit(f"{b} instrumented binary is STALE: instrument.py changed; rebuild with `build {b} --instrument`")
         if b == "candidate" and (bi.get("src_hash") != gi["src_hash"] or bi.get("driver_hash") != gi["driver_hash"]):
             msg = (f"candidate binary is STALE: built from src hash {str(bi.get('src_hash'))[:12]}, checkout is "
                    f"{gi['src_hash'][:12]} (driver {str(bi.get('driver_hash'))[:12]} vs {gi['driver_hash'][:12]})")
@@ -293,6 +317,100 @@ def validate(w, mode, drv, expected, outp):
     return (not bad), ({"reason": "; ".join(bad)} if bad else {})
 
 
+# ---------------------------------------------------------------------------------------------
+# G6 instrumentation: parse the counters the instrumented binary prints at every IO.now
+# ---------------------------------------------------------------------------------------------
+
+# cumulative counters (phase value = difference of two snapshots) and gauges (value at the end of the phase)
+G6_CUM = ("alloc_bytes", "allocs", "free_bytes", "frees", "blk_bytes", "blks", "copy_bytes", "copies", "node_bytes",
+          "nodes", "half_bytes", "halves", "minflt", "majflt")
+G6_GAUGE = ("live", "peak_live", "maxrss", "bump")
+
+
+def g6_snaps(stderr: str):
+    """-> ([dict], [dict]): the snapshots (`BF_G6 now|end k=v ...`, in order, the last is the `end` line) and the call-site
+    records (`BF_G6 site k=N kind=copy|node|half line=L bytes=B n=C`: what the sites moved since the previous snapshot,
+    printed before snapshot N)."""
+    snaps, sites = [], []
+    for line in stderr.splitlines():
+        if not line.startswith("BF_G6 "):
+            continue
+        parts = line.split()
+        if parts[1] == "site":
+            d = dict(tok.partition("=")[::2] for tok in parts[2:])
+            sites.append({"k": int(d["k"]), "kind": d["kind"], "line": int(d["line"]), "bytes": int(d["bytes"]), "n": int(d["n"])})
+            continue
+        d = {"tag": parts[1]}
+        for tok in parts[2:]:
+            k, _, v = tok.partition("=")
+            d[k] = int(v)
+        snaps.append(d)
+    return snaps, sites
+
+
+_RESOLVERS = {}
+
+
+def resolver_for(binary):
+    """instrument.Resolver over the patched C of an instrumented binary (cached), or None."""
+    if binary not in _RESOLVERS:
+        c = BIN[binary].parent / "driver-g6.c"
+        _RESOLVERS[binary] = IN.Resolver(c) if c.exists() else None
+    return _RESOLVERS[binary]
+
+
+def g6_boundaries(mode, op):
+    """Windows between consecutive IO.now snapshots in the driver's modes (bench/m2/driver.bend), as
+    (name, from snapshot, to snapshot) and the number of IO.now calls the mode makes.
+    phases: t0 read t1 walk t2 prep t3 compute t4 check t5 (then the process tail up to `end`);
+    e2e / e2ecsv: t0 e2e t1; stages: t0 read t1 walk t2, then per stage its own pair (the clones and hashes
+    between stages are outside every window). Snapshot index -1 is the `end` line."""
+    if mode == "phases":
+        return [("read", 0, 1), ("walk", 1, 2), ("prep", 2, 3), ("compute", 3, 4), ("check", 4, 5), ("tail", 5, -1)], 6
+    if mode in ("e2e", "e2ecsv"):
+        return [("e2e", 0, 1), ("tail", 1, -1)], 2
+    if mode == "stages":
+        w = [("read", 0, 1), ("walk", 1, 2)]
+        for k, name in enumerate(WL.STAGES):
+            w.append((name, 3 + 2 * k, 4 + 2 * k))
+        return w, 3 + 2 * len(WL.STAGES)
+    return [], None
+
+
+def g6_derive(stderr: str, mode, op, resolver=None):
+    """-> {"snaps": n, "phases": {name: {cumulative deltas, gauges at the end}}, "total": the end line, "error": str|None}.
+    A snapshot count that differs from the driver's IO.now count is an error, never a silent misattribution."""
+    sn, sites = g6_snaps(stderr)
+    if not sn:
+        return {"error": "no BF_G6 lines (not an instrumented binary?)", "phases": {}, "total": None, "snaps": 0}
+    end = sn[-1] if sn[-1]["tag"] == "end" else None
+    nows = [x for x in sn if x["tag"] == "now"]
+    wins, want = g6_boundaries(mode, op)
+    err = None
+    if end is None:
+        err = "no end line (the process did not exit normally)"
+    if want is not None and len(nows) != want:
+        err = f"{len(nows)} IO.now snapshots, expected {want} for mode {mode}"
+    phases = {}
+    if err is None:
+        for name, i, j in wins:
+            a_, b_ = nows[i], (end if j == -1 else nows[j])
+            ph = {k: b_[k] - a_[k] for k in G6_CUM}
+            ph.update({k + "_end": b_[k] for k in G6_GAUGE if k in b_})
+            ph["live_start"] = a_["live"]
+            lo, hi = i, (len(nows) if j == -1 else j)
+            agg = {}
+            for st in sites:
+                if lo < st["k"] <= hi:
+                    e_ = agg.setdefault((st["kind"], st["line"]), [0, 0])
+                    e_[0] += st["bytes"]
+                    e_[1] += st["n"]
+            ph["sites"] = sorted(([k, ln, b, n, (resolver.where(ln) if resolver else None)] for (k, ln), (b, n) in agg.items()),
+                                 key=lambda x: -x[2])
+            phases[name] = ph
+    return {"snaps": len(nows), "phases": phases, "total": end, "error": err}
+
+
 def one(w, mode, binary, threads, rep, a, ctx):
     outp = BUILD / "out" / f"{os.getpid()}_{w.id}_{binary}_{threads}_{rep}.csv"
     outp.parent.mkdir(parents=True, exist_ok=True)
@@ -308,6 +426,9 @@ def one(w, mode, binary, threads, rep, a, ctx):
     err = None
     if drv is None or r["rc"] != 0:
         err = (r["stdout"] + r["stderr"])[-400:]
+    g6 = g6_derive(r["stderr"], mode, w.op, resolver_for(binary)) if INSTRUMENT else None
+    if g6 is not None and g6["error"] and not err:
+        err = "G6: " + g6["error"]
     rec = {
         "type": "proc", "label": a.label, "ts": now_iso(), "ts_epoch": round(time.time(), 3),
         "binary": binary, "engine": a.engine, "workload": w.id, "group": w.group, "op": w.op, "mode": mode,
@@ -323,6 +444,11 @@ def one(w, mode, binary, threads, rep, a, ctx):
         "load_before": lb, "load_after": la,
         "valid": valid, "validation": vdetail, "error": err,
     }
+    if INSTRUMENT:
+        # an instrumented binary's wall time, RSS and driver *_ms are NEVER gate or perf data
+        rec["instrument"] = True
+        rec["timing_valid"] = False
+        rec["g6"] = g6
     return rec
 
 
@@ -380,7 +506,10 @@ def cmd_run(a):
     binaries = a.binaries
     gi = check_binaries(binaries, a.allow_stale)
     hashes = check_inputs()
-    if a.require_quiet is not None:
+    if INSTRUMENT:
+        print("INSTRUMENTED RUN (G6): counters only; the timings of these records are not valid and not used by `summary`",
+              file=sys.stderr)
+    if a.require_quiet is not None and not INSTRUMENT:
         deadline = time.time() + a.wait
         while (loadavg() or [0])[0] > a.require_quiet:
             if time.time() > deadline:
@@ -552,9 +681,17 @@ def cell_stats(rs, name):
 
 def cmd_summary(a):
     recs, metas = read_records(a.files)
+    ninstr = sum(1 for r in recs if r.get("instrument"))
+    if ninstr:
+        # instrumented runs (G6) are for counters only: never in a timing table (use `g6report`)
+        print(f"<!-- {ninstr} instrumented (G6) records ignored: their timings are not valid; see `run.py g6report` -->")
+        recs = [r for r in recs if not r.get("instrument")]
+        if not recs:
+            print("no timed records in these files (all instrumented)")
+            return
     if a.max_load is not None:
         recs = [r for r in recs if (r["load_before"] or [0])[0] <= a.max_load]
-    bad = [r for r in recs if r["valid"] is False or r["rc"] != 0]
+    bad =[r for r in recs if r["valid"] is False or r["rc"] != 0]
     ok = [r for r in recs if r["valid"] is not False and r["rc"] == 0 and r.get("driver")]
     cells = {}
     for r in ok:
@@ -772,12 +909,431 @@ def cmd_list(a):
         print(f"{w.id:18} {w.group:8} op={w.op:8} modes={','.join(w.modes):12} batch={w.batch:<4} smoke={int(w.smoke)} {w.desc}")
 
 
+# ---------------------------------------------------------------------------------------------
+# G6: the copy / allocation table (instrumented binaries; counts, never timings)
+# ---------------------------------------------------------------------------------------------
+
+G6_DEFAULT = ["q?_1m", "parse_1m", "str_*"]
+G6_SMOKE = ["q?_100k", "str_*_100k"]
+G6_CFG_ORDER = ["baseline", "reference", "v02", "chunked", "v02,chunked"]
+G6_CFG_NAME = {"baseline": "baseline 3612482", "reference": "candidate reference", "v02": "candidate v02 reader",
+               "chunked": "candidate chunked", "v02,chunked": "candidate v02,chunked"}
+
+
+def g6_cfg(r):
+    """The engine combination of a record: baseline (it ignores BF_ENGINE), reference, v02, chunked, v02,chunked."""
+    if r["binary"] == "baseline":
+        return "baseline"
+    toks = set((r.get("engine") or "").split(","))
+    v, c = "v02" in toks, "chunked" in toks
+    return "v02,chunked" if (v and c) else "v02" if v else "chunked" if c else "reference"
+
+
+def g6_good(recs):
+    return [r for r in recs if r.get("instrument") and r.get("g6") and not r["g6"].get("error") and r.get("rc") == 0]
+
+
+def g6_cells(recs):
+    """-> {(workload, cfg): {"phases": {name: {field: median}}, "total": {...}, "n": reps, "nondet": [fields that differ
+    between repetitions], "valid": bool|None, "rows": int}}. The counts are exact; a spread between repetitions is reported."""
+    by = {}
+    for r in g6_good(recs):
+        by.setdefault((r["workload"], g6_cfg(r)), []).append(r)
+    out = {}
+    for k, rs in by.items():
+        phases, nondet, wob = {}, set(), {}
+        for name in rs[0]["g6"]["phases"]:
+            ph = {}
+            for f in rs[0]["g6"]["phases"][name]:
+                if f == "sites":
+                    ph[f] = rs[0]["g6"]["phases"][name][f]
+                    continue
+                xs = [x["g6"]["phases"][name][f] for x in rs]
+                ph[f] = statistics.median(xs)
+                if len(set(xs)) > 1 and f not in ("minflt", "majflt", "maxrss_end", "bump_end", "peak_live_end"):
+                    if name == "tail":
+                        # the JSON print + process exit after the last snapshot: a few allocations (~100 B) wobble
+                        wob[f] = max(wob.get(f, 0), max(xs) - min(xs))
+                    else:
+                        nondet.add(f"{name}.{f}")
+            phases[name] = ph
+        tot = {f: statistics.median([x["g6"]["total"][f] for x in rs]) for f in rs[0]["g6"]["total"] if f != "tag"}
+        out[k] = {"phases": phases, "total": tot, "n": len(rs), "nondet": sorted(nondet), "tail_wobble": wob,
+                  "valid": None if any(x["valid"] is None for x in rs) else all(x["valid"] for x in rs),
+                  "rows": (rs[0].get("driver") or {}).get("rows"), "rows_in": rs[0]["rows_in"], "rec": rs[0]}
+    return out
+
+
+def _mb(x):
+    if x is None:
+        return "-"
+    if x == 0:
+        return "0"
+    m = x / 1e6
+    return f"{m:,.0f}" if m >= 1000 else f"{m:,.1f}" if m >= 100 else f"{m:.2f}"
+
+
+def _n(x):
+    return "-" if x is None else f"{x:,.0f}"
+
+
+def _csv_shape(rel):
+    """(columns, data rows) of a CSV file under the repo (header line + newline count)."""
+    p = ROOT / rel
+    if rel == "-" or not p.exists():
+        return None, None
+    with open(p, "rb") as f:
+        head = f.readline().decode("utf-8", "replace")
+        n = head.count(",") + 1
+        rows = sum(chunk.count(b"\n") for chunk in iter(lambda: f.read(1 << 22), b""))
+    return n, rows
+
+
+def g6_render(recs, metas, cstats, note=""):
+    cells = g6_cells(recs)
+    wids = []
+    for (w, c) in cells:
+        if w not in wids:
+            wids.append(w)
+    order = {w.id: i for i, w in enumerate(WL.WORKLOADS)}
+    wids.sort(key=lambda w: order.get(w, 99))
+    cfgs = lambda w: [c for c in G6_CFG_ORDER if (w, c) in cells]
+    P = lambda w, c, ph, f: (cells[(w, c)]["phases"].get(ph) or {}).get(f)
+    sumf = lambda w, c, phs, fs: sum((P(w, c, ph, f) or 0) for ph in phs for f in fs)
+    L = []
+    pm = [m for m in metas if m.get("type") == "meta"]
+    m0 = pm[0] if pm else {}
+    L.append(f"# G6 instrumentation: copy and allocation accounting ({m0.get('label', '?')})")
+    L.append("")
+    L.append("**Counts, never timings.** Instrumented binaries (`bench/m2/instrument.py`: the emitted C patched with relaxed "
+             "atomic counters, a `BF_G6` line per `IO.now`) at 1 thread; every number below is exact and deterministic "
+             "(see the determinism line). Their wall times, RSS and driver `*_ms` fields are not valid and are not used "
+             "anywhere. Counts do not depend on machine load. Reproduce with `make m2-g6 LABEL=x` (it builds the instrumented "
+             "binaries first).")
+    L.append("")
+    if m0:
+        c = m0.get("commit") or {}
+        L.append(f"- run `{m0.get('label')}`: {m0.get('ts')}, candidate commit `{str(c.get('head'))[:10]}` dirty={c.get('dirty')} "
+                 f"src `{str(c.get('src_hash'))[:10]}`, bend {m0.get('bend')}")
+        for b, bi in (m0.get("builds") or {}).items():
+            if bi:
+                L.append(f"- {b}: commit `{str(bi.get('commit'))[:10]}`, src `{str(bi.get('src_hash'))[:10]}`, instrument.py "
+                         f"`{str(bi.get('instrument_hash'))[:10]}`, binary `{str(bi.get('binary_sha256'))[:10]}`")
+    nd = sorted({f"{w}/{c}:{f}" for (w, c), v in cells.items() for f in v["nondet"]})
+    reps = max((v["n"] for v in cells.values()), default=0)
+    wob_n = sum(1 for v in cells.values() if v["tail_wobble"])
+    wob_a = max((v["tail_wobble"].get("allocs", 0) for v in cells.values()), default=0)
+    wob_b = max((v["tail_wobble"].get("alloc_bytes", 0) for v in cells.values()), default=0)
+    if reps > 1 and not nd:
+        det = (f"counters identical across repetitions in every phase of every cell (read, walk, prep, compute, check)"
+               + (f"; the exit tail (JSON print + process exit, after the last snapshot) differs by at most {wob_a:,.0f} allocations / "
+                  f"{wob_b:,.0f} bytes in {wob_n} cells, so whole-process totals are exact to that" if wob_n else ""))
+    elif nd:
+        det = f"COUNTERS DIFFER between repetitions: {', '.join(nd[:12])}"
+    else:
+        det = "one repetition per cell: determinism not re-checked in this run"
+    L.append(f"- {sum(v['n'] for v in cells.values())} instrumented processes, {len(cells)} cells, {reps} repetition(s) per cell; " + det)
+    bad = [(w, c) for (w, c), v in cells.items() if v["valid"] is False]
+    L.append("- every result validated against `expected.json`" + (f"; INVALID: {bad}" if bad else ": all valid")
+             + "; configs: `baseline` = the pinned 3612482 binary (it ignores `BF_ENGINE`: its three engine combinations are one "
+               "run), `reference` / `v02` / `v02,chunked` = the candidate with `BF_ENGINE` unset / `v02` / `v02,chunked`")
+    if note:
+        L.append(f"- note: {note}")
+    L.append("")
+    L.append("Counters (bytes are exact, MB = 10^6 bytes): **copy** = `blk_copy` (`Array.clone`, `Column.clone`, `DF.clone`: a full "
+             "O(n) copy of one array block); **fork copy** = `blk_node` + `blk_half` (an array rebuilt out of, or matched into, "
+             "its halves: each copies the data it moves); **alloc** = every heap allocation (array blocks AND constructor / task "
+             "nodes), `allocs` their number; **live** = allocated minus freed at the end of the phase (the retained heap); "
+             "**minflt** = `getrusage` soft page faults in the phase (a 16 KiB page each on this machine). Phases are the driver's "
+             "`IO.now` windows: read, walk (first walk of every buffer), prep (the input-preservation clone), compute "
+             "(`DF.collect` / describe), check (the content hash, which consumes the result and frees the kept inputs).")
+    L.append("")
+
+    def table(title, head, rowf, intro=None):
+        L.append(f"## {title}")
+        L.append("")
+        if intro:
+            L.append(intro)
+            L.append("")
+        L.append("| " + " | ".join(head) + " |")
+        L.append("|" + "|".join("---" if i < 2 else "---:" for i in range(len(head))) + "|")
+        for w in wids:
+            for c in cfgs(w):
+                row = rowf(w, c)
+                if row:
+                    L.append(f"| {w} | {G6_CFG_NAME[c]} | " + " | ".join(row) + " |")
+        L.append("")
+
+    CP, FK, AL = ("copy_bytes",), ("node_bytes", "half_bytes"), ("alloc_bytes",)
+    table("1. Compute phase", ["workload", "config", "copy MB", "fork copy MB", "alloc MB", "allocs", "minflt", "live after MB", "result rows"],
+          lambda w, c: [_mb(P(w, c, "compute", "copy_bytes")), _mb(sumf(w, c, ["compute"], FK)), _mb(P(w, c, "compute", "alloc_bytes")),
+                        _n(P(w, c, "compute", "allocs")), _n(P(w, c, "compute", "minflt")), _mb(P(w, c, "compute", "live_end")),
+                        _n(cells[(w, c)]["rows"])],
+          "The engine's own work (optimizer + executor, or the eager describe for q6), over the cloned inputs. `copy MB` is what "
+          "the plan copies that a move or a borrow could in principle avoid; `alloc MB` is all fresh storage, including the outputs.")
+    table("2. Preparation and output phases", ["workload", "config", "prep copy MB", "prep alloc MB", "check alloc MB", "check copy MB", "check allocs"],
+          lambda w, c: [_mb(P(w, c, "prep", "copy_bytes")), _mb(P(w, c, "prep", "alloc_bytes")), _mb(P(w, c, "check", "alloc_bytes")),
+                        _mb(P(w, c, "check", "copy_bytes")), _n(P(w, c, "check", "allocs"))],
+          "prep is the input-preservation clone (`DF.clone` of every input: the copy Polars does not make because its inputs are "
+          "shared); check is the content hash (a streaming fold: it should copy nothing). Both are harness phases, outside `compute`.")
+
+    def parse_row(w, c):
+        rec = cells[(w, c)]["rec"]
+        phs = ["read", "walk"]
+        live = P(w, c, "walk", "live_end")
+        wl = WL.BY_ID.get(w)
+        lo = None
+        if wl is not None and live is not None:
+            lo = 0
+            for rel in (wl.file, wl.aux):
+                ncol, nrow = _csv_shape(rel)
+                if ncol:
+                    lo += 4 * ncol * nrow
+        return [_mb(sumf(w, c, phs, CP)), _mb(sumf(w, c, phs, FK)), _mb(sumf(w, c, phs, AL)), _n(sumf(w, c, phs, ("allocs",))),
+                _n(sumf(w, c, phs, ("minflt",))), _mb(live), _mb(lo), (f"{live / lo:.2f}" if (lo and live is not None) else "-")]
+    table("3. Parse (read + walk)", ["workload", "config", "copy MB", "fork copy MB", "alloc MB", "allocs", "minflt", "retained after parse MB",
+                                    "flat lower bound MB", "retained / bound"], parse_row,
+          "`retained after parse` is the live heap once the input frames exist (primary + aux, before the preservation clone). The "
+          "`flat lower bound` is 4 bytes x columns x rows of the CSV files: one U32 / F32 / dictionary code per cell, string payload "
+          "NOT included, so string workloads exceed 1.0 legitimately; array blocks are power-of-two sized (1M rows occupy 2^20 slots, "
+          "+4.9%), which is most of the 1.20 of the sales file (its dictionary column adds the rest). `alloc MB` of the v0.1 reader counts every cons cell of the "
+          "intermediate character lists; the v0.2 reader (`v02` rows) shows what removing them saves.")
+
+    def tot_row(w, c):
+        t = cells[(w, c)]["total"]
+        return [_mb(t["alloc_bytes"]), _n(t["allocs"]), _mb(t["copy_bytes"]), _mb(t["node_bytes"] + t["half_bytes"]),
+                _mb(t["peak_live"]), _n(t["minflt"]), _mb(t["live"])]
+    table("4. Whole process", ["workload", "config", "alloc MB", "allocs", "copy MB", "fork copy MB", "peak live MB", "minflt", "live at exit MB"],
+          tot_row, "Totals at process exit (all phases; the exit line is printed from an `atexit` handler: live at exit is 0 when "
+                   "every allocation was freed, which is how the accounting is self-checked). `peak live` is the high-water mark of the "
+                   "retained heap (the G4 quantity; the arena can be larger).")
+
+    # copy sources: the call sites that copied, per workload and config (compute phase, parse for the readers)
+    src_rows = []
+    for w in wids:
+        per = {}
+        for c in cfgs(w):
+            for ph in ("compute", "read", "walk"):
+                agg = {}
+                for (kind, line, b, n, where) in ((cells[(w, c)]["phases"].get(ph) or {}).get("sites") or []):
+                    e_ = agg.setdefault((kind, where or f"line {line}"), [0, 0])
+                    e_[0] += b
+                    e_[1] += n
+                per[(c, ph)] = sorted(((k, v[0], v[1]) for k, v in agg.items() if v[0] >= 100_000), key=lambda x: -x[1])
+        for c in cfgs(w):
+            for ph in ("compute", "read", "walk"):
+                rows = per[(c, ph)]
+                # a config's rows are omitted when its phase is identical to the candidate reference's
+                if c in ("v02", "chunked", "v02,chunked") and (w, "reference") in cells and rows == per.get(("reference", ph)):
+                    continue
+                for ((kind, where), b, n) in rows:
+                    src_rows.append((w, c, ph, kind, b, n, where))
+    if src_rows:
+        L.append("## 5. Copy sources (call sites of `blk_copy` / `blk_node` / `blk_half`, at least 0.1 MB)")
+        L.append("")
+        L.append("Each row is one C call site (`bench/m2/instrument.py` wraps the three runtime entries with `__LINE__`), resolved to "
+                 "the enclosing Bend function: `FID` names are `module path + Bend def`, `spin_N <- FID` is a flat loop traced up "
+                 "the static call graph to the nearest Bend function(s) that contain it (a spin shared by several callers lists "
+                 "up to three). `copy` = `Array.clone` and friends, `node` / `half` = array rebuilt from / matched into halves. "
+                 "The prep phase (the harness's input-preservation `DF.clone`) is omitted, and so are the rows of a `v02` / `chunked` / "
+                 "`v02,chunked` config whose phase is identical to the candidate reference's (a phase with no row has no site of 0.1 MB "
+                 "or more).")
+        L.append("")
+        L.append("| workload | config | phase | kind | MB | calls | where |")
+        L.append("|---|---|---|---|---:|---:|---|")
+        for (w, c, ph, kind, b, n, where) in src_rows:
+            L.append(f"| {w} | {G6_CFG_NAME[c]} | {ph} | {kind} | {_mb(b)} | {_n(n)} | `{where}` |")
+        L.append("")
+
+    # chunked: conversion cost
+    rows5 = []
+    for w in wids:
+        if (w, "v02,chunked") in cells and (w, "v02") in cells:
+            base = "v02"
+        elif (w, "chunked") in cells and (w, "reference") in cells:
+            base = "reference"
+        else:
+            continue
+        ch = "v02,chunked" if base == "v02" else "chunked"
+        d = lambda f, fs=None: (sumf(w, ch, ["compute"], fs or (f,)) - sumf(w, base, ["compute"], fs or (f,)))
+        cs = cstats.get(w)
+        rows5.append((w, d("copy_bytes"), d("x", FK), d("alloc_bytes"), d("allocs", ("allocs",)), d("minflt", ("minflt",)), cs))
+    if rows5:
+        L.append("## 6. Chunk conversions (`BF_ENGINE=chunked`)")
+        L.append("")
+        L.append("The chunked executor converts flat env frames to chunk trees (`of_frame`) and back (`to_frame`) inside the compute "
+                 "window. The facade does not expose `CStats` (`collect_with` drops it), so the conversion cost is read off the counters: the "
+                 "compute phase of `v02,chunked` minus the compute phase of `v02` (same reader, same frames; the reference executor). "
+                 "The conversions do not use `blk_copy` / `blk_node` / `blk_half` (cuts and joins are fresh blocks), so they show as "
+                 "extra **alloc** bytes and allocations, not as copy bytes; the extra also contains whatever the chunked leaves allocate "
+                 "beyond the reference's operators. The `CStats` columns are the runner's own counters of conversions (count / "
+                 "LOGICAL bytes = 4 x rows x columns converted) from `bench/m2/cstats.bend`, the same plan at the same grain "
+                 "(`-` = no CStats record; q4 and the string ops run flat, 0 conversions). q6 and parse do not collect.")
+        L.append("")
+        L.append("| workload | extra copy MB | extra fork copy MB | extra alloc MB | extra allocs | extra minflt | CStats in (n / MB) | CStats out (n / MB) |")
+        L.append("|---|---:|---:|---:|---:|---:|---:|---:|")
+        quiet = [r[0] for r in rows5 if abs(r[3]) < 100_000 and not (r[6] and (r[6]["conv_in"] or r[6]["conv_out"]))]
+        for (w, dc, df_, da, dn, dm, cs) in rows5:
+            if w in quiet:
+                continue
+            ci = f"{cs['conv_in']} / {_mb(cs['bytes_in'])}" if cs else "-"
+            co = f"{cs['conv_out']} / {_mb(cs['bytes_out'])}" if cs else "-"
+            L.append(f"| {w} | {_mb(dc)} | {_mb(df_)} | {_mb(da)} | {_n(dn)} | {_n(dm)} | {ci} | {co} |")
+        L.append("")
+        if quiet:
+            L.append("No conversion (extra alloc under 0.1 MB, no CStats conversions): " + ", ".join(quiet) + ". Those plans run flat "
+                     "(sort / group_by / join / unique / describe flatten, and a frame of at most 2^14 rows stays flat): the "
+                     "chunked engine adds only a handful of runner allocations there.")
+            L.append("")
+
+    # retained vs logical for the result
+    rows6 = []
+    for w in wids:
+        if (w, "reference") not in cells:
+            continue
+        c = "reference"
+        res = (P(w, c, "compute", "live_end") or 0) - (P(w, c, "walk", "live_end") or 0)
+        rows_o = cells[(w, c)]["rows"]
+        rows6.append((w, rows_o, res))
+    if rows6:
+        L.append("## 7. Result retained after compute (candidate reference)")
+        L.append("")
+        L.append("`live after compute` minus `live after parse`: what the result (plus anything the executor leaves behind) retains "
+                 "once the cloned inputs have been consumed. Bytes per result row can be compared with the flat bound of the "
+                 "result's columns.")
+        L.append("")
+        L.append("| workload | result rows | retained after compute MB | bytes / result row |")
+        L.append("|---|---:|---:|---:|")
+        for (w, ro, res) in rows6:
+            L.append(f"| {w} | {_n(ro)} | {_mb(res)} | {(f'{res / ro:,.1f}' if ro else '-')} |")
+        L.append("")
+    return "\n".join(L) + "\n"
+
+
+def g6_cstats_run(a, ws):
+    """CStats (conversion counts / logical bytes of the chunked executor) per workload from bench/m2/cstats.bend (the same
+    plans and grain as `BF_ENGINE=chunked`, 1 thread, reading with v02 for speed: the frames are the same): {workload id:
+    {"conv_in", "bytes_in", "conv_out", "bytes_out", "walks", "flat_ops"}}. {} if the probe cannot be built."""
+    exe = BUILD / "cstats"
+    srcs = [HERE / "cstats.bend", HERE / "driver.bend", HERE / "engine.bend", ROOT / "frame.bend"] + sorted((ROOT / "src").glob("*.bend"))
+    if not exe.exists() or exe.stat().st_mtime < max(p.stat().st_mtime for p in srcs):
+        exe.parent.mkdir(parents=True, exist_ok=True)
+        print("building bench/m2/cstats.bend (CStats probe)", flush=True)
+        if subprocess.call([BEND, str(HERE / "cstats.bend"), "-o", str(exe)], cwd=ROOT) != 0:
+            print("warning: cstats build failed: CStats columns omitted", file=sys.stderr)
+            return {}
+    out = {}
+    for w in ws:
+        if w.op in ("q6", "parse", "stages"):
+            continue
+        aux = "-" if w.aux == "-" else str(ROOT / w.aux)
+        argv = [str(exe), "--threads", "1", w.op, str(ROOT / w.file), aux, str(w.param)]
+        p = subprocess.run(argv, cwd=ROOT, capture_output=True, text=True, timeout=a.timeout, env=dict(os.environ, BF_ENGINE="v02"))
+        j = last_json(p.stdout)
+        st = (j or {}).get("stats", "")
+        m = re.findall(r"(\w+) (\d+)", st)
+        ex = load_expected().get(w.id) or {}
+        if p.returncode != 0 or not m:
+            print(f"warning: cstats {w.id} gave no stats: {(p.stdout + p.stderr)[-200:]}", file=sys.stderr)
+            continue
+        out[w.id] = {k: int(v) for k, v in m}
+        out[w.id]["chk_ok"] = (j.get("chk") == ex.get("chk")) if ex.get("chk") is not None else None
+        print(f"cstats {w.id}: {st}" + ("" if out[w.id]["chk_ok"] in (True, None) else "  RESULT HASH MISMATCH"), flush=True)
+    return out
+
+
+def cmd_g6(a):
+    """make m2-g6 LABEL=x: the instrumented matrix, then the table. Baseline x (reference); candidate x (reference, v02,
+    v02,chunked); 1 thread; phases mode; one process per cell (counts are deterministic: --procs 2 checks it)."""
+    set_instrument(True)
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    label = a.label[3:] if a.label.startswith("g6-") else a.label
+    out = RESULTS / f"g6-{label}.jsonl"
+    md = RESULTS / f"g6-{label}.md"
+    if not a.no_build:
+        for which, extra in (("baseline", []), ("candidate", ["--candidate"])):
+            rc = subprocess.call(["bash", str(HERE / "baseline.sh")] + extra + ["--instrument"], cwd=ROOT)
+            if rc != 0:
+                sys.exit(rc)
+    gi = check_binaries(["baseline", "candidate"], a.allow_stale)
+    hashes = check_inputs()
+    ws = WL.select(a.only or (G6_SMOKE if a.smoke else G6_DEFAULT), None, False)
+    if not ws:
+        sys.exit("no workload selected")
+    cfgs = [("baseline", "v01")] if not a.baseline_engines else [("baseline", e) for e in ("v01", "v02", "v02,chunked")]
+    cfgs += [("candidate", e) for e in ("v01", "v02", "v02,chunked")]
+    if out.exists() and not a.resume:
+        sys.exit(f"{out} exists: pick another --label or pass --resume")
+    done = set()
+    if out.exists():
+        for line in open(out):
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if r.get("type") == "proc":
+                done.add((r["workload"], r["binary"], r["engine"], r["rep"]))
+    ctx = {"expected": load_expected(), "commit": gi, "bend_version": bend_version(),
+           "builds": {b: build_info(b) for b in BIN}, "inputs": {w.id: inputs_of(w, hashes) for w in ws}}
+    ma = argparse.Namespace(label=label, provisional=True, note=a.note, engine="v01", timeout=a.timeout,
+                            **{k: v for k, v in vars(a).items() if k not in ("label", "note", "timeout", "engine", "provisional")})
+    f = open(out, "a")
+    if not done:
+        f.write(json.dumps(meta_record(ma, gi, ws)) + "\n")
+        f.flush()
+    total = 0
+    for w in ws:
+        for rep in range(a.procs):
+            for b, eng in cfgs:
+                if (w.id, b, eng, rep) in done:
+                    continue
+                ra = argparse.Namespace(label=label, engine=eng, timeout=a.timeout)
+                rec = one(w, "phases", b, 1, rep, ra, ctx)
+                f.write(json.dumps(rec) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+                total += 1
+                g = rec.get("g6") or {}
+                cp = (g.get("phases") or {}).get("compute") or {}
+                flag = "" if rec["valid"] else (" INVALID " + json.dumps(rec["validation"]) if rec["valid"] is False else " (unfrozen)")
+                if rec["error"]:
+                    flag += " ERROR " + str(rec["error"])[-200:]
+                print(f"{w.id:16} {b:9} {eng:12} rep={rep} compute: copy={cp.get('copy_bytes', 0) / 1e6:.2f}MB "
+                      f"alloc={cp.get('alloc_bytes', 0) / 1e6:.1f}MB allocs={cp.get('allocs', 0)} wall={rec['wall_s']}s{flag}", flush=True)
+    cst = {} if a.no_cstats else g6_cstats_run(a, ws)
+    if cst:
+        f.write(json.dumps({"type": "cstats", "label": label, "ts": now_iso(), "source": "bench/w5/t53.bend mode 1, 1 thread",
+                            "workloads": cst}) + "\n")
+    f.close()
+    print(f"{total} processes -> {out}")
+    g6_report([str(out)], md)
+
+
+def g6_report(files, outpath=None):
+    recs, metas = read_records(files)
+    cst = {}
+    for m in metas:
+        if m.get("type") == "cstats":
+            cst.update(m.get("workloads", {}))
+    txt = g6_render(recs, metas, cst, note=next((m.get("notes") for m in metas if m.get("type") == "meta" and m.get("notes")), ""))
+    if outpath:
+        Path(outpath).write_text(txt)
+        print(f"-> {outpath}")
+    else:
+        print(txt)
+
+
+def cmd_g6report(a):
+    g6_report(a.files, a.o)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sp = ap.add_subparsers(dest="cmd", required=True)
     b = sp.add_parser("build")
     b.add_argument("which", nargs="?", default="both", choices=["baseline", "candidate", "both"])
     b.add_argument("--force", action="store_true")
+    b.add_argument("--instrument", action="store_true", help="G6: build build/m2/<which>-g6/driver (counters; never timed)")
     b.set_defaults(f=cmd_build)
     r = sp.add_parser("run")
     r.add_argument("--label", required=True)
@@ -796,6 +1352,8 @@ def main():
     r.add_argument("--note", default="")
     r.add_argument("--timeout", type=int, default=3600)
     r.add_argument("--allow-stale", action="store_true")
+    r.add_argument("--instrument", action="store_true",
+                   help="G6: run the instrumented binaries (build ... --instrument); records are marked, never timed")
     r.set_defaults(f=cmd_run)
     fz = sp.add_parser("freeze")
     fz.add_argument("--only", nargs="+")
@@ -820,7 +1378,27 @@ def main():
     l.add_argument("--md", action="store_true", help="markdown table of the workloads")
     l.add_argument("--inputs", action="store_true", help="markdown table of the input files and sha256")
     l.set_defaults(f=cmd_list)
+    g = sp.add_parser("g6", help="G6: instrumented copy / allocation accounting, written to results/g6-LABEL.{jsonl,md}")
+    g.add_argument("--label", required=True)
+    g.add_argument("--smoke", action="store_true", help="100k-row q1-q6 and str cells instead of the 1M ones")
+    g.add_argument("--only", nargs="+", help="workload id globs (default: q?_1m parse_1m str_*)")
+    g.add_argument("--procs", type=int, default=1, help="repetitions per cell (counts are deterministic; 2 checks it)")
+    g.add_argument("--baseline-engines", action="store_true",
+                   help="also run the baseline under v02 and v02,chunked (it ignores BF_ENGINE: identical counts)")
+    g.add_argument("--no-build", action="store_true", help="do not (re)build the instrumented binaries first")
+    g.add_argument("--no-cstats", action="store_true", help="skip the CStats probe (bench/w5/t53.bend)")
+    g.add_argument("--resume", action="store_true")
+    g.add_argument("--note", default="")
+    g.add_argument("--timeout", type=int, default=3600)
+    g.add_argument("--allow-stale", action="store_true")
+    g.set_defaults(f=cmd_g6)
+    gr = sp.add_parser("g6report", help="render the G6 table of instrumented JSONL files")
+    gr.add_argument("files", nargs="+")
+    gr.add_argument("-o", help="write the markdown here instead of stdout")
+    gr.set_defaults(f=cmd_g6report)
     a = ap.parse_args()
+    if getattr(a, "instrument", False) and a.cmd == "run":
+        set_instrument(True)
     a.f(a)
 
 

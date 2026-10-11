@@ -7,6 +7,10 @@
 #                                      build/m2/baseline/driver from it with the SAME driver.bend as the candidate
 #   bench/m2/baseline.sh --candidate   build build/m2/candidate/driver from the current checkout
 #   --force                            rebuild even when build/m2/<which>/BUILD.json says it is up to date
+#   --instrument                       G6: build the INSTRUMENTED variant into build/m2/<which>-g6/driver: the emitted C
+#                                      (`bend driver.bend -o x.c`) patched by bench/m2/instrument.py (copy / allocation
+#                                      counters printed at every IO.now), compiled with bend's own flags. Its timings are
+#                                      never valid; BUILD.json says "instrument": true. Combine with --candidate.
 #   BASELINE=<rev> BEND=<path>         override the pinned revision / the bend binary
 #
 # Each build writes build/m2/<which>/BUILD.json: commit, src hash (frame.bend + src/**/*.bend), driver hash,
@@ -19,15 +23,19 @@ BASELINE=${BASELINE:-3612482}
 BEND=${BEND:-$HOME/.bend/bin/bend}
 which=baseline
 force=0
+instrument=0
 for arg in "$@"; do
   case "$arg" in
     --candidate) which=candidate ;;
     --force) force=1 ;;
-    *) echo "usage: $0 [--candidate] [--force]" >&2; exit 2 ;;
+    --instrument) instrument=1 ;;
+    *) echo "usage: $0 [--candidate] [--force] [--instrument]" >&2; exit 2 ;;
   esac
 done
 
 out=build/m2/$which
+suffix=
+if [ "$instrument" = 1 ]; then suffix=-g6; out=build/m2/$which-g6; fi
 mkdir -p "$out"
 
 if [ "$which" = baseline ]; then
@@ -65,15 +73,24 @@ EOF
 sh=$(srchash "$root")
 # the driver and its CSV reader shim (engine.bend; the baseline's is engine_v01.bend copied in)
 dh=$(cat "$root/bench/m2/driver.bend" "$root/bench/m2/engine.bend" | shasum -a 256 | cut -d' ' -f1)
+ih=null
+if [ "$instrument" = 1 ]; then ih="\"$(shasum -a 256 "$ROOT/bench/m2/instrument.py" | cut -d' ' -f1)\""; fi
 
 if [ "$force" = 0 ] && [ -x "$out/driver" ] && [ -f "$out/BUILD.json" ] \
-   && grep -q "\"src_hash\": \"$sh\"" "$out/BUILD.json" && grep -q "\"driver_hash\": \"$dh\"" "$out/BUILD.json"; then
+   && grep -q "\"src_hash\": \"$sh\"" "$out/BUILD.json" && grep -q "\"driver_hash\": \"$dh\"" "$out/BUILD.json" \
+   && { [ "$instrument" = 0 ] || grep -q "\"instrument_hash\": $ih," "$out/BUILD.json"; }; then
   echo "m2: $which driver is up to date ($out/driver, src $sh)"
   exit 0
 fi
 
-echo "m2: building $which driver from $root (commit ${commit:0:10}, src ${sh:0:12})"
-"$BEND" "$root/bench/m2/driver.bend" -o "$out/driver"
+echo "m2: building $which$suffix driver from $root (commit ${commit:0:10}, src ${sh:0:12})"
+if [ "$instrument" = 1 ]; then
+  # emit the C, patch the runtime with the G6 counters (fails loudly if the runtime text is not what the patch
+  # expects), compile with bend's own flags (instrument.py build)
+  BEND="$BEND" python3 -I "$ROOT/bench/m2/instrument.py" build "$root/bench/m2/driver.bend" "$out"
+else
+  "$BEND" "$root/bench/m2/driver.bend" -o "$out/driver"
+fi
 
 facade_diff=null
 if [ "$which" = candidate ]; then
@@ -85,6 +102,9 @@ if [ "$which" = candidate ] && [ -n "$(git status --porcelain -- src frame.bend 
 cat > "$out/BUILD.json" <<EOF
 {
   "which": "$which",
+  "instrument": $([ "$instrument" = 1 ] && echo true || echo false),
+  "instrument_hash": $ih,
+  "timing_valid": $([ "$instrument" = 1 ] && echo false || echo true),
   "commit": "$commit",
   "dirty_src": $dirty,
   "src_hash": "$sh",

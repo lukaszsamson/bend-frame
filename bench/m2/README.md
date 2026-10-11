@@ -14,6 +14,7 @@ make m2-bench LABEL=x M2_ARGS=--provisional   # the same on a shared machine, la
 make m2-summary LABEL=x           # medians, ranges, raw samples, ratios, scaling, RSS, stage table
 make m2-micro LABEL=x             # the preserved review probes (bench/micro)
 make m2-freeze                    # re-freeze expected outputs from the BASELINE (a deliberate act)
+make m2-g6 LABEL=x                # G6: instrumented copy / allocation accounting -> results/g6-x.md (counts, not timings)
 ```
 
 Everything is `python3 bench/m2/run.py <cmd>` (standard library only; `uv run --project bench python` works
@@ -24,6 +25,8 @@ too). `run.py list --md` prints the workload table, `run.py list --inputs` the i
 | file | what |
 |---|---|
 | `driver.bend` | the ONE native driver, built unchanged at baseline and candidate: modes `phases`, `e2e`, `e2ecsv`, `stages`, `selfcheck` |
+| `instrument.py` | G6: patches the emitted C of a bend program with copy / allocation counters (`patch`, `build`, `selftest`), and `Resolver` (C line -> Bend function) |
+| `cstats.bend` | G6 probe: runs one workload through the chunked engine over a flat env like `BF_ENGINE=chunked` and prints its `CStats` (conversion counts and logical bytes), which the facade drops |
 | `baseline.sh` | materialises 3612482 (`git archive` into `build/m2/baseline-src`, no `.git`), copies the driver in, builds both binaries, writes `BUILD.json` (commit, src hash, driver hash, bend version) |
 | `workloads.py` | the FROZEN workload list (ids, ops, inputs, batches, modes) |
 | `gen.py` | input generation for the m2-only inputs and the check of every input's sha256 (`inputs.json`) |
@@ -77,6 +80,60 @@ env's flat frames to chunks INSIDE the compute window (`phases` compute_ms is en
 already-chunked inputs and the conversions apart (G6) are measured by bench/w5/t53.bend + t53.py.
 The driver hash in `BUILD.json` (and `run.py`'s staleness check) covers `driver.bend` followed by
 `engine.bend`. `selfcheck` reads with v0.1 only.
+
+## G6 instrumentation: copy and allocation accounting
+
+The native runtime has no allocation counters, so the harness patches the C that `bend` emits and compiles it with the
+flags `bend -o` uses itself (`clang -std=c11 -O3 x.c -lpthread -lm`; `bench/m2/instrument.py`). Nothing in `src/` changes and
+the instrumented binary computes the same results (every record is still validated against `expected.json`).
+
+```sh
+bench/m2/baseline.sh --instrument               # build/m2/baseline-g6/driver  (the pinned 3612482 + the same driver.bend)
+bench/m2/baseline.sh --candidate --instrument   # build/m2/candidate-g6/driver (this checkout)
+python3 bench/m2/run.py build both --instrument # the same through the runner
+make m2-g6 LABEL=x                              # build both, run the G6 matrix, write results/g6-x.{jsonl,md}
+make m2-g6 LABEL=x M2_G6_ARGS="--smoke --procs=2"   # 100k-row cells, two repetitions (checks that counts repeat exactly)
+python3 bench/m2/run.py g6report results/g6-x.jsonl [-o out.md]    # re-render a table from the records
+python3 bench/m2/run.py run --label y --instrument --only q3_1m --threads 1 --binaries candidate   # any cell, any mode
+```
+
+What is counted (process wide, relaxed atomics; exact at 1 thread, and identical between repetitions): bytes and number of
+`heap_alloc`s (all allocations: array blocks, constructor and task nodes), of `heap_free`s (so live = allocated - freed and its
+high-water mark `peak_live`; `live` is 0 at exit, which self-checks the accounting), of array blocks (`blk_new`, `blk_copy`,
+`blk_node`, `blk_half`), and separately bytes copied by `blk_copy` (`Array.clone`, `Column.clone`, `DF.clone`), by `blk_node`
+(an array rebuilt out of two halves) and `blk_half` (an array matched into its halves). Page faults (`getrusage` minflt / majflt),
+`ru_maxrss` and the heap arena's high-water mark (`bump`) are sampled at every snapshot. Copies are attributed to the C line of
+their call site (`__LINE__` through a macro around the three runtime entries); `Resolver` maps a line to the enclosing Bend function
+(`WL_CASE(FID_...)` = module path + def name, or `spin_N <- FID` for a flat loop traced up the static call graph).
+
+Every `IO.now` of the driver prints one `BF_G6 now k=N ...` line on stderr (plus `BF_G6 site ...` lines for the copy sites that
+moved bytes since the previous snapshot) and the process prints `BF_G6 end ...` at exit; `run.py` turns the lines of a process
+into per-phase deltas (`read`, `walk`, `prep`, `compute`, `check`, `tail` for `phases`; `e2e`, `tail` for `e2e` / `e2ecsv`; `read`,
+`walk` and one window per stage for `stages`) and stores them in the record: `g6.phases.<phase>.{copy_bytes, alloc_bytes, allocs,
+free_bytes, node_bytes, half_bytes, blk_bytes, minflt, live_end, peak_live_end, bump_end, sites}`, `g6.total` (the exit line). A
+snapshot count that differs from the driver's `IO.now` count is an error (never a silent misattribution).
+
+**Instrumented runs are never used for timing.** Their records carry `"instrument": true, "timing_valid": false`; `summary`
+ignores them (and says so); `BUILD.json` of an instrumented binary says `"instrument": true` and carries the hash of
+`instrument.py` (a stale one is refused by `run.py`). The runtime patches are regular expressions over the emitted C; each must
+match EXACTLY once, otherwise `instrument.py` exits with an error naming the patch and printing the runtime text found (a different
+`bend` version, or a hand-edited C file, is refused rather than half-instrumented). `python3 bench/m2/instrument.py selftest`
+exercises the patcher end to end.
+
+`make m2-g6` runs, for q1-q6 (1M rows), `parse_1m` and the nine string cells (`str_{group,unique,join}_{100k,300k,1m}`), 1 thread,
+`phases` mode, one process per cell and engine combination: the baseline (it ignores `BF_ENGINE`, so one run stands for its
+three combinations; `--baseline-engines` runs all three to show it) and the candidate with `BF_ENGINE` unset (reference), `v02` and
+`v02,chunked`. The table `results/g6-<label>.md` has: compute phase (copy, fork copy, alloc, allocs, page faults, live after,
+result rows), preparation and output phases, parse with the retained heap against the flat lower bound (4 B x columns x rows),
+whole process (totals, peak live), the copy sources (call site -> Bend function), the chunk conversions (`chunked` minus `v02`
+compute-phase counters, and the `CStats` conversion counts / logical bytes from `bench/w5/t53.bend` mode 1 where that probe covers
+the query: the facade does not expose `CStats`), and the result retained after compute.
+
+Caveats: counters are process wide (a 12-thread run counts exactly the same work but from several lanes, with an atomic per
+allocation: fine for counts, never for timing); `alloc` counts every heap allocation of the runtime, including constructor / task
+nodes, so it is an upper bound on "array storage" (the `blk_bytes` field is the array-only figure); freeing of the run's last
+results happens after the `check` snapshot (`tail`); `peak_live` is a whole-process high-water mark, not per phase; call sites inside
+a flat loop shared by several Bend callers (`spin_N <- A, B, C`) name the nearest callers, not necessarily the one that ran.
 
 ## Workloads (frozen)
 

@@ -2805,3 +2805,85 @@ What the next agents need to know:
 - W6: hand the reader's leaves to the runner as a pre-chunked source (`CX.run(g, p, env, pre)` with
   `PNF{name, CFrame}`) or through a scan; the facade does not take a CFrame yet.
 - W8: `Engine.chunked()` is grain 14; small frames (<= 2^14 rows) run the reference path exactly.
+
+## G6 instrumentation (bench/m2/instrument.py, `make m2-g6`; no src/ change)
+
+What was done: the T3.1 method (count bytes in the emitted C, not in Bend) became a permanent mode of the m2 harness.
+`bench/m2/instrument.py` patches the C that `bend driver.bend -o x.c` emits and compiles it with bend's own flags;
+`bench/m2/baseline.sh --instrument` / `run.py build --instrument` build `build/m2/{baseline,candidate}-g6/driver`;
+`run.py run --instrument` and `run.py g6` (`make m2-g6 LABEL=x`) run them and record the counters per phase in the JSONL
+(`g6.phases.<phase>.{copy_bytes, alloc_bytes, allocs, ...}`); `bench/m2/results/g6-<label>.md` is the table. Usage and the
+record format are in bench/m2/README.md ("G6 instrumentation"). `bench/m2/cstats.bend` is a probe that runs the chunked
+engine over a flat env like `BF_ENGINE=chunked` but keeps its `CStats` (the facade drops them).
+
+The method, and what bit:
+
+- **Patch the runtime by regular expression, self-checked, never by line number.** Eight anchors (the `ALC_AT` define for the
+  declarations, the heads of `heap_alloc`, `heap_free`, `blk_copy`, `io_now_run`, the `BLK_ALLOC` macro, the `blk_node` /
+  `blk_half` allocation lines, and the two places where the call-site macros go); each regex must match EXACTLY once or
+  `instrument.py` exits naming the patch and printing the text it found (bend 2.0.36 is pinned; a different runtime is refused,
+  not half-instrumented). After patching it also checks that each inserted counter call occurs once (a first draft counted
+  `BF_NODE(` twice: the `#define` matches too). The build also refuses a C file with `BANGS != 0` or an `#import` (bend would
+  compile it with other flags: `-fobjc-arc`, the GPU lane).
+- **What lowers to what** (read in the emitted C): `Array.clone` is `blk_copy` (a full copy of one block, `8 << class` bytes: a
+  U32 buffer of n elements is 4n bytes), matching an `ANode` is `blk_half` (twice), `ANode{l, r}` is `blk_node`; every block
+  allocation goes through the `BLK_ALLOC` macro and every allocation through `heap_alloc` (frees through `heap_free`), so
+  `alloc - free` is the live heap and it is 0 at exit when the accounting is complete (the self-check). The heap's `H_BUMP` is
+  the arena high-water in 1 KiB pages.
+- **Per-site attribution by `__LINE__` macros**: `#define blk_copy(e, a) (bf_line = __LINE__, blk_copy(e, a))` placed AFTER the
+  definition (a function-like macro is not re-expanded inside its own expansion, so it calls the real function); the runtime
+  entry records the thread-local line in a small CAS hash table, and every snapshot prints the sites that moved bytes since the
+  last one. `Resolver` then maps a C line to the enclosing `WL_CASE(FID_<module path>_<Bend def>)` body or `spin_N` loop, and a spin
+  up the static call graph to the nearest FID callers (a shared spin such as the `Array.clone` helper lists several; the
+  candidate's own sites resolve to one def).
+- **Instrumented runs are marked and never timed**: `BUILD.json` has `instrument`, `timing_valid: false` and the hash of
+  instrument.py (a stale binary is refused), every record has `instrument: true`, `summary` skips them. Relaxed atomics on every
+  allocation and a `fprintf` per `IO.now` make the timings meaningless by construction.
+- **Determinism**: two repetitions of all 64 cells gave identical counters in every phase (read, walk, prep, compute, check), and
+  two independent full runs (different instrument.py build in between) agreed on every counter of every cell. Only the exit tail
+  (the JSON print and process exit after the last snapshot) wobbles, by at most 12 allocations / 144 bytes, so whole-process
+  totals are exact to that. minflt / maxrss are real measurements and do vary; the table shows them as
+  medians. A snapshot count that differs from the driver's `IO.now` count (phases 6, e2e 2, stages 25) is an error.
+- **Page faults per phase** come from `getrusage(RUSAGE_SELF)` at each snapshot (`ru_minflt`, about one fault per 16 KiB page first
+  touched). They are not deterministic across runs and are not a substitute for the allocation counts.
+- **A worktree needs `bench/data`** (gitignored): symlink the files; `run.py` checks the frozen sha256 of every input.
+- **CStats is not reachable from the driver**: `Lazy.collect_with` runs `CX.run` and drops the counters (`CX.snd`), and
+  bench/w5/t53.bend mode 1 (collect through the facade) prints an empty `stats` string too (only its pre-chunked mode 2 has them).
+  `bench/m2/cstats.bend` calls `Exec.prep` + `CX.run` itself, so its counters ARE those of `BF_ENGINE=chunked` (same plans, grain
+  2^14); its result hash equals the frozen one.
+
+Findings (G6 table of master cd4da62, bench/m2/results/g6-master-prov.md; the machine was shared, which does not matter for counts;
+1M rows, 1 thread, compute phase = the `DF.collect` window; MB = 10^6 bytes):
+
+| query | baseline 3612482 copy / alloc MB | candidate copy / alloc MB | candidate v02,chunked copy / alloc MB |
+|---|---|---|---|
+| q1 | 8.39 / 29.4 | 0 / 7.39 | 0 / 33.3 |
+| q2 | 16.78 / 42.0 | 0 / 12.6 | 0 / 84.4 |
+| q3 | 37.75 / 96.9 | 4.19 / 32.1 | 4.19 / 82.9 |
+| q4 | 12.58 / 123.0 | 0 / 37.3 | 0 / 37.3 |
+| q5 | 16.78 / 88.5 | 4.20 / 53.1 | 4.20 / 53.1 |
+| q6 | 104.9 / 245.1 | 0 / 94.4 | 0 / 94.4 |
+
+- **Copy sources still present at the candidate (compute phase, 1M rows)**: q3 and q5, 4.19 MB each: ONE column-sized clone in
+  `groupby.bend`'s run (`spin_1650 <- SRC_GROUPBY_GROUPBY_RUN_K6932`). Most likely `Grp.enc.dk.a`'s `Array.clone(U32, codes)`
+  (groupby.bend:360: a Dictionary key's code array is cloned because the column is handed back AND mapped to words); the
+  instrumentation names the function, not the source line, so that line is a reading, not a measurement. The join of the string
+  workloads copies two key columns (`spin_2311` / `spin_2474 <- SRC_JOIN_JOIN_RUN_K6908`, 4.19 MB each at 1M rows: 8.39 MB). Every
+  other compute phase of q1-q4 and q6 is copy-free; the baseline's group_by / sort / join / describe copies (92 MB over q1-q5, 105 MB
+  in q6's describe) are gone.
+- **The input-preservation clone is the largest copy of every run**: prep copies 33.57 MB at 1M rows (7 sales columns + products;
+  `DF.clone`, outside `compute` by construction), 8 x the whole compute phase's remaining copies.
+- **Chunk conversions are allocations, not copies**: `of_frame` / `to_frame` use no `blk_copy` / `blk_node` / `blk_half`; they show
+  as extra allocation in the chunked compute phase (chunked minus v02, same frames): q1 +25.9 MB, q2 +71.8 MB, q3 +50.8 MB; q4, q5,
+  q6 and the string ops run flat (0 conversions, extra < 0.1 MB). The chunked engine makes 56-100 k allocations for q1-q3 against
+  3.1 k / 3.6 k / 8.3 k for the reference (leaf frames, per-leaf outputs): the allocation COUNT is as notable as the bytes (see the
+  T5.3 notes on why the walks stop scaling at ~4 threads). The `CStats` columns of the table (conversions and logical bytes) come from
+  `bench/m2/cstats.bend`: q1 1 in (20.0 MB logical: 5 columns) / 1 out (2.99 MB), q2 1 in (32.0 MB) / 1 out (36.0 MB), q3 1 in
+  (32.0 MB) / 1 out (16.0 MB), none for q4 / q5 / strings; the measured allocation of the conversions plus leaf work is
+  larger than the logical bytes (q2: 71.8 MB against 68 MB converted; q3 50.8 MB against 48).
+- **The v0.1 reader allocates 4.0 GB (352 M heap allocations) to parse 41 MB** (baseline 5.0 GB / 413 M), the v0.2 reader 1.39 GB /
+  83 M, and both retain 33.6 MB (1.20 x the flat bound; 4.9% is power-of-two padding): parse dominates the allocation budget of every
+  end-to-end run, not compute. Distinct-string `group_by` at the baseline allocated 22.8 GB in 1.3 billion allocations at 1M rows (the
+  pcodes / pmerge lists plus 63 MB of `blk_node` / `blk_half` rebuilds in `Sort.pcodes`); the candidate 163.6 MB in 2.3 thousand.
+- Peak live heap (the G4 quantity), whole process: q3 at 100k rows peaks at 117.9 MB with the v0.1 reader and 10.9 MB with the v0.2
+  reader; the table gives `live after` each phase and the retained bytes per result row.

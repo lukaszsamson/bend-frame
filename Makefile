@@ -150,12 +150,20 @@ ci: coverage
 # make m2-summary LABEL=x     medians, ranges, ratios candidate/baseline, 12-vs-1 scaling, RSS, stage table
 # make m2-freeze              re-freeze bench/m2/expected.json from the BASELINE binary (deliberate act)
 # make m2-micro LABEL=x       the preserved review probes (bench/micro) under the interleaved runner
+# make m2-g6-build            build the INSTRUMENTED drivers (build/m2/{baseline,candidate}-g6: the emitted C patched
+#                             with copy / allocation counters by bench/m2/instrument.py; timings never valid)
+# make m2-g6 LABEL=x          G6: q1-q6 + parse + the string cells once per engine combination (reference; v02 reader;
+#                             v02,chunked) at 1 thread for the baseline and the candidate, instrumented; writes
+#                             bench/m2/results/g6-x.jsonl and g6-x.md (copied / allocated bytes per phase, copy sources,
+#                             chunk conversions). Counts are deterministic, so load does not matter. Options via
+#                             M2_G6_ARGS, e.g. --smoke (100k rows), --procs 2 (determinism check), --only GLOB, --no-cstats
 # The driver and the probes are also compiled by `make check` (EXAMPLES below).
 EXAMPLES += $(wildcard bench/m2/*.bend) $(wildcard bench/micro/*.bend)
-.PHONY: m2-baseline m2-candidate m2-data m2-smoke m2-bench m2-summary m2-freeze m2-micro
+.PHONY: m2-baseline m2-candidate m2-data m2-smoke m2-bench m2-summary m2-freeze m2-micro m2-g6 m2-g6-build
 LABEL ?= $(shell date +%Y%m%d-%H%M%S)
 M2_QUIET ?= 2
 M2_ARGS ?=
+M2_G6_ARGS ?=
 m2-baseline:
 	bench/m2/baseline.sh
 
@@ -179,6 +187,13 @@ m2-freeze: m2-baseline
 
 m2-micro:
 	uv run --project bench python bench/m2/run.py micro --label $(LABEL)
+
+m2-g6-build:
+	bench/m2/baseline.sh --instrument
+	bench/m2/baseline.sh --candidate --instrument
+
+m2-g6: m2-g6-build
+	uv run --project bench python bench/m2/run.py g6 --label $(LABEL) --no-build $(M2_G6_ARGS)
 
 # ---- W2.1 / W2.2: the flat string coder (src/hcode.bend) and the rank stage (src/ranks.bend) ------
 # make w2-diff     native differential vs v0.1 (bench/w2/diff.sh): every shape up to 20000 rows, including
