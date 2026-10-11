@@ -13,7 +13,8 @@
 #              then bl is all 0: the rank stage, src/ranks.bend, needs real lengths);
 #   a        = the rows, handed back untouched (borrow-and-return: the caller keeps ownership);
 #   hs, rp, ids = the open-addressing table (hash, first row + 1, id), 2^b slots, handed back for a
-#              caller that wants to probe it (the join, W2.4); a caller that does not simply drops them.
+#              caller that wants to probe it; a caller that does not simply drops them. (The join
+#              probes Hc.code.pk's table instead, end of this file: W2.4 measured why.)
 #
 # The table: three Array<U32> of 2^b slots, b = ceil(log2(max(2n, 2))) (at most 24 at the row cap
 # 2^23, DESIGN 15.8): hs[j] the key's hash, rp[j] its first row + 1 (0 = empty), ids[j] its id.
@@ -196,3 +197,270 @@ def Hc.code.fnv(+n: U32, +d: Nat, +first: U32, a: Array<String>) -> HC:
 # point, measured on the all-equal shape)
 def Hc.code.h(+n: U32, +d: Nat, +first: U32, a: Array<String>) -> HC:
   Hc.code(~(s => Hc.hash.h(s)), n, d, first, a)
+
+# ---- the packed coder and its lookup (W2.4: the join's string table) -----------------------------
+#
+#   Hc.code.pk(~mix, +n, +d, a) -> HJ{next, a, hs, ix, codes, po, pl, pk, cur, pd}
+#   Hc.find.pk(~mix, +nb, +n, +d, hs, ix, po, pl, pk, q) -> HQ{q, hs, ix, po, pl, pk, out}
+#
+# Why not Hc.code + a lookup that compares against the representative row: in a frame.bend program
+# String is a hot type, so each cell of a cons string costs dependent cache misses (its refcount
+# redirect, then the cell), and a join's build strings sit wherever the parser's allocator put
+# them. A hash hit of such a lookup walks the representative row at a random place: on the 1M
+# distinct-key join (90 % hits) that walk was ~1.1 s of a 1.25 s probe (measured: the same probe
+# without the walk took 0.14 s). A second, sequential packing walk after Hc.code cost 0.7 s more
+# (the build strings are scattered: ~50 ns per code point). So the build walks each string ONCE,
+# and that one walk hashes, counts AND copies the code points into one flat word array:
+#
+# Hc.code.pk codes the first n rows of a (Array<String>, 2^d slots) by first appearance from 0,
+# exactly as Hc.code(.., first = 0) does (same codes, same next), and answers the table and the
+# DISTINCT keys flat:
+#   codes[i] = the id of row i (rows >= n hold 0); next = the number of distinct strings;
+#   pk[po[e] .. po[e] + pl[e]) = the code points of entry e (its first row's string), entries
+#              packed in id order; cur = the total, pk has 2^pd words (grown by doubling);
+#   hs[j], ix[j] = the table (2^b slots, b as Hc.code): the key's hash, entry + 1 (0 = empty);
+#   a comes back untouched (every row is walked once, borrowed).
+# A row's code points are written at cur before its probe; a new key keeps them (cur moves on), a
+# repeated one is overwritten by the next row. Equality on a hash hit is a FLAT compare of the
+# row's code points (pk[cur ..], just written) with the entry's (counts first): no cons string is
+# walked twice. Hc.find.pk looks the first n rows of q up in that table (the id, 2^32 - 1 when
+# absent, rows >= n hold 0): q[i] is hashed and counted by one walk, then on a hash hit compared
+# (a second walk of q[i], in cache) against pk[po[e] ..], with an end bound and early exit.
+#
+# Hash: FNV-1a over the code points (ST.Str.hash's function), computed by the walk, then passed
+# through the template ~mix (the join: identity; a test: a constant, so every probe of the table
+# collides and every hit is decided by the compare). The slot, probing, load <= 1/2, fuel 2^b and
+# the exhaustion hypothesis are Hc.code's (above). The code-point total must fit a U32 (the cons
+# strings would take ~24 bytes per code point first). Memory, transient: 8 bytes per table slot,
+# 12 per row (codes, po, pl), 4 per code point of the distinct keys (+ the doubling's copy).
+# Sequential: every loop below is a flat spin loop with nothing allocated per row or per code point
+# (the pk growth allocates O(log) times).
+
+# -- the walk: hash, count, copy
+
+# a walk's answer: the hash, the next free word, pk (with its depth)
+type PW is Type:
+  PW{h: U32, o: U32, pd: Nat, pk: Array<U32>}
+
+# a pk twice as large (the first 2^pd words copied)
+def Hc.grow(+pd: Nat, pk: Array<U32>) -> Array<U32>:
+  K.Kernel.copy_into(~U32, U32.shln(1, pd), 0, Array.new(U32, Nat.add(pd, 1n), 0), pk)
+
+# FNV-1a over s and pk[o ..] = its code points (fits: o < 2^pd; else pk doubles first)
+def Hc.pw(s: String, +h: U32, +o: U32, +pd: Nat, fits: Bool, pk: Array<U32>) -> PW:
+  match s fits:
+    case SNil{} _:
+      PW{h, o, pd, pk}
+    case SCon{Chr{+c}, t} True{}:
+      +o2 = U32.inc(o)
+      Hc.pw(t, U32.mul(U32.xor(h, c), 16777619), o2, pd, U32.is_lt(o2, U32.shln(1, pd)), Array.set(U32, pk, o, c))
+    case SCon{Chr{+c}, t} False{}:
+      +o2 = U32.inc(o)
+      +pd2 = Nat.add(pd, 1n)
+      Hc.pw(t, U32.mul(U32.xor(h, c), 16777619), o2, pd2, U32.is_lt(o2, U32.shln(1, pd2)), Array.set(U32, Hc.grow(pd, pk), o, c))
+
+# s is used after the walk, so the walk borrows it (no take per cell); then it is dropped
+def Hc.pw.z(w: PW, s: String) -> PW:
+  w
+
+# FNV-1a over the code points and their count (the probe side's walk; nothing written)
+def Hc.fnvc(s: String, +h: U32, +n: U32) -> HB:
+  match s:
+    case SNil{}:
+      HB{h, n}
+    case SCon{Chr{+c}, t}:
+      Hc.fnvc(t, U32.mul(U32.xor(h, c), 16777619), U32.inc(n))
+
+# -- flat equality
+
+# pk[x], pk[y]
+type G2 is Type:
+  G2{pk: Array<U32>, a: U32, b: U32}
+
+def Hc.get2.l(+a: U32, r: Array<U32> & U32) -> G2:
+  (pk, +b) = r
+  G2{pk, a, b}
+
+def Hc.get2.k(+y: U32, r: Array<U32> & U32) -> G2:
+  (pk, +a) = r
+  Hc.get2.l(a, Array.get(U32, pk, y))
+
+def Hc.get2(pk: Array<U32>, +x: U32, +y: U32) -> G2:
+  Hc.get2.k(y, Array.get(U32, pk, x))
+
+# pk[x .. x + n) == pk[y .. y + n) (ok: equal so far; g = the words at x and y, read ahead)
+def Hc.feq(n: Nat, +x: U32, +y: U32, ok: Bool, g: G2) -> Array<U32> & Bool:
+  match n ok g:
+    case _ False{} G2{pk, a, b}:
+      (pk, False{})
+    case 0n k G2{pk, a, b}:
+      (pk, k)
+    case 1n+p True{} G2{pk, +a, +b}:
+      +x2 = U32.inc(x)
+      +y2 = U32.inc(y)
+      Hc.feq(p, x2, y2, U32.is_eq(a, b), Hc.get2(pk, x2, y2))
+
+# s against pk[o .. e): code points equal and the same count (ok: equal so far; r = (pk, pk[o]))
+def Hc.peq(s: String, +o: U32, +e: U32, ok: Bool, r: Array<U32> & U32) -> Array<U32> & Bool:
+  match s ok:
+    case SCon{Chr{+c}, t} True{}:
+      (pk, +x) = r
+      +o2 = U32.inc(o)
+      Hc.peq(t, o2, e, Bool.and(U32.is_eq(c, x), U32.is_lt(o, e)), Array.get(U32, pk, o2))
+    case SNil{} True{}:
+      (pk, x) = r
+      (pk, U32.is_eq(o, e))
+    case _ _:
+      (pk, x) = r
+      (pk, False{})
+
+# -- the table's probe (shared by the coder and the lookup)
+
+# a compare's answer: the arrays back, equal?
+type PC is Type:
+  PC{po: Array<U32>, pl: Array<U32>, pk: Array<U32>, same: Bool}
+
+def Hc.pc.f(po: Array<U32>, pl: Array<U32>, r: Array<U32> & Bool) -> PC:
+  (pk, same) = r
+  PC{po, pl, pk, same}
+
+# the key to compare (fl, x, s): fl = True a packed row (the coder: pk[x .. x + len), s unused,
+# ""), fl = False a cons string s (the lookup, x unused). Passed as three parameters, not as a sum
+# type: a constructor holding s would take a reference to it (a refcount bump per probe row).
+def Hc.pc.s(eq: Bool, fl: Bool, +o: U32, +l: U32, +x: U32, +s: String, po: Array<U32>, pl: Array<U32>, pk: Array<U32>) -> PC:
+  match eq fl:
+    case True{} True{}:
+      Hc.pc.f(po, pl, Hc.feq(U32.to_nat(l), o, x, True{}, Hc.get2(pk, o, x)))
+    case True{} False{}:
+      Hc.pc.f(po, pl, Hc.peq(s, o, U32.add(o, l), True{}, Array.get(U32, pk, o)))
+    case False{} _:
+      PC{po, pl, pk, False{}}
+
+def Hc.pc.l(+len: U32, fl: Bool, +x: U32, +s: String, pk: Array<U32>, r1: Array<U32> & U32, r2: Array<U32> & U32) -> PC:
+  (po, +o) = r1
+  (pl, +l) = r2
+  Hc.pc.s(U32.is_eq(l, len), fl, o, l, x, s, po, pl, pk)
+
+# entry e against the key, only on a hash hit: the counts first, then the code points
+def Hc.pc(hit: Bool, fl: Bool, +e: U32, +len: U32, +x: U32, +s: String, po: Array<U32>, pl: Array<U32>, pk: Array<U32>) -> PC:
+  match hit:
+    case True{}:
+      Hc.pc.l(len, fl, x, s, pk, Array.get(U32, po, e), Array.get(U32, pl, e))
+    case False{}:
+      PC{po, pl, pk, False{}}
+
+# a slot looked at: the arrays back; more = probe on; emp = the slot is empty; the entry; the slot
+type LP is Type:
+  LP{hs: Array<U32>, ix: Array<U32>, po: Array<U32>, pl: Array<U32>, pk: Array<U32>, more: Bool, emp: Bool, e: U32, j: U32}
+
+def Hc.lp.d(+emp: Bool, +j: U32, +e: U32, hs: Array<U32>, ix: Array<U32>, pc: PC) -> LP:
+  match pc:
+    case PC{po, pl, pk, +same}:
+      LP{hs, ix, po, pl, pk, Bool.and(Bool.not(emp), Bool.not(same)), emp, e, j}
+
+def Hc.lp.c(+h: U32, +len: U32, +j: U32, +fl: Bool, +x: U32, +s: String, po: Array<U32>, pl: Array<U32>, pk: Array<U32>, r1: Array<U32> & U32, r2: Array<U32> & U32) -> LP:
+  (hs, +hx) = r1
+  (ix, +v) = r2
+  +emp = U32.is_eq(v, 0)
+  +e = U32.sub(v, 1)
+  Hc.lp.d(emp, j, e, hs, ix, Hc.pc(Bool.and(Bool.not(emp), U32.is_eq(hx, h)), fl, e, len, x, s, po, pl, pk))
+
+# look at slot j
+def Hc.lp(+h: U32, +len: U32, +j: U32, +fl: Bool, +x: U32, +s: String, hs: Array<U32>, ix: Array<U32>, po: Array<U32>, pl: Array<U32>, pk: Array<U32>) -> LP:
+  Hc.lp.c(h, len, j, fl, x, s, po, pl, pk, Array.get(U32, hs, j), Array.get(U32, ix, j))
+
+# linear probing until an empty slot or the key (fuel 2^b: exhaustion is unreachable at load <= 1/2)
+def Hc.lp.seek(n: Nat, lp: LP, +h: U32, +len: U32, +fl: Bool, +x: U32, +s: String, +mask: U32) -> LP:
+  match n lp:
+    case 0n other:
+      other
+    case _ LP{hs, ix, po, pl, pk, False{}, emp, e, j}:
+      LP{hs, ix, po, pl, pk, False{}, emp, e, j}
+    case 1n+p LP{hs, ix, po, pl, pk, True{}, emp, e, +j}:
+      Hc.lp.seek(p, Hc.lp(h, len, U32.and(U32.inc(j), mask), fl, x, s, hs, ix, po, pl, pk), h, len, fl, x, s, mask)
+
+# -- the packed coder
+
+# the coder's state / result (see the header)
+type HJ is Type:
+  HJ{next: U32, a: Array<String>, hs: Array<U32>, ix: Array<U32>, codes: Array<U32>, po: Array<U32>, pl: Array<U32>, pk: Array<U32>, cur: U32, pd: Nat}
+
+# the row's code: a new entry (empty slot: its code points stay, at cur) or the matched entry's id
+def Hc.jput(+h: U32, +len: U32, +i: U32, +next: U32, +cur: U32, +pd: Nat, a: Array<String>, codes: Array<U32>, lp: LP) -> HJ:
+  match lp:
+    case LP{hs, ix, po, pl, pk, more, True{}, e, +j}:
+      HJ{U32.inc(next), a, Array.set(U32, hs, j, h), Array.set(U32, ix, j, U32.inc(next)), Array.set(U32, codes, i, next), Array.set(U32, po, next, cur), Array.set(U32, pl, next, len), pk, U32.add(cur, len), pd}
+    case LP{hs, ix, po, pl, pk, more, False{}, +e, j}:
+      HJ{next, a, hs, ix, Array.set(U32, codes, i, e), po, pl, pk, cur, pd}
+
+def Hc.jrow.w(~mix: U32 -> U32, +i: U32, +b: Nat, +mask: U32, +fuel: Nat, +next: U32, +cur: U32, a: Array<String>, hs: Array<U32>, ix: Array<U32>, codes: Array<U32>, po: Array<U32>, pl: Array<U32>, w: PW) -> HJ:
+  match w:
+    case PW{+h0, +o, +pd, pk}:
+      +h = mix(h0)
+      +len = U32.sub(o, cur)
+      Hc.jput(h, len, i, next, cur, pd, a, codes, Hc.lp.seek(fuel, Hc.lp(h, len, Hc.slot(h, b), True{}, cur, "", hs, ix, po, pl, pk), h, len, True{}, cur, "", mask))
+
+def Hc.jrow.s(~mix: U32 -> U32, +i: U32, +b: Nat, +mask: U32, +fuel: Nat, +next: U32, +cur: U32, +pd: Nat, hs: Array<U32>, ix: Array<U32>, codes: Array<U32>, po: Array<U32>, pl: Array<U32>, pk: Array<U32>, r: Array<String> & String) -> HJ:
+  (a, +s) = r
+  Hc.jrow.w(~mix, i, b, mask, fuel, next, cur, a, hs, ix, codes, po, pl, Hc.pw.z(Hc.pw(s, 2166136261, cur, pd, U32.is_lt(cur, U32.shln(1, pd)), pk), s))
+
+def Hc.jrow(~mix: U32 -> U32, +i: U32, +b: Nat, +mask: U32, +fuel: Nat, st: HJ) -> HJ:
+  match st:
+    case HJ{+next, a, hs, ix, codes, po, pl, pk, +cur, +pd}:
+      Hc.jrow.s(~mix, i, b, mask, fuel, next, cur, pd, hs, ix, codes, po, pl, pk, Array.get(String, a, i))
+
+# the coder's loop (a spin loop)
+def Hc.jgo(~mix: U32 -> U32, n: Nat, +i: U32, +b: Nat, +mask: U32, +fuel: Nat, st: HJ) -> HJ:
+  match n:
+    case 0n:
+      st
+    case 1n+p:
+      Hc.jgo(~mix, p, U32.inc(i), b, mask, fuel, Hc.jrow(~mix, i, b, mask, fuel, st))
+
+# the packed coder (see the header); pk starts at 8 words per row (min 16) and doubles when full
+def Hc.code.pk(~mix: U32 -> U32, +n: U32, +d: Nat, a: Array<String>) -> HJ:
+  +b = K.Kernel.depth_for(U32.max(U32.add(n, n), 2))
+  +size = U32.shln(1, b)
+  +pd = K.Kernel.depth_for(U32.max(U32.shln(n, 3n), 16))
+  Hc.jgo(~mix, U32.to_nat(n), 0, b, U32.sub(size, 1), U32.to_nat(size), HJ{0, a, Array.new(U32, b, 0), Array.new(U32, b, 0), Array.new(U32, d, 0), Array.new(U32, d, 0), Array.new(U32, d, 0), Array.new(U32, pd, 0), 0, pd})
+
+# -- the lookup
+
+# the lookup's state: the probe rows, the table, the entries, the ids so far
+type HQ is Type:
+  HQ{q: Array<String>, hs: Array<U32>, ix: Array<U32>, po: Array<U32>, pl: Array<U32>, pk: Array<U32>, out: Array<U32>}
+
+def Hc.fp.put(+i: U32, q: Array<String>, out: Array<U32>, lp: LP) -> HQ:
+  match lp:
+    case LP{hs, ix, po, pl, pk, more, +emp, +e, j}:
+      HQ{q, hs, ix, po, pl, pk, Array.set(U32, out, i, Bool.pick(U32, emp, 4294967295, e))}
+
+def Hc.fp.row.h(~mix: U32 -> U32, +i: U32, +bt: Nat, +mask: U32, +fuel: Nat, q: Array<String>, hs: Array<U32>, ix: Array<U32>, po: Array<U32>, pl: Array<U32>, pk: Array<U32>, out: Array<U32>, +s: String, hb: HB) -> HQ:
+  match hb:
+    case HB{+h0, +len}:
+      +h = mix(h0)
+      Hc.fp.put(i, q, out, Hc.lp.seek(fuel, Hc.lp(h, len, Hc.slot(h, bt), False{}, 0, s, hs, ix, po, pl, pk), h, len, False{}, 0, s, mask))
+
+def Hc.fp.row.s(~mix: U32 -> U32, +i: U32, +bt: Nat, +mask: U32, +fuel: Nat, hs: Array<U32>, ix: Array<U32>, po: Array<U32>, pl: Array<U32>, pk: Array<U32>, out: Array<U32>, r: Array<String> & String) -> HQ:
+  (q, +s) = r
+  Hc.fp.row.h(~mix, i, bt, mask, fuel, q, hs, ix, po, pl, pk, out, s, Hc.fnvc(s, 2166136261, 0))
+
+def Hc.fp.row(~mix: U32 -> U32, +i: U32, +bt: Nat, +mask: U32, +fuel: Nat, st: HQ) -> HQ:
+  match st:
+    case HQ{q, hs, ix, po, pl, pk, out}:
+      Hc.fp.row.s(~mix, i, bt, mask, fuel, hs, ix, po, pl, pk, out, Array.get(String, q, i))
+
+# the lookup's loop (a spin loop: the join's probe)
+def Hc.fp.go(~mix: U32 -> U32, n: Nat, +i: U32, +bt: Nat, +mask: U32, +fuel: Nat, st: HQ) -> HQ:
+  match n:
+    case 0n:
+      st
+    case 1n+p:
+      Hc.fp.go(~mix, p, U32.inc(i), bt, mask, fuel, Hc.fp.row(~mix, i, bt, mask, fuel, st))
+
+# the lookup (see the header). nb: the n Hc.code.pk was given (it fixes the table size); d: the
+# depth of q and out; ~mix: the coder's.
+def Hc.find.pk(~mix: U32 -> U32, +nb: U32, +n: U32, +d: Nat, hs: Array<U32>, ix: Array<U32>, po: Array<U32>, pl: Array<U32>, pk: Array<U32>, q: Array<String>) -> HQ:
+  +bt = K.Kernel.depth_for(U32.max(U32.add(nb, nb), 2))
+  +size = U32.shln(1, bt)
+  Hc.fp.go(~mix, U32.to_nat(n), 0, bt, U32.sub(size, 1), U32.to_nat(size), HQ{q, hs, ix, po, pl, pk, Array.new(U32, d, 0)})

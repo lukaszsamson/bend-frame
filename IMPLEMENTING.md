@@ -1668,3 +1668,67 @@ Proofs (PROOF_sorthead.bend, 154 laws total):
 Tests: `String.eq` on two 60 KB dumps overflows the native stack (one non-tail frame per char); compare
 with a tail loop (`seq.go`). A list walk's shrinking argument must come first ("a decreasing self-call:
 arguments are read left to right").
+
+## W2.4 (the join's string table: src/join.bend, src/hcode.bend Hc.code.pk / Hc.find.pk)
+
+`J.Dict` (`Array<SSlot{String, id}>`), `Dict.go`, `Probe.fork` / `Probe.dd` / `Dict.clone` / `Str.copy` /
+`Str.eq` / `Key.ids` are gone. A string key pair is coded by `Key.build` (right: `H.Hc.code.pk` over the
+Raw rows or the Dictionary ENTRIES; the right column is rebuilt from the handed-back strings at once)
+and `Key.probe` (left: `H.Hc.find.pk` over the Raw rows or the Dictionary entries, then one gather of
+the entry ids by code). Null rows become DEAD in place (`Nul.go`, mask borrowed; AllValid: no pass at
+all; v0.1 cloned the validity, materialized it and zipped). A Dictionary key's codes are no longer
+cloned (`Kernel.gather` hands the index array back). Output identical to v0.1 (below).
+
+- **The specified design measured first** (Hc.code over the right key, a sequential borrowed lookup
+  comparing a hash hit with the representative ROW): 1M distinct-key join compute 2.7-3.0 s vs 3.9 s
+  for W1a (load 20-45). A scratch profile (build/w24/prof.bend, not committed: the hc 1M files, the
+  phases of the driver) split it: Hc.code over dim 0.40-0.50 s, the lookup 1.25-1.30 s, and the SAME
+  lookup with the string compare removed 0.14 s. So ~1.1 s is the walk of the representative cons
+  string on 900k hits (~1.2 us per hit, ~80 ns per code point). Not the refcounts: making that walk a
+  borrow (no `ctr_take`; trick below) left it at 1.65 vs 1.68 s. It is memory: in a frame.bend program
+  String is hot, every cell is reached through its rfc redirect (two dependent misses per code point),
+  and the dim strings, parsed second into a heap full of freed parse temporaries, are scattered (the
+  coder walks dim at ~33 ns per code point, t, parsed first, at ~10). Packing the entries after
+  Hc.code (a second, sequential walk in entry order) cost 0.71-0.84 s and the lookup became 0.6 s:
+  no gain. Deep-copying the build strings to fresh cons cells first made both walks SLOWER (code
+  0.70, lookup 2.4 s).
+- **What works: ONE walk per build row** (`Hc.pw`) hashes, counts and copies the code points to the
+  flat `pk` at a cursor; the probe of that row then compares flat against flat (`Hc.feq`), a new key
+  keeps its copy (the cursor moves on), a repeat is overwritten by the next row. `pk` starts at 8 words
+  per row and doubles (`Kernel.copy_into`) inside the walk when full. The left side walks each string
+  twice (hash + count, then on a hit the compare, in cache) against the packed entry
+  (`Hc.peq`, end bound, early exit). The table is `hs` + `ix` (entry + 1); codes and next equal
+  Hc.code(first = 0) (tests/hcode_pk.bend). DESIGN 14 "v0.2 W2.4" records the deviation from 17.3.3.
+- **Measured (bench/m2, provisional: load 18-191 during the run, 5 fresh interleaved processes, label
+  w24-prov-a)**, compute_ms median [min..max], candidate vs baseline 3612482:
+  str_join_1m 1 thread 1,259 [820..1,483] vs 9,248 [7,257..14,396]; 12 threads 902 [802..1,126] vs
+  17,039 [7,845..44,924]; str_join_300k 223 / 232 vs 2,022 / 1,806; str_join_100k 63 / 61 vs 666 / 553;
+  q5_1m 14 / 13 vs 27 / 20 (the Dictionary path: no codes clone, no validity zip); q5_100k 1-2 ms both.
+  Against W1a (HEAD before W2.4, same driver, load 7-18): str_join_1m 0.77-1.13 s vs 3.1-4.8 s. All
+  results valid (content hash). Per-row cost grows 100k -> 1M (630 -> 1,260 ns): the table and pk leave
+  the cache; the rest of the join (CSR, fill, gathers of the string column) is now about half of it.
+- **Emitted C** (bench/m2/driver.bend; `python3 bench/w2/spins.py <c> <params>`): probe loop
+  `Hc.fp.go` -> `Hc.fp.row.h` -> `Hc.lp` / `Hc.lp.c` / `Hc.lp.seek` / `Hc.pc.s` / `Hc.peq`, build loop
+  `Hc.jgo` -> `Hc.jrow.s` -> `Hc.pw` (2 blk_read / 2 blk_write: the code point and the growth check)
+  -> `Hc.jput` (6 reads / 6 writes): zero `term_keep`, `ctr_take`, `rfc_seal`, `heap_alloc`, `blk_copy`
+  per row or per code point (the growth copies O(log) times). `Nul.go`: 3 reads / 1 write.
+- **A sum-type key costs a refcount per row.** The first version passed the key to compare as
+  `PQ{x} | PS{s}` (packed row / cons string): constructing `PS{s}` did a `term_keep` on s per probe row
+  (a constructor field owns a reference). Three plain parameters (`fl`, `x`, `s`, s = "" for the coder)
+  removed it.
+- **Borrow mode is decided by the callers, across modules.** `J.Str.hash` lost its only borrowing caller
+  (the old `Dict.seek`); the m2 driver's walk calls it on owned strings, so it compiled as a taking
+  walk and the walk phase of the hc workloads doubled (36-53 -> 77-100 ms at 100k) without any join
+  code running. `Str.hash(+s, +h) = Str.hash.z(Str.fnv(s, h), s)` (s used after the walk) made it a
+  borrow again (walk back to 37-70 ms). The same trick (`Hc.pw.z`) keeps the packing walk a borrow.
+- **Template literals**: `~(h => 7)` fails ("cannot infer" the literal); use a def (`Mix.c(h) = 7`).
+  A `+` parameter must have a Data type (a `Type` sum like `PQ` could not be `+k`).
+- **Tests**: tests/hcode_pk.bend (Hc.code.pk vs Hc.code on 10 shapes x identity / constant / 4-valued
+  `~mix`, the packed entries, lookups with hits and misses, pk growth on 100-char keys);
+  tests/join_str.bend (19 cases x inner / left / semi / anti x Raw-Raw, Dict-Dict, Raw-Dict, Dict-Raw,
+  duplicates, nulls, "" keys, empty and all-null sides, misses, long prefixes, Unicode, NUL extensions,
+  two-key joins with the string key first and second, a self join; then all of it again through
+  `Join.run.h` with a constant hash), expected lines produced by the pre-W2.4 build (e7e4b17) on the
+  same frames. Mutants of the packed code (8): 6 killed; 2 equivalent (the hash test on a slot
+  dropped: equality decides; a miss answering `ix - 1`, which is 2^32 - 1 = DEAD on an empty slot).
+  bench/diff joinstress: seed 24 (Raw) and 25 (`--dict`), 1000 cases each, 0 failures.

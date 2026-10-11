@@ -6,10 +6,11 @@
 #     DuplicateColumn after suffixing, unequal/empty key lists.
 #  2. Encode each key pair into U32 codes. Bool/U32/I32: the data word; F32:
 #     the bits (0.0 == -0.0, every NaN equal, as Polars); Str: a dense id from
-#     an open-addressing string table built over the RIGHT column (FNV-1a +
-#     Fibonacci slot, own string equality), the left column is probed against
-#     it (a miss can never match: DEAD), in 16 parallel blocks for big inputs
-#     (the string walks are memory bound). Several keys are combined into one
+#     the packed coder's flat table (src/hcode.bend Hc.code.pk, W2.4) built
+#     sequentially over the RIGHT key (ids = first appearance; per dictionary
+#     entry for a Dictionary key; the distinct keys' code points packed flat),
+#     the left key looked up in it sequentially (Hc.find.pk; a miss can never
+#     match: DEAD). Several keys are combined into one
 #     dense id per row with a pair table ((id so far, code) -> dense id),
 #     built on the right side and probed by the left. Null keys never match:
 #     their rows get DEAD.
@@ -36,6 +37,7 @@ import ./err.bend as E
 import ./kernels.bend as K
 import ./column.bend as C
 import ./strs.bend as ST
+import ./hcode.bend as H
 import ./schema.bend as S
 
 # Semi / Anti (M3, DESIGN.md 15.2.4): the left rows with / without a match, left
@@ -51,19 +53,8 @@ type JoinHow is Data:
 type KeySpec is Data:
   KeySpec{l: String, r: String, t: D.DType}
 
-# a string-table slot / pair-table slot; id = 0 is an empty slot, else dense id + 1
-type SSlot is Data:
-  SSlot{key: String, id: U32}
-
-# the id a put/get answers, and the table's next free id
-type PRes is Data:
-  PRes{id: U32, g: U32}
-
-# open-addressing tables of 2^b slots (load <= 1/2): fuel = 2^b, mask = 2^b - 1,
+# the pair table: open addressing over 2^b slots (load <= 1/2): fuel = 2^b, mask = 2^b - 1,
 # pw = 2^(32 - b) (slot = (h * golden) / pw: the top b bits), g = ids handed out
-type Dict is Type:
-  Dict{fuel: Nat, mask: U32, pw: U32, g: U32, slots: Array<SSlot>}
-
 type PT is Type:
   PT{fuel: Nat, mask: U32, pw: U32, g: U32, ka: Array<U32>, kb: Array<U32>, ids: Array<U32>}
 
@@ -71,26 +62,24 @@ type PT is Type:
 type PK is Type:
   PK{ka: Array<U32>, kb: Array<U32>, ids: Array<U32>, more: Bool}
 
-# a key column's codes: code per row, its 0/1 validity, the string table
-# (built on the right side, handed to the left side; a dummy for non-strings)
+# a key column's codes: code per row, its 0/1 validity, and (string keys) the number of
+# distinct build-side ids g (0 for the other dtypes)
 type Enc is Type:
-  Enc{codes: Array<U32>, live: Array<U32>, dict: Dict}
+  Enc{codes: Array<U32>, live: Array<U32>, g: U32}
 
-# the column walker's slot: the input before the named column is met, the result after
+# the build side's string table (W2.4, DESIGN 17.3.3), handed to the probe side: H.Hc.code.pk's
+# table over the right key's n strings (the rows of a Raw column or the entries of a Dictionary;
+# g distinct, ids = first appearance from 0) with the distinct keys' code points packed flat. The
+# right strings themselves are not held (they went back to the right column after the build).
+# Word keys carry an empty one.
+type BT is Type:
+  BT{n: U32, g: U32, hs: Array<U32>, ix: Array<U32>, po: Array<U32>, pl: Array<U32>, pk: Array<U32>}
+
+# the column walker's slot: the table before the named column is met; its codes and the table
+# after (the build side puts its new table there, the probe side hands it back)
 type Slot is Type:
-  SIn{d: Dict}
-  SOut{e: Enc}
-
-# loop states
-type DC is Type:
-  DC{codes: Array<U32>, d: Dict}
-
-type SD is Type:
-  SD{data: Array<String>, dc: DC}
-
-# two copies of a string table (one per side of a forked probe)
-type DD is Type:
-  DD{a: Dict, b: Dict}
+  SIn{t: BT}
+  SOut{e: Enc, t: BT}
 
 type DS is Type:
   DS{pt: PT, out: Array<U32>}
@@ -254,24 +243,25 @@ def Join.schema.how(how: JoinHow, +ls: List<&2, S.Field>, +rs: List<&2, S.Field>
     case _:
       Join.schema(ls, rs, left_on, right_on)
 
-# ---- strings: hash and equality -------------------------------------------------------
+# ---- strings: hash (kept for callers: tests hash dumps with it; the join's own table hashes in
+# H.Hc.code.pk / H.Hc.find.pk's walks, the same FNV-1a over the code points) -------------------
 
-# FNV-1a over the code points
-def Str.hash(s: String, h: U32) -> U32:
+# FNV-1a over the code points (tail loop)
+def Str.fnv(s: String, +h: U32) -> U32:
   match s:
     case SNil{}:
       h
-    case SCon{Chr{c}, t}:
-      Str.hash(t, U32.mul(U32.xor(h, c), 16777619))
+    case SCon{Chr{+c}, t}:
+      Str.fnv(t, U32.mul(U32.xor(h, c), 16777619))
 
-def Str.eq(a: String, b: String) -> Bool:
-  match a b:
-    case SNil{} SNil{}:
-      True{}
-    case SCon{Chr{x}, s} SCon{Chr{y}, t}:
-      Bool.and(U32.is_eq(x, y), Str.eq(s, t))
-    case _ _:
-      False{}
+def Str.hash.z(+h: U32, s: String) -> U32:
+  h
+
+# FNV-1a over the code points. s is used after the walk, so the walk borrows it (its cells are
+# read, never taken: one drop of s at the end instead of a take per cell; until W2.4 the join's
+# own borrowing call made this walk a borrow, the driver's walk of bench/m2 relies on it)
+def Str.hash(+s: String, +h: U32) -> U32:
+  Str.hash.z(Str.fnv(s, h), s)
 
 # the top bits of h * golden ratio: a slot of a 2^b table (pw = 2^(32-b))
 def Join.slot(h: U32, pw: U32) -> U32:
@@ -280,200 +270,6 @@ def Join.slot(h: U32, pw: U32) -> U32:
 # 2^b slots for n keys at load <= 1/2: (b, 2^b, 2^(32-b))
 def Join.tbits(+n: U32) -> Nat:
   K.Kernel.depth_for(U32.max(U32.add(n, n), 2))
-
-# ---- string table ------------------------------------------------------------------------
-
-def Dict.new.k(+b: Nat) -> Dict:
-  +size = U32.shln(1, b)
-  Dict{U32.to_nat(size), U32.sub(size, 1), U32.shln(1, Nat.sub(32n, b)), 0, Array.new(SSlot, b, SSlot{"", 0})}
-
-def Dict.new(+n: U32) -> Dict:
-  Dict.new.k(Join.tbits(n))
-
-def Dict.empty() -> Dict:
-  Dict.new.k(1n)
-
-def Dict.count(d: Dict) -> U32:
-  match d:
-    case Dict{fuel, mask, pw, g, slots}:
-      g
-
-# keep probing while the slot is taken by another key
-def Dict.look(+s: String, r: Array<SSlot> & SSlot) -> Array<SSlot> & Bool:
-  (t, x) = r
-  match x:
-    case SSlot{k, +id}:
-      (t, Bool.and(U32.is_ne(id, 0), Bool.not(Str.eq(k, s))))
-
-# the slot holding s, or the empty slot where it would go
-def Dict.seek.go(n: Nat, r: Array<SSlot> & Bool, +s: String, +mask: U32, +i: U32) -> Array<SSlot> & U32:
-  match n r:
-    case 0n Tuple{t, c}:
-      (t, i)
-    case _ Tuple{t, False{}}:
-      (t, i)
-    case 1n+p Tuple{t, True{}}:
-      +j = U32.and(U32.inc(i), mask)
-      Dict.seek.go(p, Dict.look(s, Array.get(SSlot, t, j)), s, mask, j)
-
-def Dict.seek(+fuel: Nat, +mask: U32, +pw: U32, slots: Array<SSlot>, +s: String) -> Array<SSlot> & U32:
-  +i = Join.slot(Str.hash(s, 2166136261), pw)
-  Dict.seek.go(fuel, Dict.look(s, Array.get(SSlot, slots, i)), s, mask, i)
-
-def Dict.put.k(+s: String, +g: U32, +i: U32, r: Array<SSlot> & SSlot) -> Array<SSlot> & PRes:
-  (t, x) = r
-  match x:
-    case SSlot{k, +id}:
-      +e = U32.is_eq(id, 0)
-      +nid = Bool.pick(U32, e, U32.inc(g), id)
-      (Array.set(SSlot, t, i, SSlot{s, nid}), PRes{U32.sub(nid, 1), U32.add(g, Bool.to_u32(e))})
-
-def Dict.put.j(+s: String, +g: U32, r: Array<SSlot> & U32) -> Array<SSlot> & PRes:
-  (t, +i) = r
-  Dict.put.k(s, g, i, Array.get(SSlot, t, i))
-
-def Dict.get.k(r: Array<SSlot> & SSlot) -> Array<SSlot> & PRes:
-  (t, x) = r
-  match x:
-    case SSlot{k, +id}:
-      (t, PRes{Bool.pick(U32, U32.is_eq(id, 0), Join.dead(), U32.sub(id, 1)), 0})
-
-def Dict.get.j(r: Array<SSlot> & U32) -> Array<SSlot> & PRes:
-  (t, +i) = r
-  Dict.get.k(Array.get(SSlot, t, i))
-
-def Dict.fin(+fuel: Nat, +mask: U32, +pw: U32, +g: U32, +build: Bool, r: Array<SSlot> & PRes) -> Dict & U32:
-  (t, x) = r
-  match x:
-    case PRes{id, ng}:
-      (Dict{fuel, mask, pw, Bool.pick(U32, build, ng, g), t}, id)
-
-# build: the id of s, inserted when new; probe: its id or DEAD
-def Dict.op(+build: Bool, d: Dict, +s: String) -> Dict & U32:
-  match build d:
-    case True{} Dict{+fuel, +mask, +pw, +g, slots}:
-      Dict.fin(fuel, mask, pw, g, True{}, Dict.put.j(s, g, Dict.seek(fuel, mask, pw, slots, s)))
-    case False{} Dict{+fuel, +mask, +pw, +g, slots}:
-      Dict.fin(fuel, mask, pw, g, False{}, Dict.get.j(Dict.seek(fuel, mask, pw, slots, s)))
-
-def Dict.row.k(+i: U32, codes: Array<U32>, r: Dict & U32) -> DC:
-  (d, id) = r
-  DC{Array.set(U32, codes, i, id), d}
-
-def Dict.row(+build: Bool, +i: U32, s: String, st: DC) -> DC:
-  match st:
-    case DC{codes, d}:
-      Dict.row.k(i, codes, Dict.op(build, d, s))
-
-# codes[i] = id of data[i] for i < n (probing: DEAD on a miss; validity is
-# applied afterwards); data comes back
-def Dict.go(n: Nat, +i: U32, +build: Bool, st: DC, rs: Array<String> & String) -> SD:
-  match n:
-    case 0n:
-      (data, s) = rs
-      SD{data, st}
-    case 1n+p:
-      (data, s) = rs
-      +j = U32.inc(i)
-      Dict.go(p, j, build, Dict.row(build, i, s, st), Array.get(String, data, j))
-
-# a fresh copy of a string (no cell shared with the original)
-def Str.copy(s: String) -> String:
-  match s:
-    case SNil{}:
-      SNil{}
-    case SCon{Chr{c}, t}:
-      SCon{Chr{c}, Str.copy(t)}
-
-def Dict.copy.put(+i: U32, out: Array<SSlot>, x: SSlot) -> Array<SSlot>:
-  match x:
-    case SSlot{k, id}:
-      Array.set(SSlot, out, i, SSlot{Str.copy(k), id})
-
-# out[i] = src[i] with the key strings copied, for i < n; src comes back
-def Dict.copy.go(n: Nat, +i: U32, out: Array<SSlot>, r: Array<SSlot> & SSlot) -> Array<SSlot> & Array<SSlot>:
-  match n:
-    case 0n:
-      (src, x) = r
-      (src, out)
-    case 1n+p:
-      (src, x) = r
-      +j = U32.inc(i)
-      Dict.copy.go(p, j, Dict.copy.put(i, out, x), Array.get(SSlot, src, j))
-
-def Dict.clone.k(+fuel: Nat, +mask: U32, +pw: U32, +g: U32, r: Array<SSlot> & Array<SSlot>) -> DD:
-  (a, b) = r
-  DD{Dict{fuel, mask, pw, g, a}, Dict{fuel, mask, pw, g, b}}
-
-# two tables with no string cell in common: the lanes of a forked probe then
-# never touch the same reference counts
-def Dict.clone(d: Dict) -> DD:
-  match d:
-    case Dict{+fuel, +mask, +pw, +g, slots}:
-      Dict.clone.k(fuel, mask, pw, g, Dict.copy.go(fuel, 0, Array.new(SSlot, K.Kernel.depth_for(U32.from_nat(fuel)), SSlot{"", 0}), Array.get(SSlot, slots, 0)))
-
-# a stand-in that only remembers the id count (the probe consumed the table)
-def Dict.stub(+g: U32) -> Dict:
-  Dict{2n, 1, 2147483648, g, Array.new(SSlot, 1n, SSlot{"", 0})}
-
-# ---- forked probe: the string walks are memory-latency bound, so the left
-# column is probed in 2^k blocks in parallel, each with its own table copy ----
-
-def Probe.one.k(r: Dict & U32) -> U32:
-  (d, id) = r
-  id
-
-def Probe.one(d: Dict, s: String) -> U32:
-  Probe.one.k(Dict.op(False{}, d, s))
-
-def Probe.flat.k(r: SD) -> Array<String> & Array<U32>:
-  match r:
-    case SD{data, DC{codes, d}}:
-      (data, codes)
-
-# the rows of this block that are below n (the last blocks hold padding)
-def Probe.cnt(+n: U32, +off: U32, +blk: U32) -> U32:
-  U32.min(blk, Bool.pick(U32, U32.is_lt(off, n), U32.sub(n, off), 0))
-
-def Probe.flat(+c: U32, +bd: Nat, d: Dict, a: Array<String>) -> Array<String> & Array<U32>:
-  Probe.flat.k(Dict.go(U32.to_nat(c), 0, False{}, DC{Array.new(U32, bd, 0), d}, Array.get(String, a, 0)))
-
-def Probe.join(l: Array<String> & Array<U32>, r: Array<String> & Array<U32>) -> Array<String> & Array<U32>:
-  (a1, c1) = l
-  (a2, c2) = r
-  (ANode{a1, a2}, ANode{c1, c2})
-
-# W1a: a table and, only when the node still splits, ONE deep copy of it (a leaf probes the
-# table it owns and the pair's second member is a stand-in, so a no-fork probe copies nothing).
-def Probe.dd(+k: Nat, d: Dict) -> DD:
-  match k:
-    case 0n:
-      DD{d, Dict.stub(0)}
-    case 1n+p:
-      Dict.clone(d)
-
-# k fork levels over a (2^bd slots, the first slot is row `off`), then a flat
-# probe per block; answers (a, codes) with codes of the same shape. A node owns dd.a for its
-# left half and dd.b for its right half; it hands each child a table of its own plus a copy
-# for the child's own split, made only when the child splits again (Probe.dd). 4 levels copy 15
-# tables in all, 0 levels none; every block still ends with a private table, so lanes never
-# share a string reference count.
-def Probe.fork(k: Nat, +bd: Nat, +n: U32, +off: U32, dd: DD, a: Array<String>) -> Array<String> & Array<U32>:
-  match k dd a:
-    case _ DD{d1, d2} ALeaf{+x}:
-      (ALeaf{x}, ALeaf{Probe.one(d1, x)})
-    case 0n DD{d1, d2} ANode{xs, ys}:
-      Probe.flat(Probe.cnt(n, off, U32.shln(1, bd)), bd, d1, ANode{xs, ys})
-    case 1n++p DD{d1, d2} ANode{xs, ys}:
-      +cd = Nat.sub(bd, 1n)
-      +off2 = U32.add(off, U32.shln(1, cd))
-      l r = Probe.fork(p, cd, n, off, Probe.dd(p, d1), xs) Probe.fork(p, cd, n, off2, Probe.dd(p, d2), ys)
-      Probe.join(l, r)
-
-# fork levels: none for small inputs or big tables (every block copies the
-# table), else 4 (16 blocks; 2 to 6 measured the same on 12 threads)
-def Probe.levels(+n: U32, +depth: Nat, +fuel: Nat) -> Nat:
-  Bool.pick(Nat, Bool.and(U32.is_ge(n, 65536), Nat.is_le(fuel, 4096n)), Nat.min(4n, depth), 0n)
 
 # ---- pair table (three flat word arrays: no heap record per slot) ----------------------
 
@@ -569,139 +365,214 @@ def Dense.run(+n: U32, +build: Bool, +dict: Bool, pt: PT, acc: Array<U32>, codes
 def Key.fbits(+x: F32) -> U32:
   Bool.pick(U32, F32.is_eq(x, 0.0), 0, Bool.pick(U32, F32.is_eq(x, x), F32.bits(x), 2143289344))
 
-def Key.enc.w(t: D.DType, +len: U32, +depth: Nat, vv: C.Valid & C.Valid, dd: Array<U32> & Array<U32>, d: Dict) -> C.Column & Enc:
+# (the data and validity of a word key are copied once: the column goes back into its frame
+# while the codes and the 0/1 validity travel on to the densify / CSR passes)
+def Key.enc.w(t: D.DType, +len: U32, +depth: Nat, vv: C.Valid & C.Valid, dd: Array<U32> & Array<U32>) -> C.Column & Enc:
   (v1, v2) = vv
   (d1, d2) = dd
-  (C.Column.mk_w(t, len, depth, v1, d1), Enc{d2, C.Valid.materialize(v2, depth), d})
+  (C.Column.mk_w(t, len, depth, v1, d1), Enc{d2, C.Valid.materialize(v2, depth), 0})
 
-def Key.enc.f(+len: U32, +depth: Nat, vv: C.Valid & C.Valid, dd: Array<F32> & Array<F32>, d: Dict) -> C.Column & Enc:
+def Key.enc.f(+len: U32, +depth: Nat, vv: C.Valid & C.Valid, dd: Array<F32> & Array<F32>) -> C.Column & Enc:
   (v1, v2) = vv
   (d1, d2) = dd
-  (C.CF32{len, depth, v1, d1}, Enc{K.Kernel.map(~F32, ~U32, ~(x => Key.fbits(x)), len, depth, d2, 0), C.Valid.materialize(v2, depth), d})
+  (C.CF32{len, depth, v1, d1}, Enc{K.Kernel.map(~F32, ~U32, ~(x => Key.fbits(x)), len, depth, d2, 0), C.Valid.materialize(v2, depth), 0})
 
-# codes of null rows := DEAD
-def Key.nulls(+n: U32, +depth: Nat, codes: Array<U32>, m: Array<U32>) -> Array<U32>:
-  K.Kernel.zip(~U32, ~U32, ~U32, ~(c => w => Bool.pick(U32, U32.is_ne(w, 0), c, 4294967295)), n, depth, codes, m, 0)
-
-def Key.enc.s3(+len: U32, +depth: Nat, vv: C.Valid & C.Valid, d: Dict, r: Array<String> & Array<U32>) -> C.Column & Enc:
-  (v1, v2) = vv
-  (data, codes) = r
-  (C.CStr{len, depth, v1, ST.SRaw{data}}, Enc{Key.nulls(len, depth, codes, C.Valid.materialize(v2, depth)), Array.new(U32, depth, 1), d})
-
-def Key.enc.s2(+len: U32, +depth: Nat, vv: C.Valid & C.Valid, r: SD) -> C.Column & Enc:
-  match r:
-    case SD{data, DC{codes, d}}:
-      Key.enc.s3(len, depth, vv, d, (data, codes))
-
-# right side: build the table over every row (a null row's "" is inserted
-# too: harmless, its rows are DEAD), then null rows -> DEAD
-def Key.enc.sb(+len: U32, +depth: Nat, valid: C.Valid, data: Array<String>) -> C.Column & Enc:
-  Key.enc.s2(len, depth, C.Valid.clone(valid), Dict.go(U32.to_nat(len), 0, True{}, DC{Array.new(U32, depth, 0), Dict.new(len)}, Array.get(String, data, 0)))
-
-# left side: probe (forked), misses and null rows -> DEAD
-def Key.enc.sp(+len: U32, +depth: Nat, valid: C.Valid, data: Array<String>, d: Dict) -> C.Column & Enc:
-  match d:
-    case Dict{+fuel, +mask, +pw, +g, slots}:
-      Key.enc.s3(len, depth, C.Valid.clone(valid), Dict.stub(g), Probe.fork(Probe.levels(len, depth, fuel), depth, len, 0, Probe.dd(Probe.levels(len, depth, fuel), Dict{fuel, mask, pw, g, slots}), data))
-
-def Key.enc.s(+build: Bool, +len: U32, +depth: Nat, valid: C.Valid, data: Array<String>, d: Dict) -> C.Column & Enc:
-  match build:
-    case True{}:
-      Key.enc.sb(len, depth, valid, data)
-    case False{}:
-      Key.enc.sp(len, depth, valid, data, d)
-
-# ---- a Dictionary key column (M4): the string table is built over the RIGHT dictionary's
-# entries (k_r inserts, so an entry's id is its code) and probed with the LEFT dictionary's
-# entries (k_l probes); each row's id is then its code's id, one gather. Equal strings with
-# different codes on the two sides meet in the table, never by comparing codes.
-
-def Key.ids.row.k(r: Array<U32> & Array<U32>) -> Array<U32>:
-  (out, codes) = r
-  out
-
-# out[i] = ids[codes[i]]
-def Key.ids.row(+n: U32, +d: Nat, ids: Array<U32>, codes: Array<U32>) -> Array<U32>:
-  Key.ids.row.k(K.Kernel.gather(~U32, n, d, ids, codes, 0))
-
-def Key.enc.dg(+len: U32, +depth: Nat, vv: C.Valid & C.Valid, dict: ST.Dict, cc: Array<U32> & Array<U32>, r: Array<U32> & Dict) -> C.Column & Enc:
-  (v1, v2) = vv
-  (c1, c2) = cc
-  (ids, t) = r
-  (C.CStr{len, depth, v1, ST.SDict{c1, dict}}, Enc{Key.nulls(len, depth, Key.ids.row(len, depth, ids, c2), C.Valid.materialize(v2, depth)), Array.new(U32, depth, 1), t})
-
-# build: ids over the entries in a fresh table; probe: the entries looked up in d
-def Key.ids.b(r: SD) -> Array<U32> & Dict:
-  match r:
-    case SD{strs, DC{ids, t}}:
-      (ids, t)
-
-def Key.ids.p(+g: U32, r: Array<String> & Array<U32>) -> Array<U32> & Dict:
-  (strs, ids) = r
-  (ids, Dict.stub(g))
-
-def Key.ids(+build: Bool, +k: U32, +dd: Nat, strs: Array<String>, d: Dict) -> Array<U32> & Dict:
-  match build d:
-    case True{} _:
-      Key.ids.b(Dict.go(U32.to_nat(k), 0, True{}, DC{Array.new(U32, dd, 0), Dict.new(k)}, Array.get(String, strs, 0)))
-    case False{} Dict{+fuel, +mask, +pw, +g, slots}:
-      Key.ids.p(g, Probe.fork(Probe.levels(k, dd, fuel), dd, k, 0, Probe.dd(Probe.levels(k, dd, fuel), Dict{fuel, mask, pw, g, slots}), strs))
-
-def Key.enc.de(+build: Bool, +len: U32, +depth: Nat, valid: C.Valid, codes: Array<U32>, d: Dict, r: ST.Dict & ST.Ents) -> C.Column & Enc:
-  (dict, en) = r
-  match en:
-    case ST.Ents{+k, +dd, strs}:
-      Key.enc.dg(len, depth, C.Valid.clone(valid), dict, Array.clone(U32, codes), Key.ids(build, k, dd, strs, d))
-
-def Key.enc.st(+build: Bool, +len: U32, +depth: Nat, valid: C.Valid, x: ST.Strs, d: Dict) -> C.Column & Enc:
-  match x:
-    case ST.SRaw{a}:
-      Key.enc.s(build, len, depth, valid, a, d)
-    case ST.SDict{codes, dict}:
-      Key.enc.de(build, len, depth, valid, codes, d, ST.Dict.entries(dict))
-
-# the codes of a key column (build: the right side, makes the string table;
-# probe: the left side, uses it); the column comes back untouched
-def Key.enc(+build: Bool, c: C.Column, d: Dict) -> C.Column & Enc:
+# the codes of a word key column (Bool / U32 / I32: the data word; F32: Key.fbits); the column
+# comes back untouched. A string column is coded by Key.build / Key.probe, never here (the key dtypes are
+# checked equal; an unreachable string column gets DEAD codes, no live row).
+def Key.enc.word(c: C.Column) -> C.Column & Enc:
   match c:
     case C.CBool{+len, +depth, valid, data}:
-      Key.enc.w(D.TBool{}, len, depth, C.Valid.clone(valid), Array.clone(U32, data), d)
+      Key.enc.w(D.TBool{}, len, depth, C.Valid.clone(valid), Array.clone(U32, data))
     case C.CU32{+len, +depth, valid, data}:
-      Key.enc.w(D.TU32{}, len, depth, C.Valid.clone(valid), Array.clone(U32, data), d)
+      Key.enc.w(D.TU32{}, len, depth, C.Valid.clone(valid), Array.clone(U32, data))
     case C.CI32{+len, +depth, valid, data}:
-      Key.enc.w(D.TI32{}, len, depth, C.Valid.clone(valid), Array.clone(U32, data), d)
+      Key.enc.w(D.TI32{}, len, depth, C.Valid.clone(valid), Array.clone(U32, data))
     case C.CF32{+len, +depth, valid, data}:
-      Key.enc.f(len, depth, C.Valid.clone(valid), Array.clone(F32, data), d)
+      Key.enc.f(len, depth, C.Valid.clone(valid), Array.clone(F32, data))
     case C.CStr{+len, +depth, valid, data}:
-      Key.enc.st(build, len, depth, valid, data, d)
+      (C.CStr{len, depth, valid, data}, Enc{Array.new(U32, depth, 4294967295), Array.new(U32, depth, 0), 0})
+
+# codes[i] := DEAD where row i is null, in place (the mask is borrowed and handed back)
+def Nul.go(n: Nat, +i: U32, rc: Array<U32> & U32, rm: Array<U32> & U32) -> Array<U32> & Array<U32>:
+  match n:
+    case 0n:
+      (codes, c) = rc
+      (m, w) = rm
+      (m, codes)
+    case 1n+p:
+      (codes, +c) = rc
+      (m, +w) = rm
+      +j = U32.inc(i)
+      Nul.go(p, j, Array.get(U32, Array.set(U32, codes, i, Bool.pick(U32, U32.is_ne(w, 0), c, 4294967295)), j), Array.get(U32, m, j))
+
+def Key.nulls.m(r: Array<U32> & Array<U32>) -> C.Valid & Array<U32>:
+  (m, codes) = r
+  (C.Mask{m}, codes)
+
+# a string key's codes with the null rows DEAD (a null key never matches); the validity comes back
+# (AllValid: nothing to do, no pass)
+def Key.nulls(+n: U32, codes: Array<U32>, v: C.Valid) -> C.Valid & Array<U32>:
+  match v:
+    case C.AllValid{}:
+      (C.AllValid{}, codes)
+    case C.Mask{m}:
+      Key.nulls.m(Nul.go(U32.to_nat(n), 0, Array.get(U32, codes, 0), Array.get(U32, m, 0)))
+
+# ---- string keys (W2.4, DESIGN 17.3.3 and 14): ONE flat table, built sequentially over the
+# RIGHT key's strings by the packed coder (H.Hc.code.pk: ids = first appearance on the right from
+# 0, exactly Hc.code's; a null row's "" is coded too, harmless: its rows are made DEAD; each
+# distinct key's code points packed flat by the same single walk) and probed sequentially by the
+# LEFT key's strings (H.Hc.find.pk: a miss is DEAD; a hash hit compares the left string with the
+# packed key, never with a right cons string). The right strings are borrowed by the build walk
+# and handed straight back to the right column; nothing per lane, nothing per row allocated. A
+# Dictionary key is coded per dictionary ENTRY on both sides (the right entries build the table,
+# the left entries probe it), then each row's id is its code's id (one gather): equal strings with
+# different codes on the two sides meet in the table, never by comparing codes. ~mix is the
+# table's hash template (Join.run: the identity on FNV-1a; a test: a constant, so every probe
+# collides and every hit is decided by the compare).
+
+# the table of a word key pair (nothing to probe)
+def BT.none() -> BT:
+  BT{0, 0, Array.new(U32, 1n, 0), Array.new(U32, 1n, 0), Array.new(U32, 1n, 0), Array.new(U32, 1n, 0), Array.new(U32, 1n, 0)}
+
+# -- build side (right)
+
+def Key.build.rk(+len: U32, +depth: Nat, +g: U32, a: Array<String>, t: BT, r: C.Valid & Array<U32>) -> C.Column & Slot:
+  (v, codes) = r
+  (C.CStr{len, depth, v, ST.SRaw{a}}, SOut{Enc{codes, Array.new(U32, depth, 1), g}, t})
+
+def Key.build.r(+len: U32, +depth: Nat, valid: C.Valid, hj: H.HJ) -> C.Column & Slot:
+  match hj:
+    case H.HJ{+next, a, hs, ix, codes, po, pl, pk, cur, pd}:
+      Key.build.rk(len, depth, next, a, BT{len, next, hs, ix, po, pl, pk}, Key.nulls(len, codes, valid))
+
+def Key.build.dv(+len: U32, +depth: Nat, +g: U32, codes: Array<U32>, dict: ST.Dict, t: BT, r: C.Valid & Array<U32>) -> C.Column & Slot:
+  (v, rids) = r
+  (C.CStr{len, depth, v, ST.SDict{codes, dict}}, SOut{Enc{rids, Array.new(U32, depth, 1), g}, t})
+
+def Key.build.dg(+len: U32, +depth: Nat, +g: U32, dict: ST.Dict, t: BT, valid: C.Valid, r: Array<U32> & Array<U32>) -> C.Column & Slot:
+  (rids, codes) = r
+  Key.build.dv(len, depth, g, codes, dict, t, Key.nulls(len, rids, valid))
+
+def Key.build.de(+len: U32, +depth: Nat, valid: C.Valid, codes: Array<U32>, +k: U32, +dd: Nat, +bb: Nat, slots: Array<ST.SSlot>, +tag: U32, hj: H.HJ) -> C.Column & Slot:
+  match hj:
+    case H.HJ{+next, strs, hs, ix, ec, po, pl, pk, cur, pd}:
+      Key.build.dg(len, depth, next, ST.Dict{k, dd, strs, bb, slots, tag}, BT{k, next, hs, ix, po, pl, pk}, valid, K.Kernel.gather(~U32, len, depth, ec, codes, 0))
+
+# a Dictionary right key: its k entries coded (ids = entry order when the entries are distinct),
+# each row's id = its code's id (one gather)
+def Key.build.d(~mix: U32 -> U32, +len: U32, +depth: Nat, valid: C.Valid, codes: Array<U32>, dict: ST.Dict) -> C.Column & Slot:
+  match dict:
+    case ST.Dict{+k, +dd, strs, +bb, slots, +tag}:
+      Key.build.de(len, depth, valid, codes, k, dd, bb, slots, tag, H.Hc.code.pk(~mix, k, dd, strs))
+
+# the right key's codes and the table over its strings
+def Key.build(~mix: U32 -> U32, +len: U32, +depth: Nat, valid: C.Valid, x: ST.Strs) -> C.Column & Slot:
+  match x:
+    case ST.SRaw{a}:
+      Key.build.r(len, depth, valid, H.Hc.code.pk(~mix, len, depth, a))
+    case ST.SDict{codes, dict}:
+      Key.build.d(~mix, len, depth, valid, codes, dict)
+
+# -- probe side (left)
+
+def Key.probe.rk(+len: U32, +depth: Nat, q: Array<String>, t: BT, r: C.Valid & Array<U32>) -> C.Column & Slot:
+  (v, codes) = r
+  (C.CStr{len, depth, v, ST.SRaw{q}}, SOut{Enc{codes, Array.new(U32, depth, 1), 0}, t})
+
+def Key.probe.rf(+len: U32, +depth: Nat, valid: C.Valid, +n: U32, +g: U32, f: H.HQ) -> C.Column & Slot:
+  match f:
+    case H.HQ{q, hs, ix, po, pl, pk, out}:
+      Key.probe.rk(len, depth, q, BT{n, g, hs, ix, po, pl, pk}, Key.nulls(len, out, valid))
+
+# a Raw left key: every row looked up
+def Key.probe.r(~mix: U32 -> U32, +len: U32, +depth: Nat, valid: C.Valid, a: Array<String>, t: BT) -> C.Column & Slot:
+  match t:
+    case BT{+n, +g, hs, ix, po, pl, pk}:
+      Key.probe.rf(len, depth, valid, n, g, H.Hc.find.pk(~mix, n, len, depth, hs, ix, po, pl, pk, a))
+
+def Key.probe.dv(+len: U32, +depth: Nat, codes: Array<U32>, dict: ST.Dict, t: BT, r: C.Valid & Array<U32>) -> C.Column & Slot:
+  (v, rids) = r
+  (C.CStr{len, depth, v, ST.SDict{codes, dict}}, SOut{Enc{rids, Array.new(U32, depth, 1), 0}, t})
+
+def Key.probe.dg(+len: U32, +depth: Nat, dict: ST.Dict, t: BT, valid: C.Valid, r: Array<U32> & Array<U32>) -> C.Column & Slot:
+  (rids, codes) = r
+  Key.probe.dv(len, depth, codes, dict, t, Key.nulls(len, rids, valid))
+
+def Key.probe.df(+len: U32, +depth: Nat, valid: C.Valid, codes: Array<U32>, +k: U32, +dd: Nat, +bb: Nat, slots: Array<ST.SSlot>, +tag: U32, +n: U32, +g: U32, f: H.HQ) -> C.Column & Slot:
+  match f:
+    case H.HQ{strs, hs, ix, po, pl, pk, out}:
+      Key.probe.dg(len, depth, ST.Dict{k, dd, strs, bb, slots, tag}, BT{n, g, hs, ix, po, pl, pk}, valid, K.Kernel.gather(~U32, len, depth, out, codes, 0))
+
+def Key.probe.dt(~mix: U32 -> U32, +len: U32, +depth: Nat, valid: C.Valid, codes: Array<U32>, +k: U32, +dd: Nat, +bb: Nat, slots: Array<ST.SSlot>, +tag: U32, strs: Array<String>, t: BT) -> C.Column & Slot:
+  match t:
+    case BT{+n, +g, hs, ix, po, pl, pk}:
+      Key.probe.df(len, depth, valid, codes, k, dd, bb, slots, tag, n, g, H.Hc.find.pk(~mix, n, k, dd, hs, ix, po, pl, pk, strs))
+
+# a Dictionary left key: its k entries looked up (once per distinct string), then one gather
+def Key.probe.d(~mix: U32 -> U32, +len: U32, +depth: Nat, valid: C.Valid, codes: Array<U32>, t: BT, dict: ST.Dict) -> C.Column & Slot:
+  match dict:
+    case ST.Dict{+k, +dd, strs, +bb, slots, +tag}:
+      Key.probe.dt(~mix, len, depth, valid, codes, k, dd, bb, slots, tag, strs, t)
+
+# the left key's codes through the right side's table (handed back)
+def Key.probe(~mix: U32 -> U32, +len: U32, +depth: Nat, valid: C.Valid, t: BT, x: ST.Strs) -> C.Column & Slot:
+  match x:
+    case ST.SRaw{a}:
+      Key.probe.r(~mix, len, depth, valid, a, t)
+    case ST.SDict{codes, dict}:
+      Key.probe.d(~mix, len, depth, valid, codes, t, dict)
+
+# -- one key column
+
+def Key.enc.wd(t: BT, r: C.Column & Enc) -> C.Column & Slot:
+  (c, e) = r
+  (c, SOut{e, t})
+
+def Key.enc.st(~mix: U32 -> U32, build: Bool, +len: U32, +depth: Nat, valid: C.Valid, t: BT, x: ST.Strs) -> C.Column & Slot:
+  match build:
+    case True{}:
+      Key.build(~mix, len, depth, valid, x)
+    case False{}:
+      Key.probe(~mix, len, depth, valid, t, x)
+
+# the codes of a key column (build: the right side, makes the string table; probe: the left side,
+# uses it); the column comes back untouched, the table is handed on
+def Key.enc(~mix: U32 -> U32, +build: Bool, c: C.Column, t: BT) -> C.Column & Slot:
+  match c:
+    case C.CStr{+len, +depth, valid, x}:
+      Key.enc.st(~mix, build, len, depth, valid, t, x)
+    case other:
+      Key.enc.wd(t, Key.enc.word(other))
 
 # walk the columns; the named one is encoded in place (order kept)
-def Cols.enc.put(n: String, rest: List<&1, C.Named>, r: C.Column & Enc) -> List<&1, C.Named> & Slot:
-  (c, e) = r
-  (C.Named{n, c} <> rest, SOut{e})
+def Cols.enc.put(n: String, rest: List<&1, C.Named>, r: C.Column & Slot) -> List<&1, C.Named> & Slot:
+  (c, s) = r
+  (C.Named{n, c} <> rest, s)
 
-def Cols.enc.app(+build: Bool, n: String, c: C.Column, rest: List<&1, C.Named>, s: Slot) -> List<&1, C.Named> & Slot:
+def Cols.enc.app(~mix: U32 -> U32, +build: Bool, n: String, c: C.Column, rest: List<&1, C.Named>, s: Slot) -> List<&1, C.Named> & Slot:
   match s:
-    case SIn{d}:
-      Cols.enc.put(n, rest, Key.enc(build, c, d))
-    case SOut{e}:
-      (C.Named{n, c} <> rest, SOut{e})
+    case SIn{t}:
+      Cols.enc.put(n, rest, Key.enc(~mix, build, c, t))
+    case SOut{e, t}:
+      (C.Named{n, c} <> rest, SOut{e, t})
 
-def Cols.enc.k(eq: Bool, +build: Bool, n: String, c: C.Column, r: List<&1, C.Named> & Slot) -> List<&1, C.Named> & Slot:
+def Cols.enc.k(~mix: U32 -> U32, eq: Bool, +build: Bool, n: String, c: C.Column, r: List<&1, C.Named> & Slot) -> List<&1, C.Named> & Slot:
   match eq:
     case True{}:
       (rest, s) = r
-      Cols.enc.app(build, n, c, rest, s)
+      Cols.enc.app(~mix, build, n, c, rest, s)
     case False{}:
       (rest, s) = r
       (C.Named{n, c} <> rest, s)
 
-def Cols.enc(cols: List<&1, C.Named>, +name: String, +build: Bool, s: Slot) -> List<&1, C.Named> & Slot:
+def Cols.enc(~mix: U32 -> U32, cols: List<&1, C.Named>, +name: String, +build: Bool, s: Slot) -> List<&1, C.Named> & Slot:
   match cols:
     case Nil{}:
       (Nil{}, s)
     case C.Named{+n, c} <> rest:
-      Cols.enc.k(String.eq(n, name), build, n, c, Cols.enc(rest, name, build, s))
+      Cols.enc.k(~mix, String.eq(n, name), build, n, c, Cols.enc(~mix, rest, name, build, s))
 
 # ---- one key pair -----------------------------------------------------------------------------
 
@@ -723,42 +594,43 @@ def Join.comb(direct: Bool, +dict: Bool, +dg: U32, +nl: U32, +nr: U32, lcols: Li
     case False{}:
       Join.dense.a(dict, nl, nr, lcols, rcols, accl, cl, ll, Dense.run(nr, True{}, dict, PT.new(nr), accr, cr, lr))
 
-def Join.key.d(+t: D.DType, first: Bool, +nl: U32, +nr: U32, accl: Array<U32>, accr: Array<U32>, rcols: List<&1, C.Named>, cr: Array<U32>, lr: Array<U32>, lcols: List<&1, C.Named>, s: Slot) -> JS:
+# dg: the right side's distinct string ids (a word key: 0, unused)
+def Join.key.d(+t: D.DType, first: Bool, +nl: U32, +nr: U32, accl: Array<U32>, accr: Array<U32>, rcols: List<&1, C.Named>, cr: Array<U32>, lr: Array<U32>, +dg: U32, lcols: List<&1, C.Named>, s: Slot) -> JS:
   match s:
-    case SOut{Enc{cl, ll, d}}:
+    case SOut{Enc{cl, ll, gl}, tb}:
       +str = D.DType.eq(t, D.TStr{})
-      Join.comb(Bool.and(first, str), str, Dict.count(d), nl, nr, lcols, rcols, accl, accr, cl, ll, cr, lr)
-    case SIn{d}:
+      Join.comb(Bool.and(first, str), str, dg, nl, nr, lcols, rcols, accl, accr, cl, ll, cr, lr)
+    case SIn{tb}:
       JS{first, 0, nl, nr, lcols, rcols, accl, accr}
 
-def Join.key.c(+t: D.DType, first: Bool, +nl: U32, +nr: U32, accl: Array<U32>, accr: Array<U32>, rcols: List<&1, C.Named>, cr: Array<U32>, lr: Array<U32>, r: List<&1, C.Named> & Slot) -> JS:
+def Join.key.c(+t: D.DType, first: Bool, +nl: U32, +nr: U32, accl: Array<U32>, accr: Array<U32>, rcols: List<&1, C.Named>, cr: Array<U32>, lr: Array<U32>, +dg: U32, r: List<&1, C.Named> & Slot) -> JS:
   (lcols, s) = r
-  Join.key.d(t, first, nl, nr, accl, accr, rcols, cr, lr, lcols, s)
+  Join.key.d(t, first, nl, nr, accl, accr, rcols, cr, lr, dg, lcols, s)
 
-def Join.key.b(+t: D.DType, +ln: String, first: Bool, +nl: U32, +nr: U32, lcols: List<&1, C.Named>, accl: Array<U32>, accr: Array<U32>, rcols: List<&1, C.Named>, s: Slot) -> JS:
+def Join.key.b(~mix: U32 -> U32, +t: D.DType, +ln: String, first: Bool, +nl: U32, +nr: U32, lcols: List<&1, C.Named>, accl: Array<U32>, accr: Array<U32>, rcols: List<&1, C.Named>, s: Slot) -> JS:
   match s:
-    case SOut{Enc{cr, lr, d}}:
-      Join.key.c(t, first, nl, nr, accl, accr, rcols, cr, lr, Cols.enc(lcols, ln, False{}, SIn{d}))
-    case SIn{d}:
+    case SOut{Enc{cr, lr, dg}, tb}:
+      Join.key.c(t, first, nl, nr, accl, accr, rcols, cr, lr, dg, Cols.enc(~mix, lcols, ln, False{}, SIn{tb}))
+    case SIn{tb}:
       JS{first, 0, nl, nr, lcols, rcols, accl, accr}
 
-def Join.key.a(+t: D.DType, +ln: String, first: Bool, +nl: U32, +nr: U32, lcols: List<&1, C.Named>, accl: Array<U32>, accr: Array<U32>, r: List<&1, C.Named> & Slot) -> JS:
+def Join.key.a(~mix: U32 -> U32, +t: D.DType, +ln: String, first: Bool, +nl: U32, +nr: U32, lcols: List<&1, C.Named>, accl: Array<U32>, accr: Array<U32>, r: List<&1, C.Named> & Slot) -> JS:
   (rcols, s) = r
-  Join.key.b(t, ln, first, nl, nr, lcols, accl, accr, rcols, s)
+  Join.key.b(~mix, t, ln, first, nl, nr, lcols, accl, accr, rcols, s)
 
-def Join.key(k: KeySpec, st: JS) -> JS:
+def Join.key(~mix: U32 -> U32, k: KeySpec, st: JS) -> JS:
   match k:
     case KeySpec{+ln, +rn, +t}:
       match st:
         case JS{first, g, +nl, +nr, lcols, rcols, accl, accr}:
-          Join.key.a(t, ln, first, nl, nr, lcols, accl, accr, Cols.enc(rcols, rn, True{}, SIn{Dict.empty()}))
+          Join.key.a(~mix, t, ln, first, nl, nr, lcols, accl, accr, Cols.enc(~mix, rcols, rn, True{}, SIn{BT.none()}))
 
-def Join.keys.loop(ks: List<&2, KeySpec>, st: JS) -> JS:
+def Join.keys.loop(~mix: U32 -> U32, ks: List<&2, KeySpec>, st: JS) -> JS:
   match ks:
     case Nil{}:
       st
     case k <> rest:
-      Join.keys.loop(rest, Join.key(k, st))
+      Join.keys.loop(~mix, rest, Join.key(~mix, k, st))
 
 # ---- right side: group rows by id (CSR) ---------------------------------------------------------
 
@@ -1071,31 +943,36 @@ def Join.go(+how: JoinHow, +lnames: List<&2, String>, +right_on: List<&2, String
 
 # ---- entry ------------------------------------------------------------------------------------------
 
-def Join.exec(+how: JoinHow, keys: List<&2, KeySpec>, +lnames: List<&2, String>, +right_on: List<&2, String>, left: C.Frame, right: C.Frame) -> E.ResT(C.Frame):
+def Join.exec(~mix: U32 -> U32, +how: JoinHow, keys: List<&2, KeySpec>, +lnames: List<&2, String>, +right_on: List<&2, String>, left: C.Frame, right: C.Frame) -> E.ResT(C.Frame):
   match left:
     case C.Frame{+nl, lcols}:
       match right:
         case C.Frame{+nr, rcols}:
-          Join.go(how, lnames, right_on, Join.keys.loop(keys, JS{True{}, 0, nl, nr, lcols, rcols, Array.new(U32, K.Kernel.depth_for(nl), 0), Array.new(U32, K.Kernel.depth_for(nr), 0)}))
+          Join.go(how, lnames, right_on, Join.keys.loop(~mix, keys, JS{True{}, 0, nl, nr, lcols, rcols, Array.new(U32, K.Kernel.depth_for(nl), 0), Array.new(U32, K.Kernel.depth_for(nr), 0)}))
 
-def Join.run.c(+how: JoinHow, ks: E.Res(List<&2, KeySpec>), +lnames: List<&2, String>, +right_on: List<&2, String>, left: C.Frame, right: C.Frame) -> E.ResT(C.Frame):
+def Join.run.c(~mix: U32 -> U32, +how: JoinHow, ks: E.Res(List<&2, KeySpec>), +lnames: List<&2, String>, +right_on: List<&2, String>, left: C.Frame, right: C.Frame) -> E.ResT(C.Frame):
   match ks:
     case Fail{e}:
       Fail{e}
     case Done{keys}:
-      Join.exec(how, keys, lnames, right_on, left, right)
+      Join.exec(~mix, how, keys, lnames, right_on, left, right)
 
-def Join.run.b(+how: JoinHow, chk: E.Res(List<&2, S.Field>), +left_on: List<&2, String>, +right_on: List<&2, String>, +ls: List<&2, S.Field>, +rs: List<&2, S.Field>, left: C.Frame, right: C.Frame) -> E.ResT(C.Frame):
+def Join.run.b(~mix: U32 -> U32, +how: JoinHow, chk: E.Res(List<&2, S.Field>), +left_on: List<&2, String>, +right_on: List<&2, String>, +ls: List<&2, S.Field>, +rs: List<&2, S.Field>, left: C.Frame, right: C.Frame) -> E.ResT(C.Frame):
   match chk:
     case Fail{e}:
       Fail{e}
     case Done{fs}:
-      Join.run.c(how, Join.keys(left_on, right_on, ls, rs), S.Schema.names(ls), right_on, left, right)
+      Join.run.c(~mix, how, Join.keys(left_on, right_on, ls, rs), S.Schema.names(ls), right_on, left, right)
 
-def Join.run.a(+how: JoinHow, +left_on: List<&2, String>, +right_on: List<&2, String>, rl: C.Frame & List<&2, S.Field>, rr: C.Frame & List<&2, S.Field>) -> E.ResT(C.Frame):
+def Join.run.a(~mix: U32 -> U32, +how: JoinHow, +left_on: List<&2, String>, +right_on: List<&2, String>, rl: C.Frame & List<&2, S.Field>, rr: C.Frame & List<&2, S.Field>) -> E.ResT(C.Frame):
   (left, +ls) = rl
   (right, +rs) = rr
-  Join.run.b(how, Join.schema.how(how, ls, rs, left_on, right_on), left_on, right_on, ls, rs, left, right)
+  Join.run.b(~mix, how, Join.schema.how(how, ls, rs, left_on, right_on), left_on, right_on, ls, rs, left, right)
+
+# Join.run with the string table's hash template (Join.run: the identity; a test passes a constant,
+# so every probe of a string key collides and compares strings: the output must not change)
+def Join.run.h(~mix: U32 -> U32, +how: JoinHow, left: C.Frame, right: C.Frame, +left_on: List<&2, String>, +right_on: List<&2, String>) -> E.ResT(C.Frame):
+  Join.run.a(~mix, how, left_on, right_on, S.Frame.schema(left), S.Frame.schema(right))
 
 # join two frames on left_on[i] == right_on[i] (equal dtypes, nulls never
 # match). Output: every left column, then the right columns minus right_on
@@ -1104,4 +981,4 @@ def Join.run.a(+how: JoinHow, +left_on: List<&2, String>, +right_on: List<&2, St
 # with null right columns. Semi / Anti keep the left rows with / without a match (left
 # columns only, left order, each row once). Errors (before any work): see Join.schema.how.
 def Join.run(+how: JoinHow, left: C.Frame, right: C.Frame, +left_on: List<&2, String>, +right_on: List<&2, String>) -> E.ResT(C.Frame):
-  Join.run.a(how, left_on, right_on, S.Frame.schema(left), S.Frame.schema(right))
+  Join.run.h(~(h => h), how, left, right, left_on, right_on)
