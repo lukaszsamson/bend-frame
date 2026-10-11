@@ -767,11 +767,12 @@ Status (v0.1 release candidate, after M5 part 4: P1 and P2 closed as scoped, P3 
 fallback, both string storages in the P1 chain, the in-place kernels and concatenation
 included; the v0.1 review's scan laws `hmerge_keeps_scans` / `release_keeps_scans` added
 after it; v0.2 W1f added `range_cell`, the range copy behind `Column.slice`; v0.2 T3.1 added section 16,
-the moves of the liveness pass): `LAWS.bend` states 155
-laws over `src/` in 16 sections; `PROOF.bend` imports
+the moves of the liveness pass; v0.2 T3.4 added section 17, the Sort + Head bounded gather and the
+runner's physical step `Exec.run_phys`): `LAWS.bend` states 159
+laws over `src/` in 17 sections; `PROOF.bend` imports
 `PROOF_lib`, `PROOF_schema`, `PROOF_expr`, `PROOF_plan`, `PROOF_kernels`, `PROOF_exec`,
 `PROOF_bits`, `PROOF_contents`, `PROOF_eval`, `PROOF_evalops`, `PROOF_evalrun`,
-`PROOF_strs`, `PROOF_append`, `PROOF_inplace` and `PROOF_moves` (one file per area; `L.*` is the shared
+`PROOF_strs`, `PROOF_append`, `PROOF_inplace`, `PROOF_moves` and `PROOF_sorthead` (one file per area; `L.*` is the shared
 toolkit, `B.*` the word-level toolkit) and proves all of them: `bend PROOF.bend` prints ALL
 PROOFS CHECK in 1.7-2.3 s wall (3.3-3.6 s CPU, `make proofs`), `bend PROOF.bend --verdict`
 prints it again under the independent BendTT kernel in 5.1-5.5 s wall (`make verdict`);
@@ -812,14 +813,16 @@ proof-relevant tree, patches ONE production function IN PLACE (21 mutations over
 `Kernel.gather`, `compact_keep`, `compact`, `choose`, `append`, `copy_into`, `Kernel.range`
 (two patches: the write slot, the read offset; W1f), `Valid.range` (the slice's mask not
 shifted; W1f), `Opt.hmin`, `Opt.hmerge` (two patches), `Dict.code`, `Enc.put`, `Dict.rc.put`,
-`Eval.un`, the stack machine's `Eval.fit`, and since T3.1 `Frame.lend` (two patches: it
+`Eval.un`, the stack machine's `Eval.fit`, since T3.1 `Frame.lend` (two patches: it
 answers the stand-in, it lends the wrong columns) and `Eval.mark` (two patches: a move although a
 later expression reads the column, a move of a column the operator keeps; the proof of `mark_reads`
 spells the production condition and fails first, restating it to the mutated one moves the failure
-to `mark_moves_ok`'s own requirement, checked by hand)), runs `bend PROOF.bend` and requires "SOME
-PROOFS FAIL"; the unmutated copy must say ALL PROOFS CHECK first. All 21 are caught (nothing
-was weakened to make that true). It is a spot check of 17 functions, not a mutation test of
-every proof.
+to `mark_moves_ok`'s own requirement, checked by hand), and since T3.4 `Sort.gh.k` (the bounded
+gather keeps one row too many), `Sort.fh.c` (the missing-key check skipped), `Sort.frame_head` (no
+keys keeps every row) and `Exec.run_phys.h` (the physical step heads one row too many)), runs `bend
+PROOF.bend` and requires "SOME PROOFS FAIL"; the unmutated copy must say ALL PROOFS CHECK first.
+All 25 are caught (nothing was weakened to make that true). It is a spot check of 21
+functions, not a mutation test of every proof.
 
 Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 
@@ -841,6 +844,7 @@ Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 | 14 Dictionary strings (`PROOF_strs`; plan section 5 last paragraph and section 6 P1, M5 part 3) | the entry-list model `WFDictE(d, es)` (k = |es| entries fitting 2^dd slots, entry 0 `""`, every slot below k its list entry, a sound index `WFIx`: every slot empty or naming a code in range whose entry is its key); `decode_cell` (`Strs.decode` reads row i as `scell(s, i)`: decode(Dictionary) is the Raw column), `strs_gather_cells`, `strs_compact_cells` (both storages: the codes gathered / compacted read as the Raw operation's cells; the gather / compact loops of section 11 as template proofs at the String and U32 instances), `strs_clone_w` / `dict_clone_w`; `str_same_sound` / `str_same_complete` (the index's key comparison); `dict_empty_wf`; `dict_code_spec` (`Dict.code` keeps `WFDictE`, extends the entries by at most s, answers a code in range that decodes to s, and every old code keeps its entry (`Keep`), through `Dict.add` / `Dict.fit` / `Dict.room` / `Ix.seek` / `Ix.grow`); `strs_encode_cells` / `strs_encode_cell` (`Strs.encode` of a Raw column: a well-formed code array and dictionary, every row's code naming the row's string: `EncRows`; per row `scell(encode(s), i) == scell(s, i)`); `strs_raw_cell`, `column_encode_cell` / `column_decode_cell` / `column_recode_cell`, `cols_encode_cells`, `frame_encode_cells` (`DF.encode_strings` keeps the height, the names and every cell); `dict_miss_not_code`; `dict_merge_spec` (`Dict.merge`: src back, dst extended and well formed, dst's old codes keep their entries, the map re-codes every entry of src: `nthd(es2, m[c]) == dentry(src, c)`); `dict_same_sound` (`Dict.same` True only for equal entry lists); `dict_find_spec` (`Dict.find`: a miss or a sound code naming s, the dictionary back); `dict_recode_spec` (`Dict.recode`: per entry of src a miss or a code of dst naming it) |
 | 15 Concatenation and the in-place kernels (`PROOF_append`, `PROOF_inplace`; plan section 6 P1, M5 part 4) | `append_cells` (`Kernel.append` = two `Kernel.copy_into` loops writing at `U32.add(off, i)`, U32 instance: a's rows below na, b's row k at na + k, the output well formed, when na + nb <= 2^d as natural numbers: `CatFits`); `strs_append_cells` (`Strs.append`, the Str storage of `Cat.col` / `concat_vertical`, both storages: two Dictionaries merge b's entries into a's and append a's codes to b's re-coded ones, any other pair decodes and appends the strings; a's cell below na, b's cell k at na + k, through `scell`); `mask_data_cell` / `mask_data_keeps_mask` (`Kernel.mask_data`, in place, U32 instance: at every pos < n the old cell where the mask word is set, z where it is 0; the mask handed back unchanged); `choose_cell` / `choose_keeps_mask` (`Kernel.choose`, in place into a, U32 instance: a's cell where the mask word is set, b's where it is 0; the mask back); `fix_cell` (`Eval.fix`, the null slots back to the default, for every column kind: Bool / U32 / I32 words, F32, Str Raw and Dictionary: `ccell` of every row is unchanged, so the reset never touches a valid slot); `fill_str_cell` (`Eval.fill` = fill_null on two Str columns, both storages: row i is a's cell where a is valid, b's cell otherwise, the Polars cell); `when_str_data` (`Eval.when.str`, the Str case of `when`: the string STORED at row i is a's where the condition mask word is set, b's where it is 0, both storages; the row's validity is not stated) |
 | 16 Moves (`PROOF_moves`; v0.2 T3.1, DESIGN 16.2 rule 1, plan M_02 section 4 "projection/moves") | models `lastm` / `fcol` (the column a frame holds under a name), `hollowm` / `holed` / `holedf` (the frame with a hollow stand-in in the column's place), `nomove`, `moves_ok`; `lend_observes` (over a frame with unique names whose column named n is c: `Frame.lend(f, n) == (holedf(f, n), Done{c})`, `Frame.get_cloned(f, n) == (f, Done{c})` and `Frame.replace(holedf(f, n), n, c) == Done{f}`: the moved column IS the column the copy reproduces, and a borrow puts the frame back as it was); `mark_reads` (`Eval.mark` changes no read: the same names in the same order), `mark_moves_ok` (every `IMove{n}` it makes in move-free code is allowed, n in `dead` or `all`, and is the last read of n: no later instruction of the code and no name in `later` reads it), `compile_nomove` (`Eval.compile` emits no move), `compile_reads` (the code of e reads exactly `X.Expr.refs(e)`, in order: the list the operators pass as `later` through `Eval.refs`) |
+| 17 Sort + Head (`PROOF_sorthead`; v0.2 T3.4) | the observation `robs(r, k)` (the error, or the height and per column in order its name, dtype, length and `ccell` at row k when k is a row, `SNull` past the length; `cobs` / `lobs`), `hres` (Sort then Head); `sort_head_frame` (`Sort.frame_head(f, ks, n)`, the exact full argsort then only min(n, height) rows gathered, shows at every row k what `Frame.head(Sort.frame(f, ks), n)` shows: every frame, key list, n including 0 and n past the height, errors included), `sort_head_run` (the production equivalence: `Exec.run_phys(Head{n, Sort{ks, x}}, env)`, what collect runs, shows what `Exec.run_pure` of the same plan shows (x's code, then `ISort`, then `IHead`), every plan x and env), `run_phys_obs` (the same for every plan), `collect_obs` (`run_phys(Optimize.release(p))` shows what `run_pure(p)` shows: G6 with the physical step). Inside the proof (not laws): `Column.gather` at every column kind and both Str storages as a witness (`cg_w`: the permutation back, the dtype, the length, row k the source row perm[k], from the section 11 / 14 gather theorems at U32, F32 and String) |
 
 ### 8.1 Assurance matrix (plan M_01 section 6: theorem -> production function -> assumptions -> checker)
 
@@ -883,6 +887,8 @@ Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 | `fix_cell` | `Eval.fix` (= `Eval.fix.w/w2/f/f2/s/s2`, `Column.mk_w`, `Kernel.mask_data` at U32 / F32 / String, `Strs.fix`, `Strs.out.r/d`): every arithmetic / cast / clip / string-conversion result passes through it | `FixHyp(c, i)`: len <= 2^depth, i < len, the data buffer (or a Dictionary's code array) well formed. Claims: `ccell(Eval.fix(c), i) == ccell(c, i)` for every column kind and both Str storages. Not claimed: that the null slots now hold the default (the P0 invariant `WFMaskedW/T` after fix is not stated) | bend, --verdict |
 | `fill_str_cell` | `Eval.fill` on two `CStr` columns (= `Eval.fill.str`, `Eval.fill.sd/sd2`, `Eval.fill.s`, `Eval.fill.t/t2`, `Kernel.choose` at U32 and String, `Kernel.mask_or`, `Dict.merge`, `Eval.zd.map`, `Strs.decode`) | `FillHyp`: n <= 2^d, i < n, a's data well formed, both mask words at i are 0/1 (`Mask01`), and for two Dictionaries `FillDictHyp` (`WFDict` of a's dictionary, b's entries within its slots, both codes at i in range, `MergeProbe`). Claims: the result is `Done` and its `ccell` at i is a's cell where a is valid, else b's (validity and string). Not claimed: fill_null over Bool / U32 / I32 / F32 columns as a cell law (same `Eval.fill.t`, kernel covered by `choose_cell` / `mask_or_cell` at U32 only) | bend, --verdict |
 | `when_str_data` | `Eval.when.str` (= `Eval.when.sd/sd2`, `Eval.when.s`, `Kernel.choose` at U32 and String, `Dict.merge`, `Eval.zd.map`, `Strs.decode`) | `WhenHyp`: n <= 2^d, i < n, a's data well formed, `FillDictHyp` for two Dictionaries. Claims: the stored string at row i (`sdata`, validity ignored) is a's where m[i] != 0, else b's. Not claimed: the row's validity (`Eval.when.valid`: the chosen mask, `Kernel.popcount`, AllValid when every row is valid), the condition mask `Eval.when.c` ("true and valid"), `when` over Bool / U32 / I32 / F32 columns as a cell law | bend, --verdict |
+| `sort_head_frame` | `Sort.frame_head` (= `Sort.fh.b/c/a`, `Sort.gather_head`, `Sort.gh.k`, `Sort.gcols` / `Sort.gather.k` at the cut min(n, h), `Column.gather` and below), against `Sort.frame` (= `Sort.frame.b/c/a`, `Sort.gather`) then `Frame.head`; `Sort.miss`, `Sort.argsort` and the whole T3.2 pipeline are shared by both sides, so the law does NOT depend on the sort's correctness (the order is v0.1's by construction, tested) | none (every frame, key list, n, row k). Observational (`robs`), not term equality: the bounded result's buffers are smaller than the full gather's, which `Frame.head` keeps; for a height over 2^31 (never: the row cap is 2^23) `Sort.gh.k` falls back to the full gather then head, so no `fits` hypothesis is needed | bend, --verdict |
+| `sort_head_run`, `run_phys_obs`, `collect_obs` | `Exec.run_phys` (= `Exec.run_phys.h`, `Exec.sorthead/.r/.s`), what `Exec.run` (hence collect / collect_raw) executes, against `Exec.run_pure` (`Exec.compile`, `Exec.mark`, `Exec.loop`, `Exec.step*`, `Exec.fin`); `collect_obs` composes with `release_run` | none (every plan, env, row k; a malformed stack fails alike). The physical step is only taken at the ROOT (`Head{n, Sort{ks, x}}` as the whole plan); a Head over Sort deeper in a plan runs ISort then IHead | bend, --verdict |
 | sections 1-5b (schema, typing, plan schema, optimizer schema level, slots) | as listed in the table above | as stated per law | bend, --verdict |
 
 What the release chain does NOT cover, stated exactly:
@@ -2657,6 +2663,39 @@ v0.1 build's text; `make test`, `make diff-smoke`). What was implemented and whe
    T3.1 alike (lazy q1's projection was already a move); the eager stage `select_q1` 3.15 MB -> 0. The
    W3 target (q1-q5 clone bytes -50%) therefore depends on T3.3 (group_by 33.6 MB of the 92.3) and T3.2
    (sort 12.6 MB) using these entry points, and on W4 for the 25.2 MB of filter / with_columns copies.
+### v0.2 T3.2 / T3.4 (sort pipeline; Sort + Head bounded gather)
+
+No change of the data contract (section 15): the same rows in the same stable order, the same
+errors in the same order, the same F32 bits; tests/sort_head.bend, the sort / golden / groupby /
+n_unique / median tests, diff-smoke and the m2 content hashes (q4 `chk` / `dump`) agree.
+
+1. **Where the Sort + Head step lives** (M_02 W1g, section 4): in `Exec.run_phys`, at the plan's
+   ROOT only (`Head{n, Sort{ks, x}}` as the whole plan, q4's shape and `sort().head(k)` collected
+   lazily), not in `Exec.compile` / `Exec.mark` / `Exec.loop`. Inside `Exec.run_pure` it would have
+   made `release_run` false as a term equality: `Frame.head` keeps the full buffers and lowers the
+   length, the bounded gather allocates min(n, h) slots, so `Head{n, Head{m, Sort}}` and its merged
+   form would no longer be equal terms. `Exec.run` (collect, collect_raw, collect_full) now runs
+   `Exec.run_phys`; `Exec.run_pure` stays the proofs' runner unchanged, `Optimize.release` is
+   unchanged, `release_run` and its proof are untouched. A Head over a Sort deeper in a plan still
+   runs ISort then IHead (full gather). Eager `DF.sort(f).head(k)` is two separate calls and is
+   unchanged (the facade composes nothing).
+2. **The equivalence is observational** (LAWS section 16, `robs`): per row k, the error or the
+   height and every column's name, dtype, length and cell (`ccell`, which `cell_pure` ties to
+   `Column.cell`, the reader of DF.dump, show and every verb). Not stated through the DF.dump text
+   itself: dump's row loop (`Column.scalars`) walks downward with `U32.sub`, whose index arithmetic
+   (`to_nat(i - 1)`) the toolkit does not have (16.6 lists the same gap); robs for every k carries
+   the same information.
+3. **The bounded path's guard**: `Sort.gather_head` gathers min(n, h) rows when h <= 2^31
+   (`Kernel.depth_for` is exact there) and otherwise the full gather then `Frame.head`; the row cap
+   (2^23) makes the guard always true, and it is what lets the law hold for every frame term.
+4. **`Radix.sort`'s contract**: rows past n of the answered arrays are unspecified: an already
+   sorted input comes back as it is, a two-digit sort writes its second pass back into the input
+   pair (v0.1 answered fresh zero-padded arrays when a pass ran). Every caller (n_unique, median,
+   group_by ranks, the sort) reads rows below n only.
+5. **Raw string keys still code a clone** (T3.2 brief: `Sort.str_words` / `str_codes` / `pcodes`
+   and their callers stay as they are for W2): a `SRaw` key is cloned and coded by `Sort.words` as
+   in v0.1; numeric, Bool and Dictionary keys are borrowed in place (`Sort.split` /
+   `Sort.unsplit`), a Dictionary key through `Dict.ranks` and the rank lookup inside the words pass.
 
 ## 15. v0.1 contract (frozen)
 

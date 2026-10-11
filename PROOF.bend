@@ -19,6 +19,7 @@
 #   PROOF_append.bend   section 15  Kernel.append / copy_into and Strs.append (concat)
 #   PROOF_inplace.bend  section 15  Kernel.mask_data / Kernel.choose (in place), Eval.fix / fill / when on Str
 #   PROOF_moves.bend    section 16  moves: Frame.lend observes as Frame.get_cloned, Frame.replace undoes it
+#   PROOF_sorthead.bend section 17  Sort + Head: Sort.frame_head and Exec.run_phys against Sort.frame / Frame.head / Exec.run_pure
 import Base
 import ./LAWS.bend as Laws
 import ./PROOF_lib.bend as L
@@ -36,3 +37,4 @@ import ./PROOF_strs.bend as PST
 import ./PROOF_append.bend as PA
 import ./PROOF_inplace.bend as PI
 import ./PROOF_moves.bend as PM
+import ./PROOF_sorthead.bend as PSH

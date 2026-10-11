@@ -2734,3 +2734,108 @@ law compile_reads:
   for +e: X.Expr
   for +acc: List<&2, V.Instr>
   {V.Eval.reads(V.Eval.compile(e, acc)) == X.Expr.refs.go(e, V.Eval.reads(acc)) : List<&2, String>}
+# 17. Sort + Head (v0.2 T3.4): the bounded gather (src/sort.bend Sort.frame_head) and the
+#     physical runner step (src/exec.bend Exec.run_phys) against Sort.frame then Frame.head
+#     and against Exec.run_pure
+# =====================================================================================
+#
+# Sort.frame_head(f, ks, n) computes the exact full argsort of Sort.frame (same key checks,
+# same errors in the same order, n = 0 included) and gathers only min(n, height) rows; Frame.head
+# keeps the full buffers and lowers the length. The two results are different terms (their
+# arrays have different sizes), so the claim is OBSERVATIONAL: robs(r, k) is everything a reader
+# of r can see at row k: the error, or the height and, per column in order, its name, dtype,
+# length and the cell at row k (Column.cell's model ccell, section 12) when k is a row (SNull
+# past the length). Equal robs for EVERY k is equal results for every observer of rows, values
+# (F32 bits included), validity, order, names, dtypes, heights and errors (DF.dump reads exactly
+# these through Column.cell / len / dtype).
+
+# what a reader sees of one column at row k
+type CObs is Data:
+  CObs{t: D.DType, len: U32, cell: D.Scalar}
+
+type NObs is Data:
+  NObs{name: String, c: CObs}
+
+# what a reader sees of a result at row k
+type RObs is Data:
+  RErr{e: E.Err}
+  RFrame{h: U32, cols: List<&2, NObs>}
+
+def cobs(c: C.Column, +k: U32) -> CObs:
+  match c:
+    case C.CBool{+len, depth, valid, data}:
+      CObs{D.TBool{}, len, Bool.pick(D.Scalar, U32.is_lt(k, len), ccell(C.CBool{len, depth, valid, data}, k), D.SNull{})}
+    case C.CU32{+len, depth, valid, data}:
+      CObs{D.TU32{}, len, Bool.pick(D.Scalar, U32.is_lt(k, len), ccell(C.CU32{len, depth, valid, data}, k), D.SNull{})}
+    case C.CI32{+len, depth, valid, data}:
+      CObs{D.TI32{}, len, Bool.pick(D.Scalar, U32.is_lt(k, len), ccell(C.CI32{len, depth, valid, data}, k), D.SNull{})}
+    case C.CF32{+len, depth, valid, data}:
+      CObs{D.TF32{}, len, Bool.pick(D.Scalar, U32.is_lt(k, len), ccell(C.CF32{len, depth, valid, data}, k), D.SNull{})}
+    case C.CStr{+len, depth, valid, data}:
+      CObs{D.TStr{}, len, Bool.pick(D.Scalar, U32.is_lt(k, len), ccell(C.CStr{len, depth, valid, data}, k), D.SNull{})}
+
+def lobs(cols: List<&1, C.Named>, +k: U32) -> List<&2, NObs>:
+  match cols:
+    case Nil{}:
+      Nil{}
+    case C.Named{n, c} <> rest:
+      NObs{n, cobs(c, k)} <> lobs(rest, k)
+
+def robs.f(f: C.Frame, +k: U32) -> RObs:
+  match f:
+    case C.Frame{h, cols}:
+      RFrame{h, lobs(cols, k)}
+
+def robs(r: E.ResT(C.Frame), +k: U32) -> RObs:
+  match r:
+    case Fail{e}:
+      RErr{e}
+    case Done{f}:
+      robs.f(f, k)
+
+# Sort then Head, as a function of the sort's result
+def hres(r: E.ResT(C.Frame), +n: U32) -> E.ResT(C.Frame):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{f}:
+      Done{C.Frame.head(f, n)}
+
+# LAW: the bounded gather shows exactly what Sort.frame then Frame.head shows, at every row k,
+# for every frame, key list (none, missing keys, any dtypes, desc / nulls_last) and n (0 and past
+# the height included): the same error (ColumnNotFound for the first missing key, list order),
+# or the same height, names, dtypes, lengths and cells in the same stable order
+law sort_head_frame:
+  for f: C.Frame
+  for +ks: List<&2, O.SortKey>
+  for +n: U32
+  for +k: U32
+  {robs(O.Sort.frame_head(f, ks, n), k) == robs(hres(O.Sort.frame(f, ks), n), k) : RObs}
+
+# LAW (production equivalence): the runner collect executes (Exec.run_phys: run_pure with the
+# Sort + Head step at the root) on Head{n, Sort{ks, x}} shows exactly what the proofs' runner
+# Exec.run_pure (x's code, then ISort{ks}, then IHead{n}) shows, for every plan x, environment,
+# key list, n and row k: the same error from x, from the keys or from a malformed stack, or the
+# same frame contents
+law sort_head_run:
+  for +x: P.Plan
+  for +ks: List<&2, O.SortKey>
+  for +n: U32
+  for env: P.Env
+  for +k: U32
+  {robs(Q.Exec.run_phys(P.Head{n, P.Sort{ks, x}}, env), k) == robs(Q.Exec.run_pure(P.Head{n, P.Sort{ks, x}}, env), k) : RObs}
+
+# LAW: the same for every plan (any other root runs run_pure itself)
+law run_phys_obs:
+  for +p: P.Plan
+  for env: P.Env
+  for +k: U32
+  {robs(Q.Exec.run_phys(p, env), k) == robs(Q.Exec.run_pure(p, env), k) : RObs}
+
+# LAW G6 with the physical step: what collect runs (Optimize.release, then run_phys) shows what
+# the plan as written shows under run_pure (release_run composed with run_phys_obs)
+law collect_obs:
+  for +p: P.Plan
+  for env: P.Env
+  for +k: U32
+  {robs(Q.Exec.run_phys(P.Optimize.release(p), env), k) == robs(Q.Exec.run_pure(p, env), k) : RObs}
