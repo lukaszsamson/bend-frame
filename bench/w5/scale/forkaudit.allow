@@ -17,6 +17,9 @@
 # The gate sees (def, callee) pairs, not sites: when you touch a forking def, read its diff.
 
 cexec_cx_p1 -> cexec_cx_wrapf | leaf: FTL arm = CX.p1.leaf (the leaf frame wrapped for the evaluator); no fork follows in that arm
+cexec_cx_p1 -> cexec_cx_lframe | leaf: FTL arm = CX.p1.leaf; T5.5's compiled predicate: the PF5 / PBad arms hand the leaf frame back as a one-leaf CFrame (CX.p1.f5); no fork follows in that arm
+cexec_cx_p1 -> eval_eval_f5_go | leaf: FTL arm = CX.p1.leaf, PF5 arm (T5.5: the F5 plan compiled once for the walk, the passes run per leaf); no fork follows in that arm
+cexec_cx_p3 -> cexec_cx_splitn | leaf: FTL arm = CX.p3.leaf (T5.5's one-walk filter: the leaf splits its columns after the predicate's, then F5 passes and compaction); no fork follows in that arm
 cexec_cx_p2 -> cexec_cx_lframe | leaf: FTL / FTB / mismatch arms hand the compacted leaf frame back as a one-leaf CFrame; no fork follows
 cexec_cx_w2 -> cexec_cx_wrapf | leaf: FTL arm = CX.w2.leaf (the leaf frame wrapped for the evaluator); no fork follows in that arm
 chunks_c[wfs]_rechunk_go -> chunks_c[wfs]_flatten | leaf: the `fits` arm builds ONE leaf by one flatten of the subtree; only the not-fits arm forks

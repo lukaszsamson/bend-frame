@@ -5,7 +5,8 @@
 #          `qty > 50` on the leaf frame, V.Eval.pred, Kernel.popcount)
 #   kern   the same predicate by one flat kernel (Kernel.map of qty > 50, Kernel.popcount): T5.2's shape
 #   wc     the flat evaluator's with_columns expression of q2's first half: f32(qty) * price (V.Eval.full)
-#   walk   the runner itself: CX.p1 (walk 1 of a filter) over a CFrame of the same rows
+#   walk   the runner itself: CX.p1 (walk 1 of a filter) over a CFrame of the same rows (T5.5: the predicate
+#          compiled once by CX.pc, an F5 plan here)
 # Each rep builds its input before the clock and sums the leaves' answers inside it.
 #   bend bench/w5/t53x.bend -o build/t53/t53x; build/t53/t53x [--threads N] <mode> <reps>
 import Base
@@ -18,6 +19,7 @@ import ./../../src/expr.bend as X
 import ./../../src/eval.bend as V
 import ./../../src/chunks.bend as CH
 import ./../../src/cexec.bend as QC
+import ./../../src/schema.bend as S
 
 def leaf(+i: U32) -> C.Frame:
   C.Frame{16384, [C.Named{"qty", C.CU32{16384, 14n, C.AllValid{}, K.Kernel.map(~U32, ~U32, ~(x => U32.mod(U32.mul(x, 37), 100)), 16384, 14n, K.Kernel.iota_from(16384, 14n, U32.mul(i, 16384)), 0)}}, C.Named{"price", C.CF32{16384, 14n, C.AllValid{}, K.Kernel.map(~U32, ~F32, ~(x => U32.to_f32(x)), 16384, 14n, K.Kernel.iota_from(16384, 14n, 0), 0.0)}}]}
@@ -122,7 +124,7 @@ def walk.w(w: QC.W1) -> U32:
       Bool.to_u32(ok)
 
 def walk(f: CH.CFrame, sk: CH.Skel) -> U32:
-  walk.w(QC.CX.p1(pred(), QC.CX.ft(sk, QC.CX.cut(f), (Nil{}, Nil{}))))
+  walk.w(QC.CX.p1(QC.CX.pc(pred(), [S.Field{"qty", D.TU32{}}, S.Field{"price", D.TF32{}}]), QC.CX.ft(sk, QC.CX.cut(f), (Nil{}, Nil{}))))
 
 def run.l(+m: U32, fs: List<&1, C.Frame>) -> U32:
   match m:

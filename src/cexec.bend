@@ -741,11 +741,27 @@ def CX.wrap.go(cols: List<&1, C.Named>, st: WR2) -> List<&1, C.Named>:
     case C.Named{+nm, c} <> rest:
       CX.wrap.go(rest, CX.wrap.step(nm, c, st))
 
-# a leaf frame with the Dict of every read Dictionary column around its codes
+def CX.wrap.cs(cols: List<&1, C.Named>, rd: List<&1, DN>) -> List<&1, C.Named>:
+  match rd:
+    case Nil{}:
+      cols
+    case d <> t:
+      CX.wrap.go(cols, WR2{d <> t, Nil{}})
+
+# a leaf frame with the Dict of every read Dictionary column around its codes (no Dict read: the frame
+# as it is, its column list not rebuilt)
 def CX.wrapf(f: C.Frame, rd: List<&1, DN>) -> C.Frame:
   match f:
     case C.Frame{h, cols}:
-      C.Frame{h, CX.wrap.go(cols, WR2{rd, Nil{}})}
+      C.Frame{h, CX.wrap.cs(cols, rd)}
+
+# the Dicts a leaf reads and whether there is any (the leaf unwraps its frame only when it wrapped it)
+def CX.dany(rd: List<&1, DN>) -> List<&1, DN> & Bool:
+  match rd:
+    case Nil{}:
+      (Nil{}, False{})
+    case d <> t:
+      (d <> t, True{})
 
 def CX.unw.c(c: C.Column) -> C.Column:
   match c:
@@ -770,6 +786,14 @@ def CX.unwf(f: C.Frame) -> C.Frame:
   match f:
     case C.Frame{h, cols}:
       C.Frame{h, CX.unw(cols)}
+
+# CX.unwf when the leaf was wrapped (w), else the frame as it is
+def CX.unwf.if(w: Bool, f: C.Frame) -> C.Frame:
+  match w:
+    case True{}:
+      CX.unwf(f)
+    case False{}:
+      f
 
 # ==== cutting a frame at the root of its trees: one leaf position (flat columns) or two halves ====
 
@@ -942,22 +966,139 @@ def CX.lframe(f: C.Frame) -> CH.CFrame:
     case C.Frame{h, cols}:
       CH.CFrame{h, CX.lcols(cols)}
 
+# one column of a join (T5.5): CH.CColumn.cat's answer without its two skeleton walks when both sides'
+# validity is AllValid or both a Mask (the skeletons only shape the ones tree of a mixed pair: CValid.cat);
+# a mixed pair, a string column (CStrs.cat: a Dictionary merge) and a dtype mismatch go to CColumn.cat
+def CX.ccat.w(+t: D.DType, +s: U32, +ha: U32, +la: U32, +lb: U32, va: CH.CValid, vb: CH.CValid, xa: CH.CW, xb: CH.CW) -> CH.CColumn:
+  match va vb:
+    case CH.CAllValid{} CH.CAllValid{}:
+      CH.CColumn.mk_w(t, s, CH.CAllValid{}, CH.WN{s, ha, xa, xb})
+    case CH.CMask{ma} CH.CMask{mb}:
+      CH.CColumn.mk_w(t, s, CH.CMask{CH.WN{s, ha, ma, mb}}, CH.WN{s, ha, xa, xb})
+    case x y:
+      CH.CColumn.cat(s, ha, CH.CColumn.mk_w(t, la, x, xa), CH.CColumn.mk_w(t, lb, y, xb))
+
+def CX.ccat.f(+s: U32, +ha: U32, +la: U32, +lb: U32, va: CH.CValid, vb: CH.CValid, xa: CH.CF, xb: CH.CF) -> CH.CColumn:
+  match va vb:
+    case CH.CAllValid{} CH.CAllValid{}:
+      CH.CF32{s, CH.CAllValid{}, CH.FN{s, ha, xa, xb}}
+    case CH.CMask{ma} CH.CMask{mb}:
+      CH.CF32{s, CH.CMask{CH.WN{s, ha, ma, mb}}, CH.FN{s, ha, xa, xb}}
+    case x y:
+      CH.CColumn.cat(s, ha, CH.CF32{la, x, xa}, CH.CF32{lb, y, xb})
+
+def CX.ccat(+s: U32, +ha: U32, a: CH.CColumn, b: CH.CColumn) -> CH.CColumn:
+  match a b:
+    case CH.CBool{+la, va, xa} CH.CBool{+lb, vb, xb}:
+      CX.ccat.w(D.TBool{}, s, ha, la, lb, va, vb, xa, xb)
+    case CH.CU32{+la, va, xa} CH.CU32{+lb, vb, xb}:
+      CX.ccat.w(D.TU32{}, s, ha, la, lb, va, vb, xa, xb)
+    case CH.CI32{+la, va, xa} CH.CI32{+lb, vb, xb}:
+      CX.ccat.w(D.TI32{}, s, ha, la, lb, va, vb, xa, xb)
+    case CH.CF32{+la, va, xa} CH.CF32{+lb, vb, xb}:
+      CX.ccat.f(s, ha, la, lb, va, vb, xa, xb)
+    case x y:
+      CH.CColumn.cat(s, ha, x, y)
+
+# CH.CCols.cat with CX.ccat per column (the same answer)
+def CX.jcols(+s: U32, +ha: U32, ca: List<&1, CH.CNamed>, cb: List<&1, CH.CNamed>) -> List<&1, CH.CNamed>:
+  match ca cb:
+    case CH.CNamed{nm, a} <> ta CH.CNamed{nb, b} <> tb:
+      CH.CNamed{nm, CX.ccat(s, ha, a, b)} <> CX.jcols(s, ha, ta, tb)
+    case x y:
+      Nil{}
+
 # two chunked frames side by side as one node per tree (a's rows then b's; the same columns in the same
-# order: every lane of a walk answers the same schema). CH.CCols.cat joins the validity of an AllValid
-# side with a Mask side by a ones tree of that side's shape.
+# order: every lane of a walk answers the same schema). CH.CCols.cat's answer (CX.jcols), which joins
+# the validity of an AllValid side with a Mask side by a ones tree of that side's shape.
+def CX.fj.k(+s: U32, +ha: U32, ca: List<&1, CH.CNamed>, cb: List<&1, CH.CNamed>) -> CH.CFrame:
+  CH.CFrame{s, CX.jcols(s, ha, ca, cb)}
+
 def CX.fj(a: CH.CFrame, b: CH.CFrame) -> CH.CFrame:
   match a:
     case CH.CFrame{+ha, ca}:
       match b:
         case CH.CFrame{+hb, cb}:
-          CH.CFrame{U32.add(ha, hb), CH.CCols.cat(U32.add(ha, hb), ha, ca, cb)}
+          CX.fj.k(U32.add(ha, hb), ha, ca, cb)
 
 # an expression over a leaf frame as the reference operators evaluate it since W4 (Eval.slot.mv: the type
 # check, Eval.mark with nothing movable, the peephole post-pass Eval.fuse and Eval.runz: the fused kernels),
 # every 1-row result broadcast to the leaf's rows; the leaf frame comes back whole, error or not (no
-# column is moved: all = False, dead = [])
+# column is moved: all = False, dead = []). Since T5.5 no walk calls it: the walks run its two halves apart
+# (CX.code once per walk, CX.erun per leaf, below); it stays as their specification (tests/cexec_leaf.bend
+# compares them)
 def CX.efull(f: C.Frame, +e: X.Expr) -> C.Frame & E.ResT(C.Column):
   V.Eval.mode.a(True{}, V.Eval.slot.mv(f, e, False{}, Nil{}, Nil{}))
+
+# ---- compile once per walk (T5.5): CX.efull's static half (the schema, the type check, Eval.compile,
+# Eval.mark with nothing movable, Eval.fuse) depends on the frame's SCHEMA only, which every leaf of a
+# walk shares (WFCFrame: the same columns and dtypes; a Dictionary column read by an expression is wrapped
+# back into its Str column for the leaf, CX.wrapf). So it runs ONCE, against the schema of the walk's
+# input before its Dictionary columns are set aside, and each leaf runs only the data half: Eval.runz of
+# the compiled code and Eval.mode's broadcast, which is Eval.slot.mh's run on the leaf, so the leaf's
+# answer is CX.efull's. A failing type check is a static fact of the whole frame: the walk is not run and
+# the operator takes the flat path (the reference's answer, as when every leaf failed it before). ----
+
+# the code CX.efull runs for e (Eval.slot.mh with all = False, dead = later = [])
+def CX.code(+e: X.Expr) -> List<&2, V.Instr>:
+  V.Eval.fuse(V.Eval.mark(V.Eval.compile(e, Nil{}), False{}, Nil{}, Nil{}))
+
+def CX.erun.h(code: List<&2, V.Instr>, r: C.Frame & U32) -> C.Frame & E.ResT(C.Column):
+  (f, +h) = r
+  V.Eval.mode.a(True{}, V.Eval.fin(V.Eval.runz(code, h, V.EvSt{f, Done{Nil{}}})))
+
+# the leaf entry: compiled code (CX.code) run on a leaf frame; the frame comes back whole, error or not
+def CX.erun(code: List<&2, V.Instr>, f: C.Frame) -> C.Frame & E.ResT(C.Column):
+  CX.erun.h(code, C.Frame.height(f))
+
+# a filter predicate compiled against the walk's schema: the F5 passes (Eval.f5.plan), the fused code of
+# the general path (Eval.filter.mask's other branch: CX.efull, Eval.pred, popcount), or a type error
+type PC is Data:
+  PF5{ps: List<&2, V.P5>}
+  PEv{code: List<&2, V.Instr>}
+  PBad{}
+
+def CX.pc.t(+e: X.Expr, t: E.Res(D.DType)) -> PC:
+  match t:
+    case Fail{err}:
+      PBad{}
+    case Done{t2}:
+      PEv{CX.code(e)}
+
+def CX.pc.p(+e: X.Expr, +s: List<&2, S.Field>, plan: Maybe<&2, List<&2, V.P5>>) -> PC:
+  match plan:
+    case Some{ps}:
+      PF5{ps}
+    case None{}:
+      CX.pc.t(e, A.Ana.type(e, s))
+
+# what a leaf of the old walk decided per leaf (CX.p1.s / CX.p1.h): F5 when the plan exists (no type check:
+# the ghost made it), else the type check and the code
+def CX.pc(+e: X.Expr, +s: List<&2, S.Field>) -> PC:
+  CX.pc.p(e, s, V.Eval.f5.plan(e, s))
+
+# the expressions of a with_columns / select walk compiled (the output name and the code of each, in
+# order), or None when one fails its type check
+type CEx is Data:
+  CEx{name: String, code: List<&2, V.Instr>}
+
+def CX.cel.k(+e: X.Expr, t: E.Res(D.DType), rest: Maybe<&2, List<&2, CEx>>) -> Maybe<&2, List<&2, CEx>>:
+  match t:
+    case Fail{err}:
+      None{}
+    case Done{t2}:
+      match rest:
+        case None{}:
+          None{}
+        case Some{cs}:
+          Some{CEx{X.Expr.name(e), CX.code(e)} <> cs}
+
+def CX.cel(es: List<&2, X.Expr>, +s: List<&2, S.Field>) -> Maybe<&2, List<&2, CEx>>:
+  match es:
+    case Nil{}:
+      Some{Nil{}}
+    case +e <> t:
+      CX.cel.k(e, A.Ana.type(e, s), CX.cel(t, s))
 
 # ==== walk 1 of a filter: the predicate's mask per leaf (the input borrowed) ====
 
@@ -985,42 +1126,41 @@ def CX.p1.c(f: C.Frame, rc: E.ResT(C.Column)) -> W1:
     case Done{c}:
       CX.p1.m(f, V.Eval.pred(c))
 
-def CX.p1.a(r: C.Frame & E.ResT(C.Column)) -> W1:
+def CX.p1.a(w: Bool, r: C.Frame & E.ResT(C.Column)) -> W1:
   (f, rc) = r
-  CX.p1.c(CX.unwf(f), rc)
+  CX.p1.c(CX.unwf.if(w, f), rc)
 
 # the F5 passes' state (Eval.f5.go: one pred_count loop per conjunct over the borrowed columns): the leaf
-# frame is in it whether a pass failed or not
+# frame is in it whether a pass failed or not (F5 reads no Str column: the leaf was not wrapped)
 def CX.p1.f5(st: V.F5St) -> W1:
   match st:
     case V.F5St{f, m, +k, err}:
       match err:
         case None{}:
-          W1{CX.lframe(CX.unwf(f)), ML{m, k}, True{}}
+          W1{CX.lframe(f), ML{m, k}, True{}}
         case Some{e}:
-          W1{CX.lframe(CX.unwf(f)), MX{}, False{}}
+          W1{CX.lframe(f), MX{}, False{}}
 
 def CX.p1.f5h(ps: List<&2, V.P5>, r: C.Frame & U32) -> W1:
   (f, +h) = r
   CX.p1.f5(V.Eval.f5.go(ps, h, V.F5St{f, V.Eval.fz.ones(), 0, None{}}))
 
-def CX.p1.h(+pred: X.Expr, f: C.Frame, plan: Maybe<&2, List<&2, V.P5>>) -> W1:
-  match plan:
-    case Some{ps}:
+def CX.p1.ev(code: List<&2, V.Instr>, f: C.Frame, r: List<&1, DN> & Bool) -> W1:
+  (rd, +w) = r
+  CX.p1.a(w, CX.erun(code, CX.wrapf(f, rd)))
+
+# a leaf: Eval.filter.mask's chain on the leaf frame by the predicate compiled once for the walk (CX.pc:
+# the F5 pred_count passes, or the fused code then Eval.pred and popcount), by the steps that hand the
+# leaf frame back whole, error or not (Eval.filter.mask itself answers a bare Fail; the borrow is what the
+# error rerun needs)
+def CX.p1.leaf(+pc: PC, rd: List<&1, DN>, f: C.Frame) -> W1:
+  match pc:
+    case PF5{ps}:
       CX.p1.f5h(ps, C.Frame.height(f))
-    case None{}:
-      CX.p1.a(CX.efull(f, pred))
-
-def CX.p1.s(+pred: X.Expr, r: C.Frame & List<&2, S.Field>) -> W1:
-  (f, +s) = r
-  CX.p1.h(pred, f, V.Eval.f5.plan(pred, s))
-
-# a leaf: Eval.filter.mask's chain on the leaf frame (the F5 pred_count passes when the predicate is a
-# conjunction of bool columns and column-op-literal comparisons, Eval.f5.plan; else Eval.full, Eval.pred,
-# popcount), by the steps that hand the leaf frame back whole, error or not (Eval.filter.mask itself
-# answers a bare Fail; the borrow is what the error rerun needs)
-def CX.p1.leaf(+pred: X.Expr, rd: List<&1, DN>, f: C.Frame) -> W1:
-  CX.p1.s(pred, S.Frame.schema(CX.wrapf(f, rd)))
+    case PEv{code}:
+      CX.p1.ev(code, f, CX.dany(rd))
+    case PBad{}:
+      W1{CX.lframe(f), MX{}, False{}}
 
 def CX.p1.j(x: W1, y: W1) -> W1:
   match x:
@@ -1061,14 +1201,14 @@ def CX.ft(sk: CH.Skel, c: Cut, rr: List<&1, DN> & List<&1, DN>) -> FT:
 
 # walk 1 over the frame tree: ONE balanced parallel let per node and nothing else before it; the leaf
 # function and the joins (CX.fj) run as tasks of their own, after the fork
-def CX.p1(+pred: X.Expr, t: FT) -> W1:
+def CX.p1(+pc: PC, t: FT) -> W1:
   match t:
     case FTL{f, rd}:
-      CX.p1.leaf(pred, rd, f)
+      CX.p1.leaf(pc, rd, f)
     case FTB{f}:
       W1{f, MX{}, False{}}
     case FTN{rows, lrows, l, r}:
-      x y = CX.p1(pred, l) CX.p1(pred, r)
+      x y = CX.p1(pc, l) CX.p1(pc, r)
       CX.p1.j(x, y)
 
 # ==== walk 2 of a filter: every leaf compacted by its mask (Q.Exec.fc: compact4 / compact3 groups of
@@ -1090,6 +1230,345 @@ def CX.p2(t: FT, m: MT) -> CH.CFrame:
     case FTN{rows, lrows, l, r} _:
       CX.fj(CX.p2(l, MX{}), CX.p2(r, MX{}))
 
+# ==== a filter in ONE walk (T5.5): the F5 passes then the compaction, per leaf ====
+# When the predicate has an F5 plan (Eval.f5.plan: a conjunction of bool columns and column-op-literal
+# comparisons), each leaf runs the F5 pred_count passes over its borrowed columns (mask and kept count
+# together) and then compacts the columns the operator keeps (Q.Exec.fc: every column for a filter; the
+# selected names, in their order, for the Filter + plain Select root), where the two walks above made a
+# mask tree, a second frame tree and a second fork tree. The passes are total kernels: a pass can only fail
+# on the dtype or the presence of a column, i.e. on the schema, which the ghost run of the reference
+# operator (Eval.filter.mask over the 0-row frame, the same F5 plan) already passed. So no leaf fails on
+# data and no flat rerun is needed (the input is consumed by the compaction); were a leaf to report an
+# error anyway, it is that schema-determined error, the same at every leaf and on the whole frame, and the
+# operator answers it.
+
+# the frame tree with no Dict copies (F5 reads no Str column) and whether every cut agreed with the
+# skeleton (a disagreement, which WFCFrame excludes, stops the walk before it starts: CX.ftf + the flat path)
+def CX.ftn.j(+rows: U32, +lrows: U32, a: FT & Bool, b: FT & Bool) -> FT & Bool:
+  (ta, oa) = a
+  (tb, ob) = b
+  (FTN{rows, lrows, ta, tb}, Bool.and(oa, ob))
+
+def CX.ftn(sk: CH.Skel, c: Cut) -> FT & Bool:
+  match sk c:
+    case CH.KLeaf{n} CutL{f}:
+      (FTL{f, Nil{}}, True{})
+    case CH.KNode{+rows, +lrows, sl, sr} CutN{r2, l2, a, b}:
+      CX.ftn.j(rows, lrows, CX.ftn(sl, CX.cut(a)), CX.ftn(sr, CX.cut(b)))
+    case CH.KLeaf{n} CutN{r2, l2, a, b}:
+      (FTB{CX.fj(a, b)}, False{})
+    case CH.KNode{rows, lrows, sl, sr} CutL{f}:
+      (FTB{CX.lframe(f)}, False{})
+
+# a frame tree back as a chunked frame (sequential; the failure path only)
+def CX.ftf(t: FT) -> CH.CFrame:
+  match t:
+    case FTL{f, rd}:
+      CX.lframe(f)
+    case FTB{f}:
+      f
+    case FTN{rows, lrows, l, r}:
+      CX.fj(CX.ftf(l), CX.ftf(r))
+
+# ---- a flat leaf's columns picked by name (CX.pick on C.Named: the order of the names, the rest dropped) ----
+
+def CX.ftake.k(eq: Bool, nm: String, c: C.Column, r: List<&1, C.Named> & Maybe<&1, C.Column>) -> List<&1, C.Named> & Maybe<&1, C.Column>:
+  match eq:
+    case True{}:
+      (cs, m) = r
+      (cs, Some{c})
+    case False{}:
+      (cs, m) = r
+      (C.Named{nm, c} <> cs, m)
+
+def CX.ftake(cols: List<&1, C.Named>, +name: String) -> List<&1, C.Named> & Maybe<&1, C.Column>:
+  match cols:
+    case Nil{}:
+      (Nil{}, None{})
+    case C.Named{+nm, c} <> rest:
+      CX.ftake.k(String.eq(nm, name), nm, c, CX.ftake(rest, name))
+
+type FPK is Type:
+  FPK{cols: List<&1, C.Named>, acc: List<&1, C.Named>}
+
+def CX.fpick.s2(+n: String, acc: List<&1, C.Named>, r: List<&1, C.Named> & Maybe<&1, C.Column>) -> FPK:
+  (cols, m) = r
+  match m:
+    case None{}:
+      FPK{cols, acc}
+    case Some{c}:
+      FPK{cols, C.Named{n, c} <> acc}
+
+def CX.fpick.step(+n: String, st: FPK) -> FPK:
+  match st:
+    case FPK{cols, acc}:
+      CX.fpick.s2(n, acc, CX.ftake(cols, n))
+
+def CX.fpick.go(ns: List<&2, String>, st: FPK) -> List<&1, C.Named>:
+  match ns:
+    case Nil{}:
+      match st:
+        case FPK{cols, acc}:
+          List.reverse(&1, C.Named, acc)
+    case +n <> rest:
+      CX.fpick.go(rest, CX.fpick.step(n, st))
+
+def CX.fpick(f: C.Frame, ns: List<&2, String>) -> C.Frame:
+  match f:
+    case C.Frame{h, cols}:
+      C.Frame{h, CX.fpick.go(ns, FPK{cols, Nil{}})}
+
+# ---- the walk ----
+
+type W3 is Type:
+  W3{f: CH.CFrame, err: Maybe<&2, E.Err>}
+
+# The walk frame's layout (CX.f5l, built once before the walk): the np distinct columns the predicate reads
+# first (P), then the ns other columns the operator keeps (a filter: every other column, in frame order; a
+# Filter + plain Select: the selected columns the predicate does not read, in the select's order), then the
+# rest (Z: columns only a hoisted aggregation read; kept for the flat path, dropped by the compaction). A
+# leaf splits its column list after P, so the F5 passes lend and put back P's columns only (Frame.lend /
+# Frame.replace walk the whole list), and compacts the kept columns of P (`keep`, one Bool per column of P)
+# then the next ns. The answer's columns are put in the operator's order once, after the walk (CX.reord).
+# Exec.fc compacts every column by the same mask whatever their order (LAWS fc_filter_mask), so the columns
+# are those of the two-walk path.
+type SP is Data:
+  SP{np: Nat, keep: List<&2, Bool>, ns: Nat}
+
+# the first n columns of a list and the rest
+def CX.splitn.k(c: C.Named, r: List<&1, C.Named> & List<&1, C.Named>) -> List<&1, C.Named> & List<&1, C.Named>:
+  (a, b) = r
+  (c <> a, b)
+
+def CX.splitn(n: Nat, cols: List<&1, C.Named>) -> List<&1, C.Named> & List<&1, C.Named>:
+  match n cols:
+    case 0n cs:
+      (Nil{}, cs)
+    case _ Nil{}:
+      (Nil{}, Nil{})
+    case 1n+j c <> t:
+      CX.splitn.k(c, CX.splitn(j, t))
+
+# the first n columns (the rest dropped)
+def CX.ftk(n: Nat, cols: List<&1, C.Named>) -> List<&1, C.Named>:
+  match n cols:
+    case 0n _:
+      Nil{}
+    case _ Nil{}:
+      Nil{}
+    case 1n+j c <> t:
+      c <> CX.ftk(j, t)
+
+# the columns whose flag is True, followed by tail
+def CX.kp.k(b: Bool, c: C.Named, rest: List<&1, C.Named>) -> List<&1, C.Named>:
+  match b:
+    case True{}:
+      c <> rest
+    case False{}:
+      rest
+
+def CX.kp(keep: List<&2, Bool>, cols: List<&1, C.Named>, tail: List<&1, C.Named>) -> List<&1, C.Named>:
+  match keep cols:
+    case b <> kt c <> t:
+      CX.kp.k(b, c, CX.kp(kt, t, tail))
+    case _ _:
+      tail
+
+# the leaf's compaction (Exec.fc: walk 2's, Exec.fs.q's): the kept columns of P, then the next ns columns
+def CX.p3.cmp(sp: SP, f: C.Frame, rc: List<&1, C.Named>, m: Array<U32>, +k: U32) -> C.Frame:
+  match sp:
+    case SP{np, keep, ns}:
+      match f:
+        case C.Frame{h, pc}:
+          Q.Exec.fc(C.Frame{h, CX.kp(keep, pc, CX.ftk(ns, rc))}, m, k)
+
+def CX.p3.back(f: C.Frame, rc: List<&1, C.Named>) -> C.Frame:
+  match f:
+    case C.Frame{h, pc}:
+      C.Frame{h, List.append(&1, C.Named, pc, rc)}
+
+def CX.p3.fin(+sp: SP, rc: List<&1, C.Named>, st: V.F5St) -> W3:
+  match st:
+    case V.F5St{f, m, +k, err}:
+      match err:
+        case None{}:
+          W3{CX.lframe(CX.p3.cmp(sp, f, rc, m, k)), None{}}
+        case Some{e}:
+          W3{CX.lframe(CX.p3.back(f, rc)), Some{e}}
+
+# ---- the leaf's F5 passes (T5.5): the single-pass plans run on P's columns directly ----
+# Eval.f5.go reaches each conjunct's column through Frame.lend / Frame.replace (a walk of the column list,
+# a hollow stand-in, String.eq per column, the list rebuilt twice per column read). A leaf's P is a list of
+# one or two columns in a known order, so the one-pass plans (the filter bench's `qty > 50`: T5C; q1's
+# `ok & (qty > 50)`: T5BC; a bool column: T5B) take them by position and call the same pass functions
+# (Eval.f5.c / Eval.f5.b, the pred_count kernels) with the same arguments as Eval.f5.s.c / s.b / bc, and
+# answer the F5St Eval.f5.go answers (the columns back in place, the mask, the count, the first error);
+# any other plan runs Eval.f5.go itself on the P frame (LG).
+type LP is Data:
+  LC{op: X.BinOp, v: D.Scalar}
+  LB{}
+  LBC{op: X.BinOp, v: D.Scalar, bf: Bool}
+  LG{ps: List<&2, V.P5>}
+
+def CX.is1(pn: List<&2, String>, +x: String) -> Bool:
+  match pn:
+    case a <> Nil{}:
+      String.eq(a, x)
+    case _:
+      False{}
+
+def CX.is2(pn: List<&2, String>, +x: String, +y: String) -> Bool:
+  match pn:
+    case a <> b <> Nil{}:
+      Bool.and(String.eq(a, x), String.eq(b, y))
+    case _:
+      False{}
+
+def CX.lp.pick(ok: Bool, l: LP, ps: List<&2, V.P5>) -> LP:
+  match ok:
+    case True{}:
+      l
+    case False{}:
+      LG{ps}
+
+def CX.lp.bc(f: Bool, g: Bool, +op: X.BinOp, +v: D.Scalar, ps: List<&2, V.P5>) -> LP:
+  match f:
+    case True{}:
+      LBC{op, v, True{}}
+    case False{}:
+      CX.lp.pick(g, LBC{op, v, False{}}, ps)
+
+# the leaf plan of an F5 plan over P's names pn (P = the predicate's distinct columns, in reference order)
+def CX.lp(ps: List<&2, V.P5>, +pn: List<&2, String>) -> LP:
+  match ps:
+    case V.T5C{+op, +name, +v} <> Nil{}:
+      CX.lp.pick(CX.is1(pn, name), LC{op, v}, V.T5C{op, name, v} <> Nil{})
+    case V.T5B{+nb} <> Nil{}:
+      CX.lp.pick(CX.is1(pn, nb), LB{}, V.T5B{nb} <> Nil{})
+    case V.T5BC{+nb, +op, +name, +v} <> Nil{}:
+      CX.lp.bc(CX.is2(pn, nb, name), CX.is2(pn, name, nb), op, v, V.T5BC{nb, op, name, v} <> Nil{})
+    case other:
+      LG{other}
+
+def CX.lf5.bug() -> E.Err:
+  V.Eval.bug("operand dtype in a fused filter")
+
+def CX.lf5.no(+h: U32, pc: List<&1, C.Named>) -> V.F5St:
+  V.F5St{C.Frame{h, pc}, V.Eval.fz.ones(), 0, Some{CX.lf5.bug()}}
+
+# Eval.f5.s.k on a one-column P: the column put back (Frame.replace.c of its own place), a and va dropped
+def CX.lf5.r(+h: U32, +n0: String, r: V.F5R) -> V.F5St:
+  match r:
+    case V.F5R{ok, m, +k, a, va, c}:
+      V.F5St{C.Frame{h, C.Named{n0, c} <> Nil{}}, m, k, V.Eval.f5.err(ok, None{})}
+
+# T5C (Eval.f5.s.c with the initial mask: Eval.f5.c(op, ones, ones, c, v))
+def CX.lf5.c(+op: X.BinOp, v: D.Scalar, +h: U32, pc: List<&1, C.Named>) -> V.F5St:
+  match pc:
+    case C.Named{+n0, c0} <> Nil{}:
+      CX.lf5.r(h, n0, V.Eval.f5.c(op, V.Eval.fz.ones(), V.Eval.fz.ones(), c0, v))
+    case other:
+      CX.lf5.no(h, other)
+
+# T5B (Eval.f5.s.b with the initial mask: Eval.f5.b(ones, ones, c))
+def CX.lf5.b(+h: U32, pc: List<&1, C.Named>) -> V.F5St:
+  match pc:
+    case C.Named{+n0, c0} <> Nil{}:
+      CX.lf5.r(h, n0, V.Eval.f5.b(V.Eval.fz.ones(), V.Eval.fz.ones(), c0))
+    case other:
+      CX.lf5.no(h, other)
+
+# the two columns of P in their order (bf: the bool column first)
+def CX.lf5.two(bf: Bool, b: C.Named, x: C.Named) -> List<&1, C.Named>:
+  match bf:
+    case True{}:
+      b <> x <> Nil{}
+    case False{}:
+      x <> b <> Nil{}
+
+# Eval.f5.bc.f: the comparison column and the bool column (its data the mask so far, rebuilt with the
+# validity words handed back) put back
+def CX.lf5.bk(+h: U32, +nb: String, +n1: U32, +d1: Nat, mba: Bool, +nx: String, bf: Bool, r: V.F5R) -> V.F5St:
+  match r:
+    case V.F5R{ok, m, +k, a, va, c}:
+      V.F5St{C.Frame{h, CX.lf5.two(bf, C.Named{nb, C.CBool{n1, d1, V.Eval.fz.back(mba, va), a}}, C.Named{nx, c})}, m, k, V.Eval.f5.err(ok, None{})}
+
+def CX.lf5.be(+op: X.BinOp, v: D.Scalar, +h: U32, +nb: String, +n1: U32, +d1: Nat, xb: Array<U32>, +nx: String, cx: C.Column, bf: Bool, rv: Array<U32> & Bool) -> V.F5St:
+  (va, +mba) = rv
+  CX.lf5.bk(h, nb, n1, d1, mba, nx, bf, V.Eval.f5.c(op, xb, va, cx, v))
+
+# Eval.f5.bc.d / bc.e: the bool column's data is the mask so far and its validity the first validity words
+def CX.lf5.bd(+op: X.BinOp, v: D.Scalar, +h: U32, +bf: Bool, +nb: String, cb: C.Column, +nx: String, cx: C.Column) -> V.F5St:
+  match cb:
+    case C.CBool{+n1, +d1, vb1, xb}:
+      CX.lf5.be(op, v, h, nb, n1, d1, xb, nx, cx, bf, V.Eval.f5.vw(vb1))
+    case c2:
+      V.F5St{C.Frame{h, CX.lf5.two(bf, C.Named{nb, c2}, C.Named{nx, cx})}, V.Eval.fz.ones(), 0, Some{CX.lf5.bug()}}
+
+def CX.lf5.bo(+op: X.BinOp, v: D.Scalar, bf: Bool, +h: U32, +n0: String, c0: C.Column, +n1: String, c1: C.Column) -> V.F5St:
+  match bf:
+    case True{}:
+      CX.lf5.bd(op, v, h, True{}, n0, c0, n1, c1)
+    case False{}:
+      CX.lf5.bd(op, v, h, False{}, n1, c1, n0, c0)
+
+# T5BC (Eval.f5.bc's first pass: `nb & (name op v)` in one pred_count loop)
+def CX.lf5.bc(+op: X.BinOp, v: D.Scalar, bf: Bool, +h: U32, pc: List<&1, C.Named>) -> V.F5St:
+  match pc:
+    case C.Named{+n0, c0} <> C.Named{+n1, c1} <> Nil{}:
+      CX.lf5.bo(op, v, bf, h, n0, c0, n1, c1)
+    case other:
+      CX.lf5.no(h, other)
+
+def CX.lf5(lp: LP, +h: U32, pc: List<&1, C.Named>) -> V.F5St:
+  match lp:
+    case LC{op, v}:
+      CX.lf5.c(op, v, h, pc)
+    case LB{}:
+      CX.lf5.b(h, pc)
+    case LBC{op, v, bf}:
+      CX.lf5.bc(op, v, bf, h, pc)
+    case LG{ps}:
+      V.Eval.f5.go(ps, h, V.F5St{C.Frame{h, pc}, V.Eval.fz.ones(), 0, None{}})
+
+def CX.p3.s(+lp: LP, +sp: SP, +h: U32, r: List<&1, C.Named> & List<&1, C.Named>) -> W3:
+  (pc, rc) = r
+  CX.p3.fin(sp, rc, CX.lf5(lp, h, pc))
+
+# a leaf: Eval.f5.mask's passes over P's columns (the kept count from pred_count), then the compaction
+def CX.p3.leaf(+lp: LP, +sp: SP, f: C.Frame) -> W3:
+  match sp:
+    case SP{+np, keep, ns}:
+      match f:
+        case C.Frame{+h, cols}:
+          CX.p3.s(lp, SP{np, keep, ns}, h, CX.splitn(np, cols))
+
+def CX.p3.e(a: Maybe<&2, E.Err>, b: Maybe<&2, E.Err>) -> Maybe<&2, E.Err>:
+  match a:
+    case Some{e}:
+      Some{e}
+    case None{}:
+      b
+
+def CX.p3.j(x: W3, y: W3) -> W3:
+  match x:
+    case W3{fa, ea}:
+      match y:
+        case W3{fb, eb}:
+          W3{CX.fj(fa, fb), CX.p3.e(ea, eb)}
+
+# over the frame tree (CX.ftn): one parallel let per node and nothing else before it (the FTB arm is
+# unreachable: CX.ftn's flag sends such a tree to the flat path before the walk)
+def CX.p3(+lp: LP, +sp: SP, t: FT) -> W3:
+  match t:
+    case FTL{f, rd}:
+      CX.p3.leaf(lp, sp, f)
+    case FTB{f}:
+      W3{f, None{}}
+    case FTN{rows, lrows, l, r}:
+      x y = CX.p3(lp, sp, l) CX.p3(lp, sp, r)
+      CX.p3.j(x, y)
+
 # ==== the walk of a with_columns / select: all k expressions per leaf (F9), the input borrowed ====
 
 type WS is Type:
@@ -1103,40 +1582,53 @@ def CX.ev.add(+name: String, outs: List<&1, C.Named>, r: C.Frame & E.ResT(C.Colu
     case Done{c}:
       WS{f, C.Named{name, c} <> outs, True{}}
 
-def CX.ev.step(+e: X.Expr, st: WS) -> WS:
+def CX.ev.s2(+name: String, code: List<&2, V.Instr>, st: WS) -> WS:
   match st:
     case WS{f, outs, ok}:
       match ok:
         case True{}:
-          CX.ev.add(X.Expr.name(e), outs, CX.efull(f, e))
+          CX.ev.add(name, outs, CX.erun(code, f))
         case False{}:
           WS{f, outs, False{}}
 
-# every expression in order against the same leaf frame (Eval.full: a literal broadcasts to the leaf's
-# rows, which is the frame's broadcast leaf by leaf); the first failure stops the leaf
-def CX.ev(es: List<&2, X.Expr>, st: WS) -> WS:
-  match es:
+def CX.ev.step(ce: CEx, st: WS) -> WS:
+  match ce:
+    case CEx{+name, code}:
+      CX.ev.s2(name, code, st)
+
+# every expression (compiled once for the walk, CX.cel) in order against the same leaf frame (Eval.full's
+# run: a literal broadcasts to the leaf's rows, which is the frame's broadcast leaf by leaf); the first
+# failure stops the leaf
+def CX.ev(cs: List<&2, CEx>, st: WS) -> WS:
+  match cs:
     case Nil{}:
       st
-    case e <> +t:
-      CX.ev(t, CX.ev.step(e, st))
+    case c <> +t:
+      CX.ev(t, CX.ev.step(c, st))
 
 type W2 is Type:
   W2{f: CH.CFrame, o: CH.CFrame, ok: Bool}
 
-def CX.w2.k(+n: U32, r: WS) -> W2:
+def CX.w2.k(+n: U32, w: Bool, r: WS) -> W2:
   match r:
     case WS{f, outs, ok}:
       match ok:
         case True{}:
-          W2{CX.lframe(CX.unwf(f)), CH.CFrame{n, CX.lcols(List.reverse(&1, C.Named, outs))}, True{}}
+          W2{CX.lframe(CX.unwf.if(w, f)), CH.CFrame{n, CX.lcols(List.reverse(&1, C.Named, outs))}, True{}}
         case False{}:
-          W2{CX.lframe(CX.unwf(f)), CH.CFrame{n, Nil{}}, False{}}
+          W2{CX.lframe(CX.unwf.if(w, f)), CH.CFrame{n, Nil{}}, False{}}
 
-def CX.w2.leaf(+es: List<&2, X.Expr>, rd: List<&1, DN>, f: C.Frame) -> W2:
+def CX.w2.e(+cs: List<&2, CEx>, f: C.Frame, rd: List<&1, DN>, +w: Bool) -> W2:
   match f:
     case C.Frame{+n, cols}:
-      CX.w2.k(n, CX.ev(es, WS{CX.wrapf(C.Frame{n, cols}, rd), Nil{}, True{}}))
+      CX.w2.k(n, w, CX.ev(cs, WS{CX.wrapf(C.Frame{n, cols}, rd), Nil{}, True{}}))
+
+def CX.w2.d(+cs: List<&2, CEx>, f: C.Frame, r: List<&1, DN> & Bool) -> W2:
+  (rd, +w) = r
+  CX.w2.e(cs, f, rd, w)
+
+def CX.w2.leaf(+cs: List<&2, CEx>, rd: List<&1, DN>, f: C.Frame) -> W2:
+  CX.w2.d(cs, f, CX.dany(rd))
 
 def CX.w2.j(x: W2, y: W2) -> W2:
   match x:
@@ -1146,14 +1638,14 @@ def CX.w2.j(x: W2, y: W2) -> W2:
           W2{CX.fj(fa, fb), CX.fj(oa, ob), Bool.and(ka, kb)}
 
 # over the frame tree (CX.ft): one parallel let per node and nothing else before it
-def CX.w2(+es: List<&2, X.Expr>, t: FT) -> W2:
+def CX.w2(+cs: List<&2, CEx>, t: FT) -> W2:
   match t:
     case FTL{f, rd}:
-      CX.w2.leaf(es, rd, f)
+      CX.w2.leaf(cs, rd, f)
     case FTB{f}:
       W2{f, CH.CFrame{0, Nil{}}, False{}}
     case FTN{rows, lrows, l, r}:
-      x y = CX.w2(es, l) CX.w2(es, r)
+      x y = CX.w2(cs, l) CX.w2(cs, r)
       CX.w2.j(x, y)
 
 # ==== frame-level column operations on the trees ====
@@ -1323,37 +1815,78 @@ def CX.skel(f: CH.CFrame) -> CH.CFrame & CH.Skel:
 type WI is Type:
   WI{st: CStats, f: CH.CFrame, ds: List<&1, DN>, rd: List<&1, DN>, ok: Bool, sk: CH.Skel}
 
-def CX.wi.d(st: CStats, ds: List<&1, DN>, rd: List<&1, DN>, ok: Bool, r: CH.CFrame & CH.Skel) -> WI:
-  (f, sk) = r
-  WI{st, f, ds, rd, ok, sk}
-
-def CX.wi.c(st: CStats, dd: List<&1, DN> & List<&1, DN>, r: CH.CFrame & Bool) -> WI:
+def CX.wi.c(st: CStats, +sk: CH.Skel, dd: List<&1, DN> & List<&1, DN>, r: CH.CFrame & Bool) -> WI:
   (ds, rd) = dd
   (f, ok) = r
-  CX.wi.d(st, ds, rd, ok, CX.skel(f))
+  WI{st, f, ds, rd, ok, sk}
 
-def CX.wi.b(st: CStats, +h: U32, +refs: List<&2, String>, u: UD) -> WI:
+# CH.CFrame.check with the first column's skeleton already known (CFrame.check.k's test: the skeleton's
+# rows are the height, every column fits it, the names are unique; a frame with no columns holds)
+def CX.wfc(+h: U32, +sk: CH.Skel, cols: List<&1, CH.CNamed>) -> CH.CFrame & Bool:
+  match cols:
+    case Nil{}:
+      (CH.CFrame{h, Nil{}}, True{})
+    case c <> t:
+      CH.CFrame.check.j(h, U32.is_eq(CH.Skel.rows(sk), h), CH.CCols.fits(c <> t, sk, h, Nil{}))
+
+def CX.wi.b(st: CStats, +h: U32, +sk: CH.Skel, +refs: List<&2, String>, u: UD) -> WI:
   match u:
     case UD{cols, ds}:
-      CX.wi.c(st, CX.rclone(ds, refs), CH.CFrame.check(CH.CFrame{h, cols}))
+      CX.wi.c(st, sk, CX.rclone(ds, refs), CX.wfc(h, sk, cols))
 
-def CX.wi.a(+refs: List<&2, String>, r: CStats & CH.CFrame) -> WI:
-  (st, f) = r
+def CX.wi.a(+refs: List<&2, String>, st: CStats, r: CH.CFrame & CH.Skel) -> WI:
+  (f, +sk) = r
   match f:
     case CH.CFrame{+h, cols}:
-      CX.wi.b(st, h, refs, CX.undict(cols))
+      CX.wi.b(st, h, sk, refs, CX.undict(cols))
 
-def CX.wi.r(+g: Nat, r: CStats & CH.CFrame) -> CStats & CH.CFrame:
+# the first column's skeleton and the leaf count CFrame.leaves reports (0 without columns)
+def CX.wsk.k(+h: U32, nm: String, rest: List<&1, CH.CNamed>, r: CH.CColumn & CH.Skel) -> CH.CFrame & (CH.Skel & U32):
+  (c, +sk) = r
+  (CH.CFrame{h, CH.CNamed{nm, c} <> rest}, (sk, CH.Skel.leaves(sk)))
+
+def CX.wsk(f: CH.CFrame) -> CH.CFrame & (CH.Skel & U32):
+  match f:
+    case CH.CFrame{+h, cols}:
+      match cols:
+        case Nil{}:
+          (CH.CFrame{h, Nil{}}, (CH.KLeaf{h}, 0))
+        case CH.CNamed{nm, c} <> rest:
+          CX.wsk.k(h, nm, rest, CH.CColumn.skel(c))
+
+def CX.wi.k(go: Bool, +g: Nat, f: CH.CFrame, sk: CH.Skel) -> CH.CFrame & CH.Skel:
+  match go:
+    case True{}:
+      CX.skel(CH.CFrame.rechunk(g, f))
+    case False{}:
+      (f, sk)
+
+def CX.wi.h(+g: Nat, sk: CH.Skel, +leaves: U32, f: CH.CFrame) -> CH.CFrame & CH.Skel:
+  match f:
+    case CH.CFrame{+h, cols}:
+      CX.wi.k(U32.is_lt(U32.shl(h), U32.shln(leaves, g)), g, CH.CFrame{h, cols}, sk)
+
+def CX.wi.u(+g: Nat, f: CH.CFrame, r: CH.Skel & U32) -> CH.CFrame & CH.Skel:
+  (sk, +leaves) = r
+  CX.wi.h(g, sk, leaves, f)
+
+def CX.wi.s(+g: Nat, r: CH.CFrame & (CH.Skel & U32)) -> CH.CFrame & CH.Skel:
+  (f, sl) = r
+  CX.wi.u(g, f, sl)
+
+def CX.wi.r(+g: Nat, +refs: List<&2, String>, r: CStats & CH.CFrame) -> WI:
   (st, f) = r
-  (st, CH.CFrame.rebalance(g, f))
+  CX.wi.a(refs, st, CX.wi.s(g, CX.wsk(f)))
 
 # the rechunk policy (16.1) runs HERE, lazily: a frame that rows were dropped from (filter, head, slice,
 # concat of small parts) is rebalanced when the next walk reads it (occupancy under a half: every subtree
-# that fits 2^g becomes one leaf), not when it is made: a flatten boundary or the result's to_frame after a
-# filter would only copy the rows twice. The amortised bound is unchanged (a walk's input is rebalanced
-# at most once, and only after its row count halved).
+# that fits 2^g becomes one leaf; CH.CFrame.rebalance's rule), not when it is made: a flatten boundary or
+# the result's to_frame after a filter would only copy the rows twice. The amortised bound is unchanged (a
+# walk's input is rebalanced at most once, and only after its row count halved). T5.5: the first column's
+# skeleton is computed ONCE for the occupancy test, the WFCFrame check and the walk (CFrame.rebalance,
+# CFrame.check and CX.skel each walked it before), and again only when the frame was rechunked.
 def CX.wi(+g: Nat, +refs: List<&2, String>, st: CStats, x: XF) -> WI:
-  CX.wi.a(refs, CX.wi.r(g, CX.xchk(g, st, x)))
+  CX.wi.r(g, refs, CX.xchk(g, st, x))
 
 # back to the flat path from a walk's input (WFCFrame failed, or a leaf failed: the reference answers)
 def CX.bail(op: FOp, st: CStats, f: CH.CFrame, ds: List<&1, DN>) -> XR:
@@ -1898,6 +2431,123 @@ def CX.hoist.a(+es: List<&2, X.Expr>, +as: List<&2, X.Expr>, st: CStats, x: XF) 
 def CX.hoist(+es: List<&2, X.Expr>, st: CStats, x: XF) -> HO:
   CX.hoist.a(es, List.reverse(&2, X.Expr, CX.aggsl(es, Nil{})), st, x)
 
+# a hoisted predicate without the Alias that keeps a hoisted expression's output name (CX.subt): a
+# predicate's name is never read, and Eval.f5.plan sees through no Alias (`qty >= max(qty)` is F5 once its
+# aggregation is a literal)
+def CX.unalias(e: X.Expr) -> X.Expr:
+  match e:
+    case X.Alias{e2, n}:
+      CX.unalias(e2)
+    case other:
+      other
+
+# ---- the one-walk filter (T5.5; CX.p3): shared by filter and the Filter + plain Select root ----
+
+# a chunked frame's columns in the order of the names (CX.pick)
+def CX.reord(f: CH.CFrame, +ns: List<&2, String>) -> CH.CFrame:
+  match f:
+    case CH.CFrame{h, cols}:
+      CH.CFrame{h, CX.pick(cols, ns)}
+
+# onames: the answer's columns in order; inames: the operator's input columns in order (the flat path)
+def CX.f1.w(+onames: List<&2, String>, st: CStats, ds: List<&1, DN>, w: W3) -> XR:
+  match w:
+    case W3{f, err}:
+      match err:
+        case None{}:
+          CX.pushc(CStats.walk(st, 1), CX.redictf(CX.reord(f, onames), ds))
+        case Some{e}:
+          XR{CStats.walk(st, 1), Fail{e}}
+
+def CX.f1.t(+lp: LP, +sp: SP, +onames: List<&2, String>, +inames: List<&2, String>, op: FOp, st: CStats, ds: List<&1, DN>, r: FT & Bool) -> XR:
+  (t, ok) = r
+  match ok:
+    case True{}:
+      CX.f1.w(onames, st, ds, CX.p3(lp, sp, t))
+    case False{}:
+      CX.bail(op, st, CX.reord(CX.ftf(t), inames), ds)
+
+# the frame tree built once (CX.ftn: no Dict copies, rd is empty because F5 reads no Str column), then ONE
+# fork tree (CX.p3)
+def CX.f1.wi(+lp: LP, +sp: SP, +onames: List<&2, String>, +inames: List<&2, String>, op: FOp, w: WI) -> XR:
+  match w:
+    case WI{st, f, ds, rd, ok, +sk}:
+      match ok:
+        case True{}:
+          CX.f1.t(lp, sp, onames, inames, op, st, ds, CX.ftn(sk, CX.cut(f)))
+        case False{}:
+          CX.bail(op, st, CX.reord(f, inames), ds)
+
+# ---- the layout (SP) ----
+
+def CX.dedup.s(hit: Bool, +x: String, seen: List<&2, String>, out: List<&2, String>) -> List<&2, String> & List<&2, String>:
+  match hit:
+    case True{}:
+      (seen, out)
+    case False{}:
+      (x <> seen, x <> out)
+
+def CX.dedup.step(+x: String, st: List<&2, String> & List<&2, String>) -> List<&2, String> & List<&2, String>:
+  (+seen, out) = st
+  CX.dedup.s(C.Names.has(seen, x), x, seen, out)
+
+def CX.dedup.go(xs: List<&2, String>, st: List<&2, String> & List<&2, String>) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      (seen, out) = st
+      List.reverse(&2, String, out)
+    case +x <> t:
+      CX.dedup.go(t, CX.dedup.step(x, st))
+
+# the names in order, each once
+def CX.dedup(xs: List<&2, String>) -> List<&2, String>:
+  CX.dedup.go(xs, (Nil{}, Nil{}))
+
+# the names of xs not in ys (order kept)
+def CX.minus.k(hit: Bool, +x: String, rest: List<&2, String>) -> List<&2, String>:
+  match hit:
+    case True{}:
+      rest
+    case False{}:
+      x <> rest
+
+def CX.minus(xs: List<&2, String>, +ys: List<&2, String>) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case +x <> t:
+      CX.minus.k(C.Names.has(ys, x), x, CX.minus(t, ys))
+
+# for each name of xs: is it in ys
+def CX.flags(xs: List<&2, String>, +ys: List<&2, String>) -> List<&2, Bool>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case +x <> t:
+      C.Names.has(ys, x) <> CX.flags(t, ys)
+
+def CX.nlen(xs: List<&2, String>) -> Nat:
+  List.length(&2, String, xs)
+
+# a filter: P (the predicate's distinct columns), then every other column of the frame (names fs)
+def CX.f5l.f(+pn: List<&2, String>, +fs: List<&2, String>) -> SP:
+  SP{CX.nlen(pn), CX.flags(pn, pn), CX.nlen(CX.minus(fs, pn))}
+
+# a Filter + plain Select of the names sel: P, then the selected columns P does not hold
+def CX.f5l.s(+pn: List<&2, String>, +sel: List<&2, String>) -> SP:
+  SP{CX.nlen(pn), CX.flags(pn, sel), CX.nlen(CX.minus(sel, pn))}
+
+# the named columns in the order of the names (a name met again, or absent, is skipped; the rest dropped:
+# the callers name every column)
+def CX.xpick(x: XF, +ns: List<&2, String>) -> XF:
+  match x:
+    case XFlat{f}:
+      XFlat{CX.fpick(f, ns)}
+    case XChk{f}:
+      match f:
+        case CH.CFrame{h, cols}:
+          XChk{CH.CFrame{h, CX.pick(cols, ns)}}
+
 # ---- filter ----
 
 def CX.filter.w2(+g: Nat, st: CStats, ds: List<&1, DN>, +sk: CH.Skel, w: W1) -> XR:
@@ -1914,21 +2564,40 @@ def CX.filter.w1(+g: Nat, +pred: X.Expr, st: CStats, ds: List<&1, DN>, +sk: CH.S
         case False{}:
           CX.bail(FUn{Q.IFilter{pred}}, CStats.walk(st, 1), f, ds)
 
-def CX.filter.wi(+g: Nat, +pred: X.Expr, +p2: X.Expr, w: WI) -> XR:
+def CX.filter.wi(+g: Nat, +pred: X.Expr, +pc: PC, w: WI) -> XR:
   match w:
     case WI{st, f, ds, rd, ok, +sk}:
       match ok:
         case True{}:
-          CX.filter.w1(g, pred, st, ds, sk, CX.p1(p2, CX.ft(sk, CX.cut(f), CX.dclone(rd))))
+          CX.filter.w1(g, pred, st, ds, sk, CX.p1(pc, CX.ft(sk, CX.cut(f), CX.dclone(rd))))
         case False{}:
           CX.bail(FUn{Q.IFilter{pred}}, st, f, ds)
+
+# the predicate compiled once (CX.pc, against the input's schema): F5 runs the one-walk filter, the
+# general path the mask walk and the compaction walk, a type error the flat path (the walks read the
+# Dictionary columns of the hoisted predicate p2 only)
+def CX.filter.f5(+g: Nat, +pred: X.Expr, +ps: List<&2, V.P5>, +pn: List<&2, String>, +fs: List<&2, String>, st: CStats, x: XF) -> XR:
+  CX.f1.wi(CX.lp(ps, pn), CX.f5l.f(pn, fs), fs, fs, FUn{Q.IFilter{pred}}, CX.wi(g, pn, st, CX.xpick(x, List.append(&2, String, pn, fs))))
+
+def CX.filter.p(+g: Nat, +pred: X.Expr, +p2: X.Expr, +fs: List<&2, String>, pc: PC, st: CStats, x: XF) -> XR:
+  match pc:
+    case PF5{ps}:
+      CX.filter.f5(g, pred, ps, CX.dedup(X.Expr.refs(p2)), fs, st, x)
+    case PEv{code}:
+      CX.filter.wi(g, pred, PEv{code}, CX.wi(g, X.Expr.refs(p2), st, x))
+    case PBad{}:
+      CX.flat(FUn{Q.IFilter{pred}}, st, x)
+
+def CX.filter.s(+g: Nat, +pred: X.Expr, +p2: X.Expr, st: CStats, r: XF & List<&2, S.Field>) -> XR:
+  (x, +s) = r
+  CX.filter.p(g, pred, p2, CX.names(s), CX.pc(p2, s), st, x)
 
 def CX.filter.h(+g: Nat, +pred: X.Expr, ho: HO) -> XR:
   match ho:
     case HO{st, x, es2, ok}:
       match ok:
         case True{}:
-          CX.filter.wi(g, pred, CX.vhead(es2, pred), CX.wi(g, X.Expr.refs(pred), st, x))
+          CX.filter.s(g, pred, CX.unalias(CX.vhead(es2, pred)), st, CX.xschema(x))
         case False{}:
           CX.flat(FUn{Q.IFilter{pred}}, st, x)
 
@@ -1954,8 +2623,9 @@ def CX.filter.a(+g: Nat, +pred: X.Expr, st: CStats, r: XF & List<&2, S.Field>) -
   (x, s) = r
   CX.filter.b(g, pred, st, x, CX.gok(V.Eval.filter(CX.ghost(s), pred)))
 
-# Eval.filter, chunked: the ghost (static errors), the mask walk, the compaction walk (the ragged result is
-# rebalanced lazily, by the next walk that reads it: CX.wi)
+# Eval.filter, chunked: the ghost (static errors), then one walk (an F5 predicate: mask and compaction per
+# leaf) or the mask walk and the compaction walk (the ragged result is rebalanced lazily, by the next walk
+# that reads it: CX.wi)
 def CX.filter(+g: Nat, +pred: X.Expr, st: CStats, x: XF) -> XR:
   CX.filter.a(g, pred, st, CX.xschema(x))
 
@@ -1977,21 +2647,38 @@ def CX.fsel.w1(+g: Nat, +pred: X.Expr, +es: List<&2, X.Expr>, st: CStats, ds: Li
         case False{}:
           CX.bail(FFs{pred, es}, CStats.walk(st, 1), f, ds)
 
-def CX.fsel.wi(+g: Nat, +pred: X.Expr, +p2: X.Expr, +es: List<&2, X.Expr>, w: WI) -> XR:
+def CX.fsel.wi(+g: Nat, +pred: X.Expr, +pc: PC, +es: List<&2, X.Expr>, w: WI) -> XR:
   match w:
     case WI{st, f, ds, rd, ok, +sk}:
       match ok:
         case True{}:
-          CX.fsel.w1(g, pred, es, st, ds, sk, CX.p1(p2, CX.ft(sk, CX.cut(f), CX.dclone(rd))))
+          CX.fsel.w1(g, pred, es, st, ds, sk, CX.p1(pc, CX.ft(sk, CX.cut(f), CX.dclone(rd))))
         case False{}:
           CX.bail(FFs{pred, es}, st, f, ds)
+
+# as CX.filter.p; the one walk compacts the selected names only (Exec.fs.q; the layout SP, CX.f5l.s)
+def CX.fsel.f5(+g: Nat, +pred: X.Expr, +es: List<&2, X.Expr>, +ps: List<&2, V.P5>, +pn: List<&2, String>, +sel: List<&2, String>, +fs: List<&2, String>, st: CStats, x: XF) -> XR:
+  CX.f1.wi(CX.lp(ps, pn), CX.f5l.s(pn, sel), sel, fs, FFs{pred, es}, CX.wi(g, pn, st, CX.xpick(x, List.append(&2, String, pn, List.append(&2, String, sel, fs)))))
+
+def CX.fsel.p(+g: Nat, +pred: X.Expr, +p2: X.Expr, +es: List<&2, X.Expr>, +fs: List<&2, String>, pc: PC, st: CStats, x: XF) -> XR:
+  match pc:
+    case PF5{ps}:
+      CX.fsel.f5(g, pred, es, ps, CX.dedup(X.Expr.refs(p2)), V.Eval.names(es), fs, st, x)
+    case PEv{code}:
+      CX.fsel.wi(g, pred, PEv{code}, es, CX.wi(g, X.Expr.refs(p2), st, x))
+    case PBad{}:
+      CX.flat(FFs{pred, es}, st, x)
+
+def CX.fsel.s(+g: Nat, +pred: X.Expr, +p2: X.Expr, +es: List<&2, X.Expr>, st: CStats, r: XF & List<&2, S.Field>) -> XR:
+  (x, +s) = r
+  CX.fsel.p(g, pred, p2, es, CX.names(s), CX.pc(p2, s), st, x)
 
 def CX.fsel.h(+g: Nat, +pred: X.Expr, +es: List<&2, X.Expr>, ho: HO) -> XR:
   match ho:
     case HO{st, x, es2, ok}:
       match ok:
         case True{}:
-          CX.fsel.wi(g, pred, CX.vhead(es2, pred), es, CX.wi(g, X.Expr.refs(pred), st, x))
+          CX.fsel.s(g, pred, CX.unalias(CX.vhead(es2, pred)), es, st, CX.xschema(x))
         case False{}:
           CX.flat(FFs{pred, es}, st, x)
 
@@ -2031,41 +2718,120 @@ type WK is Data:
 # with_columns: the outputs put into the input, whose Dictionary columns get their Dicts back (no output
 # overwrites one: CX.route); select: the outputs alone, fresh columns, so NO Dict is put back (an output
 # may carry the name of a Dictionary input, e.g. `cast(d, u32)` is named d)
-def CX.ws.fin(k: WK, f: CH.CFrame, o: CH.CFrame, ds: List<&1, DN>) -> CH.CFrame:
+# the walked columns back with the columns set aside (T5.5: a with_columns walk reads only the columns its
+# expressions read), in the input's order (names: the input's names, in order)
+def CX.wjoin(+names: List<&2, String>, aside: List<&1, CH.CNamed>, f: CH.CFrame) -> CH.CFrame:
+  match f:
+    case CH.CFrame{h, cols}:
+      CH.CFrame{h, CX.pick(List.append(&1, CH.CNamed, cols, aside), names)}
+
+def CX.ws.fin.w(ocols: List<&1, CH.CNamed>, f: CH.CFrame, ds: List<&1, DN>) -> CH.CFrame:
+  match f:
+    case CH.CFrame{h, cols}:
+      CX.redictf(CH.CFrame{h, CX.cputs(ocols, cols)}, ds)
+
+def CX.ws.fin(k: WK, +names: List<&2, String>, aside: List<&1, CH.CNamed>, f: CH.CFrame, o: CH.CFrame, ds: List<&1, DN>) -> CH.CFrame:
   match k:
     case KWith{}:
-      match f:
-        case CH.CFrame{h, cols}:
-          match o:
-            case CH.CFrame{ho, ocols}:
-              CX.redictf(CH.CFrame{h, CX.cputs(ocols, cols)}, ds)
+      match o:
+        case CH.CFrame{ho, ocols}:
+          CX.ws.fin.w(ocols, CX.wjoin(names, aside, f), ds)
     case KSel{}:
       o
 
-def CX.ws.w(+k: WK, op: FOp, st: CStats, ds: List<&1, DN>, w: W2) -> XR:
+def CX.ws.w(+k: WK, +names: List<&2, String>, aside: List<&1, CH.CNamed>, op: FOp, st: CStats, ds: List<&1, DN>, w: W2) -> XR:
   match w:
     case W2{f, o, ok}:
       match ok:
         case True{}:
-          CX.pushc(CStats.walk(st, 1), CX.ws.fin(k, f, o, ds))
+          CX.pushc(CStats.walk(st, 1), CX.ws.fin(k, names, aside, f, o, ds))
         case False{}:
-          CX.bail(op, CStats.walk(st, 1), f, ds)
+          CX.bail(op, CStats.walk(st, 1), CX.wjoin(names, aside, f), ds)
 
-def CX.ws.wi(+k: WK, +es: List<&2, X.Expr>, op: FOp, w: WI) -> XR:
+def CX.ws.wi(+k: WK, +cs: List<&2, CEx>, +names: List<&2, String>, aside: List<&1, CH.CNamed>, op: FOp, w: WI) -> XR:
   match w:
     case WI{st, f, ds, rd, ok, sk}:
       match ok:
         case True{}:
-          CX.ws.w(k, op, st, ds, CX.w2(es, CX.ft(sk, CX.cut(f), CX.dclone(rd))))
+          CX.ws.w(k, names, aside, op, st, ds, CX.w2(cs, CX.ft(sk, CX.cut(f), CX.dclone(rd))))
         case False{}:
-          CX.bail(op, st, f, ds)
+          CX.bail(op, st, CX.wjoin(names, aside, f), ds)
+
+# the columns named in ns (walked) and the others (set aside), each in frame order; with no name, the first
+# column is walked (the walk's skeleton is its first column's: the outputs take the frame's shape)
+def CX.split.p(hit: Bool, nm: String, c: CH.CColumn, r: List<&1, CH.CNamed> & List<&1, CH.CNamed>) -> List<&1, CH.CNamed> & List<&1, CH.CNamed>:
+  match hit:
+    case True{}:
+      (a, b) = r
+      (CH.CNamed{nm, c} <> a, b)
+    case False{}:
+      (a, b) = r
+      (a, CH.CNamed{nm, c} <> b)
+
+def CX.split(cols: List<&1, CH.CNamed>, +ns: List<&2, String>) -> List<&1, CH.CNamed> & List<&1, CH.CNamed>:
+  match cols:
+    case Nil{}:
+      (Nil{}, Nil{})
+    case CH.CNamed{+nm, c} <> rest:
+      CX.split.p(C.Names.has(ns, nm), nm, c, CX.split(rest, ns))
+
+def CX.wsplit(+ns: List<&2, String>, cols: List<&1, CH.CNamed>) -> List<&1, CH.CNamed> & List<&1, CH.CNamed>:
+  match ns:
+    case Nil{}:
+      match cols:
+        case Nil{}:
+          (Nil{}, Nil{})
+        case c <> t:
+          (c <> Nil{}, t)
+    case n <> t:
+      CX.split(cols, n <> t)
+
+# a walk's input already chunked and rebalanced (CX.wi without CX.xchk and the occupancy test)
+def CX.wi0(+refs: List<&2, String>, st: CStats, f: CH.CFrame) -> WI:
+  CX.wi.a(refs, st, CX.skel(f))
+
+def CX.wk.b(+cs: List<&2, CEx>, +refs: List<&2, String>, +names: List<&2, String>, op: FOp, st: CStats, +h: U32, r: List<&1, CH.CNamed> & List<&1, CH.CNamed>) -> XR:
+  (wcs, aside) = r
+  CX.ws.wi(KWith{}, cs, names, aside, op, CX.wi0(refs, st, CH.CFrame{h, wcs}))
+
+def CX.wk.r(+cs: List<&2, CEx>, +refs: List<&2, String>, +names: List<&2, String>, op: FOp, st: CStats, f: CH.CFrame) -> XR:
+  match f:
+    case CH.CFrame{+h, cols}:
+      CX.wk.b(cs, refs, names, op, st, h, CX.wsplit(refs, cols))
+
+def CX.wk.a(+g: Nat, +cs: List<&2, CEx>, +refs: List<&2, String>, +names: List<&2, String>, op: FOp, r: CStats & CH.CFrame) -> XR:
+  (st, f) = r
+  CX.wk.r(cs, refs, names, op, st, CH.CFrame.rebalance(g, f))
+
+# with_columns: the frame chunked and rebalanced WHOLE (CX.wi's policy), then only the columns the
+# expressions read go through the walk (cut, checked, joined back); the others are set aside on their trees
+# and put back in their places after it (a q2 reads 3 of its 7 columns). A select walks every column of its
+# input, which CX.sel.c already pruned to the columns its expressions read.
+def CX.ws.q(+g: Nat, k: WK, +cs: List<&2, CEx>, +refs: List<&2, String>, +names: List<&2, String>, op: FOp, st: CStats, x: XF) -> XR:
+  match k:
+    case KWith{}:
+      CX.wk.a(g, cs, refs, names, op, CX.xchk(g, st, x))
+    case KSel{}:
+      CX.ws.wi(KSel{}, cs, names, Nil{}, op, CX.wi(g, refs, st, x))
+
+# the expressions compiled once (CX.cel, against the input's schema); a type error: the flat path
+def CX.ws.p(+g: Nat, +k: WK, +es2: List<&2, X.Expr>, +s: List<&2, S.Field>, op: FOp, st: CStats, x: XF, m: Maybe<&2, List<&2, CEx>>) -> XR:
+  match m:
+    case Some{cs}:
+      CX.ws.q(g, k, cs, V.Eval.refs(es2), CX.names(s), op, st, x)
+    case None{}:
+      CX.flat(op, st, x)
+
+def CX.ws.s(+g: Nat, +k: WK, +es2: List<&2, X.Expr>, op: FOp, st: CStats, r: XF & List<&2, S.Field>) -> XR:
+  (x, +s) = r
+  CX.ws.p(g, k, es2, s, op, st, x, CX.cel(es2, s))
 
 def CX.ws.h(+g: Nat, +k: WK, +es: List<&2, X.Expr>, op: FOp, ho: HO) -> XR:
   match ho:
     case HO{st, x, es2, ok}:
       match ok:
         case True{}:
-          CX.ws.wi(k, es2, op, CX.wi(g, V.Eval.refs(es), st, x))
+          CX.ws.s(g, k, es2, op, st, CX.xschema(x))
         case False{}:
           CX.flat(op, st, x)
 

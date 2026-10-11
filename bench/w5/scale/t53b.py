@@ -7,6 +7,11 @@ microseconds per run). PROVISIONAL numbers: shared machine, the 1-minute load re
   python3 -I bench/w5/scale/t53b.py OUT.jsonl [--ops q1 q2 filter q3 q5] [--threads 1 4 12] [--procs 5] [--reps 6]
   python3 -I bench/w5/scale/t53b.py --report OUT.jsonl
 
+T5.5: `--exe LABEL=PATH ...` runs several binaries interleaved (baseline / candidate; default: cand=build/t53/t53)
+and `--modes 3 4` adds mode 4, the REFERENCE compute batched the same way (Exec.run_phys over 8 flat envs), so
+the 1-thread chunked-vs-reference ratio comes from the same schedule. Records carry `exe` and `mode`; the report
+has one block per (exe, mode). Mode 4 runs with the LAST binary only (the reference is the same code in all).
+
 One process per (op, threads, round), interleaved; a process's sample is the median of its reps after the
 first two (microseconds per run, /1000 = ms). The report gives medians, raw samples, the load range and the
 12-vs-1 and 4-vs-1 ratios, with the 16.8 thresholds beside them.
@@ -25,20 +30,27 @@ PARAM = {"filter": 50}
 G2 = {"q1": 3.0, "q2": 3.0, "q3": 2.0, "q5": 1.5, "filter": 3.0}
 
 
-def one(op, threads, reps):
-    argv = [EXE, "--threads", str(threads), SALES, PRODS, op, "3", str(reps), str(PARAM.get(op, 0))]
+def one(op, threads, reps, exe=EXE, mode=3, label="cand"):
+    argv = [exe, "--threads", str(threads), SALES, PRODS, op, str(mode), str(reps), str(PARAM.get(op, 0))]
     l0 = os.getloadavg()[0]
     p = subprocess.run(argv, cwd=ROOT, capture_output=True, text=True, timeout=1800)
     l1 = os.getloadavg()[0]
     j = json.loads(p.stdout.strip().splitlines()[-1])
     rows = [r for r in j["reps"] if r]
     us = [r[1] for r in rows]
-    return {"op": op, "threads": threads, "us": us, "sample_ms": S.median(us[2:]) / 1000 if len(us) > 2 else us[-1] / 1000,
+    return {"exe": label, "mode": mode, "op": op, "threads": threads, "us": us, "sample_ms": S.median(us[2:]) / 1000 if len(us) > 2 else us[-1] / 1000,
             "out_ms": S.median(r[2] for r in rows), "chk": j["chk"], "load0": round(l0, 2), "load1": round(l1, 2), "stats": j["stats"]}
 
 
 def report(path):
-    recs = [json.loads(l) for l in open(path) if l.strip()]
+    allr = [json.loads(l) for l in open(path) if l.strip()]
+    keys = sorted({(r.get("exe", "cand"), r.get("mode", 3)) for r in allr})
+    for k in keys:
+        print(f"\n## exe {k[0]}, mode {k[1]} ({'chunked, pre-chunked source' if k[1] == 3 else 'reference, flat env'})")
+        report1([r for r in allr if (r.get("exe", "cand"), r.get("mode", 3)) == k])
+
+
+def report1(recs):
     cells = {}
     for r in recs:
         cells.setdefault((r["op"], r["threads"]), []).append(r)
@@ -74,18 +86,26 @@ def main():
     ap.add_argument("--threads", type=int, nargs="+", default=[1, 4, 12])
     ap.add_argument("--procs", type=int, default=5)
     ap.add_argument("--reps", type=int, default=6)
+    ap.add_argument("--exe", nargs="+", default=[f"cand={EXE}"], help="LABEL=PATH, run interleaved")
+    ap.add_argument("--modes", type=int, nargs="+", default=[3])
     a = ap.parse_args()
     if a.report:
         report(a.out)
         return
     with open(a.out, "a") as f:
+        exes = [e.split("=", 1) for e in a.exe]
         for rnd in range(a.procs):
             for op in a.ops:
                 for t in a.threads:
-                    r = one(op, t, a.reps)
-                    f.write(json.dumps(r) + "\n")
-                    f.flush()
-                    print(f"r{rnd} {op} t{t} sample={r['sample_ms']:.2f} ms us={r['us']} load={r['load0']}", flush=True)
+                    for mode in a.modes:
+                        for label, path in exes:
+                            if mode == 4 and label != exes[-1][0]:
+                                continue
+                            r = one(op, t, a.reps, os.path.join(ROOT, path), mode, label)
+                            f.write(json.dumps(r) + "\n")
+                            f.flush()
+                            print(f"r{rnd} {label} m{mode} {op} t{t} sample={r['sample_ms']:.2f} ms us={r['us']} "
+                                  f"load={r['load0']}", flush=True)
     report(a.out)
 
 
