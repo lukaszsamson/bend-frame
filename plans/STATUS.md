@@ -323,3 +323,10 @@ Baseline: 3612482 (v0.1 RC). The v0.1 data contract (DESIGN §15) does not chang
   Still running at pause: W0 harness agent (bench/m2/). Open decisions: freeze G2/G3
   thresholds (§16.8, §17.8 propose revisions: q4 >=1.3x, parse >=2x end to end) on a quiet machine.
   Next: W1g (Sort+Head, now T3.4), W2 (§17.7), W3/W4 (§16.7).
+- Merged W0 harness (bench/m2/, 41 frozen workloads, expected outputs frozen from 3612482,
+  provisional baseline: q1-q6 13/9/24/48/21/111 ms at 1M 1 thread, no thread scaling;
+  parse 5.5 s / 2.7 s; RSS 1.3 GB is the reader). Gate runs need load < 2 (the host
+  runs other workloads; not yet available).
+- Wave 2 running: W2.1+W2.2 (coder, ranks; new modules), T3.1 (liveness/moves + law),
+  T3.2+T3.4 (sort pipeline, Sort+Head gather + law), T3.3 (group_by moves),
+  W6.1+W6.2 (reader producer + lane; new modules).
