@@ -965,6 +965,65 @@ def Frame.get_cloned(f: Frame, +name: String) -> Frame & E.ResT(Column):
     case Frame{+h, cols}:
       Frame.get_cloned.k(h, name, Cols.cg.go(cols, name, (Nil{}, None{})))
 
+# ---- Frame: lend (the move / borrow of DESIGN.md 16.2 rule 1) ----------------------------------
+
+# (a hollow stand-in, the column): the stand-in has the column's constructor (dtype) and
+# length and one empty slot. It holds no rows: it is never read, only replaced
+# (Frame.replace) or dropped with its frame
+def Column.hollow(c: Column) -> Column & Column:
+  match c:
+    case CBool{+len, depth, valid, data}:
+      (CBool{len, 0n, AllValid{}, Array.new(U32, 0n, 0)}, CBool{len, depth, valid, data})
+    case CU32{+len, depth, valid, data}:
+      (CU32{len, 0n, AllValid{}, Array.new(U32, 0n, 0)}, CU32{len, depth, valid, data})
+    case CI32{+len, depth, valid, data}:
+      (CI32{len, 0n, AllValid{}, Array.new(U32, 0n, 0)}, CI32{len, depth, valid, data})
+    case CF32{+len, depth, valid, data}:
+      (CF32{len, 0n, AllValid{}, Array.new(F32, 0n, 0.0)}, CF32{len, depth, valid, data})
+    case CStr{+len, depth, valid, data}:
+      (CStr{len, 0n, AllValid{}, ST.SRaw{Array.new(String, 0n, "")}}, CStr{len, depth, valid, data})
+
+def Cols.lend.k(n: String, acc: List<&1, Named>, r: Column & Column) -> List<&1, Named> & Maybe<&1, Column>:
+  (hole, c) = r
+  (Named{n, hole} <> acc, Some{c})
+
+def Cols.lend.step(eq: Bool, n: String, col: Column, r: List<&1, Named> & Maybe<&1, Column>) -> List<&1, Named> & Maybe<&1, Column>:
+  match eq:
+    case True{}:
+      (acc, slot) = r
+      Cols.lend.k(n, acc, Column.hollow(col))
+    case False{}:
+      (acc, slot) = r
+      (Named{n, col} <> acc, slot)
+
+def Cols.lend.go(cols: List<&1, Named>, +name: String, r: List<&1, Named> & Maybe<&1, Column>) -> List<&1, Named> & Maybe<&1, Column>:
+  match cols:
+    case Nil{}:
+      Cols.replace.fin(r)
+    case Named{+n, col} <> rest:
+      Cols.lend.go(rest, name, Cols.lend.step(String.eq(name, n), n, col, r))
+
+def Frame.lend.k(+h: U32, name: String, r: List<&1, Named> & Maybe<&1, Column>) -> Frame & E.ResT(Column):
+  (cols, slot) = r
+  match slot:
+    case None{}:
+      (Frame{h, cols}, Fail{E.ColumnNotFound{name}})
+    case Some{c}:
+      (Frame{h, cols}, Done{c})
+
+# the named column itself, moved out of the frame with NO copy; a hollow stand-in keeps its
+# place, so names, dtypes, order and height are those of the input. The same walk as
+# get_cloned with Column.hollow in place of Column.clone: the column answered is the one
+# get_cloned would copy, and Frame.replace(f2, name, c) gives the input frame back (LAWS.bend
+# lend_observes). Callers use it for a reference that is the column's last use within an
+# operator whose output does not keep the input column (a move: select, an overwritten
+# with_columns input, group_by), or put the column back with Frame.replace after a kernel
+# handed it back (a borrow: unique's keys); DESIGN.md 16.2 rule 1
+def Frame.lend(f: Frame, +name: String) -> Frame & E.ResT(Column):
+  match f:
+    case Frame{+h, cols}:
+      Frame.lend.k(h, name, Cols.lend.go(cols, name, (Nil{}, None{})))
+
 def Cols.clone.k(+n: String, cc: Column & Column, r: List<&1, Named> & List<&1, Named>) -> List<&1, Named> & List<&1, Named>:
   (c1, c2) = cc
   (a, b) = r

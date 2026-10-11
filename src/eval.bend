@@ -47,7 +47,10 @@ type Slot is Type:
   Slot{k: SKind, col: C.Column}
 
 # postfix code of an Expr (Alias compiles to nothing; a typed null literal
-# `Cast{Lit{SNull}, t}` compiles to IConst{SNull, t})
+# `Cast{Lit{SNull}, t}` compiles to IConst{SNull, t}). Eval.compile emits ICol for every
+# column reference (Frame.get_cloned: a copy, the frame keeps the column); the liveness pass
+# Eval.mark turns the last reference of a column the operator does not keep into IMove
+# (Frame.lend: the column itself, no copy). DESIGN.md 16.2 rule 1
 type Instr is Data:
   IConst{v: D.Scalar, t: D.DType}
   ICol{name: String}
@@ -61,6 +64,7 @@ type Instr is Data:
   IIsIn{vals: List<&2, D.Scalar>}
   IClip{lo: D.Scalar, hi: D.Scalar}
   IStr{op: X.StrPredOp, pat: String}
+  IMove{name: String}
 
 # clip bounds as one Data parameter of a map (words / f32)
 type W2 is Data:
@@ -1808,6 +1812,65 @@ def Eval.compile(e: X.Expr, +acc: List<&2, Instr>) -> List<&2, Instr>:
     case X.StrPred{op, e2, p}:
       Eval.compile(e2, IStr{op, p} <> acc)
 
+# ---- liveness: moves (DESIGN.md 16.2 rule 1) -------------------------------------------------
+#
+# A static pass over the postfix code, with the operator's other expressions as Data: it runs
+# after the static checks (Eval.static, Grp.static) and before any data work, and never changes
+# what is computed, only whether a column reference copies (ICol, Frame.get_cloned) or takes
+# the column out of the frame (IMove, Frame.lend). A reference becomes IMove when
+#   * the operator does not keep the input column (`all`: select and group_by consume their
+#     input; otherwise the name must be in `dead`: with_columns' overwritten inputs), and
+#   * it is the LAST reference of that name in the operator: none later in this expression's
+#     code and none in `later`, the references of the expressions evaluated after it.
+# So with k references to a column, the first k - 1 copy and the last one moves; a column the
+# output keeps (filter's frame, with_columns' untouched inputs) is never moved. The hollow
+# stand-in Frame.lend leaves is never read: every later reference was counted.
+
+# the column names every expression reads, in evaluation order, with repetitions (the
+# operator-wide use count: X.Expr.refs is exactly the ICols of Eval.compile)
+def Eval.refs(es: List<&2, X.Expr>) -> List<&2, String>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case e <> t:
+      List.append(&2, String, X.Expr.refs(e), Eval.refs(t))
+
+# the columns the code reads (ICol and IMove), in order
+def Eval.reads(code: List<&2, Instr>) -> List<&2, String>:
+  match code:
+    case Nil{}:
+      Nil{}
+    case ICol{n} <> t:
+      n <> Eval.reads(t)
+    case IMove{n} <> t:
+      n <> Eval.reads(t)
+    case i <> t:
+      Eval.reads(t)
+
+def Eval.mark.c(mv: Bool, n: String) -> Instr:
+  match mv:
+    case True{}:
+      IMove{n}
+    case False{}:
+      ICol{n}
+
+def Eval.mark.i(i: Instr, +rest: List<&2, Instr>, +all: Bool, +dead: List<&2, String>, +later: List<&2, String>) -> Instr:
+  match i:
+    case ICol{+n}:
+      Eval.mark.c(Bool.and(Bool.or(all, C.Names.has(dead, n)), Bool.not(Bool.or(C.Names.has(later, n), C.Names.has(Eval.reads(rest), n)))), n)
+    case other:
+      other
+
+# the code with every last reference of a movable column turned into IMove (LAWS.bend
+# mark_moves_ok: no IMove{n} of the result is followed by a read of n, in the code or in `later`,
+# and n is not kept by the operator; mark_reads: the names read, in order, are unchanged)
+def Eval.mark(code: List<&2, Instr>, +all: Bool, +dead: List<&2, String>, +later: List<&2, String>) -> List<&2, Instr>:
+  match code:
+    case Nil{}:
+      Nil{}
+    case i <> +t:
+      Eval.mark.i(i, t, all, dead, later) <> Eval.mark(t, all, dead, later)
+
 # ---- the stack machine ---------------------------------------------------------------------
 
 def Eval.wrap(k: SKind, r: E.ResT(C.Column)) -> E.ResT(Slot):
@@ -1966,6 +2029,8 @@ def Eval.exec(+h: U32, i: Instr, f: C.Frame, stk: List<&1, Slot>) -> EvSt:
   match i:
     case ICol{n}:
       Eval.push_col(stk, C.Frame.get_cloned(f, n))
+    case IMove{n}:
+      Eval.push_col(stk, C.Frame.lend(f, n))
     case IConst{v, t}:
       EvSt{f, Done{Slot{KLit{}, Eval.unit(v, t)} <> stk}}
     case IBin{op}:
@@ -2036,6 +2101,27 @@ def Eval.slot.s(+e: X.Expr, r: C.Frame & List<&2, S.Field>) -> C.Frame & E.ResT(
 def Eval.slot(f: C.Frame, +e: X.Expr) -> C.Frame & E.ResT(Slot):
   Eval.slot.s(e, S.Frame.schema(f))
 
+# Eval.slot with the liveness facts (all, dead, later; Eval.mark): the same type check, the
+# same instructions and the same answer, except that the last reference of a movable column
+# takes it out of the frame (a hollow stand-in stays) instead of copying it
+def Eval.slot.mh(+e: X.Expr, +all: Bool, +dead: List<&2, String>, +later: List<&2, String>, r: C.Frame & U32) -> C.Frame & E.ResT(Slot):
+  (f, +h) = r
+  Eval.fin(Eval.run(Eval.mark(Eval.compile(e, Nil{}), all, dead, later), h, EvSt{f, Done{Nil{}}}))
+
+def Eval.slot.mt(+e: X.Expr, +all: Bool, +dead: List<&2, String>, +later: List<&2, String>, f: C.Frame, t: E.Res(D.DType)) -> C.Frame & E.ResT(Slot):
+  match t:
+    case Fail{err}:
+      (f, Fail{err})
+    case Done{t2}:
+      Eval.slot.mh(e, all, dead, later, C.Frame.height(f))
+
+def Eval.slot.ms(+e: X.Expr, +all: Bool, +dead: List<&2, String>, +later: List<&2, String>, r: C.Frame & List<&2, S.Field>) -> C.Frame & E.ResT(Slot):
+  (f, s) = r
+  Eval.slot.mt(e, all, dead, later, f, A.Ana.type(e, s))
+
+def Eval.slot.mv(f: C.Frame, +e: X.Expr, +all: Bool, +dead: List<&2, String>, +later: List<&2, String>) -> C.Frame & E.ResT(Slot):
+  Eval.slot.ms(e, all, dead, later, S.Frame.schema(f))
+
 # the column of a slot: a literal broadcasts to the height h; an aggregation
 # stays 1 row unless `full`
 def Eval.unslot.k(full: Bool, k: SKind) -> SKind:
@@ -2065,8 +2151,10 @@ def Eval.mode.a(+full: Bool, r: C.Frame & E.ResT(Slot)) -> C.Frame & E.ResT(C.Co
   (f, rs) = r
   Eval.mode.b(full, rs, C.Frame.height(f))
 
-# the frame comes back unchanged; Col clones (Frame.get_cloned); a literal-only
-# result has the frame's height; an aggregation answers a 1-row column
+# the frame comes back unchanged; Col clones (Frame.get_cloned: the caller keeps the frame, so
+# a move cannot work here; Eval.expr_mv / Eval.full_mv are the moving entries for an operator
+# that consumes its frame); a literal-only result has the frame's height; an aggregation
+# answers a 1-row column
 def Eval.expr(f: C.Frame, e: X.Expr) -> C.Frame & E.ResT(C.Column):
   Eval.mode.a(False{}, Eval.slot(f, e))
 
@@ -2074,6 +2162,19 @@ def Eval.expr(f: C.Frame, e: X.Expr) -> C.Frame & E.ResT(C.Column):
 # to the frame's height (with_columns / filter semantics)
 def Eval.full(f: C.Frame, e: X.Expr) -> C.Frame & E.ResT(C.Column):
   Eval.mode.a(True{}, Eval.slot(f, e))
+
+# Eval.expr / Eval.full for an operator that consumes its input frame (group_by's keys and
+# aggregation inputs): `later` is the references of the expressions the operator evaluates
+# after e (Eval.refs of the rest); the last reference of every other column moves it out of
+# the frame (Eval.mark with all = True), so the frame that comes back may hold hollow
+# stand-ins for the moved columns and must not be read except by those later expressions.
+# Same answer as Eval.expr / Eval.full (LAWS.bend lend_observes: a moved column is the column
+# get_cloned copies)
+def Eval.expr_mv(f: C.Frame, +e: X.Expr, +later: List<&2, String>) -> C.Frame & E.ResT(C.Column):
+  Eval.mode.a(False{}, Eval.slot.mv(f, e, True{}, Nil{}, later))
+
+def Eval.full_mv(f: C.Frame, +e: X.Expr, +later: List<&2, String>) -> C.Frame & E.ResT(C.Column):
+  Eval.mode.a(True{}, Eval.slot.mv(f, e, True{}, Nil{}, later))
 
 def Eval.scalar.b(r: C.Column & D.Scalar) -> E.Res(D.Scalar):
   (c, s) = r
@@ -2164,25 +2265,27 @@ def Eval.many.add(+name: String, acc: List<&1, Out>, r: C.Frame & E.ResT(Slot)) 
   (f, rs) = r
   Eval.many.add2(name, acc, rs, f)
 
-def Eval.many.step.r(+e: X.Expr, f: C.Frame, r: E.ResT(List<&1, Out>)) -> SelSt:
+def Eval.many.step.r(+e: X.Expr, +all: Bool, +dead: List<&2, String>, +later: List<&2, String>, f: C.Frame, r: E.ResT(List<&1, Out>)) -> SelSt:
   match r:
     case Fail{err}:
       SelSt{f, Fail{err}}
     case Done{acc}:
-      Eval.many.add(X.Expr.name(e), acc, Eval.slot(f, e))
+      Eval.many.add(X.Expr.name(e), acc, Eval.slot.mv(f, e, all, dead, later))
 
-def Eval.many.step(e: X.Expr, st: SelSt) -> SelSt:
+def Eval.many.step(e: X.Expr, +all: Bool, +dead: List<&2, String>, +later: List<&2, String>, st: SelSt) -> SelSt:
   match st:
     case SelSt{f, r}:
-      Eval.many.step.r(e, f, r)
+      Eval.many.step.r(e, all, dead, later, f, r)
 
-# evaluate every expression against the same frame; outputs newest first
-def Eval.many(es: List<&2, X.Expr>, st: SelSt) -> SelSt:
+# evaluate every expression against the same frame (the input snapshot: a moved column is never
+# read again, Eval.mark); outputs newest first. `all` / `dead`: the columns the operator's output
+# does not keep (Eval.mark)
+def Eval.many(es: List<&2, X.Expr>, +all: Bool, +dead: List<&2, String>, st: SelSt) -> SelSt:
   match es:
     case Nil{}:
       st
-    case e <> t:
-      Eval.many(t, Eval.many.step(e, st))
+    case e <> +t:
+      Eval.many(t, all, dead, Eval.many.step(e, all, dead, Eval.refs(t), st))
 
 # outputs (newest first) into named columns in expression order, every 1-row
 # output broadcast to n rows
@@ -2206,12 +2309,13 @@ def Eval.select.c(row: Bool, st: SelSt) -> E.ResT(C.Frame):
     case SelSt{f, r}:
       Eval.select.d(row, r, C.Frame.height(f))
 
+# select consumes its input: every column's last reference moves it (Eval.mark, all = True)
 def Eval.select.b(chk: Maybe<&2, E.Err>, f: C.Frame, +es: List<&2, X.Expr>, row: Bool) -> E.ResT(C.Frame):
   match chk:
     case Some{e}:
       Fail{e}
     case None{}:
-      Eval.select.c(row, Eval.many(es, SelSt{f, Done{Nil{}}}))
+      Eval.select.c(row, Eval.many(es, True{}, Nil{}, SelSt{f, Done{Nil{}}}))
 
 def Eval.select.a(+es: List<&2, X.Expr>, r: C.Frame & List<&2, S.Field>) -> E.ResT(C.Frame):
   (f, +s) = r
@@ -2253,12 +2357,17 @@ def Eval.wc.c(st: SelSt) -> E.ResT(C.Frame):
     case SelSt{f, r}:
       Eval.wc.d(r, C.Frame.height(f))
 
+# with_columns keeps its input frame: only an input column an output overwrites (its name is an
+# output name, Eval.names) is dead after the operator, so only those move (their last
+# reference; Frame.replace then puts the output in the stand-in's place). Every other
+# reference copies: the frame keeps the column and a borrow would need every operation to
+# hand its operand back (the hand-back kernels are W4's, DESIGN.md 16.3)
 def Eval.wc.b(chk: Maybe<&2, E.Err>, f: C.Frame, +es: List<&2, X.Expr>) -> E.ResT(C.Frame):
   match chk:
     case Some{e}:
       Fail{e}
     case None{}:
-      Eval.wc.c(Eval.many(es, SelSt{f, Done{Nil{}}}))
+      Eval.wc.c(Eval.many(es, False{}, Eval.names(es), SelSt{f, Done{Nil{}}}))
 
 def Eval.wc.a(+es: List<&2, X.Expr>, r: C.Frame & List<&2, S.Field>) -> E.ResT(C.Frame):
   (f, s) = r
@@ -2305,6 +2414,10 @@ def Eval.filter.go(r: C.Frame & E.ResT(C.Column)) -> E.ResT(C.Frame):
   (f, rc) = r
   Eval.filter.go2(rc, f)
 
+# the predicate's column references copy (Eval.full): filter keeps every input column (they are
+# all compacted by the mask), so none is dead after the operator and a move cannot work; a
+# borrow would need the predicate's operations to hand their operands back (W4's fused
+# pred_count kernel, DESIGN.md 16.3 F5)
 def Eval.filter.t(t: D.DType, f: C.Frame, +pred: X.Expr) -> E.ResT(C.Frame):
   match t:
     case D.TBool{}:

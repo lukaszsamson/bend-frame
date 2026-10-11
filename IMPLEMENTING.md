@@ -1443,3 +1443,76 @@ bench/w2/results/w2_provisional.txt / .jsonl; tables: `python3 bench/w2/tables.p
 - **Dependency cycle to resolve in W2.3**: ranks.bend imports sort.bend for `Radix.sort` (one use,
   `Rx.sorted`), so sort.bend cannot import ranks.bend. Move `Radix.*` (self-contained, depends only on
   kernels) to its own module that both import, or put the str_words wiring in a module above both.
+## T3.1 (liveness pass, moves and borrows in Eval; Frame.lend; LAWS section 16)
+
+What was done: a static liveness pass `Eval.mark` over each expression's postfix code turns the LAST
+reference of a column the operator does not keep (`all`: select; `dead`: with_columns' overwritten
+inputs) into `IMove{n}`, executed by `Frame.lend` (no copy); earlier references stay `ICol`
+(`Frame.get_cloned`). `Eval.full_mv` / `Eval.expr_mv` + `Eval.refs` are the entries for group_by
+(T3.3 wires them in groupby.bend); `unique` borrows its keys (lend, `G.Grp.codes` hands them back,
+`Frame.replace`). filter and with_columns' untouched inputs still copy (see below).
+
+Performance lessons (C read and copy bytes measured; numbers PROVISIONAL, load 13-22):
+
+- **Count copy bytes in the emitted C, not in Bend.** `Array.clone` lowers to the runtime's
+  `blk_copy`; patching the emitted C of `bench/m2/driver.bend` with a relaxed atomic byte counter in
+  `blk_copy` (and `blk_node`) that is printed at every `IO.now` gives exact, deterministic copy bytes per
+  driver phase / stage with no `src/` change (a pure Bend counter would have to be threaded through
+  eval, group_by, sort and join). Build: `bend driver.bend -o x.c`, patch, `clang -std=c11 -O3 x.c
+  -lpthread -lm` (what `bend -o` runs when `#define BANGS 0`). Three patch points, each matched
+  exactly once: declare `static unsigned long long bf_copy_bytes` before `// Blk`; after `u32 cls =
+  blk_span(a);` in `blk_copy` add `__atomic_fetch_add(&bf_copy_bytes, 8ull << cls,
+  __ATOMIC_RELAXED)`; at the top of `io_now_run` `fprintf(stderr, "BF_COPY bytes=%llu\n", ..)`. In
+  `phases` mode the compute phase is the difference between the 4th and 5th line; in `stages` stage
+  k is lines 4+2k and 5+2k. (Not committed: bench/m2 is not T3.1's; worth a `run.py copybytes` later.)
+- **Where q1-q5's copies are (1M rows, compute phase, bytes, baseline 3612482 = HEAD = this task):**
+  q1 8.4 MB (filter's predicate copies ok, qty), q2 16.8 MB (qty, price, discount + its mask),
+  q3 37.8 MB (q2 + group_by 21.0 MB: key codes copied twice, three aggregate inputs), q4 12.6 MB
+  (the three sort keys), q5 16.8 MB (join 4.2 + group_by 12.6). Total 92.3 MB. Lazy q1's Select is
+  already a move (`Frame.select_names`), so T3.1's evaluator moves remove none of these: group_by's
+  33.6 MB are T3.3's (with `Eval.full_mv`), sort's 12.6 MB T3.2's (with `Frame.lend` / `replace`),
+  and the 25.2 MB of filter / with_columns copies need operations that hand their operand back (W4's
+  fused kernels). The eager stages show the move: `select_q1` 3.1 MB -> 0.
+- **A borrow needs a kernel that hands the buffer back.** Every Eval operation consumes its operands
+  (`Kernel.map` / `zip` drop their inputs), so a column a frame keeps (filter, with_columns' untouched
+  inputs) cannot be lent to the stack machine without a copy; only the last reference of a column the
+  output does NOT keep can move. Where a hand-back exists it works: `G.Grp.codes` returns its key
+  columns, so `unique` lends them and puts them back (one full copy per key fewer).
+- In-place reuse was not attempted (D2 rule 2: measured equal to a fresh output).
+
+Bend / proof lessons:
+
+- **Post-pass, not a new compiler.** `Eval.mark` rewrites the code `Eval.compile` emits (as
+  `Exec.mark` does for Sources); `Eval.compile`, `Eval.run`, `Eval.full`, `Eval.expr` keep their
+  meaning, so the P2 proofs (over `Eval.compile`'s code) checked unchanged after adding the `IMove`
+  constructor and its `Eval.exec` case: no proof splits exhaustively on `V.Instr`.
+- **A positional take keeps everything schema-based identical.** `Frame.lend` leaves a hollow stand-in
+  (same constructor and length, one empty slot) at the column's position, so `S.Frame.schema`, the
+  per-expression type check of `Eval.slot`, `Frame.height` and with_columns' in-place
+  `Frame.replace` see the input frame; a plain `Frame.take` would have reordered with_columns'
+  outputs.
+- **The moved column EQUALS the copy as a term**: `Array.clone` rebuilds an equal tree
+  (`PC.clone_eq`), so `lend_observes` states `lend(f, n) == (holedf(f, n), Done{c})`,
+  `get_cloned(f, n) == (f, Done{c})` and `replace(holedf(f, n), n, c) == Done{f}` with ONE witness c;
+  no cell reasoning was needed.
+- **Each walk gets its own copy of the column list.** The three walks (cg, lend, replace) and
+  `Cols.names` each match the list; an affine list can feed one matching lemma, so `cols_dup`
+  (clone_w per column, two copies equal to the original) is applied three times and the goal is
+  rewritten from the original to each copy (`%ea : {... _ ...}`).
+- **A walk with a before/after phase is ONE induction with the phase as a Bool**
+  (`RepHyp(dn, ..)` / `RepRes(dn, ..)` matched on dn): the IH is an affine forall applied once per
+  step, so two lemmas (searching / done) would each need the rest's IH.
+- `List.reverse.go(acc, x <> xs)` is stuck (it matches its first list) but `List.reverse.go(x <>
+  acc, xs)` reduces to it: state loop results as `reverse.go(acc, cols)` and the IH converts.
+- Rewriting a HYPOTHESIS into the goal's form uses the equation as is (`%eb : P; hc` turns
+  `P[b]` into `P[a]`); rewriting the GOAL toward something provable uses `Equal.sym`. Every
+  first-try failure in this task was this direction.
+- A proof that spells a production condition (`mr_c(cond, n, ..)`) breaks on any mutation of that
+  condition, wherever the law's claim is: `mutation_check.sh` reports the Eval.mark mutations at
+  `Laws.mark_reads`. Restating the proof's condition to the mutated one moves the failure to
+  `mmo_c` (the law's own requirement), which is the semantic evidence (checked once by hand).
+- **Shared scratchpad**: the session scratchpad held another agent's `bisect.py`, which hijacked
+  `import bisect` of a script run from there; run helper scripts with `python3 -I` from a private
+  subdirectory.
+- `bench/m2/run.py run` checks EVERY input of `inputs.json`, not only the selected workloads': a
+  worktree needs all of `bench/data` (symlink the big shared files, `bench/m2/gen.py` the rest).

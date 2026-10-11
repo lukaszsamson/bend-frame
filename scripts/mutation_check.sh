@@ -69,6 +69,21 @@ MUTATIONS = [
     ("Eval.fit: does not broadcast", "src/eval.bend",
      "def Eval.fit(k: SKind, c: C.Column, +n: U32) -> C.Column:\n  match k:\n    case KFull{}:\n      c\n    case _:\n      Eval.bcast(c, n)",
      "def Eval.fit(k: SKind, c: C.Column, +n: U32) -> C.Column:\n  match k:\n    case KFull{}:\n      c\n    case _:\n      c"),
+    # T3.1 (LAWS section 16, lend_observes): a move must answer the column itself and leave the
+    # stand-in in its place, at the column the name picks
+    ("Frame.lend: answers the hollow stand-in and leaves the column in the frame", "src/column.bend",
+     "(Named{n, hole} <> acc, Some{c})", "(Named{n, c} <> acc, Some{hole})"),
+    ("Frame.lend: lends every column but the named one", "src/column.bend",
+     "Cols.lend.go(rest, name, Cols.lend.step(String.eq(name, n), n, col, r))",
+     "Cols.lend.go(rest, name, Cols.lend.step(Bool.not(String.eq(name, n)), n, col, r))"),
+    # T3.1 (mark_moves_ok): the liveness pass may move only the last read of a column the
+    # operator does not keep
+    ("Eval.mark: moves a column a later expression still reads", "src/eval.bend",
+     "Bool.not(Bool.or(C.Names.has(later, n), C.Names.has(Eval.reads(rest), n)))",
+     "Bool.not(C.Names.has(Eval.reads(rest), n))"),
+    ("Eval.mark: moves a column the operator keeps", "src/eval.bend",
+     "Eval.mark.c(Bool.and(Bool.or(all, C.Names.has(dead, n)), ",
+     "Eval.mark.c(Bool.and(True{}, "),
 ]
 
 
