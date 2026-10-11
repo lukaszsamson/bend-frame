@@ -1378,3 +1378,68 @@ all numbers provisional, shared machine, load recorded in results/*.jsonl).
   the evaluation is a clone, now gone for the last reference; for computed expressions "provably identical" needs
   an expression-equality plus a purity argument, and the scatters still differ per op, so it buys the evaluation
   only. Fusing or forking the scatters (T5.4) and the dictionary / numeric key clone in `Grp.encode_keep` stay.
+## W2.1/W2.2 (src/hcode.bend flat coder, src/ranks.bend rank stage; bench/w2/)
+
+Production versions of the W0 spikes (DESIGN 17.3), not wired into any caller yet (W2.3). Numbers
+are PROVISIONAL (1 thread, fresh processes, load 7-24, medians of 3-5, raw samples in
+bench/w2/results/w2_provisional.txt / .jsonl; tables: `python3 bench/w2/tables.py`).
+
+- **Results (1 thread).** Coder, 1M rows: distinct 142 ms vs 17,132 ms (121x), 41-char prefix 320 vs
+  76,657 (240x), skew 126 vs 8,282, all-equal 143 vs 687, low-cardinality 91 vs 586, uni 100 vs 918.
+  Per-row growth 100k -> 1M (new ns/row): distinct 80 -> 142 (1.77x, the worst), prefix 1.45x, skew
+  1.41x, equal / low / uni 0.95-1.01x (threshold 2x). Sort words, 1M: distinct 365 ms vs 18,711 (51x),
+  prefix 841 vs 99,355, skew 206 vs 10,020; growth <= 1.26x. `ST.Dict.ranks` of 1M entries 7,595 -> 452 ms.
+  Rank stage of 1M distinct short keys: pack 107 ms, rounds + rank scatter 108 ms, offsets 2 ms.
+  The byte count in the hash walk costs 0.5-0.9 ns per code point (all-equal 28-char rows: 140 vs 116 ms,
+  noise elsewhere): `Hc.code.h` skips it for callers that need no ranks.
+- **The emitted C of the real program** (bench/w2/w2.bend imports frame.bend; `python3
+  bench/w2/spins.py build/w2/w2.c <param names>` names a spin loop by its Bend parameters and prints its
+  count / copy / alloc ops). Coder: `Hc.go` (params n, i, b, mask, fuel, first, st x8) -> `Hc.row.h` ->
+  `Hc.seek` / `Hc.look` / `Hc.put`: every one of them zero `term_keep`, `rfc_seal`, `heap_alloc`,
+  `blk_copy`; `Hc.put` has 7 `blk_read` + 7 `blk_write` (the three table arrays, codes, first rows, byte
+  lengths), `Hc.look` 2 reads. The 8-field state `HC` / `LK` rides the spin loop's registers. NO per-row
+  allocation. The cons-string walks: `Hc.fnv` (hash + byte count) is a `term_peek` BORROW (no atomic,
+  no free: the string param is a `+` variable at every call site); `Hc.eq` (only on a hash hit) and
+  `Hc.blen` / `Str.u8` (the pack walk) take their cells (`ctr_take` per cell: an atomic and a copy of the
+  fields when the cell is shared with the row array). Cost: the hash walk ~2-4 ns per code point (T6),
+  each hash hit adds an equality walk of both strings (all-equal 28-char rows: 143 ns per row total).
+  Single-scrutinee `Hc.eq`, a second use of the string in the pack, and a `+s` binder did NOT turn the
+  taking walks into borrows (no change in `ctr_take` or time): the borrow is decided by who calls.
+- **Hot types are not allocation.** `hot.py` reports `RX`, `RG`, `KS` of the rank rounds as hot (they
+  appear as the first half of a Sigma `RX & U32`), but the key / regroup loops are still flat spins:
+  the pair and the record travel as `o[]` outputs and registers, zero `heap_alloc`. Check the loop, not
+  only the constructor flag.
+- **Array.get past the end wraps in BOTH backends** (the index is masked by the size: `get(a, 5)` on 2
+  slots reads slot 1). The read-ahead loops rely on it (`fr[k]`, `bl[k]` at the end) and so does
+  `pk[o + j]` past an entry's words (masked to 0 by the validity factor).
+- **The interpreter refuses a Chr above U+10FFFF** (`bend: 1114112 is not a Unicode scalar value`, a
+  run-time error); the native runtime holds any U32. The code-point fallback of the packing (DESIGN
+  17.3.2) can therefore only be tested natively: bench/w2/w2diff.bend + `make w2-diff` (shape `wide`:
+  U+110000, U+7FFFFFFF, U+80000000, U+FFFFFFFF, mixed with NUL and ordinary characters, a string and its
+  NUL extension). tests/ (interpreter) cover everything else.
+- **Fallback detection costs nothing on ASCII.** The largest code point is recorded only in the
+  four-byte branch of the packer (`Pb.wide`); a column with a code point above U+10FFFF is packed again one
+  code point per word (rounds of 2 words = 2 code points, lengths = code point counts).
+- **Template that returns a record.** `~hash: String -> HB` with `HB{h, b}` (a Data record) is fine as a
+  template result (like `R<U>` in kernels.bend); the template lambda is `~(s => Hc.hash(s))`; a def name
+  cannot be passed bare. A constant template (`Hc.hash.const`) forces every probe to compare strings.
+- **Compiler rules met** (all `--check-only` errors): `Bool.pick` evaluates both arms, so a String used in
+  several arms needs a `+` binder; helpers above callers (also in tests); a pair destructured into `+`
+  fields and an unused field is fine, a Sigma `+` last component is not; `match` scrutinees must be
+  parameters (the rank round carries `go: Bool` into `Rx.round.if`); `U32.shrn(x, 6n)` with a literal Nat
+  beats `U32.div(x, 64)`; branch-free multiplier state (`m` = 2^24, 2^16, 2^8, 1 and `m >> 8 | full << 24`)
+  replaces the spike's `j == 0 / 1 / 2` selects.
+- **Tests.** tests/hcode_diff.bend and tests/ranks_diff.bend: differential against `Sort.str_codes` /
+  `Sort.str_words` / `ST.Dict.ranks` on 11 shapes (tests/lib/w2gen.bend), sizes 0 .. 4097, first = 0 / 1,
+  flip 0 / 2^32 - 1, constant and 4-valued template hashes; hcode_unit / ranks_unit: hand-computed pinned
+  values, real FNV-1a 32-bit collisions (found by search: k32004 / k261338, ...). bench/w2/mutation.py:
+  20 mutants of the two files, every one killed except the documented equivalents (hash ignored on a
+  slot, probe step 2 at load <= 1/2, a monotone recoding of continuation bytes, the offset sentinel, code
+  point counts as byte counts in the fallback).
+- **Ranks cost where.** For 1M distinct 10-char keys: coder 140, pack 107, rounds 108 (2 rounds of 4
+  radix sorts, digits that never vary skipped), scatter + gather ~1. The pack walk (one `ctr_take` per cell,
+  ~10 ns per code point) is now the biggest piece; "re-sort only the tied entries" (DESIGN 17.3.2) was
+  not needed (rounds are 100 of 350 ms) and is not done.
+- **Dependency cycle to resolve in W2.3**: ranks.bend imports sort.bend for `Radix.sort` (one use,
+  `Rx.sorted`), so sort.bend cannot import ranks.bend. Move `Radix.*` (self-contained, depends only on
+  kernels) to its own module that both import, or put the str_words wiring in a module above both.
