@@ -2683,3 +2683,125 @@ entered once; `spin_1227` = `Kernel.compact3` at U32 / U32 / F32 (id, region's D
 7 `blk_read`, 3 `blk_write`, nothing allocated), entered once. No popcount fold (the count comes out of
 pred_count), no compaction of the four unselected columns. The rest of the compute phase is O(columns)
 list / name work (a few hundred entries of small spins).
+
+## T5.3 (W5 the chunked runner: src/cexec.bend behind the Engine selector; G1 differential)
+
+What was done: `src/cexec.bend` (the chunked runner, ~2600 lines with comments), the additive `Exec.prep` hook in
+src/exec.bend, facade entries (`engine_reference` / `engine_chunked` / `engine_chunked_at` / `collect_with` /
+`collect_raw_with`), the BF_ENGINE token list in bench/m2/engine.bend (`chunked`, `v02,chunked`), the G1
+differential (`bench/diff/run.py --chunked`, `make diff-chunked`, and `make diff-smoke` now runs it), tests
+(tests/cexec_basic / _errors / _boundary.bend, tests/coverage/engine.bend, helpers tests/lib/cxgen.bend), the
+bench probes bench/w5/t53.bend + t53.py (G6 phases, pre-chunked inputs) and t53x.bend (the scaling probe).
+
+Architecture (the recommended one, validated, with three changes; DESIGN.md 14 "v0.2 T5.3" has the list):
+
+- The runner executes Exec's postfix code (`Exec.compile` / `Exec.mark` unchanged, Exec.run_phys's two root
+  steps) with a second step function over a stack of `XF = XFlat{C.Frame} | XChk{CFrame}`. Conversions are
+  LAZY: a row-wise operator over a flat frame of more than 2^g rows converts it (of_frame, forked across
+  columns, counted in `CStats`); sort / group_by / join / unique flatten (to_frame, counted) and leave a flat
+  frame; the result is flattened at the end. A consuming operator (Filter + plain Select, select, group_by)
+  drops the columns it does not read BEFORE converting.
+- Row-wise operators run the FLAT EVALUATOR on leaf-sized frames: a walk over the frame's trees (`CX.cut`:
+  every column cut at the root, the leaf frame's buffers moved, `CX.lframe` / `CX.fj` = `CCols.cat` back), ONE
+  balanced parallel let per node, the recursion's measure the frame's skeleton (a structural argument for
+  the termination checker; a cut that disagrees with it answers ok = False, i.e. the flat path).
+- ERROR PRECEDENCE (the hard part) is exact by construction, not by combining (expression, instruction,
+  row) triples: the walks BORROW their input (`Eval.full` hands the leaf frame back, error or not), so when
+  any leaf fails the whole input is still there and the reference operator runs on it, flattened. A leaf's
+  error text names a LOCAL row, and Eval gives no instruction position, so a combine would have needed an
+  instrumented evaluator or parsing error texts; the rerun costs nothing on the success path. Static errors
+  come from a GHOST: the reference operator over a 0-row frame of the input's schema (static checks read
+  only the schema); a failing ghost (static error, or a literal that fails at evaluation) sends the operator
+  to the flat path.
+
+Bend lessons (new ones; the T5.1 / T5.4 lists apply):
+
+- **A recursion over a structure rebuilt per call needs a decreasing measure**: `CX.p1(pred, CX.cut(a))` is
+  refused by the termination checker ("expected a decreasing self-call"). Pass a Data skeleton
+  (`CH.Skel`, from the first column) and recurse on its children; match the skeleton and the cut TOGETHER and
+  turn a disagreement into an explicit failure value.
+- **"can't be matched in this position" has three causes**: a match after a local statement (`(a, b) = r`
+  then `match p`), after a match on a LATER parameter (`f(c, r)` matching r then c: reorder the parameters
+  so the first matched comes first), or a match on a computed value. Destructure inside the branches.
+- **A find-and-remove over a list cannot recurse in a helper** (mutual recursion). Recurse in the argument
+  (`take.k(eq, x, take(rest))`, the first hit wins, names are unique) or thread a state record through a
+  non-recursive step (`go(rest, step(x, st))`).
+- **A def of module M named `CK.sum.w` is `ALIAS.CK.sum.w`**: `import ./ckernels.bend as CK` makes it
+  `CK.CK.sum.w`; use another alias (`KC.CK.sum.w`).
+- **The JS interpreter overflows on String.eq of two ~20 KB dumps** (W6 note 3): keep test outputs small.
+- **A worktree-isolated agent's shell cannot loop over a variable that becomes a command argument**; write
+  scripts to files and run them.
+
+Performance (PROVISIONAL: shared machine, 1-minute load 7.5-18 during the runs; bench/w5/t53.py, 5 fresh
+processes per cell interleaved, 12 reps per process, the first two dropped, per-process medians; raw samples
+in bench/w5/results/t53.jsonl, summary t53_summary.md; every mode's result hash equal):
+
+| query | reference 1 / 12 thr | chunked from a flat env 1 / 12 thr (conversions inside) | pre-chunked compute 1 / 4 / 12 thr | 12-vs-1 | in (of_frame) | out (to_frame) |
+|---|---|---|---|---|---|---|
+| q1 | 5 / 5 | 9.5 / 6 | 5 / 3 / 3 | 1.67x | 6 / 4 | 1 / 1 |
+| q2 | 6 / 6 | 19 / 12 | 6.5 / 4 / 4 | 1.62x | 6 / 4 | 7 / 4 |
+| q3 | 16 / 16 | 25 / 19 | 19 / 15 / 15 | 1.27x | 6 / 4 | 0 |
+| q5 | 10 / 10 | 11 / 10 | 16 / 15 / 14.5 | 1.10x | 6 / 4 | 0 |
+| filter qty > 50 (7 columns) | 8 / 8.5 | 17.5 / 11 | 8 / 5 / 5 | 1.60x | 6 / 4 | 3 / 2 |
+
+**After T4.4** (master 2da8d7a merged; the leaves take the fused entry and the F5 passes; same procedure,
+load 5.4-9.9; bench/w5/results/t53_final.jsonl / t53_final_summary.md; every hash equal):
+
+| query | reference 1 / 12 thr | chunked from a flat env 1 / 4 / 12 thr | pre-chunked compute 1 / 4 / 12 thr | 12-vs-1 |
+|---|---|---|---|---|
+| q1 | 2 / 2 | 8 / 4.5 / 5 | 3 / 2 / 2 | 1.5x (1 ms clock) |
+| q2 | 3 / 3 | 15 / 9.5 / 10 | 3 / 2 / 2 | 1.5x (1 ms clock) |
+| q3 | 12 / 12 | 21 / 17 / 17 | 15.5 / 13 / 13 | 1.19x |
+| q5 | 10 / 10 | 10.5 / 10 / 10 | 16 / 14 / 14 | 1.14x |
+| filter qty > 50 | 7 / 7 | 17 / 10 / 10 | 7.5 / 4 / 4 | 1.88x |
+
+At one thread the pre-chunked compute now equals the reference within the clock (q2 3 vs 3, q1 3 vs 2);
+the conversions are unchanged (in 6 / 4 ms, q2's out 7 / 4 ms), so from flat env frames the chunked
+engine stays 3-5x slower than the reference on q1 / q2. Before T4.4 (the first table) the leaves ran the
+unfused evaluator.
+
+m2 harness, BEFORE the T4.4 merge (bench/m2/run.py, candidate binary, `--engine v01` vs `--engine chunked`, phases mode, 5 fresh
+processes per cell, the two engines alternated round by round, load 6.3-12.6; bench/m2/results/t53-v01.jsonl,
+t53-chunked.jsonl and their *_summary.md with raw samples; all 180 processes valid against the frozen
+expectations). compute_ms medians, chunked engine from the driver's flat frames (conversions inside):
+
+| query | reference 1 / 4 / 12 thr | chunked 1 / 4 / 12 thr | chunked 12-vs-1 | 1-thread chunked / reference |
+|---|---|---|---|---|
+| q1 | 7 / 7 / 7 | 14 / 9 / 9 | 1.56x | 2.0x slower |
+| q2 | 8 / 8 / 8 | 25 / 15 / 16 | 1.56x | 3.1x slower |
+| q3 | 17 / 17 / 18 | 28 / 22 / 22 | 1.27x | 1.6x slower |
+| q4 | 18 / 15 / 18 | 17 / 18 / 17 | 1.0x | equal (flat path, no conversion) |
+| q5 | 13 / 13 / 13 | 13 / 13 / 13 | 1.0x | equal (flat path, no conversion) |
+| q6 | 55 / 30 / 31 | 55 / 32 / 31 | 1.77x | equal (eager describe: no collect) |
+
+- **The walks scale ~1.6x and saturate at 4 threads; the walk machinery is not the cause.** bench/w5/t53x.bend
+  forks the SAME per-leaf work over 256 leaves of 2^14 rows (4M rows) three ways: the runner's own walk
+  (`CX.p1`) 9.5 -> 5 ms at 12 threads; the flat evaluator per leaf over a plain balanced list fork
+  (`Lst.pmap`) 9.5 -> 5; one flat kernel per leaf (Kernel.map + popcount, no Eval) 4.5 -> 2.5. All three
+  stop at ~2x by 4 threads. T5.2's ckernels probe at the same time scaled 4-6.5x (q2chunk1 3.3 -> 0.5 ms)
+  but it repeats 40 reps over the same inputs inside one process (a warm allocator: each lane reuses the
+  blocks it freed); every leaf here writes FRESH output blocks (the evaluator allocates one per operation,
+  plus a clone per column reference), first touched inside the parallel region. The 1-thread overhead of the
+  chunked runner over the reference is 0-1 ms on q1 / q2 (cut, leaf frames, per-leaf typing). After the
+  T4.4 merge (fused kernels in the leaves, fewer allocations) see "after T4.4" below.
+- **Conversions dominate end to end for env-bound flat frames** (16.9 risk 2): of_frame of the 7-column
+  sales frame 6 ms at 1 thread, 4 at 12; to_frame of q2's 8 columns 7 / 4. With them inside the window the
+  chunked engine is slower than the reference on every query (q1 9.5 vs 5, q2 19 vs 6 at 1 thread). G2 is
+  defined on chunked inputs (W6's hand-off), where the compute is 1.3-1.7x at 12 vs 1 thread.
+- q3 / q5: group_by and join run flat; q5 from a pre-chunked source pays the flatten of 7 columns before the
+  join (6 ms), q5 from a flat env pays nothing (the join reads the flat frame: the lazy conversion).
+- Emitted C (`bend bench/w5/t53.bend -o build/t53/t53.c`): the 457 runner functions (`WL_CASE(FID_..._CEXEC_*)`)
+  contain no `blk_half` / `blk_node`; `blk_copy` only in `CX.wclone` / `fclone` / `sclone` (Array.clone of a
+  pre-chunked source read twice and of the columns a non-tree aggregation reads). The leaf loops are the
+  evaluator's and Exec.fc's (spin loops of Kernel.zip / map / compact3 / compact4 / popcount), nothing new.
+
+What the next agents need to know:
+
+- T4.4 (merged): the walks evaluate through `CX.efull` (= `Eval.mode.a(True, Eval.slot.mv(f, e, False, [], []))`,
+  the fused entry, nothing moved) and the filter leaf through `Eval.f5.plan` / `Eval.f5.go` (pred_count) or
+  `CX.efull` + `Eval.pred` + popcount: `Eval.filter.mask`'s steps, not the function itself, because it drops
+  the frame on a failure and the error rerun needs it. A change of Eval.filter.mask's chain must be mirrored
+  in `CX.p1.*` (the G1 differential catches a divergence).
+- W6: hand the reader's leaves to the runner as a pre-chunked source (`CX.run(g, p, env, pre)` with
+  `PNF{name, CFrame}`) or through a scan; the facade does not take a CFrame yet.
+- W8: `Engine.chunked()` is grain 14; small frames (<= 2^14 rows) run the reference path exactly.

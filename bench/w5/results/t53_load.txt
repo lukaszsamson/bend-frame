@@ -1,0 +1,2 @@
+12:09  up 24 days,  1:28, 23 users, load averages: 9.77 17.01 22.90
+12:22  up 24 days,  1:41, 23 users, load averages: 8.92 10.23 15.45

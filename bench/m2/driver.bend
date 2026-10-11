@@ -33,9 +33,12 @@
 #
 # stdout: one JSON line of integers (ms) and hashes, or a line starting with "error:".
 #
-# CSV reader: every input is read through bench/m2/engine.bend (EN.Eng.read_csv): BF_ENGINE=v02 selects the
-# v0.2 reader (W6.3, DESIGN.md 16.5 D7), anything else v0.1. The baseline build gets bench/m2/engine_v01.bend
-# as its engine.bend (bench/m2/baseline.sh): v0.1 whatever BF_ENGINE says. selfcheck reads with v0.1 only.
+# Engines: every input is read through bench/m2/engine.bend (EN.Eng.read_csv) and every plan collected
+# through it (EN.Eng.collect): BF_ENGINE is a comma-separated token list, `v02` selects the v0.2 reader
+# (W6.3), `chunked` the chunked executor (T5.3, DESIGN.md 16.5 D7), e.g. BF_ENGINE=v02,chunked; anything
+# else v0.1 and the reference. The baseline build gets bench/m2/engine_v01.bend as its engine.bend
+# (bench/m2/baseline.sh): v0.1 and the reference whatever BF_ENGINE says. selfcheck reads with v0.1 only;
+# q6 (eager describe) and the stages mode do not collect, so `chunked` does not change them.
 import Base
 import ./../../frame.bend as DF
 import ./../../src/dtype.bend as D
@@ -498,7 +501,7 @@ def Pl.q6(f: C.Frame) -> E.ResT(C.Frame):
 
 def job.b(+op: String, +par: U32, s: P.Plan, r: P.Env & P.Plan) -> IO(E.ResT(C.Frame)):
   (env, +p) = r
-  DF.collect(Pl.of(op, par, s, p), env)
+  EN.Eng.collect(Pl.of(op, par, s, p), env)
 
 def job.a(+op: String, +par: U32, r: P.Env & P.Plan, p: C.Frame) -> IO(E.ResT(C.Frame)):
   (env, +s) = r

@@ -103,16 +103,30 @@ diff-reduce-selftest:
 # diff-driver-check: bench/diff/tests/test_exit.py drives the real run.py and reduce.py with a mocked
 # Bend and injects a mismatch (classified as a known defect or not), a crash and an oracle error: each
 # must exit 1, a clean run 0. diff-smoke: fixed seeds, Raw then Dictionary (--dict) strings, then the
-# F32 reduction check. DIFF_SMOKE_N / DIFF_SMOKE_REDUCE_N size it.
+# F32 reduction check; the two program runs include G1 (--chunked: the chunked engine at grains 2^0, 2^2,
+# 2^4 and 2^14 against the reference, exactly). DIFF_SMOKE_N / DIFF_SMOKE_REDUCE_N size it.
 DIFF_SMOKE_N ?= 200
 DIFF_SMOKE_REDUCE_N ?= 200
 diff-driver-check:
 	cd bench && uv run python diff/tests/test_exit.py
 
 diff-smoke:
-	cd bench && uv run python diff/run.py --seed 20261001 --n $(DIFF_SMOKE_N) --strict
-	cd bench && uv run python diff/run.py --seed 20261002 --n $(DIFF_SMOKE_N) --strict --dict
+	cd bench && uv run python diff/run.py --seed 20261001 --n $(DIFF_SMOKE_N) --strict --chunked
+	cd bench && uv run python diff/run.py --seed 20261002 --n $(DIFF_SMOKE_N) --strict --dict --chunked
 	cd bench && uv run python diff/reduce.py --seed 20261003 --n $(DIFF_SMOKE_REDUCE_N)
+
+# ---- G1 (v0.2 T5.3): the chunked engine against the reference engine (bench/diff run.py --chunked) ----
+# make diff-chunked [SEED=1] [G1_N=2000]: G1_N generated cases in Raw and G1_N in Dictionary mode, plus
+# G1_N/4 of each with --features deep (frames up to 300 rows, plans up to 6 verbs); every case runs the
+# reference (eager, raw, collect, full) and the chunked engine at grains 2^0 / 2^2 / 2^4 (raw plan) and 2^14
+# (collect), compared exactly (bench/check.py compare_dumps). Exits 1 on any failure.
+G1_N ?= 2000
+.PHONY: diff-chunked
+diff-chunked:
+	cd bench && uv run python diff/run.py --seed $(SEED) --n $(G1_N) --chunked
+	cd bench && uv run python diff/run.py --seed $(shell expr $(SEED) + 1) --n $(G1_N) --chunked --dict
+	cd bench && uv run python diff/run.py --seed $(shell expr $(SEED) + 2) --n $(shell expr $(G1_N) / 4) --chunked --features deep
+	cd bench && uv run python diff/run.py --seed $(shell expr $(SEED) + 3) --n $(shell expr $(G1_N) / 4) --chunked --dict --features deep
 
 # ---- T6: public-API coverage matrix (scripts/coverage_matrix.py, plans/M_01.txt T6) ----------
 # make coverage: regenerates docs/COVERAGE.md (the matrix and the def-call report over src/) and exits 1

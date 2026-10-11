@@ -216,8 +216,24 @@ def case_defs(case: Case, pfx: str = "") -> str:
     return "\n".join(out)
 
 
+# G1 (v0.2 T5.3): BEND_DIFF_CHUNKED=1 (run.py --chunked) emits DX.eight: the four runs plus the chunked
+# engine at grains 2^0 / 2^2 / 2^4 (raw plan) and 2^14 (collect). An environment variable, like dict_mode.
+def chunked_mode() -> bool:
+    return os.environ.get("BEND_DIFF_CHUNKED", "") not in ("", "0")
+
+
+RUNS = ("eager", "raw", "opt", "full")
+CHUNKED_RUNS = ("c0", "c2", "c4", "c14")
+
+
+def runs() -> tuple:
+    return RUNS + CHUNKED_RUNS if chunked_mode() else RUNS
+
+
 def case_step(case: Case, pfx: str = "", indent: str = "    ") -> str:
     env = env_expr(case, pfx)
+    if chunked_mode():
+        return f'{indent}DX.eight("{case.id}", {pfx}eager(), {pfx}plan(), {env}, {env}, {env}, {env}, {env}, {env}, {env})'
     return f'{indent}DX.four("{case.id}", {pfx}eager(), {pfx}plan(), {env}, {env}, {env})'
 
 

@@ -82,9 +82,12 @@ def main(argv=None):
     ap.add_argument("--shrink-secs", type=float, default=90.0, help="time budget per failure group for the minimiser")
     ap.add_argument("--keep", action="store_true", help="keep the scratch programs")
     ap.add_argument("--dict", action="store_true", help="M4: every str input column in the Dictionary storage (BEND_DIFF_DICT=1)")
+    ap.add_argument("--chunked", action="store_true", help="G1 (v0.2 T5.3): also run every case by the chunked engine at grains 2^0 / 2^2 / 2^4 / 2^14 and compare with the reference runs exactly (BEND_DIFF_CHUNKED=1)")
     a = ap.parse_args(argv)
     if a.dict:
         os.environ["BEND_DIFF_DICT"] = "1"
+    if a.chunked:
+        os.environ["BEND_DIFF_CHUNKED"] = "1"
     features = {f for f in a.features.split(",") if f}
     scratch = Path(a.scratch) if a.scratch else M.ROOT / f"build/diff/seed{a.seed}"
     import shutil
@@ -141,7 +144,7 @@ def main(argv=None):
         if "native" in per_backend and a.backend == "both":
             gn = per_backend["native"].get(c.id)
             if gn is not None and got is not None:
-                for how in ("eager", "raw", "opt", "full"):
+                for how in __import__("emit").runs():
                     d = compare(got[how], gn[how])
                     if d:
                         rec["classes"].append(f"T2.4 {how} interp!=native")
@@ -167,7 +170,7 @@ def main(argv=None):
         head, dirty = "?", False
     summary = {
         "main": f"{head}{'+dirty' if dirty else ''} src-sha1 {h.hexdigest()[:10]}",
-        "seed": a.seed, "n": a.n, "backend": a.backend, "features": sorted(features),
+        "seed": a.seed, "n": a.n, "backend": a.backend, "features": sorted(features), "chunked": bool(a.chunked), "dict": bool(a.dict),
         "failing_cases": len(failures), "by_class": dict(counts),
         "oracle_uncertain": nunc, "oracle_errors": nerr, "inadmissible_for_T2.1": ninad,
         "invalid_cases": sum(1 for c in cases if c.kind == "invalid"),
