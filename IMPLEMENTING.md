@@ -3075,3 +3075,23 @@ assembly and the `CCols.cat` joins, the lazy rechunk check and the result's `CSt
 is one fork tree instead of two (the predicate's mask and the compaction in ONE walk, F5 + F6 per leaf,
 which the error-rerun design allows since the leaf frame comes back either way) and the compile-once
 evaluator entry.
+
+## d1588: Polars' eager join and the hidden sorted flag (differential oracle pitfall)
+
+`make diff-chunked` found one T2.2 case: an f32 NaN-key self join answered 0 rows by the oracle, N rows by every
+bend-frame engine. Root cause: Polars 2.0.0's EAGER `DataFrame.join` takes a sorted-merge path when a key Series
+has the SORTED_ASC flag, and compares f32 keys with IEEE `==` there, so NaN never matches NaN. The flag is set on
+every 1-row Series and on columns that came out of a sort or a join (`a["c"].flags`), so it appears in generated
+plans without anyone setting it. `.lazy().join(...).collect()` (default or streaming engine) matches every NaN
+with every NaN for every flag state, which is the contract (DESIGN.md 15.5.2). Pitfalls for the next oracle
+author:
+
+- Never build oracle semantics on `DataFrame.join`; `oracle._pjoin` goes through the lazy engine. `unique`,
+  `group_by`, `n_unique`, `sort` were fuzzed with flagged f32 keys (NaN, +-0, inf, null) and are flag independent.
+- A property of a Polars Series that is invisible in the dump (the sort flags) can change an eager result: when a
+  generated case disagrees with Polars on a shape that "should" work (the same join on a 2-row frame agrees), look
+  at `Series.flags` and at the lazy answer before suspecting the engine.
+- Pins: `bench/diff/tests/test_oracle_join.py` (brute-force fuzz of the oracle's joins; run by test_exit.py, so by
+  `make diff-driver-check`), `tests/diff/d0011.bend` (1 x 1 NaN self join), `d0012.bend` (d1588 minimised: the
+  key came out of a join), `d0013.bend` (sorted `[1, 2, nan, nan]` self join = 6 rows). The contract and bend-frame
+  were right; nothing in src/ changed.
