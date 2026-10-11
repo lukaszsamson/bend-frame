@@ -18,6 +18,7 @@
 #   PROOF_strs.bend     section 14  Dictionary strings: decode, Dict.code / encode, merge, same, find, recode
 #   PROOF_append.bend   section 15  Kernel.append / copy_into and Strs.append (concat)
 #   PROOF_inplace.bend  section 15  Kernel.mask_data / Kernel.choose (in place), Eval.fix / fill / when on Str
+#   PROOF_sorthead.bend section 16  Sort + Head: Sort.frame_head and Exec.run_phys against Sort.frame / Frame.head / Exec.run_pure
 import Base
 import ./LAWS.bend as Laws
 import ./PROOF_lib.bend as L
