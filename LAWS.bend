@@ -24,6 +24,7 @@ import ./src/exec.bend as Q
 import ./src/eval.bend as V
 import ./src/dump.bend as DP
 import ./src/chunks.bend as CH
+import ./src/ckernels.bend as KC
 
 # ---- helpers used only to state laws ----------------------------------------------
 
@@ -3385,3 +3386,342 @@ law cw_fits:
 #    CW.remap) and the decode walk CS.of_codes;
 #  - WFArray of Kernel.map's output inside the chunked map (cmap_shape keeps the shape half only, as the
 #    W0 spike did).
+
+# =====================================================================================
+# 22. Chunked kernel wrappers (v0.2 T5.2, DESIGN.md 16.1 / 16.3 / 16.4): src/ckernels.bend's recursions
+#     over the chunk trees, one balanced fork per node and the flat kernel at each leaf
+# =====================================================================================
+#
+# Every wrapper is generated from one text per kernel (bench/w5/gen_ckernels.py); the laws are stated at
+# one instance each (section 10's note: BendTT does not take a template over a quantified cell type) and
+# proven by template proofs in PROOF_ckernels.bend, so another instance is a one-line law. The claims:
+#  - LEAFWISE: the chunked result IS the flat kernel leaf by leaf (a term equality at every leaf, the
+#    node's counts copied), so every flat cell law of sections 11 / 17 applies at each leaf; with the
+#    logical-cell model of section 21 (ncell) and the flatten bridge cw_flatten, the chunked map's rows
+#    are the flat map's of the tree's rows (ck_map_cells);
+#  - UNFUSED / KEEPS: a borrowing wrapper IS the consuming wrapper paired with its operands, or hands
+#    every operand back unchanged (an equality of terms: lend / replace leave a frame as it was);
+#  - the count and sum COMBINE: the per-leaf counts added at the nodes are the row-order modular sum of
+#    the logical cells (U32.add associativity at the nodes, u32_fold_sum / popcount_sum per leaf);
+#  - per-leaf compaction into the leaf's own capacity: CRoom at every leaf from croom_of_cap (section
+#    21), hence compact_contents' CSpec at every leaf, and the kept count is the leaf mask's popcount.
+
+# ---- maps: the chunked map is Kernel.map leaf by leaf (instance: Bool not, x xor 1) ----------------------
+
+# t2 is the chunked map of t1: at every leaf the flat Kernel.map of that leaf, the counts copied
+def LwMap(t1: CH.CW, t2: CH.CW) -> Type:
+  match t1 t2:
+    case CH.WL{n1, d1, a1} CH.WL{n2, d2, a2}:
+      {n2 == n1 : U32} & {d2 == d1 : Nat} & {a2 == K.Kernel.map(~U32, ~U32, ~(x => U32.xor(x, 1)), n1, d1, a1, 0) : Array<U32>}
+    case CH.WN{r1, l1, x1, y1} CH.WN{r2, l2, x2, y2}:
+      {r2 == r1 : U32} & {l2 == l1 : U32} & LwMap(x1, x2) & LwMap(y1, y2)
+    case _ _:
+      Empty
+
+# LAW (leafwise): CK.map.ww is Kernel.map at every leaf, no hypothesis
+law ck_map_leafwise:
+  for t: CH.CW
+  LwMap(t, KC.CK.map.ww(~(x => U32.xor(x, 1)), t, 0))
+
+# t2 is the chunked map_p of t1 (instance: x > lit, the F1 comparison)
+def LwMapP(+lit: U32, t1: CH.CW, t2: CH.CW) -> Type:
+  match t1 t2:
+    case CH.WL{n1, d1, a1} CH.WL{n2, d2, a2}:
+      {n2 == n1 : U32} & {d2 == d1 : Nat} & {a2 == K.Kernel.map_p(~U32, ~U32, ~U32, ~(p => w => Bool.to_u32(U32.is_gt(w, p))), n1, d1, a1, lit, 0) : Array<U32>}
+    case CH.WN{r1, l1, x1, y1} CH.WN{r2, l2, x2, y2}:
+      {r2 == r1 : U32} & {l2 == l1 : U32} & LwMapP(lit, x1, x2) & LwMapP(lit, y1, y2)
+    case _ _:
+      Empty
+
+# LAW (leafwise): CK.mapp.ww is Kernel.map_p at every leaf
+law ck_mapp_leafwise:
+  for t: CH.CW
+  for +lit: U32
+  LwMapP(lit, t, KC.CK.mapp.ww(~U32, ~(p => w => Bool.to_u32(U32.is_gt(w, p))), t, lit, 0))
+
+# LAW (F1 over chunks, unfused): the borrowing CK.mappb.ww IS the consuming CK.mapp.ww paired with its
+# input tree, unchanged (map_pb_unfused at every leaf)
+law ck_mappb_unfused:
+  for t: CH.CW
+  for +lit: U32
+  for +z: U32
+  {KC.CK.mappb.ww(~U32, ~(p => w => Bool.to_u32(U32.is_gt(w, p))), t, lit, z) == (KC.CK.mapp.ww(~U32, ~(p => w => Bool.to_u32(U32.is_gt(w, p))), t, lit, z), t) : CH.CW & CH.CW}
+
+# ---- zips: two trees in lockstep (instance: u32 a + b); a shape mismatch answers the empty tree -------------
+
+# o is the chunked zip of a and b: where a and b are both leaves, the flat Kernel.zip of the two leaves (a's
+# count, the larger depth); both nodes: a's counts and the children related; a shape mismatch: the empty tree
+def LwZip(a: CH.CW, b: CH.CW, o: CH.CW) -> Type:
+  match a b o:
+    case CH.WL{na, da, xa} CH.WL{nb, db, xb} CH.WL{no, dd, xo}:
+      {no == na : U32} & {dd == KC.CK.dmax(da, db) : Nat} & {xo == K.Kernel.zip(~U32, ~U32, ~U32, ~(x => y => U32.add(x, y)), na, KC.CK.dmax(da, db), xa, xb, 0) : Array<U32>}
+    case CH.WL{na, da, xa} CH.WL{nb, db, xb} CH.WN{r3, l3, x3, y3}:
+      Empty
+    case CH.WN{r1, l1, x1, y1} CH.WN{r2, l2, x2, y2} CH.WN{r3, l3, x3, y3}:
+      {r3 == r1 : U32} & {l3 == l1 : U32} & LwZip(x1, x2, x3) & LwZip(y1, y2, y3)
+    case CH.WN{r1, l1, x1, y1} CH.WN{r2, l2, x2, y2} CH.WL{no, dd, xo}:
+      Empty
+    case CH.WL{na, da, xa} CH.WN{r2, l2, x2, y2} o:
+      {o == CH.CW.empty() : CH.CW}
+    case CH.WN{r1, l1, x1, y1} CH.WL{nb, db, xb} o:
+      {o == CH.CW.empty() : CH.CW}
+
+# LAW (leafwise): CK.zip.www is Kernel.zip at every pair of leaves, no hypothesis (a mismatch is empty)
+law ck_zip_leafwise:
+  for a: CH.CW
+  for b: CH.CW
+  LwZip(a, b, KC.CK.zip.www(~(x => y => U32.add(x, y)), a, b, 0))
+
+# LAW (F1/F3 over chunks, unfused; instance f32(a) * b): the borrowing CK.zipb.wff IS the consuming
+# CK.zip.wff with both operand trees handed back unchanged (zipb_unfused at every leaf)
+law ck_zipb_unfused:
+  for a: CH.CW
+  for b: CH.CF
+  for +z: F32
+  {KC.CK.zipb.wff(~(x => y => F32.mul(U32.to_f32(x), y)), a, b, z) == KC.CZB{KC.CK.zip.wff(~(x => y => F32.mul(U32.to_f32(x), y)), a, b, z), a, b} : KC.CZB<CH.CW, CH.CF, CH.CF>}
+
+# ---- F2 over chunks: the null-propagating zip with validity (instance: u32 a + b) ---------------------------
+#
+# The model trees ZvO / ZvVo walk the four operand trees as CK.zipv.www does and build only the output /
+# the validity output: at each leaf the flat Kernel.zipv's value output and Kernel.mask_and of the two
+# validity leaves (zipv_valid: Eval.vand's pass), at the output depth (the larger operand depth).
+
+def ZvO(a: CH.CW, va: CH.CW, b: CH.CW, vb: CH.CW, +z: U32) -> CH.CW:
+  match a va b vb:
+    case CH.WL{+n, +d, xa} CH.WL{na, da, xva} CH.WL{nb, +db, xb} CH.WL{nc, dc, xvb}:
+      CH.WL{n, KC.CK.dmax(d, db), zv_o(U32, U32, U32, K.Kernel.zipv(~U32, ~U32, ~U32, ~(x => y => U32.add(x, y)), n, KC.CK.dmax(d, db), xa, xva, xb, xvb, z))}
+    case CH.WN{+r1, +l1, a1, a2} CH.WN{r2, l2, va1, va2} CH.WN{r3, l3, b1, b2} CH.WN{r4, l4, vb1, vb2}:
+      CH.WN{r1, l1, ZvO(a1, va1, b1, vb1, z), ZvO(a2, va2, b2, vb2, z)}
+    case a va b vb:
+      CH.CW.empty()
+
+def ZvVo(a: CH.CW, va: CH.CW, b: CH.CW, vb: CH.CW) -> CH.CW:
+  match a va b vb:
+    case CH.WL{+n, +d, xa} CH.WL{na, da, xva} CH.WL{nb, +db, xb} CH.WL{nc, dc, xvb}:
+      CH.WL{n, KC.CK.dmax(d, db), K.Kernel.mask_and(n, KC.CK.dmax(d, db), xva, xvb)}
+    case CH.WN{+r1, +l1, a1, a2} CH.WN{r2, l2, va1, va2} CH.WN{r3, l3, b1, b2} CH.WN{r4, l4, vb1, vb2}:
+      CH.WN{r1, l1, ZvVo(a1, va1, b1, vb1), ZvVo(a2, va2, b2, vb2)}
+    case a va b vb:
+      CH.CW.empty()
+
+# LAW (F2 over chunks): CK.zipv.www answers, leaf by leaf, Kernel.zipv's value output and Kernel.mask_and of
+# the validity leaves, and hands the four operand trees back unchanged (zipv_valid at every leaf); a shape
+# mismatch answers empty outputs and the operands
+law ck_zipv:
+  for a: CH.CW
+  for va: CH.CW
+  for b: CH.CW
+  for vb: CH.CW
+  for +z: U32
+  {KC.CK.zipv.www(~(x => y => U32.add(x, y)), a, va, b, vb, z) == KC.CZV{ZvO(a, va, b, vb, z), ZvVo(a, va, b, vb), a, va, b, vb} : KC.CZV<CH.CW, CH.CW, CH.CW>}
+
+# ---- F5 over chunks: the predicate's mask tree and its kept count (instance: q1's ok & (qty > lit)) ---------
+
+def PcM(+lit: U32, a: CH.CW, va: CH.CW, b: CH.CW, vb: CH.CW) -> CH.CW:
+  match a va b vb:
+    case CH.WL{+n, +d, xa} CH.WL{na, da, xva} CH.WL{nb, +db, xb} CH.WL{nc, dc, xvb}:
+      CH.WL{n, KC.CK.dmax(d, db), pc_m(U32, U32, K.Kernel.pred_count(~U32, ~U32, ~U32, ~(p => x => y => U32.and(x, Bool.to_u32(U32.is_gt(y, p)))), n, KC.CK.dmax(d, db), lit, xa, xva, xb, xvb))}
+    case CH.WN{+r1, +l1, a1, a2} CH.WN{r2, l2, va1, va2} CH.WN{r3, l3, b1, b2} CH.WN{r4, l4, vb1, vb2}:
+      CH.WN{r1, l1, PcM(lit, a1, va1, b1, vb1), PcM(lit, a2, va2, b2, vb2)}
+    case a va b vb:
+      CH.CW.empty()
+
+def PcK(+lit: U32, a: CH.CW, va: CH.CW, b: CH.CW, vb: CH.CW) -> U32:
+  match a va b vb:
+    case CH.WL{+n, +d, xa} CH.WL{na, da, xva} CH.WL{nb, +db, xb} CH.WL{nc, dc, xvb}:
+      pc_k(U32, U32, K.Kernel.pred_count(~U32, ~U32, ~U32, ~(p => x => y => U32.and(x, Bool.to_u32(U32.is_gt(y, p)))), n, KC.CK.dmax(d, db), lit, xa, xva, xb, xvb))
+    case CH.WN{+r1, +l1, a1, a2} CH.WN{r2, l2, va1, va2} CH.WN{r3, l3, b1, b2} CH.WN{r4, l4, vb1, vb2}:
+      U32.add(PcK(lit, a1, va1, b1, vb1), PcK(lit, a2, va2, b2, vb2))
+    case a va b vb:
+      0
+
+# LAW (F5 over chunks): CK.pc.ww answers, leaf by leaf, Kernel.pred_count's mask, the per-leaf counts added
+# at the nodes, and hands the four operand trees back unchanged (pred_count_keeps at every leaf)
+law ck_pc:
+  for +lit: U32
+  for a: CH.CW
+  for va: CH.CW
+  for b: CH.CW
+  for vb: CH.CW
+  {KC.CK.pc.ww(~U32, ~(p => x => y => U32.and(x, Bool.to_u32(U32.is_gt(y, p)))), lit, a, va, b, vb) == KC.CPC{PcM(lit, a, va, b, vb), PcK(lit, a, va, b, vb), a, va, b, vb} : KC.CPC<CH.CW, CH.CW>}
+
+# ---- the U32 tree reductions: per-leaf fold, U32.add at the nodes (D4) -------------------------------------
+
+# the modulo-2^32 running sum of the logical rows m .. m + f - 1 of t (section 21's ncell), from acc: res
+# is it (FSum of section 11, over the tree's rows instead of an array's slots)
+def NSum(f: Nat, +m: Nat, +acc: U32, -t: CH.CW, +res: U32) -> Type:
+  match f:
+    case 0n:
+      {res == acc : U32}
+    case 1n+p:
+      &x: U32 -> {x == ncell(t, m) : U32} & NSum(p, 1n+m, U32.add(acc, x), t, res)
+
+# the tree's sum as the wrappers combine it: Kernel.popcount (the U32.add fold from 0) at each leaf, U32.add
+# at the nodes
+def TSum(t: CH.CW) -> U32:
+  match t:
+    case CH.WL{+n, d, a}:
+      Pair.snd(Array<U32>, U32, K.Kernel.popcount(n, a))
+    case CH.WN{rows, lrows, l, r}:
+      U32.add(TSum(l), TSum(r))
+
+# LAW (the sum / count combine): CK.sum.w (= CK.popcount.w over a mask tree) hands the tree back, answers
+# TSum, and TSum is the row-order modulo-2^32 sum of the logical rows (u32_fold_sum at each leaf, U32.add
+# associativity at each node)
+law ck_sum:
+  for t: CH.CW
+  for wf: WFChunks(t)
+  {Pair.fst(CH.CW, U32, KC.CK.sum.w(t)) == t : CH.CW} & {Pair.snd(CH.CW, U32, KC.CK.sum.w(t)) == TSum(t) : U32} & NSum(nrows(t), 0n, 0, t, TSum(t))
+
+# the leaves' row counts fit the output depth the pred_count wrapper allocates (n <= 2^dmax(d, db) at every
+# aligned leaf; WFChunks(a) gives it whenever the operand depths are below 32, as every array's is)
+def PcFits(a: CH.CW, va: CH.CW, b: CH.CW, vb: CH.CW) -> Type:
+  match a va b vb:
+    case CH.WL{n, +d, xa} CH.WL{na, da, xva} CH.WL{nb, db, xb} CH.WL{nc, dc, xvb}:
+      {U32.is_le(n, U32.shln(1, KC.CK.dmax(d, db))) == True{} : Bool}
+    case CH.WN{r1, l1, a1, a2} CH.WN{r2, l2, va1, va2} CH.WN{r3, l3, b1, b2} CH.WN{r4, l4, vb1, vb2}:
+      PcFits(a1, va1, b1, vb1) & PcFits(a2, va2, b2, vb2)
+    case a va b vb:
+      Unit
+
+# LAW (F5's kept count over chunks): CK.pc.ww's count (PcK, ck_pc) IS the tree sum of its mask tree
+# (pred_count_count at every leaf: the leaf's count is Kernel.popcount of the leaf's mask), hence, by ck_sum,
+# the row-order count of the set words of the mask tree
+law ck_pc_count:
+  for +lit: U32
+  for a: CH.CW
+  for va: CH.CW
+  for b: CH.CW
+  for vb: CH.CW
+  for fits: PcFits(a, va, b, vb)
+  {PcK(lit, a, va, b, vb) == TSum(PcM(lit, a, va, b, vb)) : U32}
+
+# ---- per-leaf compaction (F6 over chunks; instance: three word buffers, compact_contents' U32) ---------------
+
+# every leaf of a mask tree fits its slots and holds 0/1 words (the P0 mask invariant, section 9)
+def MaskBits(t: CH.CW) -> Type:
+  match t:
+    case CH.WL{n, +d, a}:
+      {U32.is_le(n, U32.shln(1, d)) == True{} : Bool} & WFWords(True{}, d, a)
+    case CH.WN{rows, lrows, l, r}:
+      MaskBits(l) & MaskBits(r)
+
+# o holds, leaf by leaf, the rows of a whose mask word in m is set, in order (compact_contents' CSpec), in a
+# leaf of the MASK leaf's capacity 2^d (no kept + 1 slot: croom_of_cap) whose count is the leaf mask's
+# popcount; the node counts are the children's (ragged leaves, exact counts)
+def CompactT(m: CH.CW, a: CH.CW, o: CH.CW) -> Type:
+  match m a o:
+    case CH.WL{n, d, mm} CH.WL{na, da, xa} CH.WL{no, dd, xo}:
+      {no == Pair.snd(Array<U32>, U32, K.Kernel.popcount(n, mm)) : U32} & {dd == d : Nat} & CSpec(U32, U32.to_nat(n), 0, 0, d, xa, mm, xo)
+    case CH.WN{r1, l1, m1, m2} CH.WN{r2, l2, a1, a2} CH.WN{r3, l3, o1, o2}:
+      {l3 == crows(o1) : U32} & {r3 == U32.add(crows(o1), crows(o2)) : U32} & CompactT(m1, a1, o1) & CompactT(m2, a2, o2)
+    case _ _ _:
+      Empty
+
+# CK.c3.www's answer: the mask and the three inputs handed back unchanged, three outputs each CompactT of
+# its input, the kept count the tree sum of the mask (the cursor at every leaf, U32.add at the nodes)
+def C3Spec(-m: CH.CW, -a1: CH.CW, -a2: CH.CW, -a3: CH.CW) -> Type:
+  &o1: CH.CW -> &o2: CH.CW -> &o3: CH.CW -> &k: U32 -> {KC.CK.c3.www(m, a1, a2, a3) == KC.CC3{o1, o2, o3, m, a1, a2, a3, k} : KC.CC3<CH.CW, CH.CW, CH.CW>} & CompactT(m, a1, o1) & CompactT(m, a2, o2) & CompactT(m, a3, o3) & {crows(o1) == k : U32} & {crows(o2) == k : U32} & {crows(o3) == k : U32} & {k == TSum(m) : U32}
+
+# LAW (per-leaf compaction of three aligned buffers by one mask tree, one cursor per leaf): over trees of
+# the mask's shape (WFCFrame) whose mask leaves fit their slots and hold 0/1 words, every output leaf holds
+# exactly the kept rows of its input leaf, in order, in the mask leaf's own capacity (CRoom discharged at
+# every leaf by croom_of_cap: no kept + 1 slot), its count the leaf mask's popcount; the inputs come back
+law ck_c3:
+  for m: CH.CW
+  for a1: CH.CW
+  for a2: CH.CW
+  for a3: CH.CW
+  for bits: MaskBits(m)
+  for +s1: {skel(a1) == skel(m) : CH.Skel}
+  for +s2: {skel(a2) == skel(m) : CH.Skel}
+  for +s3: {skel(a3) == skel(m) : CH.Skel}
+  C3Spec(m, a1, a2, a3)
+
+# ---- the chunked map's rows: the flat map of the tree's rows, through the flatten bridge -------------------
+
+# CK.map.ww's answer as a witness: well formed (WFArray of every output leaf: Kernel.map writes a fresh
+# array of the leaf's depth), the same rows, and row m is the map of row m (ncell, section 21)
+def MapC(-t: CH.CW) -> Type:
+  &t2: CH.CW -> {KC.CK.map.ww(~(x => U32.xor(x, 1)), t, 0) == t2 : CH.CW} & WFChunks(t2) & {crows(t2) == crows(t) : U32} & (@m: Nat -> {Nat.is_lt(m, nrows(t)) == True{} : Bool} -> {ncell(t2, m) == U32.xor(ncell(t, m), 1) : U32})
+
+# LAW (WFChunks preservation and the logical rows of the chunked map): the leafwise law with mask_not_cell at
+# every leaf, the node counts copied
+law ck_map_cells:
+  for t: CH.CW
+  for wf: WFChunks(t)
+  MapC(t)
+
+# LAW (the flatten bridge, cw_flatten, over the chunked map): flattening the chunked map gives, row by row,
+# the flat map of the tree's logical rows (which are flatten(t)'s rows by cw_flatten)
+law ck_map_flat:
+  for +dd: Nat
+  for t: CH.CW
+  for wf: WFChunks(t)
+  for fits: {U32.is_le(crows(t), U32.shln(1, dd)) == True{} : Bool}
+  for +m: Nat
+  for hm: {Nat.is_lt(m, nrows(t)) == True{} : Bool}
+  {rdN(U32, dd, CH.CW.flatten(dd, KC.CK.map.ww(~(x => U32.xor(x, 1)), t, 0)), addn(0, m)) == U32.xor(ncell(t, m), 1) : U32}
+
+# the running min of the logical rows m .. m + f - 1 of t from acc (NSum over U32.min)
+def NMin(f: Nat, +m: Nat, +acc: U32, -t: CH.CW, +res: U32) -> Type:
+  match f:
+    case 0n:
+      {res == acc : U32}
+    case 1n+p:
+      &x: U32 -> {x == ncell(t, m) : U32} & NMin(p, 1n+m, U32.min(acc, x), t, res)
+
+# the tree's min as CK.min.w combines it: Kernel.fold with U32.min from 2^32 - 1 at each leaf, U32.min at the nodes
+def TMin(t: CH.CW) -> U32:
+  match t:
+    case CH.WL{+n, d, a}:
+      Pair.snd(Array<U32>, U32, K.Kernel.fold(~U32, ~U32, ~(acc => x => U32.min(acc, x)), n, a, 4294967295))
+    case CH.WN{rows, lrows, l, r}:
+      U32.min(TMin(l), TMin(r))
+
+# LAW (the min combine, D4: a proven min/max combine may tree-reduce): CK.min.w hands the tree back, answers
+# TMin, and TMin is the row-order U32.min of the logical rows from 2^32 - 1 (the fold at each leaf, U32.min
+# associativity and 2^32 - 1 its identity at each node)
+law ck_min:
+  for t: CH.CW
+  for wf: WFChunks(t)
+  {Pair.fst(CH.CW, U32, KC.CK.min.w(t)) == t : CH.CW} & {Pair.snd(CH.CW, U32, KC.CK.min.w(t)) == TMin(t) : U32} & NMin(nrows(t), 0n, 4294967295, t, TMin(t))
+
+# the running max of the logical rows m .. m + f - 1 of t from acc (NSum over U32.max)
+def NMax(f: Nat, +m: Nat, +acc: U32, -t: CH.CW, +res: U32) -> Type:
+  match f:
+    case 0n:
+      {res == acc : U32}
+    case 1n+p:
+      &x: U32 -> {x == ncell(t, m) : U32} & NMax(p, 1n+m, U32.max(acc, x), t, res)
+
+# the tree's max as CK.max.w combines it: Kernel.fold with U32.max from 0 at each leaf, U32.max at the nodes
+def TMax(t: CH.CW) -> U32:
+  match t:
+    case CH.WL{+n, d, a}:
+      Pair.snd(Array<U32>, U32, K.Kernel.fold(~U32, ~U32, ~(acc => x => U32.max(acc, x)), n, a, 0))
+    case CH.WN{rows, lrows, l, r}:
+      U32.max(TMax(l), TMax(r))
+
+# LAW (the max combine, D4: a proven min/max combine may tree-reduce): CK.max.w hands the tree back, answers
+# TMax, and TMax is the row-order U32.max of the logical rows from 0 (the fold at each leaf, U32.max
+# associativity and 0 its identity at each node)
+law ck_max:
+  for t: CH.CW
+  for wf: WFChunks(t)
+  {Pair.fst(CH.CW, U32, KC.CK.max.w(t)) == t : CH.CW} & {Pair.snd(CH.CW, U32, KC.CK.max.w(t)) == TMax(t) : U32} & NMax(nrows(t), 0n, 0, t, TMax(t))
+
+# STATED OPEN in section 22 (no law: tested only, tests/ckernels_*.bend; listed in DESIGN.md section 8):
+#  - the other instances of every wrapper (the CF / CS trees and the other template functions): the same
+#    generated text (bench/w5/gen_ckernels.py), stated here at one U32 instance each (section 10's note);
+#  - CK.ck.X (one-buffer compaction, the count by Kernel.popcount of the handed-back mask) and CK.c4.*: the
+#    same per-leaf structure as ck_c3 (compact4_contents and PROOF_fused's c4_sim are the leaf lemmas);
+#  - WFArray of compaction outputs (CompactT gives the counts, the contents and the capacity, not WFArray
+#    of the compacted leaves);
+#  - the sequential walks CK.walk.X, CK.fsum.X / CK.fsumflat.X, CK.fmin.f / CK.fmax.f, CK.imin.w / imax.w:
+#    one tail loop over the leaves in row order, the very fold of the flat kernel (floats are tested
+#    against the exact reference, DESIGN.md section 8 item 8; the walk's row order is by construction);
+#  - the gathers CK.gather.X (the leaf gather fused into the builder: a new range-offset gather loop and
+#    cw_of's binary counter) and CK.gatherf.X (cw_flatten, gather_contents and cw_of composed);
+#  - CK.ones1 trees are not WFChunks (1-slot leaves read for every row): ck_zipv / ck_pc hold for ANY
+#    operand trees; ck_pc_count needs PcFits (the data leaves fit the output depth).

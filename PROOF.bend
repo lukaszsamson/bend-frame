@@ -22,6 +22,7 @@
 #   PROOF_sorthead.bend section 17  Sort + Head: Sort.frame_head and Exec.run_phys against Sort.frame / Frame.head / Exec.run_pure
 #   PROOF_fused.bend    section 18  fused kernels (W4): map_pb / zipb / zipv / pred_count / compact3 / compact4
 #   PROOF_chunks.bend   section 21  chunk trees (W5): builder, flatten bridge, round trip, rechunk, head, concat, croom_of_cap, chunked map
+#   PROOF_ckernels.bend section 22  chunked kernel wrappers (W5): leafwise / unfused laws, sum / min / max combines, per-leaf compaction
 import Base
 import ./LAWS.bend as Laws
 import ./PROOF_lib.bend as L
@@ -42,3 +43,4 @@ import ./PROOF_moves.bend as PM
 import ./PROOF_sorthead.bend as PSH
 import ./PROOF_fused.bend as PF
 import ./PROOF_chunks.bend as PCH
+import ./PROOF_ckernels.bend as PCK
