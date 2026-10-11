@@ -16,6 +16,7 @@ import ./strs.bend as ST
 import ./fmt.bend as F
 import ./csvprod.bend as P
 import ./csvlane.bend as L
+import ./chunks.bend as CH
 
 type CsvOpts is Data:
   CsvOpts{sep: Char, has_header: Bool, infer_rows: U32}
@@ -2200,10 +2201,14 @@ def Csv.write(f: C.Frame, path: String) -> IO(C.Frame & Result<&1, &1, U32 & Str
 #      (Dict.decode) and every later part is decoded from its own entries (one gather). A column of
 #      no row is checked once with size 1 and 0 rows, as v0.1's builder does on an empty chunk
 #      (Csv.v2.x.zero: Raw under EncAutoAt{0, _}).
+#   6. (W6.6, chunk mode CMChk{g}: Csv.read_v02_mode, the chunked engine's scans) the columns of a frame of more
+#      than 2^g rows are built straight into chunk trees instead (Csv.v2.cbuild: leaves of 2^g rows cut across
+#      the regions' parts, one copy per row; the same merge, codes, fall back and error order); see "the chunk
+#      hand-off" below. Every read_csv* builds flat (CMFlat), exactly as before.
 # A separator outside ASCII goes to the v0.1 reader (the lane compares bytes).
 #
 # Parallel shape: forks only in Csv.v2.ftree and Csv.v2.ctree (balanced trees of regions) and
-# Csv.v2.bfork (a balanced tree of columns); the header step and the rest of the combine are sequential. Hot loops (tokenizer, typed loops, coder) are csvlane's; the
+# Csv.v2.bfork / Csv.v2.cfork (a balanced tree of columns); the header step and the rest of the combine are sequential. Hot loops (tokenizer, typed loops, coder) are csvlane's; the
 # combine's per-row loops are Kernel.copy_into and Csv.v2.ggo (a gather into an offset), flat loops.
 # Idioms: DESIGN 9 (helpers above callers, pairs taken apart in the next helper's parameter, no
 # mutual recursion, early exits by a Bool field of the loop record).
@@ -2970,147 +2975,650 @@ def Csv.v2.build.k(+n: U32, +d: Nat, +enc: ST.StrEnc, r: List<&1, L.LO> & List<&
 def Csv.v2.build(+n: U32, ts: List<&2, L.Ty>, dts: List<&2, D.DType>, names: List<&2, String>, +enc: ST.StrEnc, los: List<&1, L.LO>) -> E.ResT(C.Frame):
   Csv.v2.build.k(n, K.Kernel.depth_for(U32.max(n, 1)), enc, Csv.v2.kcols(ts, dts, names, 0, (los, Nil{})))
 
+# ==== the chunk hand-off (W6.6; DESIGN.md 17.5, 16.1 D1, 16.5 D7) ======================================
+# With the chunked engine (cexec.bend Exec.run_with_rd(CsvV02{_}, Chunked{g}, ..): a scan_csv collected
+# chunked) the combine builds every column of a frame of MORE than 2^g rows straight into the engine's
+# chunk trees (CsvChk), so the runner's IScan needs no CFrame.of_frame:
+#   * the regions' parts (row ranges in file order, of any length) are cut into leaves of 2^g rows across
+#     region boundaries (the last leaf partial): ONE copy per row from the lane buffers into the leaf
+#     buffers (Cut.cp / Cut.ga, flat loops), the same row partition for every column and every validity
+#     mask, so the frame is WFCFrame and every tree has CH.CW.of's shape exactly (leaf i = rows i * 2^g ..,
+#     depth g, pushed on the same binary-counter stack, CH.CWS.push);
+#   * a Dictionary column is CSDict{a code tree, ONE Dict}: the merge runs first, over every part in region
+#     order (Csv.v2.mgo, the flat combine's loop and its EncAuto stop: the same codes, the same fall back),
+#     then the codes are gathered through each part's merge map into the leaves; after EncAuto's fall back
+#     the column is Raw and every part is gathered from its own entries (the strings the flat combine gets
+#     from Dict.decode for the rows before the fall back are the same decoded strings);
+#   * Raw string parts are copied like words; a column without nulls has no mask (CAllValid);
+#   * the first bad cell per column (the first part with one) and the column order of errors are the flat
+#     combine's (Csv.v2.fold's rule), then Frame.from_columns' DuplicateColumn check over the names in order.
+# A frame of at most 2^g rows is the flat combine's frame (CsvFlat: the engine takes it as today's flat
+# frame, one leaf when chunked, its buffers moved). Everything before the build (errors, inference, the
+# row cap, EncAuto's per-entry rule) is unchanged: the mode only picks the builder at Csv.v2.build.m.
+# Parallel shape: Csv.v2.cfork is the one fork (a balanced tree of the columns, built by the sequential
+# Csv.v2.kt.* prelude, as Csv.v2.bfork); each column's cut and merge is sequential inside its leaf.
+
+# what the v0.2 reader answers: v0.1's flat frame, or (chunk mode, more than 2^g rows) a chunk frame
+type CsvOut is Type:
+  CsvFlat{f: C.Frame}
+  CsvChk{f: CH.CFrame}
+
+# how the combine builds the columns: flat (every read_csv*) or leaves of 2^g rows (the chunked engine)
+type CsvMode is Data:
+  CMFlat{}
+  CMChk{g: Nat}
+
+# a part to copy (m rows of a lane buffer) / to gather (out[j] = tbl[idx[j]] for j < m)
+type CP<-T: Data> is Type:
+  CP{m: U32, a: Array<T>}
+
+type GP<-T: Data> is Type:
+  GP{m: U32, idx: Array<U32>, tbl: Array<T>}
+
+# the leaves being cut: rows in the current leaf, rows written so far, the current leaf's buffer (2^g
+# slots), the full leaves (newest first)
+type QL<-T: Data> is Type:
+  QL{k: U32, done: U32, cur: Array<T>, full: List<&1, Array<T>>}
+
+def Cut.ql0(~T: Data, +g: Nat, +z: T) -> QL<T>:
+  QL{0, 0, Array.new(T, g, z), Nil{}}
+
+# out[doff + j] = src[soff + j] for j < m; both come back (a range of a lane buffer into a leaf)
+def Cut.cp.go(~T: Data, f: Nat, +j: U32, +soff: U32, +doff: U32, out: Array<T>, r: Array<T> & T) -> Array<T> & Array<T>:
+  match f:
+    case 0n:
+      (src, x) = r
+      (out, src)
+    case 1n+p:
+      (src, x) = r
+      +j2 = U32.inc(j)
+      Cut.cp.go(~T, p, j2, soff, doff, Array.set(T, out, U32.add(doff, j), x), Array.get(T, src, U32.add(soff, j2)))
+
+def Cut.cp(~T: Data, +m: U32, +soff: U32, +doff: U32, out: Array<T>, src: Array<T>) -> Array<T> & Array<T>:
+  Cut.cp.go(~T, U32.to_nat(m), 0, soff, doff, out, Array.get(T, src, U32.add(soff, 0)))
+
+# out[doff + j] = tbl[idx[soff + j]] for j < m; the three come back as (out, tbl, idx)
+def Cut.ga.go(~T: Data, f: Nat, +j: U32, +soff: U32, +doff: U32, to: Array<T> & Array<T>, r: Array<U32> & U32) -> Array<T> & Array<T> & Array<U32>:
+  match f:
+    case 0n:
+      (tbl, out) = to
+      (idx, i) = r
+      (out, tbl, idx)
+    case 1n+p:
+      (tbl, out) = to
+      (idx, i) = r
+      +j2 = U32.inc(j)
+      Cut.ga.go(~T, p, j2, soff, doff, Csv.v2.gput(~T, out, U32.add(doff, j), Array.get(T, tbl, i)), Array.get(U32, idx, U32.add(soff, j2)))
+
+def Cut.ga(~T: Data, +m: U32, +soff: U32, +doff: U32, out: Array<T>, tbl: Array<T>, idx: Array<U32>) -> Array<T> & Array<T> & Array<U32>:
+  Cut.ga.go(~T, U32.to_nat(m), 0, soff, doff, (tbl, out), Array.get(U32, idx, U32.add(soff, 0)))
+
+# the current leaf after its rows reached k: kept while it has room, else it joins the full leaves and the
+# next one starts (a fresh 2^g buffer, or a 1-slot placeholder once all n rows are written)
+def Cut.roll(~T: Data, full: Bool, +g: Nat, +n: U32, +k: U32, +done: U32, +z: T, cur: Array<T>, fl: List<&1, Array<T>>) -> QL<T>:
+  match full:
+    case True{}:
+      QL{0, done, Array.new(T, Bool.pick(Nat, U32.is_lt(done, n), g, 0n), z), cur <> fl}
+    case False{}:
+      QL{k, done, cur, fl}
+
+# ---- copy a part: segments of at most the current leaf's room ----
+
+type QFC<-T: Data> is Type:
+  QFC{more: Bool, soff: U32, src: Array<T>, l: QL<T>}
+
+def Cut.cstep.k(~T: Data, +g: Nat, +n: U32, +m: U32, +soff: U32, +t: U32, +room: U32, +k: U32, +done: U32, +z: T, fl: List<&1, Array<T>>, r: Array<T> & Array<T>) -> QFC<T>:
+  (cur, src) = r
+  +s2 = U32.add(soff, t)
+  QFC{U32.is_lt(s2, m), s2, src, Cut.roll(~T, U32.is_eq(t, room), g, n, U32.add(k, t), U32.add(done, t), z, cur, fl)}
+
+def Cut.cstep(~T: Data, +g: Nat, +n: U32, +m: U32, +z: T, +soff: U32, src: Array<T>, l: QL<T>) -> QFC<T>:
+  match l:
+    case QL{+k, +done, cur, fl}:
+      +room = U32.sub(U32.shln(1, g), k)
+      +t = U32.min(room, U32.sub(m, soff))
+      Cut.cstep.k(~T, g, n, m, soff, t, room, k, done, z, fl, Cut.cp(~T, t, soff, k, cur, src))
+
+def Cut.cfeed(~T: Data, f: Nat, +g: Nat, +n: U32, +m: U32, +z: T, st: QFC<T>) -> QL<T>:
+  match f st:
+    case 0n QFC{more, soff, src, l}:
+      l
+    case _ QFC{False{}, soff, src, l}:
+      l
+    case 1n+p QFC{True{}, +soff, src, l}:
+      Cut.cfeed(~T, p, g, n, m, z, Cut.cstep(~T, g, n, m, z, soff, src, l))
+
+# the segments of a part of m rows: at most (m >> g) + 2
+def Cut.fuel(+m: U32, +g: Nat) -> Nat:
+  1n+1n+U32.to_nat(U32.shrn(m, g))
+
+# every part, in order, cut into the leaves
+def Cut.copy(~T: Data, +g: Nat, +n: U32, +z: T, ps: List<&1, CP<T>>, l: QL<T>) -> QL<T>:
+  match ps:
+    case Nil{}:
+      l
+    case CP{+m, a} <> t:
+      Cut.copy(~T, g, n, z, t, Cut.cfeed(~T, Cut.fuel(m, g), g, n, m, z, QFC{U32.is_lt(0, m), 0, a, l}))
+
+# ---- gather a part: the same segments, out[j] = tbl[idx[j]] ----
+
+type QFG<-T: Data> is Type:
+  QFG{more: Bool, soff: U32, idx: Array<U32>, tbl: Array<T>, l: QL<T>}
+
+def Cut.gstep.k(~T: Data, +g: Nat, +n: U32, +m: U32, +soff: U32, +t: U32, +room: U32, +k: U32, +done: U32, +z: T, fl: List<&1, Array<T>>, r: Array<T> & Array<T> & Array<U32>) -> QFG<T>:
+  (cur, tbl, idx) = r
+  +s2 = U32.add(soff, t)
+  QFG{U32.is_lt(s2, m), s2, idx, tbl, Cut.roll(~T, U32.is_eq(t, room), g, n, U32.add(k, t), U32.add(done, t), z, cur, fl)}
+
+def Cut.gstep(~T: Data, +g: Nat, +n: U32, +m: U32, +z: T, +soff: U32, idx: Array<U32>, tbl: Array<T>, l: QL<T>) -> QFG<T>:
+  match l:
+    case QL{+k, +done, cur, fl}:
+      +room = U32.sub(U32.shln(1, g), k)
+      +t = U32.min(room, U32.sub(m, soff))
+      Cut.gstep.k(~T, g, n, m, soff, t, room, k, done, z, fl, Cut.ga(~T, t, soff, k, cur, tbl, idx))
+
+def Cut.gfeed(~T: Data, f: Nat, +g: Nat, +n: U32, +m: U32, +z: T, st: QFG<T>) -> QL<T>:
+  match f st:
+    case 0n QFG{more, soff, idx, tbl, l}:
+      l
+    case _ QFG{False{}, soff, idx, tbl, l}:
+      l
+    case 1n+p QFG{True{}, +soff, idx, tbl, l}:
+      Cut.gfeed(~T, p, g, n, m, z, Cut.gstep(~T, g, n, m, z, soff, idx, tbl, l))
+
+def Cut.gath(~T: Data, +g: Nat, +n: U32, +z: T, ps: List<&1, GP<T>>, l: QL<T>) -> QL<T>:
+  match ps:
+    case Nil{}:
+      l
+    case GP{+m, idx, tbl} <> t:
+      Cut.gath(~T, g, n, z, t, Cut.gfeed(~T, Cut.fuel(m, g), g, n, m, z, QFG{U32.is_lt(0, m), 0, idx, tbl, l}))
+
+# ---- the leaves in row order, folded into a tree ----
+
+def Cut.last(~T: Data, empty: Bool, cur: Array<T>, fl: List<&1, Array<T>>) -> List<&1, Array<T>>:
+  match empty:
+    case True{}:
+      fl
+    case False{}:
+      cur <> fl
+
+# the full leaves and the current one if it holds rows, oldest first
+def Cut.leaves(~T: Data, l: QL<T>) -> List<&1, Array<T>>:
+  match l:
+    case QL{+k, done, cur, fl}:
+      List.reverse(&1, Array<T>, Cut.last(~T, U32.is_eq(k, 0), cur, fl))
+
+# leaf i's rows: 2^g, the last one n - i * 2^g
+def Cut.rows(+g: Nat, +n: U32, +i: U32) -> U32:
+  U32.min(U32.shln(1, g), U32.sub(n, U32.shln(i, g)))
+
+def Cut.w.fold(ls: List<&1, Array<U32>>, +i: U32, +g: Nat, +n: U32, s: CH.CWS) -> CH.CW:
+  match ls:
+    case Nil{}:
+      CH.CWS.collapse(s)
+    case a <> t:
+      +r = Cut.rows(g, n, i)
+      Cut.w.fold(t, U32.inc(i), g, n, CH.CWS.push(i, r, CH.WL{r, g, a}, s))
+
+def Cut.f.fold(ls: List<&1, Array<F32>>, +i: U32, +g: Nat, +n: U32, s: CH.CFS) -> CH.CF:
+  match ls:
+    case Nil{}:
+      CH.CFS.collapse(s)
+    case a <> t:
+      +r = Cut.rows(g, n, i)
+      Cut.f.fold(t, U32.inc(i), g, n, CH.CFS.push(i, r, CH.FL{r, g, a}, s))
+
+def Cut.s.fold(ls: List<&1, Array<String>>, +i: U32, +g: Nat, +n: U32, s: CH.CSS) -> CH.CS:
+  match ls:
+    case Nil{}:
+      CH.CSS.collapse(s)
+    case a <> t:
+      +r = Cut.rows(g, n, i)
+      Cut.s.fold(t, U32.inc(i), g, n, CH.CSS.push(i, r, CH.SL{r, g, a}, s))
+
+def Cut.w.tree(+g: Nat, +n: U32, l: QL<U32>) -> CH.CW:
+  Cut.w.fold(Cut.leaves(~U32, l), 0, g, n, CH.CWNil{})
+
+def Cut.f.tree(+g: Nat, +n: U32, l: QL<F32>) -> CH.CF:
+  Cut.f.fold(Cut.leaves(~F32, l), 0, g, n, CH.CFNil{})
+
+def Cut.s.tree(+g: Nat, +n: U32, l: QL<String>) -> CH.CS:
+  Cut.s.fold(Cut.leaves(~String, l), 0, g, n, CH.CSNil{})
+
+# ---- the columns ----
+
+# a column's parts in order: payload parts, validity parts, nulls, the first bad cell (the first part with
+# one: its row + 1, line, text)
+type QV<-T: Data> is Type:
+  QV{ds: List<&1, CP<T>>, vs: List<&1, CP<U32>>, nulls: U32, bad: U32, bl: U32, bt: String}
+
+# a part of an unexpected kind (never: a lane answers its column's kind) as m zero rows
+def Cut.zw(+m: U32) -> Array<U32>:
+  Array.new(U32, K.Kernel.depth_for(U32.max(m, 1)), 0)
+
+def Csv.v2.ch.w.k(+m: U32, co: L.CO, r: QV<U32>) -> QV<U32>:
+  match co r:
+    case L.OW{a, v, +nb, +bd, +bl, bt} QV{ds, vs, +nulls, +bad, +obl, obt}:
+      +here = U32.is_ne(bd, 0)
+      QV{CP{m, a} <> ds, CP{m, v} <> vs, U32.add(nulls, nb), Csv.v2.sel(here, bd, bad), Csv.v2.sel(here, bl, obl), Bool.pick(String, here, bt, obt)}
+    case _ QV{ds, vs, +nulls, +bad, +obl, obt}:
+      QV{CP{m, Cut.zw(m)} <> ds, CP{m, Cut.zw(m)} <> vs, nulls, bad, obl, obt}
+
+def Csv.v2.ch.w(ps: List<&1, QP>) -> QV<U32>:
+  match ps:
+    case Nil{}:
+      QV{Nil{}, Nil{}, 0, 0, 0, ""}
+    case QP{+m, co} <> t:
+      Csv.v2.ch.w.k(m, co, Csv.v2.ch.w(t))
+
+def Csv.v2.ch.f.k(+m: U32, co: L.CO, r: QV<F32>) -> QV<F32>:
+  match co r:
+    case L.OF{a, v, +nb, +bd, +bl, bt} QV{ds, vs, +nulls, +bad, +obl, obt}:
+      +here = U32.is_ne(bd, 0)
+      QV{CP{m, a} <> ds, CP{m, v} <> vs, U32.add(nulls, nb), Csv.v2.sel(here, bd, bad), Csv.v2.sel(here, bl, obl), Bool.pick(String, here, bt, obt)}
+    case _ QV{ds, vs, +nulls, +bad, +obl, obt}:
+      QV{CP{m, Array.new(F32, K.Kernel.depth_for(U32.max(m, 1)), 0.0)} <> ds, CP{m, Cut.zw(m)} <> vs, nulls, bad, obl, obt}
+
+def Csv.v2.ch.f(ps: List<&1, QP>) -> QV<F32>:
+  match ps:
+    case Nil{}:
+      QV{Nil{}, Nil{}, 0, 0, 0, ""}
+    case QP{+m, co} <> t:
+      Csv.v2.ch.f.k(m, co, Csv.v2.ch.f(t))
+
+def Csv.v2.ch.r.k(+m: U32, co: L.CO, r: QV<String>) -> QV<String>:
+  match co r:
+    case L.OR{a, v, +nb} QV{ds, vs, +nulls, bad, bl, bt}:
+      QV{CP{m, a} <> ds, CP{m, v} <> vs, U32.add(nulls, nb), bad, bl, bt}
+    case _ QV{ds, vs, +nulls, bad, bl, bt}:
+      QV{CP{m, Array.new(String, K.Kernel.depth_for(U32.max(m, 1)), "")} <> ds, CP{m, Cut.zw(m)} <> vs, nulls, bad, bl, bt}
+
+def Csv.v2.ch.r(ps: List<&1, QP>) -> QV<String>:
+  match ps:
+    case Nil{}:
+      QV{Nil{}, Nil{}, 0, 0, 0, ""}
+    case QP{+m, co} <> t:
+      Csv.v2.ch.r.k(m, co, Csv.v2.ch.r(t))
+
+# the validity tree (the data's partition) or none when no row is null
+def Csv.v2.ch.valid(none: Bool, +g: Nat, +n: U32, vs: List<&1, CP<U32>>) -> CH.CValid:
+  match none:
+    case True{}:
+      CH.CAllValid{}
+    case False{}:
+      CH.CMask{Cut.w.tree(g, n, Cut.copy(~U32, g, n, 0, vs, Cut.ql0(~U32, g, 0)))}
+
+# a bad cell's error as a chunk column's (Csv.col.err's text)
+def Csv.v2.ch.err(r: E.ResT(C.Named)) -> E.ResT(CH.CNamed):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{nc}:
+      Done{CH.CNamed.of(0n, nc)}
+
+def Csv.v2.ch.wcol.k(isbad: Bool, +name: String, +t: D.DType, +g: Nat, +n: U32, ds: List<&1, CP<U32>>, vs: List<&1, CP<U32>>, +nulls: U32, +bl: U32, +bt: String) -> E.ResT(CH.CNamed):
+  match isbad:
+    case True{}:
+      Csv.v2.ch.err(Csv.col.err(name, t, bt, bl))
+    case False{}:
+      Done{CH.CNamed{name, CH.CColumn.mk_w(t, n, Csv.v2.ch.valid(U32.is_eq(nulls, 0), g, n, vs), Cut.w.tree(g, n, Cut.copy(~U32, g, n, 0, ds, Cut.ql0(~U32, g, 0))))}}
+
+def Csv.v2.ch.wcol(+name: String, +t: D.DType, +g: Nat, +n: U32, s: QV<U32>) -> E.ResT(CH.CNamed):
+  match s:
+    case QV{ds, vs, +nulls, +bad, +bl, bt}:
+      Csv.v2.ch.wcol.k(U32.is_ne(bad, 0), name, t, g, n, ds, vs, nulls, bl, bt)
+
+def Csv.v2.ch.fcol.k(isbad: Bool, +name: String, +t: D.DType, +g: Nat, +n: U32, ds: List<&1, CP<F32>>, vs: List<&1, CP<U32>>, +nulls: U32, +bl: U32, +bt: String) -> E.ResT(CH.CNamed):
+  match isbad:
+    case True{}:
+      Csv.v2.ch.err(Csv.col.err(name, t, bt, bl))
+    case False{}:
+      Done{CH.CNamed{name, CH.CF32{n, Csv.v2.ch.valid(U32.is_eq(nulls, 0), g, n, vs), Cut.f.tree(g, n, Cut.copy(~F32, g, n, 0.0, ds, Cut.ql0(~F32, g, 0.0)))}}}
+
+def Csv.v2.ch.fcol(+name: String, +t: D.DType, +g: Nat, +n: U32, s: QV<F32>) -> E.ResT(CH.CNamed):
+  match s:
+    case QV{ds, vs, +nulls, +bad, +bl, bt}:
+      Csv.v2.ch.fcol.k(U32.is_ne(bad, 0), name, t, g, n, ds, vs, nulls, bl, bt)
+
+def Csv.v2.ch.rcol(+name: String, +g: Nat, +n: U32, s: QV<String>) -> E.ResT(CH.CNamed):
+  match s:
+    case QV{ds, vs, +nulls, bad, bl, bt}:
+      Done{CH.CNamed{name, CH.CStr{n, Csv.v2.ch.valid(U32.is_eq(nulls, 0), g, n, vs), CH.CSRaw{Cut.s.tree(g, n, Cut.copy(~String, g, n, "", ds, Cut.ql0(~String, g, "")))}}}}
+
+# ---- a Dictionary column: the merge over every part first (region order), then the cut ----
+
+# a part after the merge: rows, local codes, entries, the merge map (local id -> code; a placeholder for
+# the parts after EncAuto's fall back)
+type QSP is Type:
+  QSP{m: U32, c: Array<U32>, ents: Array<String>, map: Array<U32>}
+
+# the merge state: the column's dictionary, rows so far, fallen back to Raw, the parts and the validity
+# parts (newest first), the nulls
+type QMS is Type:
+  QMS{dict: ST.Dict, off: U32, over: Bool, ps: List<&1, QSP>, vs: List<&1, CP<U32>>, nulls: U32}
+
+def Csv.v2.ch.sg(+m: U32, c: Array<U32>, v: Array<U32>, +nb: U32, ps: List<&1, QSP>, vs: List<&1, CP<U32>>, +nulls: U32, +off: U32, g: QG) -> QMS:
+  match g:
+    case QG{ents, fr, dict, map, over}:
+      QMS{dict, U32.add(off, m), over, QSP{m, c, ents, map} <> ps, CP{m, v} <> vs, U32.add(nulls, nb)}
+
+# one part: merged as Csv.v2.x.part merges it (Csv.v2.mgo from the rows so far, the same stop), or after
+# the fall back kept with its entries only
+def Csv.v2.ch.sm.one(+m: U32, +enc: ST.StrEnc, co: L.CO, st: QMS) -> QMS:
+  match co st:
+    case L.OS{c, v, +nb, +k, ents, fr} QMS{dict, +off, False{}, ps, vs, +nulls}:
+      Csv.v2.ch.sg(m, c, v, nb, ps, vs, nulls, off, Csv.v2.mgo(U32.to_nat(k), 0, off, enc, QG{ents, fr, dict, Array.new(U32, K.Kernel.depth_for(U32.max(k, 1)), 0), False{}}))
+    case L.OS{c, v, +nb, k, ents, fr} QMS{dict, +off, True{}, ps, vs, +nulls}:
+      QMS{dict, U32.add(off, m), True{}, QSP{m, c, ents, Array.new(U32, 0n, 0)} <> ps, CP{m, v} <> vs, U32.add(nulls, nb)}
+    case _ QMS{dict, +off, over, ps, vs, +nulls}:
+      QMS{dict, U32.add(off, m), over, QSP{m, Cut.zw(m), Array.new(String, 0n, ""), Array.new(U32, 0n, 0)} <> ps, CP{m, Cut.zw(m)} <> vs, nulls}
+
+def Csv.v2.ch.sm(+enc: ST.StrEnc, ps: List<&1, QP>, st: QMS) -> QMS:
+  match ps:
+    case Nil{}:
+      st
+    case QP{+m, co} <> t:
+      Csv.v2.ch.sm(enc, t, Csv.v2.ch.sm.one(m, enc, co, st))
+
+# the merged parts (newest first) as gathers through their maps / from their entries, oldest first
+def Csv.v2.ch.gmap(ps: List<&1, QSP>, acc: List<&1, GP<U32>>) -> List<&1, GP<U32>>:
+  match ps:
+    case Nil{}:
+      acc
+    case QSP{+m, c, ents, map} <> t:
+      Csv.v2.ch.gmap(t, GP{m, c, map} <> acc)
+
+def Csv.v2.ch.gents(ps: List<&1, QSP>, acc: List<&1, GP<String>>) -> List<&1, GP<String>>:
+  match ps:
+    case Nil{}:
+      acc
+    case QSP{+m, c, ents, map} <> t:
+      Csv.v2.ch.gents(t, GP{m, c, ents} <> acc)
+
+def Csv.v2.ch.scol.k(over: Bool, +name: String, +g: Nat, +n: U32, dict: ST.Dict, ps: List<&1, QSP>, valid: CH.CValid) -> E.ResT(CH.CNamed):
+  match over:
+    case False{}:
+      Done{CH.CNamed{name, CH.CStr{n, valid, CH.CSDict{Cut.w.tree(g, n, Cut.gath(~U32, g, n, 0, Csv.v2.ch.gmap(ps, Nil{}), Cut.ql0(~U32, g, 0))), dict}}}}
+    case True{}:
+      Done{CH.CNamed{name, CH.CStr{n, valid, CH.CSRaw{Cut.s.tree(g, n, Cut.gath(~String, g, n, "", Csv.v2.ch.gents(ps, Nil{}), Cut.ql0(~String, g, "")))}}}}
+
+def Csv.v2.ch.scol(+name: String, +g: Nat, +n: U32, st: QMS) -> E.ResT(CH.CNamed):
+  match st:
+    case QMS{dict, off, over, ps, vs, +nulls}:
+      Csv.v2.ch.scol.k(over, name, g, n, dict, ps, Csv.v2.ch.valid(U32.is_eq(nulls, 0), g, n, List.reverse(&1, CP<U32>, vs)))
+
+# one column (n > 2^g rows) from its parts, or its first bad cell
+def Csv.v2.ch.col(t: L.Ty, +name: String, +dt: D.DType, +g: Nat, +n: U32, +enc: ST.StrEnc, ps: List<&1, QP>) -> E.ResT(CH.CNamed):
+  match t:
+    case L.TyF{}:
+      Csv.v2.ch.fcol(name, dt, g, n, Csv.v2.ch.f(ps))
+    case L.TyS{}:
+      Csv.v2.ch.scol(name, g, n, Csv.v2.ch.sm(enc, ps, QMS{ST.Dict.empty(), 0, False{}, Nil{}, Nil{}, 0}))
+    case L.TyR{}:
+      Csv.v2.ch.rcol(name, g, n, Csv.v2.ch.r(ps))
+    case _:
+      Csv.v2.ch.wcol(name, dt, g, n, Csv.v2.ch.w(ps))
+
+def Csv.v2.ch.kone(+g: Nat, +n: U32, +enc: ST.StrEnc, k: QK) -> E.ResT(CH.CNamed):
+  match k:
+    case QK{t, +name, +dt, ps}:
+      Csv.v2.ch.col(t, name, dt, g, n, enc, ps)
+
+# the columns built by ONE balanced fork over the tree of the columns (Csv.v2.bfork's shape)
+type QCB is Type:
+  QCBE{}
+  QCBL{r: E.ResT(CH.CNamed)}
+  QCBN{l: QCB, r: QCB}
+
+def Csv.v2.cfork(+g: Nat, +n: U32, +enc: ST.StrEnc, t: QKT) -> QCB:
+  match t:
+    case QKE{}:
+      QCBE{}
+    case QKL{k}:
+      QCBL{Csv.v2.ch.kone(g, n, enc, k)}
+    case QKN{l, r}:
+      a b = Csv.v2.cfork(g, n, enc, l) Csv.v2.cfork(g, n, enc, r)
+      QCBN{a, b}
+
+# the built columns, LAST first (Csv.v2.cfold's order)
+def Csv.v2.cblist(t: QCB, acc: List<&1, E.ResT(CH.CNamed)>) -> List<&1, E.ResT(CH.CNamed)>:
+  match t:
+    case QCBE{}:
+      acc
+    case QCBL{r}:
+      r <> acc
+    case QCBN{l, r}:
+      Csv.v2.cblist(r, Csv.v2.cblist(l, acc))
+
+def Csv.v2.ccons(a: E.ResT(CH.CNamed), b: E.ResT(List<&1, CH.CNamed>)) -> E.ResT(List<&1, CH.CNamed>):
+  match a b:
+    case Done{x} Done{y}:
+      Done{x <> y}
+    case Fail{e} _:
+      Fail{e}
+    case _ Fail{e}:
+      Fail{e}
+
+# the first column (in order) holding an error wins (Csv.v2.fold's rule)
+def Csv.v2.cfold(rs: List<&1, E.ResT(CH.CNamed)>, acc: E.ResT(List<&1, CH.CNamed>)) -> E.ResT(List<&1, CH.CNamed>):
+  match rs:
+    case Nil{}:
+      acc
+    case r <> t:
+      Csv.v2.cfold(t, Csv.v2.ccons(r, acc))
+
+# Frame.from_columns' check: the first name (in column order) seen before is a DuplicateColumn
+def Csv.v2.dup(ns: List<&2, String>, +seen: List<&2, String>) -> Maybe<&2, E.Err>:
+  match ns:
+    case Nil{}:
+      None{}
+    case +x <> t:
+      Bool.pick(Maybe<&2, E.Err>, C.Names.has(seen, x), Some{E.DuplicateColumn{x}}, Csv.v2.dup(t, x <> seen))
+
+def Csv.v2.cfin(r: E.ResT(List<&1, CH.CNamed>), +n: U32, dup: Maybe<&2, E.Err>) -> E.ResT(CsvOut):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{cols}:
+      match dup:
+        case Some{e}:
+          Fail{e}
+        case None{}:
+          Done{CsvChk{CH.CFrame{n, cols}}}
+
+def Csv.v2.cbuild.k(+g: Nat, +n: U32, +enc: ST.StrEnc, dup: Maybe<&2, E.Err>, r: List<&1, L.LO> & List<&1, QK>) -> E.ResT(CsvOut):
+  (los, ks) = r
+  Csv.v2.cfin(Csv.v2.cfold(Csv.v2.cblist(Csv.v2.cfork(g, n, enc, Csv.v2.kt.top(32n, Csv.v2.kt.leaves(List.reverse(&1, QK, ks)))), Nil{}), Done{Nil{}}), n, dup)
+
+# the chunk frame of n > 2^g rows (the flat build's column parts, cut into leaves)
+def Csv.v2.cbuild(+g: Nat, +n: U32, ts: List<&2, L.Ty>, dts: List<&2, D.DType>, +names: List<&2, String>, +enc: ST.StrEnc, los: List<&1, L.LO>) -> E.ResT(CsvOut):
+  Csv.v2.cbuild.k(g, n, enc, Csv.v2.dup(names, Nil{}), Csv.v2.kcols(ts, dts, names, 0, (los, Nil{})))
+
+def Csv.v2.flat(r: E.ResT(C.Frame)) -> E.ResT(CsvOut):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{f}:
+      Done{CsvFlat{f}}
+
+def Csv.v2.build.c(big: Bool, +g: Nat, +n: U32, ts: List<&2, L.Ty>, dts: List<&2, D.DType>, +names: List<&2, String>, +enc: ST.StrEnc, los: List<&1, L.LO>) -> E.ResT(CsvOut):
+  match big:
+    case True{}:
+      Csv.v2.cbuild(g, n, ts, dts, names, enc, los)
+    case False{}:
+      Csv.v2.flat(Csv.v2.build(n, ts, dts, names, enc, los))
+
+# the combine's builder by mode: flat columns, or (chunk mode, more than 2^g rows) chunk trees
+def Csv.v2.build.m(cm: CsvMode, +n: U32, ts: List<&2, L.Ty>, dts: List<&2, D.DType>, +names: List<&2, String>, +enc: ST.StrEnc, los: List<&1, L.LO>) -> E.ResT(CsvOut):
+  match cm:
+    case CMFlat{}:
+      Csv.v2.flat(Csv.v2.build(n, ts, dts, names, enc, los))
+    case CMChk{+g}:
+      Csv.v2.build.c(U32.is_lt(U32.shln(1, g), n), g, n, ts, dts, names, enc, los)
+
 # the error order after malformed and ragged: the dtype count, the row cap, then the columns
-def Csv.v2.comb.cap(capd: Maybe<&2, E.Err>, +n: U32, ts: List<&2, L.Ty>, dts: List<&2, D.DType>, names: List<&2, String>, +enc: ST.StrEnc, los: List<&1, L.LO>) -> E.ResT(C.Frame):
+def Csv.v2.comb.cap(cm: CsvMode, capd: Maybe<&2, E.Err>, +n: U32, ts: List<&2, L.Ty>, dts: List<&2, D.DType>, names: List<&2, String>, +enc: ST.StrEnc, los: List<&1, L.LO>) -> E.ResT(CsvOut):
   match capd:
     case Some{e}:
       Fail{e}
     case None{}:
-      Csv.v2.build(n, ts, dts, names, enc, los)
+      Csv.v2.build.m(cm, n, ts, dts, names, enc, los)
 
-def Csv.v2.comb.c(cnt: Maybe<&2, E.Err>, +cap: U32, +n: U32, ts: List<&2, L.Ty>, dts: List<&2, D.DType>, names: List<&2, String>, +enc: ST.StrEnc, los: List<&1, L.LO>) -> E.ResT(C.Frame):
+def Csv.v2.comb.c(cm: CsvMode, cnt: Maybe<&2, E.Err>, +cap: U32, +n: U32, ts: List<&2, L.Ty>, dts: List<&2, D.DType>, names: List<&2, String>, +enc: ST.StrEnc, los: List<&1, L.LO>) -> E.ResT(CsvOut):
   match cnt:
     case Some{e}:
       Fail{e}
     case None{}:
-      Csv.v2.comb.cap(K.Kernel.check_rows.cap(cap, n), n, ts, dts, names, enc, los)
+      Csv.v2.comb.cap(cm, K.Kernel.check_rows.cap(cap, n), n, ts, dts, names, enc, los)
 
-def Csv.v2.comb.r(rag: Bool, cnt: Maybe<&2, E.Err>, +w: U32, +rg: U32, +line: U32, +cap: U32, +n: U32, ts: List<&2, L.Ty>, dts: List<&2, D.DType>, names: List<&2, String>, +enc: ST.StrEnc, los: List<&1, L.LO>) -> E.ResT(C.Frame):
+def Csv.v2.comb.r(cm: CsvMode, rag: Bool, cnt: Maybe<&2, E.Err>, +w: U32, +rg: U32, +line: U32, +cap: U32, +n: U32, ts: List<&2, L.Ty>, dts: List<&2, D.DType>, names: List<&2, String>, +enc: ST.StrEnc, los: List<&1, L.LO>) -> E.ResT(CsvOut):
   match rag:
     case True{}:
       Fail{E.ParseError{line, "expected " ++ U32.show(w) ++ " fields, got " ++ U32.show(rg)}}
     case False{}:
-      Csv.v2.comb.c(cnt, cap, n, ts, dts, names, enc, los)
+      Csv.v2.comb.c(cm, cnt, cap, n, ts, dts, names, enc, los)
 
-def Csv.v2.comb.m(rej: Bool, cnt: Maybe<&2, E.Err>, +w: U32, +rag: U32, +rg: U32, +cap: U32, +n: U32, ts: List<&2, L.Ty>, dts: List<&2, D.DType>, names: List<&2, String>, +enc: ST.StrEnc, los: List<&1, L.LO>) -> E.ResT(C.Frame):
+def Csv.v2.comb.m(cm: CsvMode, rej: Bool, cnt: Maybe<&2, E.Err>, +w: U32, +rag: U32, +rg: U32, +cap: U32, +n: U32, ts: List<&2, L.Ty>, dts: List<&2, D.DType>, names: List<&2, String>, +enc: ST.StrEnc, los: List<&1, L.LO>) -> E.ResT(CsvOut):
   match rej:
     case True{}:
       Fail{Csv.malformed()}
     case False{}:
-      Csv.v2.comb.r(U32.is_ne(rag, 0), cnt, w, rg, rag, cap, n, ts, dts, names, enc, los)
+      Csv.v2.comb.r(cm, U32.is_ne(rag, 0), cnt, w, rg, rag, cap, n, ts, dts, names, enc, los)
 
-def Csv.v2.comb.k(sm: QSM, cnt: Maybe<&2, E.Err>, +w: U32, +cap: U32, ts: List<&2, L.Ty>, dts: List<&2, D.DType>, names: List<&2, String>, +enc: ST.StrEnc, los: List<&1, L.LO>) -> E.ResT(C.Frame):
+def Csv.v2.comb.k(cm: CsvMode, sm: QSM, cnt: Maybe<&2, E.Err>, +w: U32, +cap: U32, ts: List<&2, L.Ty>, dts: List<&2, D.DType>, names: List<&2, String>, +enc: ST.StrEnc, los: List<&1, L.LO>) -> E.ResT(CsvOut):
   match sm:
     case QSM{+n, +rej, +rag, +rgn}:
-      Csv.v2.comb.m(U32.is_ne(rej, 0), cnt, w, rag, rgn, cap, n, ts, dts, names, enc, los)
+      Csv.v2.comb.m(cm, U32.is_ne(rej, 0), cnt, w, rag, rgn, cap, n, ts, dts, names, enc, los)
 
-def Csv.v2.comb.s(r: List<&1, L.LO> & QSM, cnt: Maybe<&2, E.Err>, +w: U32, +cap: U32, ts: List<&2, L.Ty>, dts: List<&2, D.DType>, names: List<&2, String>, +enc: ST.StrEnc) -> E.ResT(C.Frame):
+def Csv.v2.comb.s(cm: CsvMode, r: List<&1, L.LO> & QSM, cnt: Maybe<&2, E.Err>, +w: U32, +cap: U32, ts: List<&2, L.Ty>, dts: List<&2, D.DType>, names: List<&2, String>, +enc: ST.StrEnc) -> E.ResT(CsvOut):
   (los, sm) = r
-  Csv.v2.comb.k(sm, cnt, w, cap, ts, dts, names, enc, los)
+  Csv.v2.comb.k(cm, sm, cnt, w, cap, ts, dts, names, enc, los)
 
 # the lanes (file order) combined: cnt is the dtype-count error, if any
-def Csv.v2.fin(cnt: Maybe<&2, E.Err>, ts: List<&2, L.Ty>, dts: List<&2, D.DType>, names: List<&2, String>, +w: U32, +cap: U32, +enc: ST.StrEnc, los: List<&1, L.LO>) -> E.ResT(C.Frame):
-  Csv.v2.comb.s(Csv.v2.sum(los, (Nil{}, QSM{0, 0, 0, 0})), cnt, w, cap, ts, dts, names, enc)
+def Csv.v2.fin(cm: CsvMode, cnt: Maybe<&2, E.Err>, ts: List<&2, L.Ty>, dts: List<&2, D.DType>, names: List<&2, String>, +w: U32, +cap: U32, +enc: ST.StrEnc, los: List<&1, L.LO>) -> E.ResT(CsvOut):
+  Csv.v2.comb.s(cm, Csv.v2.sum(los, (Nil{}, QSM{0, 0, 0, 0})), cnt, w, cap, ts, dts, names, enc)
 
 # ---- the paths by schema --------------------------------------------------------------------------------
 
 # inferred, head path: the kept tokens' columns, then the fork over the rest
-def Csv.v2.head.t(+tys: List<&2, L.Ty>, dts: List<&2, D.DType>, +w: U32, +sep: U32, +cap: U32, +enc: ST.StrEnc, names: List<&2, String>, tos: List<&1, L.TO>, rest: List<&1, P.Rg>) -> E.ResT(C.Frame):
-  Csv.v2.fin(None{}, tys, dts, names, w, cap, enc, Csv.v2.hcols(tos, tys, w, Csv.v2.lanes(tys, w, sep, rest)))
+def Csv.v2.head.t(cm: CsvMode, +tys: List<&2, L.Ty>, dts: List<&2, D.DType>, +w: U32, +sep: U32, +cap: U32, +enc: ST.StrEnc, names: List<&2, String>, tos: List<&1, L.TO>, rest: List<&1, P.Rg>) -> E.ResT(CsvOut):
+  Csv.v2.fin(cm, None{}, tys, dts, names, w, cap, enc, Csv.v2.hcols(tos, tys, w, Csv.v2.lanes(tys, w, sep, rest)))
 
-def Csv.v2.head.d(+dts: List<&2, D.DType>, +w: U32, +sep: U32, +cap: U32, +enc: ST.StrEnc, names: List<&2, String>, tos: List<&1, L.TO>, rest: List<&1, P.Rg>) -> E.ResT(C.Frame):
-  Csv.v2.head.t(Csv.v2.tys(dts, enc), dts, w, sep, cap, enc, names, tos, rest)
+def Csv.v2.head.d(cm: CsvMode, +dts: List<&2, D.DType>, +w: U32, +sep: U32, +cap: U32, +enc: ST.StrEnc, names: List<&2, String>, tos: List<&1, L.TO>, rest: List<&1, P.Rg>) -> E.ResT(CsvOut):
+  Csv.v2.head.t(cm, Csv.v2.tys(dts, enc), dts, w, sep, cap, enc, names, tos, rest)
 
-def Csv.v2.head.k(+w: U32, +sep: U32, +cap: U32, +lim: U32, +enc: ST.StrEnc, names: List<&2, String>, r: QHR) -> E.ResT(C.Frame):
+def Csv.v2.head.k(cm: CsvMode, +w: U32, +sep: U32, +cap: U32, +lim: U32, +enc: ST.StrEnc, names: List<&2, String>, r: QHR) -> E.ResT(CsvOut):
   match r:
     case QHR{QHP{tos, g, off, go}, rest}:
-      Csv.v2.head.d(Csv.v2.ci.dts(g, lim), w, sep, cap, enc, names, tos, rest)
+      Csv.v2.head.d(cm, Csv.v2.ci.dts(g, lim), w, sep, cap, enc, names, tos, rest)
 
 # inferred, full path, and explicit dtypes: one fork of whole lanes over the regions
-def Csv.v2.whole(cnt: Maybe<&2, E.Err>, +tys: List<&2, L.Ty>, dts: List<&2, D.DType>, +w: U32, +sep: U32, +cap: U32, +enc: ST.StrEnc, names: List<&2, String>, regs: List<&1, P.Rg>) -> E.ResT(C.Frame):
-  Csv.v2.fin(cnt, tys, dts, names, w, cap, enc, Csv.v2.lanes(tys, w, sep, regs))
+def Csv.v2.whole(cm: CsvMode, cnt: Maybe<&2, E.Err>, +tys: List<&2, L.Ty>, dts: List<&2, D.DType>, +w: U32, +sep: U32, +cap: U32, +enc: ST.StrEnc, names: List<&2, String>, regs: List<&1, P.Rg>) -> E.ResT(CsvOut):
+  Csv.v2.fin(cm, cnt, tys, dts, names, w, cap, enc, Csv.v2.lanes(tys, w, sep, regs))
 
-def Csv.v2.full.d(+dts: List<&2, D.DType>, +w: U32, +sep: U32, +cap: U32, +enc: ST.StrEnc, names: List<&2, String>, regs: List<&1, P.Rg>) -> E.ResT(C.Frame):
-  Csv.v2.whole(None{}, Csv.v2.tys(dts, enc), dts, w, sep, cap, enc, names, regs)
+def Csv.v2.full.d(cm: CsvMode, +dts: List<&2, D.DType>, +w: U32, +sep: U32, +cap: U32, +enc: ST.StrEnc, names: List<&2, String>, regs: List<&1, P.Rg>) -> E.ResT(CsvOut):
+  Csv.v2.whole(cm, None{}, Csv.v2.tys(dts, enc), dts, w, sep, cap, enc, names, regs)
 
-def Csv.v2.full.k(+w: U32, +sep: U32, +cap: U32, +lim: U32, +enc: ST.StrEnc, names: List<&2, String>, st: QCA) -> E.ResT(C.Frame):
+def Csv.v2.full.k(cm: CsvMode, +w: U32, +sep: U32, +cap: U32, +lim: U32, +enc: ST.StrEnc, names: List<&2, String>, st: QCA) -> E.ResT(CsvOut):
   match st:
     case QCA{regs, g, off}:
-      Csv.v2.full.d(Csv.v2.ci.dts(g, lim), w, sep, cap, enc, names, List.reverse(&1, P.Rg, regs))
+      Csv.v2.full.d(cm, Csv.v2.ci.dts(g, lim), w, sep, cap, enc, names, List.reverse(&1, P.Rg, regs))
 
-def Csv.v2.infer(head: Bool, +w: U32, +sep: U32, +cap: U32, +lim: U32, +enc: ST.StrEnc, names: List<&2, String>, regs: List<&1, P.Rg>) -> E.ResT(C.Frame):
+def Csv.v2.infer(cm: CsvMode, head: Bool, +w: U32, +sep: U32, +cap: U32, +lim: U32, +enc: ST.StrEnc, names: List<&2, String>, regs: List<&1, P.Rg>) -> E.ResT(CsvOut):
   match head:
     case True{}:
-      Csv.v2.head.k(w, sep, cap, lim, enc, names, Csv.v2.hp.go(regs, w, sep, lim, QHP{Nil{}, Csv.v2.ci.zero(U32.to_nat(w)), 0, True{}}))
+      Csv.v2.head.k(cm, w, sep, cap, lim, enc, names, Csv.v2.hp.go(regs, w, sep, lim, QHP{Nil{}, Csv.v2.ci.zero(U32.to_nat(w)), 0, True{}}))
     case False{}:
-      Csv.v2.full.k(w, sep, cap, lim, enc, names, Csv.v2.cacc(Csv.v2.clist(Csv.v2.ctree(w, sep, P.Rt.of(regs)), Nil{}), QCA{Nil{}, Csv.v2.ci.zero(U32.to_nat(w)), 0}))
+      Csv.v2.full.k(cm, w, sep, cap, lim, enc, names, Csv.v2.cacc(Csv.v2.clist(Csv.v2.ctree(w, sep, P.Rt.of(regs)), Nil{}), QCA{Nil{}, Csv.v2.ci.zero(U32.to_nat(w)), 0}))
 
 # explicit dtypes: a wrong count only tokenizes (malformed and ragged outrank it)
-def Csv.v2.exp(cnt: Maybe<&2, E.Err>, +ts: List<&2, D.DType>, +w: U32, +sep: U32, +cap: U32, +enc: ST.StrEnc, names: List<&2, String>, regs: List<&1, P.Rg>) -> E.ResT(C.Frame):
+def Csv.v2.exp(cm: CsvMode, cnt: Maybe<&2, E.Err>, +ts: List<&2, D.DType>, +w: U32, +sep: U32, +cap: U32, +enc: ST.StrEnc, names: List<&2, String>, regs: List<&1, P.Rg>) -> E.ResT(CsvOut):
   match cnt:
     case Some{e}:
-      Csv.v2.whole(Some{e}, Csv.v2.tyn(U32.to_nat(w)), ts, w, sep, cap, enc, names, regs)
+      Csv.v2.whole(cm, Some{e}, Csv.v2.tyn(U32.to_nat(w)), ts, w, sep, cap, enc, names, regs)
     case None{}:
-      Csv.v2.whole(None{}, Csv.v2.tys(ts, enc), ts, w, sep, cap, enc, names, regs)
+      Csv.v2.whole(cm, None{}, Csv.v2.tys(ts, enc), ts, w, sep, cap, enc, names, regs)
 
-def Csv.v2.mode(ts: List<&2, D.DType>, +w: U32, +sep: U32, +lim: U32, +cap: U32, +enc: ST.StrEnc, names: List<&2, String>, regs: List<&1, P.Rg>) -> E.ResT(C.Frame):
+def Csv.v2.mode(cm: CsvMode, ts: List<&2, D.DType>, +w: U32, +sep: U32, +lim: U32, +cap: U32, +enc: ST.StrEnc, names: List<&2, String>, regs: List<&1, P.Rg>) -> E.ResT(CsvOut):
   match ts:
     case Nil{}:
-      Csv.v2.infer(U32.is_le(lim, Csv.v2.headmax()), w, sep, cap, lim, enc, names, regs)
+      Csv.v2.infer(cm, U32.is_le(lim, Csv.v2.headmax()), w, sep, cap, lim, enc, names, regs)
     case +t <> +tt:
-      Csv.v2.exp(Csv.ts.err(t <> tt, U32.to_nat(w)), t <> tt, w, sep, cap, enc, names, regs)
+      Csv.v2.exp(cm, Csv.ts.err(t <> tt, U32.to_nat(w)), t <> tt, w, sep, cap, enc, names, regs)
 
-def Csv.v2.odd(odd: Bool, ts: List<&2, D.DType>, +w: U32, +sep: U32, +lim: U32, +cap: U32, +enc: ST.StrEnc, names: List<&2, String>, regs: List<&1, P.Rg>) -> E.ResT(C.Frame):
+def Csv.v2.odd(cm: CsvMode, odd: Bool, ts: List<&2, D.DType>, +w: U32, +sep: U32, +lim: U32, +cap: U32, +enc: ST.StrEnc, names: List<&2, String>, regs: List<&1, P.Rg>) -> E.ResT(CsvOut):
   match odd:
     case True{}:
       Fail{Csv.malformed()}
     case False{}:
-      Csv.v2.mode(ts, w, sep, lim, cap, enc, names, regs)
+      Csv.v2.mode(cm, ts, w, sep, lim, cap, enc, names, regs)
 
-def Csv.v2.prod(o: P.PrOut, ts: List<&2, D.DType>, +w: U32, +sep: U32, +lim: U32, +cap: U32, +enc: ST.StrEnc, names: List<&2, String>) -> E.ResT(C.Frame):
+def Csv.v2.prod(cm: CsvMode, o: P.PrOut, ts: List<&2, D.DType>, +w: U32, +sep: U32, +lim: U32, +cap: U32, +enc: ST.StrEnc, names: List<&2, String>) -> E.ResT(CsvOut):
   match o:
     case P.PrErr{code, msg}:
       Fail{E.IoError{code, msg}}
     case P.PrOk{nr, odd, regs}:
-      Csv.v2.odd(U32.is_ne(odd, 0), ts, w, sep, lim, cap, enc, names, regs)
+      Csv.v2.odd(cm, U32.is_ne(odd, 0), ts, w, sep, lim, cap, enc, names, regs)
 
-def Csv.v2.go(hd: QD, path: String, +sep: U32, +lim: U32, +piece: U32, +cap: U32, ts: List<&2, D.DType>, +enc: ST.StrEnc) -> IO(E.ResT(C.Frame)):
+def Csv.v2.go(cm: CsvMode, hd: QD, path: String, +sep: U32, +lim: U32, +piece: U32, +cap: U32, ts: List<&2, D.DType>, +enc: ST.StrEnc) -> IO(E.ResT(CsvOut)):
   match hd:
     case QDErr{e}:
-      IO.pure(E.ResT(C.Frame), Fail{e})
+      IO.pure(E.ResT(CsvOut), Fail{e})
     case QDNone{}:
-      IO.pure(E.ResT(C.Frame), Csv.rows.none(Csv.ts.err(ts, 0n)))
+      IO.pure(E.ResT(CsvOut), Csv.v2.flat(Csv.rows.none(Csv.ts.err(ts, 0n))))
     case QDOk{names, +w, off0, line0}:
-      do IO<E.ResT(C.Frame)>:
+      do IO<E.ResT(CsvOut)>:
         o : P.PrOut <- P.Pr.regions(path, off0, line0, piece)
-        return Csv.v2.prod(o, ts, w, sep, lim, cap, enc, names)
+        return Csv.v2.prod(cm, o, ts, w, sep, lim, cap, enc, names)
 
-def Csv.v2.start(+path: String, +hdr: Bool, +sep: U32, +lim: U32, +piece: U32, +cap: U32, ts: List<&2, D.DType>, +enc: ST.StrEnc) -> IO(E.ResT(C.Frame)):
-  do IO<E.ResT(C.Frame)>:
+def Csv.v2.start(cm: CsvMode, +path: String, +hdr: Bool, +sep: U32, +lim: U32, +piece: U32, +cap: U32, ts: List<&2, D.DType>, +enc: ST.StrEnc) -> IO(E.ResT(CsvOut)):
+  do IO<E.ResT(CsvOut)>:
     hd : QD <- Csv.v2.header(path, hdr, sep, Csv.v2.hpiece(piece))
-    Csv.v2.go(hd, path, sep, lim, piece, cap, ts, enc)
+    Csv.v2.go(cm, hd, path, sep, lim, piece, cap, ts, enc)
 
 # an ASCII separator: the v0.2 path; any other: the v0.1 reader (the lane compares bytes)
-def Csv.v2.ascii(ascii: Bool, path: String, +sep: Char, +hdr: Bool, +inf: U32, +piece: U32, +cap: U32, ts: List<&2, D.DType>, +enc: ST.StrEnc) -> IO(E.ResT(C.Frame)):
+def Csv.v2.ascii(cm: CsvMode, ascii: Bool, path: String, +sep: Char, +hdr: Bool, +inf: U32, +piece: U32, +cap: U32, ts: List<&2, D.DType>, +enc: ST.StrEnc) -> IO(E.ResT(CsvOut)):
   match ascii:
     case True{}:
-      Csv.v2.start(path, hdr, Char.to_u32(sep), Csv.limit(inf), piece, cap, ts, enc)
+      Csv.v2.start(cm, path, hdr, Char.to_u32(sep), Csv.limit(inf), piece, cap, ts, enc)
     case False{}:
-      Csv.read_full(path, CsvOpts{sep, hdr, inf}, ts, enc, Csv.chunk(), cap)
+      do IO<E.ResT(CsvOut)>:
+        r : E.ResT(C.Frame) <- Csv.read_full(path, CsvOpts{sep, hdr, inf}, ts, enc, Csv.chunk(), cap)
+        return Csv.v2.flat(r)
 
-def Csv.v2.chk(bad: Maybe<&2, E.Err>, path: String, +sep: Char, +hdr: Bool, +inf: U32, +piece: U32, +cap: U32, ts: List<&2, D.DType>, +enc: ST.StrEnc) -> IO(E.ResT(C.Frame)):
+def Csv.v2.chk(cm: CsvMode, bad: Maybe<&2, E.Err>, path: String, +sep: Char, +hdr: Bool, +inf: U32, +piece: U32, +cap: U32, ts: List<&2, D.DType>, +enc: ST.StrEnc) -> IO(E.ResT(CsvOut)):
   match bad:
     case Some{e}:
-      IO.pure(E.ResT(C.Frame), Fail{e})
+      IO.pure(E.ResT(CsvOut), Fail{e})
     case None{}:
-      Csv.v2.ascii(U32.is_lt(Char.to_u32(sep), 128), path, sep, hdr, inf, piece, cap, ts, enc)
+      Csv.v2.ascii(cm, U32.is_lt(Char.to_u32(sep), 128), path, sep, hdr, inf, piece, cap, ts, enc)
+
+# the v0.2 reader by build mode (W6.6): CMFlat answers CsvFlat (Csv.read_v02_full's frame); CMChk{g}
+# answers, for a frame of more than 2^g rows, its chunk frame (CsvChk: leaves of 2^g rows built by the
+# combine, DESIGN.md 17.5), else the same flat frame. The same errors in the same order either way.
+def Csv.read_v02_mode(cm: CsvMode, path: String, +opts: CsvOpts, ts: List<&2, D.DType>, enc: ST.StrEnc, +piece: U32, +cap: U32) -> IO(E.ResT(CsvOut)):
+  match opts:
+    case CsvOpts{+sep, +hdr, +inf}:
+      Csv.v2.chk(cm, Csv.sep_err(sep), path, sep, hdr, inf, piece, cap, ts, enc)
+
+# a flat answer (a chunk frame is flattened: never met under CMFlat)
+def Csv.v2.unflat(r: E.ResT(CsvOut)) -> E.ResT(C.Frame):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{o}:
+      match o:
+        case CsvFlat{f}:
+          Done{f}
+        case CsvChk{f}:
+          Done{CH.CFrame.to_frame(f)}
 
 # the v0.2 reader with every knob (Csv.read_full's): the piece size in bytes (tests use tiny ones), the
 # row cap, the Str storage. Answers what Csv.read_full answers (DESIGN.md 15.6, 17.4).
 def Csv.read_v02_full(path: String, +opts: CsvOpts, ts: List<&2, D.DType>, enc: ST.StrEnc, +piece: U32, +cap: U32) -> IO(E.ResT(C.Frame)):
-  match opts:
-    case CsvOpts{+sep, +hdr, +inf}:
-      Csv.v2.chk(Csv.sep_err(sep), path, sep, hdr, inf, piece, cap, ts, enc)
+  do IO<E.ResT(C.Frame)>:
+    r : E.ResT(CsvOut) <- Csv.read_v02_mode(CMFlat{}, path, opts, ts, enc, piece, cap)
+    return Csv.v2.unflat(r)
 
 # the reader by engine: Csv.read_enc (v0.1) or the v0.2 reader at its piece size
 def Csv.read_eng(eng: CsvEngine, path: String, opts: CsvOpts, ts: List<&2, D.DType>, enc: ST.StrEnc) -> IO(E.ResT(C.Frame)):
@@ -3119,3 +3627,14 @@ def Csv.read_eng(eng: CsvEngine, path: String, opts: CsvOpts, ts: List<&2, D.DTy
       Csv.read_enc(path, opts, ts, enc)
     case CsvV02{+piece}:
       Csv.read_v02_full(path, opts, ts, enc, piece, K.Kernel.max_rows())
+
+# the reader by engine for the chunked runner (W6.6, src/cexec.bend's scans): v0.1 answers its flat frame;
+# v0.2 by the build mode (CMChk{g}: a frame of more than 2^g rows straight into chunk leaves, Csv.read_v02_mode)
+def Csv.read_eng_m(eng: CsvEngine, cm: CsvMode, path: String, opts: CsvOpts, ts: List<&2, D.DType>, enc: ST.StrEnc) -> IO(E.ResT(CsvOut)):
+  match eng:
+    case CsvV01{}:
+      do IO<E.ResT(CsvOut)>:
+        r : E.ResT(C.Frame) <- Csv.read_enc(path, opts, ts, enc)
+        return Csv.v2.flat(r)
+    case CsvV02{+piece}:
+      Csv.read_v02_mode(cm, path, opts, ts, enc, piece, K.Kernel.max_rows())

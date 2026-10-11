@@ -4,7 +4,10 @@
 # The facade does not expose CStats, so `make m2-g6` runs this next to the instrumented driver to fill the
 # "chunk conversions" columns of its table (conversion counts and LOGICAL bytes = 4 x rows x columns converted;
 # the bytes the runtime really allocated for them are in the instrumented driver's counters).
-#   bend bench/m2/cstats.bend -o build/m2/cstats; build/m2/cstats [--threads N] <op> <file> <aux|-> [param]
+#   bend bench/m2/cstats.bend -o build/m2/cstats; build/m2/cstats [--threads N] <op> <file> <aux|-> [param [scan]]
+# With a fifth argument `scan` (W6.6) the sales file is a scan_csv plan collected as `BF_ENGINE=v02,chunked,scan` does
+# (cexec.bend Exec.run_with_rd(CsvV02, Chunked{14}): CX.prep.k reads the scan with the v0.2 reader in chunk mode, the
+# runner's IScan takes its leaves): its conv_in / bytes_in are the flat -> chunk conversions left on a scan plan.
 # stdout: {"op":..,"chk":<the driver's content hash of the result>,"stats":"conv_in n bytes_in b conv_out n bytes_out b walks n flat_ops n"}
 # op: q1 q2 q3 q4 q5 nunique group unique join filter (the driver's plans: bench/m2/driver.bend Pl.of); q6 (eager describe)
 # and parse do not collect, so there is nothing to count.
@@ -76,8 +79,53 @@ def X.start(+op: String, +par: U32, +path: String, +ppath: String) -> IO(Unit):
     r : E.ResT(List<&1, DR.In>) <- DR.rd.many(1n, path, ppath, Done{Nil{}})
     X.r(op, par, r)
 
+# ---- scan mode (W6.6): the sales input as a scan_csv plan, read by the v0.2 reader into chunk leaves ----
+
+def X.sgo2(+g: Nat, +op: String, +p: P.Plan, ep: P.Env & List<&1, QC.PNF>) -> IO(Unit):
+  (env, pre) = ep
+  X.print(op, QC.CX.run(g, p, env, pre))
+
+def X.sgo(+g: Nat, +op: String, +p: P.Plan, r: E.ResT(P.Env & List<&1, QC.PNF>)) -> IO(Unit):
+  match r:
+    case Fail{e}:
+      IO.print("error: " ++ E.Err.show(e))
+    case Done{ep}:
+      X.sgo2(g, op, p, ep)
+
+# Exec.run_with.c for CsvV02: the checks, the scans read into chunk leaves (CX.prep.k), then the chunked runner
+def X.sprep(+g: Nat, +op: String, +p: P.Plan, env: P.Env) -> IO(Unit):
+  do IO<Unit>:
+    r : E.ResT(P.Env & List<&1, QC.PNF>) <- QC.CX.prep.k(P.Plan.schema(p), g, R.Csv.engine_v02(), p, env)
+    X.sgo(g, op, p, r)
+
+def X.sb(+g: Nat, +op: String, +par: U32, +s: P.Plan, r: P.Env & P.Plan) -> IO(Unit):
+  (env, +pp) = r
+  X.sprep(g, op, P.Optimize.release(DR.Pl.of(op, par, s, pp)), env)
+
+def X.sj(+op: String, +par: U32, ps: E.Res(P.Plan), rp: E.ResT(C.Frame)) -> IO(Unit):
+  match ps rp:
+    case Done{+s} Done{p}:
+      X.sb(CH.Ch.grain(), op, par, s, DF.add_source(DF.empty_env(), "products", p))
+    case Fail{e} _:
+      IO.print("error: " ++ E.Err.show(e))
+    case _ Fail{e}:
+      IO.print("error: " ++ E.Err.show(e))
+
+def X.scan(+op: String, +par: U32, +path: String, +ppath: String) -> IO(Unit):
+  do IO<Unit>:
+    rp : E.ResT(C.Frame) <- DR.rd.aux(ppath)
+    ps : E.Res(P.Plan) <- DF.scan_csv(path)
+    X.sj(op, par, ps, rp)
+
+def X.mode(sc: Bool, +op: String, +par: U32, +path: String, +ppath: String) -> IO(Unit):
+  match sc:
+    case True{}:
+      X.scan(op, par, path, ppath)
+    case False{}:
+      X.start(op, par, path, ppath)
+
 def X.args(+xs: List<&2, String>) -> IO(Unit):
-  X.start(DR.nth(0n, xs, "q1"), U32.from_nat(DR.nat.of(Nat.read(DR.nth(3n, xs, "0")), 0n)), DR.nth(1n, xs, "bench/data/sales_1000000.csv"), DR.nth(2n, xs, "bench/data/products.csv"))
+  X.mode(String.eq(DR.nth(4n, xs, ""), "scan"), DR.nth(0n, xs, "q1"), U32.from_nat(DR.nat.of(Nat.read(DR.nth(3n, xs, "0")), 0n)), DR.nth(1n, xs, "bench/data/sales_1000000.csv"), DR.nth(2n, xs, "bench/data/products.csv"))
 
 def main() -> IO(Unit):
   do IO<Unit>:

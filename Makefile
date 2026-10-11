@@ -243,7 +243,7 @@ csv-fuzz-mutants:
 # A def with a parallel let does nothing but match (and call FLAT helpers) before the fork; a non-flat fork-free
 # call in a branch argument or before the fork becomes a task the grow pass does not run, and the subtree below
 # runs on one thread (the ~2x ceiling). Two parts, both static and deterministic (no timing, no data):
-#   1. the source lint over src/*.bend and frame.bend: every parallel let (66 today, the generated src/ckernels.bend
+#   1. the source lint over src/*.bend and frame.bend: every parallel let (67 today, the generated src/ckernels.bend
 #      wrappers included: no program reaches them all) has no non-primitive call in a branch argument or in a
 #      statement before it; any finding fails (there is no allowlist for this part);
 #   2. the emitted C of the audited programs (bench/m2/driver.bend: the v0.2 CSV reader, the chunked engine, the

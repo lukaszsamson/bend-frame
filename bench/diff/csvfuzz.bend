@@ -10,7 +10,10 @@
 #   cap     the row cap   pieces  v0.2 piece sizes, comma separated
 # Each case is read with the v0.1 reader (Csv.read_full, the reference) and with the v0.2 reader
 # (Csv.read_v02_full) at every piece size, and the DF.dump text plus the Str storage (Raw, Dictionary
-# size, hash of the codes) are compared exactly: tests/lib/v02cmp.bend's Run.file. One line per case:
+# size, hash of the codes) are compared exactly: tests/lib/v02cmp.bend's Run.file. W6.6: two more runs at
+# the FIRST piece read in chunk mode (Csv.read_v02_mode CMChk{g}, g = 1 and 3: the combine cuts leaves of
+# 2 / 8 rows across the regions), each flattened (CFrame.to_frame) and compared the same way, a chunk frame
+# also checked WFCFrame (CFrame.check); a difference is `DIFF chunk g<g> piece <p>: ...`. One line per case:
 #   `<id>: ok <runs> | <the v0.1 outcome>`   or   `<id>: DIFF <piece, first difference>`
 # With `show` the full v0.1 text and the full v0.2 text (at the FIRST piece of the list) are printed
 # instead, after `== <id> v01` / `== <id> v02 piece <p>` lines.
@@ -18,6 +21,9 @@
 import Base
 import ./../../src/strs.bend as ST
 import ./../../src/csv.bend as V
+import ./../../src/err.bend as E
+import ./../../src/chunks.bend as CH
+import ./../w6/cmp.bend as M
 import ./../../tests/lib/v02cmp.bend as T
 import ./../w6/hx.bend as HX
 
@@ -111,10 +117,55 @@ def Fz.show(+c: T.Cf, +path: String, +piece: U32) -> IO(Unit):
     IO.print("== " ++ T.Cf.label(c) ++ " v01\n" ++ a)
     IO.print("== " ++ T.Cf.label(c) ++ " v02 piece " ++ U32.show(piece) ++ "\n" ++ b)
 
-def Fz.run1(+id: String, +path: String, +c: T.Cf, ps: List<&2, U32>) -> IO(Unit):
+# ---- W6.6: the chunk mode at the first piece ----
+
+def Fz.ck.c(r: CH.CFrame & Bool) -> String:
+  (f, ok) = r
+  Bool.pick(String, ok, "", "not WFCFrame\n") ++ T.Sg.text(Done{CH.CFrame.to_frame(f)})
+
+def Fz.ck.text(r: E.ResT(V.CsvOut)) -> String:
+  match r:
+    case Fail{e}:
+      T.Sg.text(Fail{e})
+    case Done{o}:
+      match o:
+        case V.CsvFlat{f}:
+          T.Sg.text(Done{f})
+        case V.CsvChk{f}:
+          Fz.ck.c(CH.CFrame.check(f))
+
+def Fz.ck.d(+g: Nat, +piece: U32, +d: String) -> String:
+  Bool.pick(String, String.is_empty(d), "", "chunk g" ++ Nat.show(g) ++ " piece " ++ U32.show(piece) ++ ": " ++ d)
+
+# "" when the chunk-mode read at grain 2^g equals the reference text, else the difference
+def Fz.ck(+c: T.Cf, +path: String, +g: Nat, +piece: U32, +ref: String) -> IO(String):
+  match c:
+    case T.Cf{l, +schema, +hdr, +sep, +inf, +enc, +cap}:
+      do IO<String>:
+        r : E.ResT(V.CsvOut) <- V.Csv.read_v02_mode(V.CMChk{g}, path, V.CsvOpts{Chr{sep}, hdr, inf}, T.Sch.dts(schema), enc, piece, cap)
+        return Fz.ck.d(g, piece, M.Cmp.diff(ref, Fz.ck.text(r)))
+
+def Fz.ck.fold(r: T.RP, +d1: String, +d3: String) -> T.RP:
+  match r:
+    case T.RP{+ps, +v, True{}, +n}:
+      Bool.pick(T.RP, String.is_empty(d1), Bool.pick(T.RP, String.is_empty(d3), T.RP{ps, v, True{}, U32.add(n, 2)}, T.RP{ps, d3, False{}, n}), T.RP{ps, d1, False{}, n})
+    case other:
+      other
+
+def Fz.first(+ps: List<&2, U32>) -> U32:
+  match ps:
+    case Nil{}:
+      4096
+    case +p <> t:
+      p
+
+def Fz.run1(+id: String, +path: String, +c: T.Cf, +ps: List<&2, U32>) -> IO(Unit):
   do IO<Unit>:
-    s : String <- T.Run.file(id, path, c, [T.CP{c, ps}])
-    IO.print(s)
+    +r0 : String <- T.Cf.ref(c, path)
+    r : T.RP <- T.Run.all([T.CP{c, ps}], path, T.RP{Nil{}, "", True{}, 0})
+    +d1 : String <- Fz.ck(c, path, 1n, Fz.first(ps), r0)
+    +d3 : String <- Fz.ck(c, path, 3n, Fz.first(ps), r0)
+    IO.print(T.Run.line(id, M.Cmp.outcome(r0), Fz.ck.fold(r, d1, d3)))
 
 def Fz.case(+show: Bool, +toks: List<&2, String>) -> IO(Unit):
   Bool.pick(IO(Unit), show, Fz.show(Fz.cfg(Fz.at(toks, 0n), toks), Fz.at(toks, 1n), Fz.num(Fz.at(Fz.split(Fz.at(toks, 8n), 44), 0n))), Fz.run1(Fz.at(toks, 0n), Fz.at(toks, 1n), Fz.cfg(Fz.at(toks, 0n), toks), Fz.pieces(toks)))

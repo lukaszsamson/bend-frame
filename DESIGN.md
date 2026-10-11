@@ -3297,6 +3297,55 @@ No change of the data contract; no proof mentions the changed def (LAWS.bend / P
 3. **A gate**: `make fork-audit` (not in `ci:`; see IMPLEMENTING.md "Fork audit") fails on a NEW call task inside a
    forking def, a stale allowlist entry, or a non-primitive call before / in a parallel let in any src/ file.
 
+### v0.2 W6.6 (the chunk hand-off: the v0.2 reader builds the chunked engine's leaves; 17.5, 16.5 D7)
+
+No change of the data contract (section 15): every scan answers the reference's frame or error (tests/csv_v02_chunks.bend,
+tests/cexec_scan.bend, the csv fuzz's two chunk-mode reads per case). The flat path is untouched in behaviour: every
+read_csv* builds flat (`CMFlat`), the chunk build is reached only through the chunked engine's scans. Items:
+
+1. **Where the boundary moved.** `Exec.run_with_rd(CsvV02{_}, Chunked{g}, ..)` (and `Lazy.collect_with_rd`) no longer reads
+   its scans through `Exec.prep` into flat env frames: `CX.prep.k` (src/cexec.bend) runs Exec.prep's checks in Exec.prep's
+   order and reads each scan with `Csv.read_eng_m` into `pre` as an unnamed `PScan{XF}` entry (postfix order); IScan takes
+   the next one when env's scan namespace is empty (`CX.scan.k` -> `CX.pre.scan`), `CX.pre.get` skips them (no Source name
+   reaches a scan, as 14 "scan source identity"). The v0.1 reader under the chunked engine keeps the T5.3 path.
+2. **The representation is chosen by the scan's consumer, not always chunks** (deviation from the task text "the combine
+   builds each column directly as a chunk tree"). `CX.want` walks the postfix code after the IScan with the frame's stack
+   depth: the first instruction that takes it decides: filter, with_columns, a row-wise select -> chunk leaves (the combine
+   cuts them, no of_frame); sort, group_by, join, unique, a reduction select, or the end of the code (the scan is the result)
+   -> the flat frame (no to_frame); head, slice, tail, drop, rename, a plain select and concat pass the frame on and the next
+   consumer decides. Measured reason (CStats, 1M rows): with chunks always, q4 (sort first) and q5 (join first) paid a
+   to_frame of 32 MB that the flat read never pays (T5.3 item 1's argument for lazy conversion applies to the read too).
+3. **Chunk build** (`Csv.v2.cbuild`, src/csv.bend "the chunk hand-off"): for a frame of more than 2^g rows (at most 2^g:
+   the flat build, then the runner's flat path), per column, inside the existing balanced column fork (`Csv.v2.cfork`, the
+   shape of `Csv.v2.bfork`): the regions' parts are cut into leaves of 2^g rows across region boundaries (`Cut.copy` /
+   `Cut.gath`: one copy per row from the lane buffers, segments of at most the current leaf's room), leaf i = rows
+   i * 2^g .., depth g, pushed on `CH.CWS.push`'s binary-counter stack: every tree of the frame has exactly
+   `CH.CW.of`'s shape for its height (the shape `CFrame.of_frame` would give the flat frame), so the frame is WFCFrame. A
+   column without nulls gets no mask (CAllValid; the flat build copies the all-ones words, `CB.valid` drops them).
+4. **Dictionary columns: the merge first, then the cut.** The flat combine merges and remaps part by part
+   (`Csv.v2.x.part`); the chunk build runs the same merge loop (`Csv.v2.mgo`, from the same row offsets, the same EncAuto
+   stop) over every part first, keeping each part's map, then gathers `map[codes]` into the leaves (CSDict{code tree, ONE
+   Dict}: v0.1's codes). After EncAuto's fall back the column is Raw and EVERY part is gathered from its own entries; the
+   flat combine decodes the rows before the fall back through `Dict.decode` instead. Same strings: an entry and its
+   dictionary string are the same decoded content (mutation "raw fall back empty" killed by the AutoAt runs).
+5. **Errors**: the first bad cell per column (the first part with one) and the column order are the flat combine's
+   (`Csv.v2.cfold` = `Csv.v2.fold`'s rule); Frame.from_columns' DuplicateColumn is checked over the names in column order
+   after the column errors (`Csv.v2.dup`; a header `a,b,a` gives v0.1's error, tests/cexec_scan.bend). Everything before
+   the build (malformed, ragged, the dtype count, the row cap, inference) is the flat combine's code: the mode is only
+   threaded through to `Csv.v2.build.m`.
+6. **The facade still takes no CFrame** (16.5's "DF.dump / collect accept a CFrame" is not done): the result of a chunked
+   run is flattened once at the end (CStats conv_out, 3.0 MB for q1 at 1M rows); a scan plan's conversions IN are 0.
+7. **bench/m2**: the BF_ENGINE token `scan` makes the e2e mode scan the main input (`DF.scan_csv`, read at collect by the
+   selected reader); the baseline's engine_v01.bend honours it too. The driver hash changed (both binaries rebuilt).
+8. **Measured (PROVISIONAL, load 5.8-29.9, 7-8 interleaved processes per cell; bench/m2/results/w66-summary-prov.md)**:
+   e2e at 1M rows, 1 / 12 threads, medians in ms: q1 scan v02,chunked 654 / 355 against eager v02,chunked 689 / 383 and
+   eager v02 702 / 381; q2 679 / 363 against 716 / 408 and 699 / 395; q3 664 / 348 against 698 / 378 and 713 / 375; q4
+   667 / 359, q5 687 / 358 (flat consumers: the same path as scan v02, 697 / 368 and 672 / 366); baseline 4.2-4.4 s / 1.9-2.1
+   s. 12-vs-1 end to end 1.84-1.92x (eager v02,chunked 1.75-1.85x): the serial producer bounds it (W6.3 item 7), the
+   hand-off removes 4-6 ms of of_frame at one thread and up to ~50 MB of peak RSS (q1 at 12 threads 198 vs 248 MB), it
+   does not move the ceiling. CStats (bench/m2/results/w66-cstats.txt, grain 2^14): conv_in / bytes_in 0 for every scan
+   plan (eager env frames: q1 20 MB, q2 / q3 / filter 32 MB); conv_out unchanged (the result flatten, and q3's group_by).
+
 ## 15. v0.1 contract (frozen)
 
 The exact semantics every M1-M6 agent codes and tests against. Tables over prose;
@@ -4244,6 +4293,9 @@ is verified in the C (S1/S4: single-constructor records ride in registers, `spin
   operator needs the other representation (not at every ISource), converting only the columns a consuming
   operator reads. group_by runs flat over the columns it reads (no chunked codes / count / max). The
   m2 driver reads `BF_ENGINE=chunked` (a token list: `v02,chunked`) through bench/m2/engine.bend.
+  **W6.6** moved the boundary to the reader for scans: `Exec.run_with_rd(CsvV02{_}, Chunked{g}, ..)` reads a scan whose
+  consumer runs chunked straight into chunk leaves (17.5 "As built"): no conversion in; the result is still flattened
+  (the facade takes no CFrame).
 
 ### 16.6 Proof obligations (G5) and leaf-lemma reuse
 
@@ -4820,6 +4872,16 @@ The combine step is where the engine's chunk leaves (16, D1) are built: region p
 ranges in file order, so leaves are cut by row count (the D1 grain) from the region parts with
 one copy, no flat intermediate. Until D1 freezes, W6 concatenates into v0.1's flat columns (the
 spike: 18-24 ms for 7 columns x 1M rows plus the dictionary merge).
+
+**As built (W6.6; deviations in section 14 "v0.2 W6.6")**: `Csv.read_v02_mode(CMChk{g}, ..)` builds a frame of more than
+2^g rows as a `CH.CFrame` in the combine (`Csv.v2.cbuild`): per column (inside the balanced column fork `Csv.v2.cfork`)
+the parts are cut into leaves of 2^g rows across region boundaries with one copy per row (`Cut.copy` / `Cut.gath`, flat
+loops; leaf i = rows i * 2^g .., the tree of `CH.CW.of`'s shape: WFCFrame by construction, checked by the tests), a
+Dictionary column merged first over every part in region order (the flat combine's loop and EncAuto stop) and then
+gathered through each part's map into ONE code tree + ONE Dict, a column without nulls without a mask. A frame of at most
+2^g rows stays the flat frame (one leaf). The chunked runner reads its scans this way (`CX.prep.k`, src/cexec.bend) when
+the scan's consumer runs chunked (`CX.want`) and takes the leaves at IScan with no `CFrame.of_frame`; a scan whose consumer
+runs flat is read flat. Every read_csv* still builds flat (`CMFlat`).
 
 ### 17.6 Proof and test obligations
 

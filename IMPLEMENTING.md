@@ -3243,3 +3243,79 @@ q1-q6 identical / within tolerance at 1k and 100k; `make fork-audit` ok; `make d
 (deep), 4 (dict + deep) clean, seed 1 (Raw, n = 2000) reports the same ONE T2.2 finding as "Scaling diagnosis"
 (d1588, a self inner_join of a 1-row f32 frame on a NaN key: oracle / contract question, not a chunked-engine
 divergence; nothing here touches join.bend). Raw instrumented counters: bench/w5/scale/results/fork_audit_instrument.txt.
+
+## W6.6 (the chunk hand-off: the v0.2 reader builds the chunked engine's leaves; src/csv.bend, src/cexec.bend)
+
+What was done: `Csv.read_v02_mode(cm, ..)` (src/csv.bend) with `CsvMode = CMFlat | CMChk{g}` threaded from `Csv.v2.chk` down
+to the combine's builder (`Csv.v2.build.m`); the reader answers `CsvOut = CsvFlat{C.Frame} | CsvChk{CH.CFrame}` and
+`Csv.read_v02_full` is `CMFlat` + unwrap (every read_csv* unchanged). `Csv.v2.cbuild` cuts the columns of a frame of more
+than 2^g rows into chunk trees (DESIGN.md 17.5 "As built", 14 "v0.2 W6.6"). The chunked runner's hook (src/cexec.bend,
+selector section only): `Exec.run_with.c` sends CsvV02 to `CX.prep.k` (Exec.prep's checks, scans read by
+`Csv.read_eng_m` in the representation `CX.want` picks, frames in `pre` as `PScan{XF}`), IScan falls back to
+`CX.pre.scan`. bench/m2: the `scan` token (driver e2e mode, engine.bend, engine_v01.bend), cstats.bend's `scan` mode.
+Tests: tests/csv_v02_chunks.bend (102 adversarial files x 13 runs at grains 2^2 / 2^4, tiny pieces: dump + storage,
+the chunk decision, WFCFrame and CW.of's shape; 229 chunk frames), tests/cexec_scan.bend (q1-q6 shapes, cuts, a
+concat of two scans, errors, CStats), and the csv fuzz runner reads every case twice more in chunk mode (g = 1, 3).
+
+Correctness evidence beyond the tests: 10 mutants of the chunk build (validity dropped, copy off by one, the merge's row
+offset, the last leaf's rows, the gather's source offset, the first bad part, the Raw fall back's entries, the column
+error order, never / too eagerly chunked) all killed by tests/csv_v02_chunks.bend; the DuplicateColumn check (no csvadv
+file has a duplicate header) and the scans' postfix order (reversed: q5's join fails) by tests/cexec_scan.bend.
+
+Bend lessons:
+
+- **Generic Type-kinded records work for the cutter**: `type QL<-T: Data> is Type: QL{k, done, cur: Array<T>, full:
+  List<&1, Array<T>>}` with `~T` template defs (`Cut.copy(~T, ..)` at U32 / F32 / String) compiles to one monomorphic
+  spin per instance; only the tree folds (`CH.CWS` / `CFS` / `CSS`) need one copy per payload kind.
+- **A loop over "segments of a part" without mutual recursion**: the feed def matches (fuel, state) and calls itself on
+  `step(state)`, where the non-recursive step does one segment copy and the leaf roll-over and sets a `more` flag
+  (`Cut.cfeed` / `Cut.cstep`); fuel `(m >> g) + 2` bounds the segments of a part of m rows.
+- A list of pairs is a Type even when both components are Data: test tables of (name, plan) need a `Data` record.
+- `match` cannot scrutinize a call (`match CX.chk(..)`): give the result its own def's parameter (`CX.mat.put`).
+- A helper must be defined ABOVE its caller in a test file too (`expected: a filled definition` names the callee).
+- Error precedence across two scrutinees: `cfin(r, n, dup)` matching `r` then the LATER `dup` is accepted; `cfin(dup,
+  n, r)` matching `r` then `dup` is refused ("matched after a match on a later binder").
+
+Emitted C (bench/m2/driver.bend -o build/w66/driver.c): the copy segment `Cut.cp.go<U32>` is spin_335 (per row: one
+`blk_read` + `blk_write` of the leaf slot, one `blk_read` of the lane buffer; no allocation, no reference count, the same
+three operations as Kernel.copy_into's spin_330); the gather `Cut.ga.go<U32>` is spin_339 -> spin_89 (Csv.v2.gput's: 3
+reads + 1 write per row, as the flat remap); the Raw gather `Cut.ga.go<String>` is spin_337 with one `blk_keep` per row
+(the row shares its entry string, as the flat Raw fall back); the leaf roll-over `Cut.roll` (spin_336) allocates one
+leaf buffer and one list cell per LEAF. The column fork `Csv.v2.cfork` matches and forks only (forkaudit.allow entry: the
+leaf call to `Csv.v2.ch.kone`); `make fork-audit`: 67 parallel lets, 0 findings, 0 new tasks.
+
+Performance (PROVISIONAL: shared machine, load 5.8-29.9 (one round at 185 excluded), bench/m2 run.py e2e mode, 7-8
+fresh processes per cell, the four configs interleaved round by round by build/w66/meas.sh; raw samples in
+bench/m2/results/w66-*-prov.jsonl, table with every sample in bench/m2/results/w66-summary-prov.md; 864 / 864 processes
+valid). e2e ms medians at 1M rows, 1 / 4 / 12 threads, and 12-vs-1:
+
+| query | baseline eager (v0.1) | eager v02 | eager v02,chunked | scan v02 | scan v02,chunked (W6.6) |
+|---|---|---|---|---|---|
+| q1 | 4354 / 2440 / 2136 (2.04x) | 702 / 421 / 381 (1.84x) | 689 / 418 / 383 (1.80x) | 712 / 461 / 372 (1.91x) | 654 / 392 / 355 (1.84x) |
+| q2 | 4384 / 2398 / 2109 (2.08x) | 699 / 431 / 395 (1.77x) | 716 / 443 / 408 (1.75x) | 700 / 430 / 410 (1.71x) | 679 / 408 / 363 (1.87x) |
+| q3 | 4327 / 2380 / 2009 (2.15x) | 713 / 421 / 375 (1.90x) | 698 / 434 / 378 (1.85x) | 713 / 413 / 385 (1.85x) | 664 / 398 / 348 (1.91x) |
+| q4 | 4342 / 2416 / 2039 (2.13x) | 709 / 429 / 402 (1.76x) | 691 / 427 / 390 (1.77x) | 697 / 422 / 368 (1.89x) | 667 / 412 / 359 (1.86x) |
+| q5 | 4367 / 2374 / 2053 (2.13x) | 700 / 423 / 373 (1.88x) | 684 / 412 / 376 (1.82x) | 672 / 404 / 366 (1.84x) | 687 / 402 / 358 (1.92x) |
+| q6 | 4352 / 2540 / 2132 (2.04x) | 740 / 430 / 377 (1.96x) | 738 / 429 / 386 (1.91x) | 734 / 431 / 385 (1.91x) | 736 / 440 / 390 (1.89x) |
+
+(q6 is the eager describe in every config; the baseline with the scan token, 4.2-4.7 s / 1.9-2.2 s, is in the summary.)
+Peak RSS at 12 threads: q1 198 MB (scan v02,chunked) against 248 MB (eager v02,chunked) and 223 MB (eager v02); q2 236 /
+257 / 229; q3 224 / 258 / 230. The end-to-end scaling stays at ~1.8-1.9x: the serial producer (W6.3 item 7: ~280 ms of a
+~650 ms one-thread run) bounds it; the hand-off removes the scan's of_frame (4-6 ms, 20-32 MB in) and a copy of the frame
+from the peak, it cannot move that ceiling. CStats at grain 2^14 (bench/m2/cstats.bend `scan`, results/w66-cstats.txt):
+q1 / q2 / q3 / filter conv_in 1 (20 / 32 / 32 / 32 MB) over the eager env frame -> 0 over the scan; q4 / q5 0 both ways
+(read flat: their consumer is a sort / a join); conv_out unchanged (the result flatten: q1 3.0 MB, q2 36 MB, filter 16 MB;
+q3's 16 MB is its group_by boundary).
+
+What the next agents need to know:
+
+- `CX.want` is a representation preference, not a correctness device: any answer is still the reference's (the runner
+  converts lazily where it must). Extend `CX.want.u` when an operator's chunked / flat routing in CX.unary changes.
+- The facade still takes and returns flat frames: `collect` of a chunked run flattens the result once (conv_out). The
+  next step for scan plans is a facade / DF.dump that consumes a CFrame (16.5), or a chunked sort / group_by input.
+- The flat combine and the chunk build share every stage up to `Csv.v2.build.m`; a change of the merge (`Csv.v2.mgo`),
+  of EncAuto or of the first-bad-cell rule must be made in both builders (tests/csv_v02_chunks.bend catches a divergence).
+- Gates (this worktree): `make test` PASS 202 / 202; `make check` ok; `make proofs`, `make verdict` ALL PROOFS CHECK;
+  `make diff-smoke` and `make diff-chunked` 0 failing cases; `make csv-fuzz-smoke` ok (1500 cases x (7 pieces + 2 chunk
+  reads), two seeds); `make fork-audit` ok; `make bench-check` identical / within tolerance; `make coverage` ok
+  (docs/COVERAGE.md regenerated).
