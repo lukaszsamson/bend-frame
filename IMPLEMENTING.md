@@ -1327,3 +1327,54 @@ all numbers provisional, shared machine, load recorded in results/*.jsonl).
   input-preservation clone adds ~30 MB). n_unique over a CSV-parsed, shuffled 2^20 distinct U32 column takes 4.4 s,
   not the 0.2 s of the in-memory sorted iota probe. A harness that bills `check` (the hash) apart from `compute`
   showed q2's 14 ms hash cost; keep it out of compute figures.
+
+## T3.3 (group_by ownership and redundant passes, src/groupby.bend)
+
+- **What changed, in three lines.** (1) A bare column (`Col n` under Aliases) used as a key or as an aggregation
+  input is moved out of the consumed frame with `Frame.take` when no LATER key or aggregation expression reads
+  it; every earlier reference still goes through `V.Eval.full` (`get_cloned`), so a column referenced k times
+  costs k-1 clones (a key that is also an aggregate input counts twice). (2) `Agg{Len, column-or-literal}` reads
+  nothing: the group sizes come from the frame's height (before, a literal was broadcast to a 1M-row column and a
+  column was cloned, to be dropped by `Grp.agg.len`). (3) A single key no longer combines with the constant code
+  and no longer densifies twice: the key's codes go straight to the one densify in `GroupBy.group`.
+- **Why (3) is the identity.** The old start was `combine(Codes{1, zeros}, c)`: `zipk g*k+c` with g = 0 returns c,
+  then a densify numbers c by first appearance, then `GroupBy.group` densified those ids again; the second
+  densify of ids already numbered by first appearance is the identity (ids, `first`, ng, also for n = 0), and the
+  `prank` branch (kc over 2^22) also ends in a first-appearance densify. Sparse ids (range < 2^20 direct codes, the
+  rank codes of wider keys), nulls (code 0, one group) and first-appearance order are all inside that argument;
+  `tests/groupby_own.bend` pins them and its 22 outputs are byte-identical to the pre-T3.3 `Grp` (run through a
+  `git archive` copy of HEAD). With several keys the FIRST processed key is still compacted to its distinct count
+  (`Grp.compact` = one densify, the combine's job before), because the next `g*k+c` product must stay under 2^22
+  with ng, not with a 2^20 value range; it just skips the zipk pass, the zeroed constant array and the rank sort
+  a >2^22-code key used to take.
+- **Reference counting is by expression, not by plan.** `Grp.reads` asks `X.Expr.refs` (every column an
+  expression reads, with duplicates) over the expressions AFTER the current one (keys, then aggregations, in list
+  order); `Grp.len_free` removes the Len-over-column/literal expressions from the count because they never read.
+  Computed inputs (`x * 2`) are not moved here: they evaluate inside `V.Eval.full`, which clones its `Col` leaves
+  (T3.1's moves in eval/exec cover them); so a bare `x` BEFORE a computed `x * 2` clones, and after it moves.
+  A moved key column is kept alive by the `C.Named` list for the final gather at `first`; a frame left with no
+  columns still has its height (`Frame{h, Nil}`), which Len needs.
+- **Bend gotchas met.** A parameter matched after a local `(a, b) = r` is refused ("can't be matched in this
+  position"): put the `match rest:` first and destructure in a helper (`GroupBy.first.one/.many`). A parameter used
+  twice needs `+` (also a list tail: `case +k <> +t`, otherwise "consumed more than once" at the pattern).
+  `case Some{+n}` marks the payload shared. `match lit lenfree:` over two Bools is fine; both operands of a
+  `Bool.pick` are evaluated (cheap here: expression-sized).
+- **Measured (provisional, shared machine, load 7-12, 1 thread, native, 7 fresh processes per cell, interleaved
+  baseline 3612482 / candidate, results validated against bench/m2/expected.json).** q3 1M compute_ms
+  baseline [23, 23, 24, 25, 24, 26, 23] median 24, candidate [17, 18, 19, 18, 21, 17, 23] median 18. Stage
+  groupby_q3 baseline [13, 13, 12, 13, 14, 14, 13], candidate [9, 10, 10, 9, 9, 9, 10]; groupby_q5 7 -> 4 (4, 5,
+  4, 4, 4, 4, 5). Same content hashes at both ends. A one-key-at-a-time probe (build/t33_prof: region key at 1M,
+  1 thread, ms, three runs): Len only 9-10 -> 6, sum 8-9 -> 5, mean 8-9 -> 5-6, max 8-9 -> 5, all four aggregates
+  13-14 -> 9-13 (one 13 is load), product key (64 groups, Len) 7 -> 3-4, `id` key (1M groups) 10-11 -> 7-8. What is
+  left for q3's 9 ms is the key coding (Dictionary: clone + `xmap` +1 + zero; the numeric path clones the column
+  once for `encode_keep`) and the one densify; with the key already coded the four aggregates cost about 1 ms each.
+  That coding is W2's/T3.2's code and was left alone.
+- **Emitted C** (`bend build/t33_prof.bend -o x.c`, the real imported program): the densify is `spin_520` (the
+  `Grp.dens.go` tail loop) calling `spin_521` (`Grp.dens.put`): per row three `blk_read`/`blk_write` pairs, zero
+  `term_keep` / `ctr_take` / `rfc_seal` / `blk_copy` / `blk_half` / `blk_node` / `blk_new`, nothing allocated per
+  row. The Len scatter is the generic `Grp.scat.go` loop (unchanged, over a 1-slot vals and 1-slot mask: indices
+  wrap), the same F32 Neumaier row-order scatters as before (D4: not reordered, not forked).
+- **Not done.** (3) sharing the evaluation of two aggregates over the same expression: skipped. For a bare column
+  the evaluation is a clone, now gone for the last reference; for computed expressions "provably identical" needs
+  an expression-equality plus a purity argument, and the scatters still differ per op, so it buys the evaluation
+  only. Fusing or forking the scatters (T5.4) and the dictionary / numeric key clone in `Grp.encode_keep` stay.
