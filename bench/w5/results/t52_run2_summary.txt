@@ -1,0 +1,78 @@
+10:00  up 23 days, 23:19, 16 users, load averages: 18.72 15.70 17.71
+t= 1 q1flat    median   3.200 ms/rep  range 2.650-4.375  raw [2.925, 4.3, 3.2, 2.675, 4.375, 3.7, 2.65]
+t= 1 q1chunk   median   5.075 ms/rep  range 3.900-6.625  raw [5.075, 6.625, 5.35, 3.9, 4.2, 5.325, 4.05]
+t= 1 q2flat    median   2.375 ms/rep  range 1.900-2.650  raw [2.4, 2.375, 2.55, 1.975, 2.35, 2.65, 1.9]
+t= 1 q2chunk   median   3.200 ms/rep  range 2.875-3.850  raw [3.2, 3.7, 3.85, 2.875, 2.9, 3.475, 2.95]
+t= 1 q2chunk1  median   3.075 ms/rep  range 2.800-7.000  raw [3.225, 7.0, 3.075, 2.925, 2.85, 4.275, 2.8]
+t= 1 q2nflat   median   4.850 ms/rep  range 4.350-14.300  raw [5.475, 5.2, 4.85, 4.35, 4.425, 14.3, 4.725]
+t= 1 q2nchunk  median   5.500 ms/rep  range 4.875-10.375  raw [5.3, 5.8, 7.475, 4.875, 5.5, 10.375, 4.975]
+t= 1 sumflat   median   0.750 ms/rep  range 0.700-1.100  raw [0.725, 0.775, 0.7, 0.75, 0.725, 1.1, 0.75]
+t= 1 sumchunk  median   0.650 ms/rep  range 0.600-1.175  raw [0.875, 0.6, 0.6, 0.65, 0.625, 1.175, 0.675]
+t= 1 fclone    median   0.200 ms/rep  range 0.175-0.275  raw [0.275, 0.25, 0.2, 0.25, 0.175, 0.2, 0.2]
+t= 1 fsumflat  median   2.100 ms/rep  range 1.925-4.975  raw [4.975, 2.1, 1.925, 2.0, 2.125, 3.55, 1.975]
+t= 1 ffold     median   1.900 ms/rep  range 1.700-2.975  raw [2.475, 1.975, 1.725, 1.9, 1.7, 2.975, 1.75]
+t= 1 tclone    median   0.250 ms/rep  range 0.200-0.350  raw [0.25, 0.35, 0.2, 0.225, 0.2, 0.325, 0.25]
+t= 1 twalk     median   2.250 ms/rep  range 2.025-5.025  raw [2.5, 2.425, 2.1, 2.125, 2.25, 5.025, 2.025]
+t= 1 twalkr    median   5.275 ms/rep  range 4.725-7.650  raw [5.45, 5.275, 5.1, 5.9, 5.0, 7.65, 4.725]
+t= 1 tflat     median   3.325 ms/rep  range 2.825-7.250  raw [3.125, 3.475, 3.325, 5.65, 2.825, 7.25, 3.025]
+t= 1 gclone    median   0.225 ms/rep  range 0.175-1.025  raw [0.175, 0.225, 0.25, 0.275, 0.225, 1.025, 0.2]
+t= 1 gfused    median   3.450 ms/rep  range 2.400-7.725  raw [3.575, 3.85, 2.675, 3.45, 2.4, 7.725, 2.775]
+t= 1 gflat     median   3.825 ms/rep  range 3.375-5.125  raw [5.125, 3.825, 3.625, 4.95, 3.65, 4.55, 3.375]
+t= 4 q1flat    median   3.075 ms/rep  range 2.725-4.225  raw [3.8, 3.075, 2.95, 3.85, 2.875, 4.225, 2.725]
+t= 4 q1chunk   median   1.875 ms/rep  range 1.325-3.900  raw [1.875, 1.85, 2.425, 2.175, 1.35, 3.9, 1.325]
+t= 4 q2flat    median   2.300 ms/rep  range 1.900-2.750  raw [2.425, 2.05, 2.3, 2.725, 1.9, 2.75, 2.15]
+t= 4 q2chunk   median   1.600 ms/rep  range 1.025-3.350  raw [2.9, 1.6, 1.65, 1.3, 1.025, 3.35, 1.175]
+t= 4 q2chunk1  median   1.725 ms/rep  range 0.875-1.950  raw [1.9, 1.25, 1.95, 1.725, 0.925, 1.85, 0.875]
+t= 4 q2nflat   median   5.175 ms/rep  range 4.575-6.050  raw [5.175, 4.575, 5.4, 6.05, 4.825, 4.9, 5.175]
+t= 4 q2nchunk  median   2.475 ms/rep  range 1.625-4.300  raw [3.0, 2.475, 2.35, 2.125, 1.625, 2.65, 4.3]
+t= 4 sumflat   median   0.750 ms/rep  range 0.675-1.000  raw [1.0, 0.7, 0.775, 0.75, 0.675, 0.725, 0.875]
+t= 4 sumchunk  median   0.425 ms/rep  range 0.275-0.550  raw [0.475, 0.275, 0.55, 0.325, 0.3, 0.45, 0.425]
+t= 4 fclone    median   0.200 ms/rep  range 0.175-0.250  raw [0.2, 0.225, 0.2, 0.25, 0.175, 0.2, 0.225]
+t= 4 fsumflat  median   2.150 ms/rep  range 1.850-2.375  raw [2.15, 2.15, 2.15, 2.075, 1.85, 2.375, 2.05]
+t= 4 ffold     median   1.850 ms/rep  range 1.650-2.200  raw [2.0, 1.825, 1.85, 1.9, 1.725, 2.2, 1.65]
+t= 4 tclone    median   0.200 ms/rep  range 0.175-0.250  raw [0.2, 0.25, 0.2, 0.25, 0.2, 0.2, 0.175]
+t= 4 twalk     median   2.125 ms/rep  range 1.825-3.125  raw [2.3, 3.125, 2.1, 2.125, 1.825, 2.2, 1.875]
+t= 4 twalkr    median   5.075 ms/rep  range 4.550-6.250  raw [5.45, 5.075, 6.25, 5.05, 5.675, 4.7, 4.55]
+t= 4 tflat     median   3.125 ms/rep  range 2.525-4.100  raw [3.325, 2.85, 2.9, 4.1, 3.45, 3.125, 2.525]
+t= 4 gclone    median   0.200 ms/rep  range 0.175-0.400  raw [0.325, 0.225, 0.2, 0.4, 0.175, 0.175, 0.175]
+t= 4 gfused    median   3.700 ms/rep  range 2.575-4.100  raw [3.825, 3.95, 2.75, 4.1, 3.7, 2.575, 2.675]
+t= 4 gflat     median   3.925 ms/rep  range 2.900-4.575  raw [4.575, 4.3, 4.425, 3.35, 3.925, 2.9, 3.825]
+t=12 q1flat    median   2.900 ms/rep  range 2.500-3.125  raw [2.9, 3.05, 3.025, 2.7, 3.125, 2.5, 2.85]
+t=12 q1chunk   median   1.625 ms/rep  range 0.975-7.925  raw [1.525, 1.825, 1.875, 0.975, 7.925, 1.275, 1.625]
+t=12 q2flat    median   2.075 ms/rep  range 1.875-2.375  raw [1.875, 1.95, 2.275, 1.975, 2.325, 2.375, 2.075]
+t=12 q2chunk   median   1.825 ms/rep  range 0.750-4.075  raw [2.15, 2.05, 1.5, 0.75, 4.075, 1.825, 1.05]
+t=12 q2chunk1  median   0.900 ms/rep  range 0.600-5.325  raw [1.05, 0.9, 1.275, 0.6, 5.325, 0.625, 0.775]
+t=12 q2nflat   median   4.500 ms/rep  range 3.875-8.475  raw [4.3, 4.825, 5.1, 3.875, 8.475, 4.45, 4.5]
+t=12 q2nchunk  median   2.825 ms/rep  range 1.125-7.150  raw [7.15, 3.525, 2.475, 1.125, 6.05, 2.825, 1.8]
+t=12 sumflat   median   0.750 ms/rep  range 0.650-1.250  raw [1.25, 1.0, 0.75, 0.65, 1.175, 0.65, 0.725]
+t=12 sumchunk  median   0.325 ms/rep  range 0.225-2.125  raw [2.125, 1.95, 0.3, 0.325, 1.175, 0.225, 0.275]
+t=12 fclone    median   0.225 ms/rep  range 0.175-0.450  raw [0.25, 0.45, 0.225, 0.175, 0.275, 0.225, 0.2]
+t=12 fsumflat  median   2.325 ms/rep  range 2.050-2.500  raw [2.375, 2.5, 2.15, 2.05, 2.325, 2.425, 2.05]
+t=12 ffold     median   1.900 ms/rep  range 1.725-2.725  raw [2.3, 1.9, 1.8, 2.225, 2.725, 1.8, 1.725]
+t=12 tclone    median   0.250 ms/rep  range 0.175-0.350  raw [0.25, 0.225, 0.175, 0.35, 0.275, 0.275, 0.2]
+t=12 twalk     median   2.150 ms/rep  range 1.900-3.250  raw [3.025, 2.075, 2.0, 2.725, 3.25, 2.15, 1.9]
+t=12 twalkr    median   5.100 ms/rep  range 4.800-9.225  raw [5.25, 5.1, 4.85, 5.15, 9.225, 5.075, 4.8]
+t=12 tflat     median   3.000 ms/rep  range 2.625-4.400  raw [3.0, 3.25, 2.95, 2.625, 4.4, 3.025, 2.7]
+t=12 gclone    median   0.225 ms/rep  range 0.175-0.325  raw [0.225, 0.225, 0.325, 0.175, 0.3, 0.2, 0.175]
+t=12 gfused    median   3.100 ms/rep  range 2.450-6.125  raw [6.125, 3.1, 5.675, 2.6, 5.1, 2.7, 2.45]
+t=12 gflat     median   4.025 ms/rep  range 3.400-5.950  raw [4.025, 5.2, 5.95, 3.5, 4.275, 3.4, 3.65]
+t= 1 fsum: flat 1.900  ffold 1.900  walk 2.000  walk_recursive 5.025  flatten_fallback 3.075  gather: fused 3.225  flat_then_build 3.600  ms
+t= 4 fsum: flat 1.950  ffold 1.850  walk 1.925  walk_recursive 4.875  flatten_fallback 2.925  gather: fused 3.500  flat_then_build 3.725  ms
+t=12 fsum: flat 2.100  ffold 1.900  walk 1.900  walk_recursive 4.850  flatten_fallback 2.750  gather: fused 2.875  flat_then_build 3.800  ms
+scaling q1flat    1->4 1.04x  1->12 1.10x
+scaling q1chunk   1->4 2.71x  1->12 3.12x
+scaling q2flat    1->4 1.03x  1->12 1.14x
+scaling q2chunk   1->4 2.00x  1->12 1.75x
+scaling q2chunk1  1->4 1.78x  1->12 3.42x
+scaling q2nflat   1->4 0.94x  1->12 1.08x
+scaling q2nchunk  1->4 2.22x  1->12 1.95x
+scaling sumflat   1->4 1.00x  1->12 1.00x
+scaling sumchunk  1->4 1.53x  1->12 2.00x
+checksums q1flat/q1chunk: SAME [('q1chunk', 1903105403), ('q1flat', 1903105403)]
+checksums q2flat/q2chunk/q2chunk1: SAME [('q2chunk', 128659462), ('q2chunk1', 128659462), ('q2flat', 128659462)]
+checksums q2nflat/q2nchunk: SAME [('q2nchunk', 362293254), ('q2nflat', 362293254)]
+checksums sumflat/sumchunk: SAME [('sumchunk', 51904472), ('sumflat', 51904472)]
+checksums fsumflat/ffold/twalk/twalkr/tflat: SAME [('ffold', 1279773873), ('fsumflat', 1279773873), ('tflat', 1279773873), ('twalk', 1279773873), ('twalkr', 1279773873)]
+checksums gfused/gflat: SAME [('gflat', 51904472), ('gfused', 51904472)]
+load1 during the run: min 18.15 median 18.7 max 20.38
+10:01  up 23 days, 23:20, 16 users, load averages: 17.34 15.90 17.68

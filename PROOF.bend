@@ -24,6 +24,7 @@
 #   PROOF_peep.bend     section 19  fusion peepholes (W4): Eval.fz.z1 / z2 / z0 / Eval.f5.c against the unfused operations, Eval.fz.step
 #   PROOF_chunks.bend   section 21  chunk trees (W5): builder, flatten bridge, round trip, rechunk, head, concat, croom_of_cap, chunked map
 #   PROOF_filtsel.bend  section 20  Filter + Select (W4 F8): Exec.fc / Exec.fs / Exec.run_phys against filter_mask / select / Exec.run_pure
+#   PROOF_ckernels.bend section 22  chunked kernel wrappers (W5): leafwise / unfused laws, sum / min / max combines, per-leaf compaction
 import Base
 import ./LAWS.bend as Laws
 import ./PROOF_lib.bend as L
@@ -46,3 +47,4 @@ import ./PROOF_fused.bend as PF
 import ./PROOF_peep.bend as PPE
 import ./PROOF_chunks.bend as PCH
 import ./PROOF_filtsel.bend as PFS
+import ./PROOF_ckernels.bend as PCK
