@@ -92,6 +92,38 @@ v02,chunked,scan` against the baseline compares the same scan plans end to end. 
 <aux> <param> scan` prints the chunked executor's CStats for the scan plan (W6.6: conv_in / bytes_in are 0 when the
 scan's consumer runs chunked, and nothing is flattened when it runs flat).
 
+**W8 (the default flip, DESIGN.md 14 "W8").** On the candidate the DEFAULT reader is now v0.2: `BF_ENGINE`
+without a reader token (unset, `reference`, `chunked`, `scan`, ...) reads every input with the v0.2 reader, so
+`v02` is the same as no token. The new token `v01` selects the v0.1 reader explicitly (`read_csv_engine(csv_engine_v01,
+..)`, and `collect_engine` / `Lazy.collect_with_rd` with `csv_engine_v01` for scans). `run.py run --engine` defaults to
+`reference` (it used to be `v01`, which now means the v0.1 reader); `make m2-g6` runs the candidate as `v01` /
+`reference` / `v02,chunked` (older G6 files carry `v01` for what was then the reference: `g6_cfg` names both by the reader
+they actually used). The baseline binary (3612482) ignores `BF_ENGINE` as before (v0.1 + reference).
+
+## W8: reproducing the gate report (plans/GATES_V02.md)
+
+The close-out measurement of v0.2 (M_02 W8 / W6.5) is this sequence; every record is in `results/` under the labels below
+(`--provisional` unless the 1-minute load was below 2 at the start, in which case the timing gates may be evaluated):
+
+```sh
+uptime                                                        # the pre-run load decides gate vs PROVISIONAL (section 5)
+make m2-baseline m2-candidate && python3 bench/m2/gen.py --check
+python3 bench/m2/run.py run --label w8-ref-prov --engine reference --provisional          # A: every workload, both binaries
+python3 bench/m2/run.py run --label w8-chunked-prov --engine v02,chunked --binaries candidate --provisional   # B
+python3 bench/m2/run.py run --label w8-scan-prov --engine v02,chunked,scan --modes e2e \
+    --only q1_1m q2_1m q3_1m q4_1m q5_1m --provisional                                     # C: scan into chunk leaves
+python3 bench/m2/run.py run --label w8-refscan-prov --engine reference,scan --modes e2e \
+    --only q1_1m q2_1m q3_1m q4_1m q5_1m --binaries candidate --provisional                # C2: scan, reference executor
+python3 bench/m2/run.py run --label w8-v01parse-prov --engine v01 --only parse_1m --binaries candidate --provisional  # D
+~/.bend/bin/bend bench/w5/t53.bend -o build/t53/t53
+python3 -I bench/w5/scale/t53b.py bench/w5/scale/results/w8_t53b.jsonl --modes 3 4 --procs 5   # pre-chunked compute scaling
+make m2-g6 LABEL=w8                                           # copy / allocation bytes (exact counts; load does not matter)
+python3 bench/m2/run.py summary bench/m2/results/w8-ref-prov.jsonl --raw    # and the other files
+```
+
+Run A takes ~1.5 h (the baseline's 1M-row parses and distinct-string cells dominate), B ~0.5 h, C ~0.3 h, the rest
+minutes. The summaries are `results/w8-*-prov.md`; plans/GATES_V02.md turns them into one row per gate cell.
+
 ## G6 instrumentation: copy and allocation accounting
 
 The native runtime has no allocation counters, so the harness patches the C that `bend` emits and compiles it with the
