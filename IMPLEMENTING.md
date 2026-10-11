@@ -1148,3 +1148,50 @@ Proof lessons (laws_spike.bend):
   position may use it; the AllValid-a case is a `Kernel.zip` of `(m[i] != 0) | mb[i]` (one fresh output
   array, the same as choose's allocation, minus the full ones array and its fill). Never pass the 1-slot
   array where a kernel writes it: every row would write slot 0.
+## W1a/c join probe copies and describe (src/join.bend, src/fmt.bend)
+
+- **W1a, the probe copied a table it never used.** `Probe.fork` took `DD{d1, d2}`, a pair made by
+  `Dict.clone` at the call site (a deep copy: `Str.copy` per key char, 1.4 s of the 5.1 s distinct-key
+  join at 1M), and a node cloned both halves again. A leaf used `d1` and dropped `d2`; at fork depth 0 the
+  whole copy was dropped. Now the call site passes `Probe.dd(levels, d)`: `DD{d, stub}` when
+  `levels = 0` (no copy at all) and one `Dict.clone` otherwise, and a node hands each child
+  `Probe.dd(p, own)`: a clone only when that child splits again. 4 levels copy 15 tables (was 31),
+  0 levels none; every block still ends with a private table (no shared string refcounts). Rows and
+  order are unchanged (`tests/join_probe.bend`: 18 joins, 70000 left rows, checked against an independent
+  Python join).
+- **A split helper cannot be a separate def**: `Probe.fork` is recursive, the helper that opens the
+  pair would have to call it back (no mutual recursion: a def must be above its callers), and
+  `match Dict.clone(d):` / `dd = Dict.clone(d)` then `match dd:` are refused ("a match cannot scrutinize a
+  computed value / a local binder"). The pair must arrive as a PARAMETER: build it at the call site with
+  a non-recursive helper (`Probe.dd`) that decides whether a copy is needed.
+- **Measured (M2 Pro, load average 15-60 from other agents, so provisional)**: distinct-key join (m6 hc
+  join) 1M rows, 1 thread 5.4 s -> 3.6 s, 12 threads 6.9 s -> 4.0 s; 100k 0.50 s -> 0.28 s. Twelve
+  threads are no faster than one: the forked probe is not where the time is, the build, the pair table and
+  the result gathers are (W2 and the chunk work). Small build side (64 rows) and duplicate-heavy (4000
+  rows, 400 keys x 10) joins are unchanged within noise: the probe is a small part of them.
+- **W1c, describe cloned each numeric column five times** (the old comment "clone = refcount bump" was
+  wrong: `Column.clone` is an O(n) buffer copy) and made six passes: cast, drop-null (compact + slice),
+  mean (fsum), std (two folds), min, max, plus the sort. Now a numeric column is BORROWED
+  (`Fmt.d.col` hands it back): `Fmt.d.cv.go` / `Fmt.d.cm.go` are one loop that casts to f32 (U32.to_f32,
+  I32.to_f32, identity) and, with a validity mask, compacts (`out[k] = cv(x[i])`, `k += mask[i]`, out has
+  `depth_for(kept + 1)` slots like `Column.compact`), returning source and mask; `DS{s, c, mn, mx}` folds
+  the sum (Neumaier `Kernel.nm.add`, row order), `fmin`, `fmax` in ONE loop seeded with y[0] (the
+  old `fold1` also folded row 0 against itself: same result); one squared-deviation fold around the mean
+  (skipped for k < 2, the result is null anyway); the sort consumes the dense array. The only O(n)
+  allocation per column is the dense array (plus the sort's own); no `Column.clone` on a numeric column
+  (Str/Bool still clone once for Min/Max). Output bit-identical (`tests/fmt_describe_edge.bend`: expected
+  text produced by the PRE-W1c build, dumped through DF.dump so f32 bits are compared; q6 CSV byte-equal at
+  1k/100k/1M).
+- **Emitted C** (`bend -o`, real imported bench program; names are erased to `spin_N`): fused
+  count/sum/min/max fold = `spin_1001` (four `u32` accumulator registers, one `blk_read` per row, callee
+  closure has 0 `heap_alloc`/`term_ctr`/`rfc_seal`/`term_keep`/`blk_copy`), cast loop `spin_1140`/`1141`,
+  masked cast + compact loop one of them; squared-deviation fold likewise. Per row nothing is allocated.
+  A quick way to find a loop in the anonymous C: scan for `WL_AGAIN` functions and the closure of the
+  `spin_N(e,` callees they inline (a step template becomes an inlined `spin` helper that is NOT itself a
+  loop; the flat loop is the one with `WL_AGAIN`).
+- **Measured**: q6 at 1M rows, 1 thread, interleaved 7 rounds: base 107-109 ms, new 72-89 ms (median
+  73 ms), 100k: 11 ms -> 7-8 ms. The plan's ~55 ms is not reached: the radix sort of the four dense
+  columns (kept on purpose) and `from_scalars` are what is left; the number is provisional (load 15-18).
+- A test needing a frame of 70000 rows builds the scalar lists with a Nat-fuel descending generator
+  (`gen.go(~f, n, i, acc)`) and a `~(i => f(i))` template: no recursion depth issue, 70000 rows build in
+  well under a second.

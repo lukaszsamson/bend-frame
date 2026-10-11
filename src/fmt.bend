@@ -7,6 +7,7 @@ import ./err.bend as E
 import ./column.bend as C
 import ./expr.bend as X
 import ./eval.bend as V
+import ./kernels.bend as K
 import ./sort.bend as O
 
 # a column ready to print: name, dtype text, the DISPLAYED cells (all rows, or
@@ -195,7 +196,11 @@ def Fmt.show(f: C.Frame) -> C.Frame & String:
 # from zero (Polars describe(interpolation="nearest"), its default, so "50%" is NOT the 15.5.4
 # median for an even count: [1,2,3,4] -> 3); all null at count 0).
 # Str/Bool inputs become Str columns: count, null_count, min, max as text, null elsewhere.
-# The input frame comes back untouched (columns are cloned, clone = refcount bump).
+# The input frame comes back untouched. A numeric column is BORROWED (W1c): a fused cast +
+# drop-null loop reads its buffer and hands it back, writing the one dense f32 copy of the valid
+# values; the fused sum/min/max pass and the squared-deviation pass borrow that copy and the
+# quantile sort consumes it (no Column.clone). A Str / Bool column is cloned (a deep O(n) copy, NOT
+# a refcount bump) for Eval.agg Min / Max.
 
 def Fmt.d.sc.c(r: C.Column & D.Scalar) -> D.Scalar:
   (c, s) = r
@@ -214,11 +219,6 @@ def Fmt.d.agg(op: X.AggOp, c: C.Column) -> D.Scalar:
 
 def Fmt.d.names() -> List<&2, D.Scalar>:
   [D.SStr{"count"}, D.SStr{"null_count"}, D.SStr{"mean"}, D.SStr{"std"}, D.SStr{"min"}, D.SStr{"25%"}, D.SStr{"50%"}, D.SStr{"75%"}, D.SStr{"max"}]
-
-# sample std (ddof 1): Eval.agg Std, the 15.5.4 kernel DF.std uses (two passes: the 15.5.3
-# mean, then the 15.5.3 sum of the f32 squared deviations; null when k < 2)
-def Fmt.d.std(d: C.Column) -> D.Scalar:
-  Fmt.d.agg(X.Std{}, d)
 
 # the sorted rows to read: min, 25%, 50%, 75%, max (k >= 1)
 def Fmt.d.idx(+k: U32) -> List<&2, U32>:
@@ -272,56 +272,168 @@ def Fmt.d.num.d(+k: U32, +nn: U32, mean: D.Scalar, std: D.Scalar, mn: D.Scalar, 
 def Fmt.d.num.g(+k: U32, +nn: U32, mean: D.Scalar, std: D.Scalar, mn: D.Scalar, mx: D.Scalar, d: C.Column) -> E.ResT(C.Column):
   Fmt.d.num.d(k, nn, mean, std, mn, mx, Fmt.d.sorted(k, d))
 
-def Fmt.d.num.f(+k: U32, +nn: U32, mean: D.Scalar, std: D.Scalar, mn: D.Scalar, r: C.Column & C.Column) -> E.ResT(C.Column):
-  (d2, d3) = r
-  Fmt.d.num.g(k, nn, mean, std, mn, Fmt.d.agg(X.Max{}, d2), d3)
-
-def Fmt.d.num.e(+k: U32, +nn: U32, mean: D.Scalar, std: D.Scalar, r: C.Column & C.Column) -> E.ResT(C.Column):
-  (d1, d2) = r
-  Fmt.d.num.f(k, nn, mean, std, Fmt.d.agg(X.Min{}, d1), C.Column.clone(d2))
-
-def Fmt.d.num.c(+k: U32, +nn: U32, d: C.Column, ds: C.Column, mean: D.Scalar) -> E.ResT(C.Column):
-  Fmt.d.num.e(k, nn, mean, Fmt.d.std(ds), C.Column.clone(d))
-
-def Fmt.d.num.b(+k: U32, +nn: U32, d: C.Column, r: C.Column & C.Column) -> E.ResT(C.Column):
-  (dm, ds) = r
-  Fmt.d.num.c(k, nn, d, ds, Fmt.d.agg(X.Mean{}, dm))
-
-def Fmt.d.num.a(+k: U32, +nn: U32, r: C.Column & C.Column) -> E.ResT(C.Column):
-  (d, dm) = r
-  Fmt.d.num.b(k, nn, d, C.Column.clone(dm))
+# ---- the numeric path (W1c) ----------------------------------------------------------
+# One column is BORROWED: a fused cast + drop-null loop reads its buffer (and mask) and hands
+# them back, writing ONE dense f32 array of the valid values (the only O(n) allocation here);
+# that array goes through the fused count/sum/min/max loop, the squared-deviation loop and is
+# finally consumed by the quantile sort. No Column.clone, no separate dropnull / cast / clones.
 
 def Fmt.d.num.nulls(+nn: U32) -> E.ResT(C.Column):
   C.Column.from_scalars([D.SF32{0.0}, D.SF32{U32.to_f32(nn)}, D.SNull{}, D.SNull{}, D.SNull{}, D.SNull{}, D.SNull{}, D.SNull{}, D.SNull{}], D.TF32{})
 
-def Fmt.d.num.z(none: Bool, +nn: U32, +k: U32, d: C.Column) -> E.ResT(C.Column):
+# the dense valid values: y holds k f32 values in a 2^d array
+type DV is Type:
+  DV{y: Array<F32>, k: U32, d: Nat}
+
+# the fused first pass: the 15.5.3 Neumaier state (s, c) and the 15.5.2 min / max in one loop
+type DS is Data:
+  DS{s: F32, c: F32, mn: F32, mx: F32}
+
+def Fmt.d.ds.k(r: K.NS, +mn: F32, +mx: F32) -> DS:
+  match r:
+    case K.NS{s, c}:
+      DS{s, c, mn, mx}
+
+def Fmt.d.ds.step(acc: DS, +x: F32) -> DS:
+  match acc:
+    case DS{+s, +c, +mn, +mx}:
+      Fmt.d.ds.k(K.Kernel.nm.add(s, c, x), K.Kernel.fmin(mn, x), K.Kernel.fmax(mx, x))
+
+# out[i] = cv(a[i]) for i < n (no nulls); a comes back with out
+def Fmt.d.cv.go(~T: Data, ~cv: T -> F32, n: Nat, +i: U32, out: Array<F32>, r: Array<T> & T) -> Array<T> & Array<F32>:
+  match n:
+    case 0n:
+      (a, x) = r
+      (a, out)
+    case 1n+p:
+      (a, x) = r
+      +j = U32.inc(i)
+      Fmt.d.cv.go(~T, ~cv, p, j, Array.set(F32, out, i, cv(x)), Array.get(T, a, j))
+
+# out[k] = cv(a[i]), k += mask[i] (Kernel.compact with the cast fused in); a and the mask come back
+def Fmt.d.cm.go(~T: Data, ~cv: T -> F32, n: Nat, +i: U32, +k: U32, out: Array<F32>, rx: Array<T> & T, rm: Array<U32> & U32) -> (Array<T> & Array<U32>) & Array<F32>:
+  match n:
+    case 0n:
+      (a, x) = rx
+      (m, b) = rm
+      ((a, m), out)
+    case 1n+p:
+      (a, x) = rx
+      (m, b) = rm
+      +j = U32.inc(i)
+      Fmt.d.cm.go(~T, ~cv, p, j, U32.add(k, b), Array.set(F32, out, k, cv(x)), Array.get(T, a, j), Array.get(U32, m, j))
+
+def Fmt.d.den.a.k(~T: Data, +n: U32, +d: Nat, r: Array<T> & Array<F32>) -> (Array<T> & C.Valid) & DV:
+  (x, y) = r
+  ((x, C.AllValid{}), DV{y, n, d})
+
+def Fmt.d.den.a(~T: Data, ~cv: T -> F32, +n: U32, x: Array<T>) -> (Array<T> & C.Valid) & DV:
+  +d = K.Kernel.depth_for(n)
+  Fmt.d.den.a.k(~T, n, d, Fmt.d.cv.go(~T, ~cv, U32.to_nat(n), 0, Array.new(F32, d, 0.0), Array.get(T, x, 0)))
+
+def Fmt.d.den.m.x(~T: Data, +k: U32, +d: Nat, y: Array<F32>, xm: Array<T> & Array<U32>) -> (Array<T> & C.Valid) & DV:
+  (x, m) = xm
+  ((x, C.Mask{m}), DV{y, k, d})
+
+def Fmt.d.den.m.k(~T: Data, +k: U32, +d: Nat, r: (Array<T> & Array<U32>) & Array<F32>) -> (Array<T> & C.Valid) & DV:
+  (xm, y) = r
+  Fmt.d.den.m.x(~T, k, d, y, xm)
+
+# kept + 1 slots, as Column.compact: a dropped row after the last kept one writes slot `kept`
+def Fmt.d.den.m(~T: Data, ~cv: T -> F32, +n: U32, x: Array<T>, r: Array<U32> & U32) -> (Array<T> & C.Valid) & DV:
+  (m, +k) = r
+  +d = K.Kernel.depth_for(U32.add(k, 1))
+  Fmt.d.den.m.k(~T, k, d, Fmt.d.cm.go(~T, ~cv, U32.to_nat(n), 0, 0, Array.new(F32, d, 0.0), Array.get(T, x, 0), Array.get(U32, m, 0)))
+
+# the valid values of x (validity v, n rows) as f32 through cv; x and v come back
+def Fmt.d.den(~T: Data, ~cv: T -> F32, +n: U32, v: C.Valid, x: Array<T>) -> (Array<T> & C.Valid) & DV:
+  match v:
+    case C.AllValid{}:
+      Fmt.d.den.a(~T, ~cv, n, x)
+    case C.Mask{m}:
+      Fmt.d.den.m(~T, ~cv, n, x, K.Kernel.popcount(n, m))
+
+# the squared-deviation pass (15.5.3 / 15.5.4, ascending order); y comes back with the sum
+def Fmt.d.ssd.k(r: Array<F32> & V.VS) -> Array<F32> & F32:
+  (y, vs) = r
+  (y, V.Eval.vs.fin(vs))
+
+def Fmt.d.ssd(+k: U32, +m: F32, y: Array<F32>) -> Array<F32> & F32:
+  Fmt.d.ssd.k(K.Kernel.fold(~F32, ~V.VS, ~(a => w => V.Eval.vs.step(a, w)), k, y, V.VS{m, 0.0, 0.0}))
+
+# the quantile sort consumes the dense values
+def Fmt.d.srt(+k: U32, +nn: U32, +d: Nat, mean: D.Scalar, std: D.Scalar, mn: D.Scalar, mx: D.Scalar, y: Array<F32>) -> E.ResT(C.Column):
+  Fmt.d.num.g(k, nn, mean, std, mn, mx, C.CF32{k, d, C.AllValid{}, y})
+
+def Fmt.d.std.k(+k: U32, +nn: U32, +d: Nat, mean: D.Scalar, mn: D.Scalar, mx: D.Scalar, r: Array<F32> & F32) -> E.ResT(C.Column):
+  (y, ssd) = r
+  Fmt.d.srt(k, nn, d, mean, V.Eval.stat.s(True{}, k, ssd), mn, mx, y)
+
+# std: null when k < 2 (no pass), else the squared-deviation pass around the mean
+def Fmt.d.std(small: Bool, +k: U32, +nn: U32, +d: Nat, +m: F32, mn: D.Scalar, mx: D.Scalar, y: Array<F32>) -> E.ResT(C.Column):
+  match small:
+    case True{}:
+      Fmt.d.srt(k, nn, d, D.SF32{m}, D.SNull{}, mn, mx, y)
+    case False{}:
+      Fmt.d.std.k(k, nn, d, D.SF32{m}, mn, mx, Fmt.d.ssd(k, m, y))
+
+def Fmt.d.p1.s(+k: U32, +nn: U32, +d: Nat, s: F32, c: F32, mn: F32, mx: F32, y: Array<F32>) -> E.ResT(C.Column):
+  Fmt.d.std(U32.is_lt(k, 2), k, nn, d, V.Eval.mean_f(k, K.Kernel.nm.result(s, c)), D.SF32{mn}, D.SF32{mx}, y)
+
+def Fmt.d.p1.a(+k: U32, +nn: U32, +d: Nat, r: Array<F32> & DS) -> E.ResT(C.Column):
+  (y, ds) = r
+  match ds:
+    case DS{+s, +c, +mn, +mx}:
+      Fmt.d.p1.s(k, nn, d, s, c, mn, mx, y)
+
+def Fmt.d.p1.b(+k: U32, +nn: U32, +d: Nat, r: Array<F32> & F32) -> E.ResT(C.Column):
+  (y, +x0) = r
+  Fmt.d.p1.a(k, nn, d, K.Kernel.fold(~F32, ~DS, ~(a => w => Fmt.d.ds.step(a, w)), k, y, DS{0.0, 0.0, x0, x0}))
+
+# k valid rows (k >= 1), nn nulls: the fused sum / min / max pass seeded with y[0]
+def Fmt.d.p1(+k: U32, +nn: U32, +d: Nat, y: Array<F32>) -> E.ResT(C.Column):
+  Fmt.d.p1.b(k, nn, d, Array.get(F32, y, 0))
+
+def Fmt.d.res.z(none: Bool, +n: U32, +k: U32, +d: Nat, y: Array<F32>) -> E.ResT(C.Column):
   match none:
     case True{}:
-      Fmt.d.num.nulls(nn)
+      Fmt.d.num.nulls(n)
     case False{}:
-      Fmt.d.num.a(k, U32.sub(nn, k), C.Column.clone(d))
+      Fmt.d.p1(k, U32.sub(n, k), d, y)
 
-# n = rows, k = valid rows
-def Fmt.d.num.k(+n: U32, r: C.Column & U32) -> E.ResT(C.Column):
-  (d, +k) = r
-  Fmt.d.num.z(U32.is_zero(k), n, k, d)
+def Fmt.d.res(+n: U32, dv: DV) -> E.ResT(C.Column):
+  match dv:
+    case DV{y, +k, +d}:
+      Fmt.d.res.z(U32.is_zero(k), n, k, d, y)
 
-def Fmt.d.num.dn(+n: U32, d: C.Column) -> E.ResT(C.Column):
-  Fmt.d.num.k(n, C.Column.len(d))
+# the column comes back as it went in, with its statistics column
+def Fmt.d.nw.f(+n: U32, +d: Nat, xv: Array<F32> & C.Valid, res: E.ResT(C.Column)) -> C.Column & E.ResT(C.Column):
+  (x, v) = xv
+  (C.CF32{n, d, v, x}, res)
 
-def Fmt.d.num.n(r: C.Column & U32) -> E.ResT(C.Column):
-  (x, +n) = r
-  Fmt.d.num.dn(n, V.Eval.dropnull(x))
+def Fmt.d.nw.w(+t: D.DType, +n: U32, +d: Nat, xv: Array<U32> & C.Valid, res: E.ResT(C.Column)) -> C.Column & E.ResT(C.Column):
+  (x, v) = xv
+  (C.Column.mk_w(t, n, d, v, x), res)
 
-def Fmt.d.num.cast(r: E.ResT(C.Column)) -> E.ResT(C.Column):
-  match r:
-    case Fail{e}:
-      Fail{e}
-    case Done{x}:
-      Fmt.d.num.n(C.Column.len(x))
+def Fmt.d.nk.f(+n: U32, +d: Nat, r: (Array<F32> & C.Valid) & DV) -> C.Column & E.ResT(C.Column):
+  (xv, dv) = r
+  Fmt.d.nw.f(n, d, xv, Fmt.d.res(n, dv))
 
-def Fmt.d.num(c: C.Column) -> E.ResT(C.Column):
-  Fmt.d.num.cast(V.Eval.cast(D.TF32{}, c))
+def Fmt.d.nk.w(+t: D.DType, +n: U32, +d: Nat, r: (Array<U32> & C.Valid) & DV) -> C.Column & E.ResT(C.Column):
+  (xv, dv) = r
+  Fmt.d.nw.w(t, n, d, xv, Fmt.d.res(n, dv))
+
+# u32 / i32 / f32 columns (to f32 as Eval.cast: U32.to_f32, D.I32.to_f32, the identity)
+def Fmt.d.num(c: C.Column) -> C.Column & E.ResT(C.Column):
+  match c:
+    case C.CU32{+n, +d, v, x}:
+      Fmt.d.nk.w(D.TU32{}, n, d, Fmt.d.den(~U32, ~(w => U32.to_f32(w)), n, v, x))
+    case C.CI32{+n, +d, v, x}:
+      Fmt.d.nk.w(D.TI32{}, n, d, Fmt.d.den(~U32, ~(w => D.I32.to_f32(D.I32{w})), n, v, x))
+    case C.CF32{+n, +d, v, x}:
+      Fmt.d.nk.f(n, d, Fmt.d.den(~F32, ~(w => w), n, v, x))
+    case other:
+      (other, Fail{E.InvalidOperation{"describe: unexpected column"}})
 
 # Str / Bool columns
 def Fmt.d.txt.s(s: D.Scalar) -> D.Scalar:
@@ -346,18 +458,22 @@ def Fmt.d.txt.n(r: C.Column & U32) -> E.ResT(C.Column):
   (c, +n) = r
   Fmt.d.txt.a(n, C.Column.null_count(c))
 
-def Fmt.d.col.t(r: C.Column & D.DType) -> E.ResT(C.Column):
+def Fmt.d.col.x(r: C.Column & C.Column) -> C.Column & E.ResT(C.Column):
+  (c, c2) = r
+  (c, Fmt.d.txt.n(C.Column.len(c2)))
+
+def Fmt.d.col.t(r: C.Column & D.DType) -> C.Column & E.ResT(C.Column):
   (c, t) = r
   match t:
     case D.TStr{}:
-      Fmt.d.txt.n(C.Column.len(c))
+      Fmt.d.col.x(C.Column.clone(c))
     case D.TBool{}:
-      Fmt.d.txt.n(C.Column.len(c))
+      Fmt.d.col.x(C.Column.clone(c))
     case other:
       Fmt.d.num(c)
 
-# the statistics of one column (consumed)
-def Fmt.d.col(c: C.Column) -> E.ResT(C.Column):
+# the statistics of one column; the column comes back (numeric ones are borrowed, not cloned)
+def Fmt.d.col(c: C.Column) -> C.Column & E.ResT(C.Column):
   Fmt.d.col.t(C.Column.dtype(c))
 
 def Fmt.d.push(r: E.ResT(List<&1, C.Named>), nm: String, col: E.ResT(C.Column)) -> E.ResT(List<&1, C.Named>):
@@ -369,15 +485,15 @@ def Fmt.d.push(r: E.ResT(List<&1, C.Named>), nm: String, col: E.ResT(C.Column)) 
     case Done{xs} Done{c}:
       Done{C.Named{nm, c} <> xs}
 
-def Fmt.d.step.k(+nm: String, st: List<&1, C.Named> & E.ResT(List<&1, C.Named>), r: C.Column & C.Column) -> List<&1, C.Named> & E.ResT(List<&1, C.Named>):
+def Fmt.d.step.k(+nm: String, st: List<&1, C.Named> & E.ResT(List<&1, C.Named>), r: C.Column & E.ResT(C.Column)) -> List<&1, C.Named> & E.ResT(List<&1, C.Named>):
   (kept, out) = st
-  (c, c2) = r
-  (C.Named{nm, c} <> kept, Fmt.d.push(out, nm, Fmt.d.col(c2)))
+  (c, res) = r
+  (C.Named{nm, c} <> kept, Fmt.d.push(out, nm, res))
 
 def Fmt.d.step(nc: C.Named, st: List<&1, C.Named> & E.ResT(List<&1, C.Named>)) -> List<&1, C.Named> & E.ResT(List<&1, C.Named>):
   match nc:
     case C.Named{nm, c}:
-      Fmt.d.step.k(nm, st, C.Column.clone(c))
+      Fmt.d.step.k(nm, st, Fmt.d.col(c))
 
 def Fmt.d.go(cols: List<&1, C.Named>, st: List<&1, C.Named> & E.ResT(List<&1, C.Named>)) -> List<&1, C.Named> & E.ResT(List<&1, C.Named>):
   match cols:
