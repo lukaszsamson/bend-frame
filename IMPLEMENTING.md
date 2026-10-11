@@ -2839,9 +2839,10 @@ The method, and what bit:
 - **Instrumented runs are marked and never timed**: `BUILD.json` has `instrument`, `timing_valid: false` and the hash of
   instrument.py (a stale binary is refused), every record has `instrument: true`, `summary` skips them. Relaxed atomics on every
   allocation and a `fprintf` per `IO.now` make the timings meaningless by construction.
-- **Determinism**: two repetitions of all 64 cells gave identical counters in every phase (read, walk, prep, compute, check). Only
-  the exit tail (the JSON print and process exit after the last snapshot) wobbles, by at most 12 allocations / 144 bytes in 9
-  cells, so whole-process totals are exact to that. minflt / maxrss are real measurements and do vary; the table shows them as
+- **Determinism**: two repetitions of all 64 cells gave identical counters in every phase (read, walk, prep, compute, check), and
+  two independent full runs (different instrument.py build in between) agreed on every counter of every cell. Only the exit tail
+  (the JSON print and process exit after the last snapshot) wobbles, by at most 12 allocations / 144 bytes, so whole-process
+  totals are exact to that. minflt / maxrss are real measurements and do vary; the table shows them as
   medians. A snapshot count that differs from the driver's `IO.now` count (phases 6, e2e 2, stages 25) is an error.
 - **Page faults per phase** come from `getrusage(RUSAGE_SELF)` at each snapshot (`ru_minflt`, about one fault per 16 KiB page first
   touched). They are not deterministic across runs and are not a substitute for the allocation counts.
@@ -2877,7 +2878,9 @@ Findings (G6 table of master cd4da62, bench/m2/results/g6-master-prov.md; the ma
   q6 and the string ops run flat (0 conversions, extra < 0.1 MB). The chunked engine makes 56-100 k allocations for q1-q3 against
   3.1 k / 3.6 k / 8.3 k for the reference (leaf frames, per-leaf outputs): the allocation COUNT is as notable as the bytes (see the
   T5.3 notes on why the walks stop scaling at ~4 threads). The `CStats` columns of the table (conversions and logical bytes) come from
-  `bench/m2/cstats.bend`.
+  `bench/m2/cstats.bend`: q1 1 in (20.0 MB logical: 5 columns) / 1 out (2.99 MB), q2 1 in (32.0 MB) / 1 out (36.0 MB), q3 1 in
+  (32.0 MB) / 1 out (16.0 MB), none for q4 / q5 / strings; the measured allocation of the conversions plus leaf work is
+  larger than the logical bytes (q2: 71.8 MB against 68 MB converted; q3 50.8 MB against 48).
 - **The v0.1 reader allocates 4.0 GB (352 M heap allocations) to parse 41 MB** (baseline 5.0 GB / 413 M), the v0.2 reader 1.39 GB /
   83 M, and both retain 33.6 MB (1.20 x the flat bound; 4.9% is power-of-two padding): parse dominates the allocation budget of every
   end-to-end run, not compute. Distinct-string `group_by` at the baseline allocated 22.8 GB in 1.3 billion allocations at 1M rows (the
