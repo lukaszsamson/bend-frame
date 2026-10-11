@@ -2839,3 +2839,330 @@ law collect_obs:
   for env: P.Env
   for +k: U32
   {robs(Q.Exec.run_phys(P.Optimize.release(p), env), k) == robs(Q.Exec.run_pure(p, env), k) : RObs}
+
+# =====================================================================================
+# 17. Fused kernels (v0.2 T4.1, DESIGN.md 16.3 F1-F6): each borrowing loop of src/kernels.bend
+#     (W4 section) equals the unfused passes it replaces, slot by slot, and hands its inputs back
+# =====================================================================================
+#
+# Every claim is over the production kernels (Kernel.map_pb, zipb, zipv, pred_count, compact3,
+# compact4) and the production passes Eval runs today (Kernel.map_p, zip, map, mask_and,
+# mask_data, popcount, compact_keep). Laws over templates are stated at instances (section 10's
+# note: BendTT does not take a template over a quantified cell type); the proofs in
+# PROOF_fused.bend are template proofs, so any other instance is a one-line law. The instances:
+# F1 `x > lit` (u32) and `lit - x` (f32, q2's 1.0 - discount); F2 `a + b` (u32) and `a * b` (f32);
+# F3 `f32(a) * b` (u32 x f32, q2's cast product); F5 q1's `ok & (qty > lit)`; F6 q1's u32/u32/f32
+# buffers (the record laws) and U32 (the per-column CSpec, compact_contents' instance).
+# The borrowing loops write fresh outputs (D2 rule 2) and read their inputs only: the hand-back
+# laws say each returned input buffer IS the input (an equality of terms), so a column lent with
+# Frame.lend and put back with Frame.replace leaves the frame as it was (lend_observes).
+
+# ---- the kernels' records, projected --------------------------------------------------------------
+
+def zb_o(-T: Data, -U: Data, -V: Data, r: K.ZB<T, U, V>) -> Array<V>:
+  match r:
+    case K.ZB{o, a, b}:
+      o
+
+def zv_o(-T: Data, -U: Data, -V: Data, r: K.ZV<T, U, V>) -> Array<V>:
+  match r:
+    case K.ZV{o, vo, a, va, b, vb}:
+      o
+
+def zv_vo(-T: Data, -U: Data, -V: Data, r: K.ZV<T, U, V>) -> Array<U32>:
+  match r:
+    case K.ZV{o, vo, a, va, b, vb}:
+      vo
+
+def pc_m(-T: Data, -U: Data, r: K.PC<T, U>) -> Array<U32>:
+  match r:
+    case K.PC{m, k, a, va, b, vb}:
+      m
+
+def pc_k(-T: Data, -U: Data, r: K.PC<T, U>) -> U32:
+  match r:
+    case K.PC{m, k, a, va, b, vb}:
+      k
+
+# ---- F1: a literal operand as a scalar parameter (Kernel.map_p / Kernel.map_pb) --------------------
+
+# LAW: Kernel.map_p (the existing consuming map with a Data parameter: is_in, clip, and now F1) writes
+# f(p, a[k]) at every k < n when n <= 2^d (u32 `x > lit`)
+law map_p_cell:
+  for +d: Nat
+  for +n: U32
+  for a: Array<U32>
+  for +lit: U32
+  for +z: U32
+  for +k: U32
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for hk: {U32.is_lt(k, n) == True{} : Bool}
+  {rd_at(U32, K.Kernel.map_p(~U32, ~U32, ~U32, ~(p => w => Bool.to_u32(U32.is_gt(w, p))), n, d, a, lit, z), k) == Bool.to_u32(U32.is_gt(rd_at(U32, a, k), lit)) : U32}
+
+# LAW: the borrowing map IS the consuming map paired with its input: Kernel.map_pb answers
+# Kernel.map_p's output and a itself (u32 `x > lit`; no hypothesis: the same loop, a only read)
+law map_pb_unfused:
+  for +d: Nat
+  for +n: U32
+  for a: Array<U32>
+  for +lit: U32
+  for +z: U32
+  {K.Kernel.map_pb(~U32, ~U32, ~U32, ~(p => w => Bool.to_u32(U32.is_gt(w, p))), n, d, a, lit, z) == (K.Kernel.map_p(~U32, ~U32, ~U32, ~(p => w => Bool.to_u32(U32.is_gt(w, p))), n, d, a, lit, z), a) : Array<U32> & Array<U32>}
+
+# LAW (F1 against v0.1's broadcast): Kernel.map_pb's `x > lit` equals, slot by slot below n, the zip of
+# Eval.zip.u's Gt template against the broadcast literal column (Eval.const_col's Array.new(d, lit))
+law map_pb_bcast:
+  for +d: Nat
+  for +n: U32
+  for a: Array<U32>
+  for +lit: U32
+  for +z: U32
+  for +k: U32
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for hk: {U32.is_lt(k, n) == True{} : Bool}
+  {rd_at(U32, Pair.fst(Array<U32>, Array<U32>, K.Kernel.map_pb(~U32, ~U32, ~U32, ~(p => w => Bool.to_u32(U32.is_gt(w, p))), n, d, a, lit, z)), k) == rd_at(U32, K.Kernel.zip(~U32, ~U32, ~U32, ~(x => y => Bool.to_u32(U32.is_gt(x, y))), n, d, a, Array.new(U32, d, lit), z), k) : U32}
+
+# LAW: the same at f32 with the literal on the left (q2's `1.0 - discount`: Eval.zip.fa's Sub template
+# over the broadcast column and the operand)
+law map_pb_bcast_f32:
+  for +d: Nat
+  for +n: U32
+  for a: Array<F32>
+  for +lit: F32
+  for +z: F32
+  for +k: U32
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for hk: {U32.is_lt(k, n) == True{} : Bool}
+  {rd_at(F32, Pair.fst(Array<F32>, Array<F32>, K.Kernel.map_pb(~F32, ~F32, ~F32, ~(p => x => F32.sub(p, x)), n, d, a, lit, z)), k) == rd_at(F32, K.Kernel.zip(~F32, ~F32, ~F32, ~(x => y => F32.sub(x, y)), n, d, Array.new(F32, d, lit), a, z), k) : F32}
+
+# ---- F3 (and F1 over two columns): the borrowing zip, a total cast composed into the template -------
+
+# LAW: Kernel.zipb IS Kernel.zip with both operands handed back (F3's `f32(a) * b`)
+law zipb_unfused:
+  for +d: Nat
+  for +n: U32
+  for a: Array<U32>
+  for b: Array<F32>
+  for +z: F32
+  {K.Kernel.zipb(~U32, ~F32, ~F32, ~(x => y => F32.mul(U32.to_f32(x), y)), n, d, a, b, z) == K.ZB{K.Kernel.zip(~U32, ~F32, ~F32, ~(x => y => F32.mul(U32.to_f32(x), y)), n, d, a, b, z), a, b} : K.ZB<U32, F32, F32>}
+
+# LAW (F3: the cast's own rounding, then the product's; no reassociation, no FMA): the fused
+# `f32(a) * b` equals, slot by slot below n, the two passes Eval runs today (the cast map of
+# Eval.cast, then Eval.zip.fa's Mul zip)
+law zipb_cast_cell:
+  for +d: Nat
+  for +n: U32
+  for a: Array<U32>
+  for b: Array<F32>
+  for +z: F32
+  for +k: U32
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for hk: {U32.is_lt(k, n) == True{} : Bool}
+  {rd_at(F32, zb_o(U32, F32, F32, K.Kernel.zipb(~U32, ~F32, ~F32, ~(x => y => F32.mul(U32.to_f32(x), y)), n, d, a, b, z)), k) == rd_at(F32, K.Kernel.zip(~F32, ~F32, ~F32, ~(x => y => F32.mul(x, y)), n, d, K.Kernel.map(~U32, ~F32, ~(w => U32.to_f32(w)), n, d, a, 0.0), b, z), k) : F32}
+
+# ---- F2: the null-propagating zip with validity in one loop (Kernel.zipv) -----------------------------
+
+# LAW: Kernel.zipv's value cell (u32 `a + b`): (va[k] & vb[k]) != 0 ? a[k] + b[k] : z at every k < n
+law zipv_cell:
+  for +d: Nat
+  for +n: U32
+  for a: Array<U32>
+  for va: Array<U32>
+  for b: Array<U32>
+  for vb: Array<U32>
+  for +z: U32
+  for +k: U32
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for hk: {U32.is_lt(k, n) == True{} : Bool}
+  {rd_at(U32, zv_o(U32, U32, U32, K.Kernel.zipv(~U32, ~U32, ~U32, ~(x => y => U32.add(x, y)), n, d, a, va, b, vb, z)), k) == Bool.pick(U32, U32.is_ne(U32.and(rd_at(U32, va, k), rd_at(U32, vb, k)), 0), U32.add(rd_at(U32, a, k), rd_at(U32, b, k)), z) : U32}
+
+# LAW: Kernel.zipv's validity output IS Kernel.mask_and of the operands' validity (Eval.vand's pass,
+# the AND of two masks; an AllValid side is the 1-slot ones array, and(1, w) = w on 0/1 words) and
+# the four operands come back unchanged (u32 `a + b`; no hypothesis: zipv only reads its inputs)
+law zipv_valid:
+  for +d: Nat
+  for +n: U32
+  for a: Array<U32>
+  for va: Array<U32>
+  for b: Array<U32>
+  for vb: Array<U32>
+  for +z: U32
+  {K.Kernel.zipv(~U32, ~U32, ~U32, ~(x => y => U32.add(x, y)), n, d, a, va, b, vb, z) == K.ZV{zv_o(U32, U32, U32, K.Kernel.zipv(~U32, ~U32, ~U32, ~(x => y => U32.add(x, y)), n, d, a, va, b, vb, z)), K.Kernel.mask_and(n, d, va, vb), a, va, b, vb} : K.ZV<U32, U32, U32>}
+
+# LAW (F2 against v0.1's three passes): Kernel.zipv's value output equals, slot by slot below n, Eval's
+# vand + zip + fix: the zip of the operands with the null slots reset by Kernel.mask_data over
+# Kernel.mask_and of the validity (u32 `a + b`)
+law zipv_unfused:
+  for +d: Nat
+  for +n: U32
+  for a: Array<U32>
+  for va: Array<U32>
+  for b: Array<U32>
+  for vb: Array<U32>
+  for +z: U32
+  for +k: U32
+  for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for +hk: {U32.is_lt(k, n) == True{} : Bool}
+  {rd_at(U32, zv_o(U32, U32, U32, K.Kernel.zipv(~U32, ~U32, ~U32, ~(x => y => U32.add(x, y)), n, d, a, va, b, vb, z)), k) == rd_at(U32, Pair.fst(Array<U32>, Array<U32>, K.Kernel.mask_data(~U32, n, K.Kernel.zip(~U32, ~U32, ~U32, ~(x => y => U32.add(x, y)), n, d, a, b, z), K.Kernel.mask_and(n, d, va, vb), z)), k) : U32}
+
+# LAW: the same at f32 (q2's nullable product, Eval.zip.fa's Mul template; F32 bits as written: the
+# fused cell is the same Bool.pick over the same F32.mul, no reassociation)
+law zipv_unfused_f32:
+  for +d: Nat
+  for +n: U32
+  for a: Array<F32>
+  for va: Array<U32>
+  for b: Array<F32>
+  for vb: Array<U32>
+  for +z: F32
+  for +k: U32
+  for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for +hk: {U32.is_lt(k, n) == True{} : Bool}
+  {rd_at(F32, zv_o(F32, F32, F32, K.Kernel.zipv(~F32, ~F32, ~F32, ~(x => y => F32.mul(x, y)), n, d, a, va, b, vb, z)), k) == rd_at(F32, Pair.fst(Array<F32>, Array<U32>, K.Kernel.mask_data(~F32, n, K.Kernel.zip(~F32, ~F32, ~F32, ~(x => y => F32.mul(x, y)), n, d, a, b, z), K.Kernel.mask_and(n, d, va, vb), z)), k) : F32}
+
+# ---- F5: the filter predicate's mask and its kept count in one loop (Kernel.pred_count) ----------------
+#
+# Instance: q1's `ok & (qty > lit)` over the borrowed ok (a) and qty (b) with their validity words (an
+# AllValid side is the 1-slot ones array): the predicate is f(p, x, y) = x AND (y > p).
+
+# LAW: the mask cell: the predicate where both operands are valid, 0 (row dropped) where either is null
+# (the cell Kernel.mask_data(zip(..), mask_and(va, vb), 0) answers: zipv_unfused's shape; Eval.pred's
+# AND with the validity drops the same rows)
+law pred_count_cell:
+  for +d: Nat
+  for +n: U32
+  for +lit: U32
+  for a: Array<U32>
+  for va: Array<U32>
+  for b: Array<U32>
+  for vb: Array<U32>
+  for +k: U32
+  for fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for hk: {U32.is_lt(k, n) == True{} : Bool}
+  {rd_at(U32, pc_m(U32, U32, K.Kernel.pred_count(~U32, ~U32, ~U32, ~(p => x => y => U32.and(x, Bool.to_u32(U32.is_gt(y, p)))), n, d, lit, a, va, b, vb)), k) == Bool.pick(U32, U32.is_ne(U32.and(rd_at(U32, va, k), rd_at(U32, vb, k)), 0), U32.and(rd_at(U32, a, k), Bool.to_u32(U32.is_gt(rd_at(U32, b, k), lit))), 0) : U32}
+
+# LAW: the kept count IS Kernel.popcount of the mask (the cardinality filter computes today, from the
+# same mask, in the same loop)
+law pred_count_count:
+  for +d: Nat
+  for +n: U32
+  for +lit: U32
+  for a: Array<U32>
+  for va: Array<U32>
+  for b: Array<U32>
+  for vb: Array<U32>
+  for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  {pc_k(U32, U32, K.Kernel.pred_count(~U32, ~U32, ~U32, ~(p => x => y => U32.and(x, Bool.to_u32(U32.is_gt(y, p)))), n, d, lit, a, va, b, vb)) == Pair.snd(Array<U32>, U32, K.Kernel.popcount(n, pc_m(U32, U32, K.Kernel.pred_count(~U32, ~U32, ~U32, ~(p => x => y => U32.and(x, Bool.to_u32(U32.is_gt(y, p)))), n, d, lit, a, va, b, vb)))) : U32}
+
+# LAW: the four operands come back unchanged (the record is its mask, its count and the inputs)
+law pred_count_keeps:
+  for +d: Nat
+  for +n: U32
+  for +lit: U32
+  for a: Array<U32>
+  for va: Array<U32>
+  for b: Array<U32>
+  for vb: Array<U32>
+  {K.Kernel.pred_count(~U32, ~U32, ~U32, ~(p => x => y => U32.and(x, Bool.to_u32(U32.is_gt(y, p)))), n, d, lit, a, va, b, vb) == K.PC{pc_m(U32, U32, K.Kernel.pred_count(~U32, ~U32, ~U32, ~(p => x => y => U32.and(x, Bool.to_u32(U32.is_gt(y, p)))), n, d, lit, a, va, b, vb)), pc_k(U32, U32, K.Kernel.pred_count(~U32, ~U32, ~U32, ~(p => x => y => U32.and(x, Bool.to_u32(U32.is_gt(y, p)))), n, d, lit, a, va, b, vb)), a, va, b, vb} : K.PC<U32, U32>}
+
+# ---- F6: aligned buffers compacted by one mask with one cursor (Kernel.compact3 / compact4) ----------------
+
+def c3_o1(-A: Data, -B: Data, -C: Data, r: K.C3<A, B, C>) -> Array<A>:
+  match r:
+    case K.C3{o1, o2, o3, m, a1, a2, a3, k}:
+      o1
+
+def c3_o2(-A: Data, -B: Data, -C: Data, r: K.C3<A, B, C>) -> Array<B>:
+  match r:
+    case K.C3{o1, o2, o3, m, a1, a2, a3, k}:
+      o2
+
+def c3_o3(-A: Data, -B: Data, -C: Data, r: K.C3<A, B, C>) -> Array<C>:
+  match r:
+    case K.C3{o1, o2, o3, m, a1, a2, a3, k}:
+      o3
+
+# LAW: Kernel.compact3 IS one Kernel.compact_keep per buffer with the same mask (what Column.compact
+# runs per buffer today), the mask and the three inputs handed back, and the cursor IS Kernel.popcount
+# of the mask (the kept count). q1's instance: id and region codes (u32), price (f32). No hypothesis:
+# the same writes in the same order, whatever the room
+law compact3_unfused:
+  for +d: Nat
+  for +n: U32
+  for m: Array<U32>
+  for a1: Array<U32>
+  for a2: Array<U32>
+  for a3: Array<F32>
+  for +z1: U32
+  for +z2: U32
+  for +z3: F32
+  {K.Kernel.compact3(~U32, ~U32, ~F32, n, d, m, a1, a2, a3, z1, z2, z3) == K.C3{Pair.fst(Array<U32>, Array<U32>, K.Kernel.compact_keep(~U32, n, d, a1, m, z1)), Pair.fst(Array<U32>, Array<U32>, K.Kernel.compact_keep(~U32, n, d, a2, m, z2)), Pair.fst(Array<F32>, Array<U32>, K.Kernel.compact_keep(~F32, n, d, a3, m, z3)), m, a1, a2, a3, Pair.snd(Array<U32>, U32, K.Kernel.popcount(n, m))} : K.C3<U32, U32, F32>}
+
+# LAW (compact_contents per column, one mask, one cursor): each output of Kernel.compact3 holds its
+# column's kept rows in order at the cursor positions, under compact_contents' own hypothesis (CRoom:
+# 0/1 mask words, the cursor below 2^d; Column.compact's depth_for(kept + 1) gives it, the leaf
+# capacity of W5 too: croom_of_cap, T5.1). U32 instance (the word buffers and every validity mask)
+law compact3_contents:
+  for +d: Nat
+  for +n: U32
+  for m: Array<U32>
+  for a1: Array<U32>
+  for a2: Array<U32>
+  for a3: Array<U32>
+  for +z1: U32
+  for +z2: U32
+  for +z3: U32
+  for room: CRoom(U32.to_nat(n), 0, 0, d, m)
+  CSpec(U32, U32.to_nat(n), 0, 0, d, a1, m, c3_o1(U32, U32, U32, K.Kernel.compact3(~U32, ~U32, ~U32, n, d, m, a1, a2, a3, z1, z2, z3))) & CSpec(U32, U32.to_nat(n), 0, 0, d, a2, m, c3_o2(U32, U32, U32, K.Kernel.compact3(~U32, ~U32, ~U32, n, d, m, a1, a2, a3, z1, z2, z3))) & CSpec(U32, U32.to_nat(n), 0, 0, d, a3, m, c3_o3(U32, U32, U32, K.Kernel.compact3(~U32, ~U32, ~U32, n, d, m, a1, a2, a3, z1, z2, z3)))
+
+def c4_o1(-A: Data, -B: Data, -C: Data, -D: Data, r: K.C4<A, B, C, D>) -> Array<A>:
+  match r:
+    case K.C4{o1, o2, o3, o4, m, a1, a2, a3, a4, k}:
+      o1
+
+def c4_o2(-A: Data, -B: Data, -C: Data, -D: Data, r: K.C4<A, B, C, D>) -> Array<B>:
+  match r:
+    case K.C4{o1, o2, o3, o4, m, a1, a2, a3, a4, k}:
+      o2
+
+def c4_o3(-A: Data, -B: Data, -C: Data, -D: Data, r: K.C4<A, B, C, D>) -> Array<C>:
+  match r:
+    case K.C4{o1, o2, o3, o4, m, a1, a2, a3, a4, k}:
+      o3
+
+def c4_o4(-A: Data, -B: Data, -C: Data, -D: Data, r: K.C4<A, B, C, D>) -> Array<D>:
+  match r:
+    case K.C4{o1, o2, o3, o4, m, a1, a2, a3, a4, k}:
+      o4
+
+# LAW: Kernel.compact4 IS one Kernel.compact_keep per buffer with the same mask, the mask and inputs
+# handed back, the cursor Kernel.popcount of the mask (instance: three word buffers and an f32 one)
+law compact4_unfused:
+  for +d: Nat
+  for +n: U32
+  for m: Array<U32>
+  for a1: Array<U32>
+  for a2: Array<U32>
+  for a3: Array<F32>
+  for a4: Array<U32>
+  for +z1: U32
+  for +z2: U32
+  for +z3: F32
+  for +z4: U32
+  {K.Kernel.compact4(~U32, ~U32, ~F32, ~U32, n, d, m, a1, a2, a3, a4, z1, z2, z3, z4) == K.C4{Pair.fst(Array<U32>, Array<U32>, K.Kernel.compact_keep(~U32, n, d, a1, m, z1)), Pair.fst(Array<U32>, Array<U32>, K.Kernel.compact_keep(~U32, n, d, a2, m, z2)), Pair.fst(Array<F32>, Array<U32>, K.Kernel.compact_keep(~F32, n, d, a3, m, z3)), Pair.fst(Array<U32>, Array<U32>, K.Kernel.compact_keep(~U32, n, d, a4, m, z4)), m, a1, a2, a3, a4, Pair.snd(Array<U32>, U32, K.Kernel.popcount(n, m))} : K.C4<U32, U32, F32, U32>}
+
+# LAW: compact_contents per column for Kernel.compact4 (U32 instance, compact_contents' CRoom)
+law compact4_contents:
+  for +d: Nat
+  for +n: U32
+  for m: Array<U32>
+  for a1: Array<U32>
+  for a2: Array<U32>
+  for a3: Array<U32>
+  for a4: Array<U32>
+  for +z1: U32
+  for +z2: U32
+  for +z3: U32
+  for +z4: U32
+  for room: CRoom(U32.to_nat(n), 0, 0, d, m)
+  CSpec(U32, U32.to_nat(n), 0, 0, d, a1, m, c4_o1(U32, U32, U32, U32, K.Kernel.compact4(~U32, ~U32, ~U32, ~U32, n, d, m, a1, a2, a3, a4, z1, z2, z3, z4))) & CSpec(U32, U32.to_nat(n), 0, 0, d, a2, m, c4_o2(U32, U32, U32, U32, K.Kernel.compact4(~U32, ~U32, ~U32, ~U32, n, d, m, a1, a2, a3, a4, z1, z2, z3, z4))) & CSpec(U32, U32.to_nat(n), 0, 0, d, a3, m, c4_o3(U32, U32, U32, U32, K.Kernel.compact4(~U32, ~U32, ~U32, ~U32, n, d, m, a1, a2, a3, a4, z1, z2, z3, z4))) & CSpec(U32, U32.to_nat(n), 0, 0, d, a4, m, c4_o4(U32, U32, U32, U32, K.Kernel.compact4(~U32, ~U32, ~U32, ~U32, n, d, m, a1, a2, a3, a4, z1, z2, z3, z4)))
