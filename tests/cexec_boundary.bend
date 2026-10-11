@@ -171,7 +171,7 @@ def main() -> IO(Unit):
 #|filter to empty, then with_columns + head: h=0 [same] walks=3 flat=0 cin=1 cout=0
 #|zero columns: drop every column (chunked): h=26 [same] walks=2 flat=0 cin=1 cout=0
 #|zero columns: + with_columns lit (flat) + head: h=5 [same] walks=2 flat=2 cin=1 cout=0
-#|zero columns: select([]) after a filter: h=0 [same] walks=2 flat=1 cin=1 cout=0
+#|zero columns: select([]) after a filter: h=0 [same] walks=2 flat=0 cin=1 cout=0
 #|concat chunked + flat: h=52 [same] walks=2 flat=0 cin=2 cout=1
 #|concat flat + chunked: h=55 [same] walks=2 flat=0 cin=2 cout=1
 #|concat two ragged chunked (two dictionaries) + filter: h=22 [same] walks=6 flat=0 cin=2 cout=1

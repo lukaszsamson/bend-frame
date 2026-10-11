@@ -67,6 +67,7 @@ import ./plan.bend as P
 import ./table.bend as TV
 import ./exec.bend as Q
 import ./chunks.bend as CH
+import ./ckernels.bend as KC
 
 # ==== the engine selector (DESIGN.md 16.5) ====
 
@@ -1597,6 +1598,190 @@ def CX.cpk(cols: List<&1, CH.CNamed>, +refs: List<&2, String>) -> List<&1, CH.CN
     case CH.CNamed{+n, c} <> rest:
       CX.cpk.k(C.Names.has(refs, n), n, c, CX.cpk(rest, refs))
 
+# ---- aggregations on the trees (16.4 D4): U32 / I32 sum, U32 min / max, count, len of a plain column ----
+# Tree reductions with proven combines only (LAWS section 22: ck_sum, ck_min, ck_max; the count IS the
+# popcount of the 0/1 mask tree): a U32 / I32 sum adds every row, null slots included (they hold the dtype
+# default 0: Eval's dropnull-then-fold gives the same word); U32 min / max of an AllValid column (empty: the
+# null rule, as Eval.nz); count = rows, or the mask's popcount; len = rows. F32 sums and I32 / F32 min / max
+# stay sequential (D4): such an aggregation goes to the flat hoisting path below. The tree is borrowed (each
+# CK fold hands it back), so nothing is copied.
+
+def CX.tnull() -> X.Expr:
+  X.Cast{X.Lit{D.SNull{}}, D.TU32{}}
+
+def CX.tmm.k(+len: U32, r: CH.CW & U32) -> CH.CW & Maybe<&2, X.Expr>:
+  (x, +w) = r
+  (x, Some{Bool.pick(X.Expr, U32.is_zero(len), CX.tnull(), X.Lit{D.SU32{w}})})
+
+def CX.tsum.k(+t: D.DType, r: CH.CW & U32) -> CH.CW & Maybe<&2, X.Expr>:
+  (x, +w) = r
+  (x, Some{X.Lit{C.Column.cell.word(t, w)}})
+
+def CX.tcnt.k(r: CH.CW & U32) -> CH.CValid & Maybe<&2, X.Expr>:
+  (m, +k) = r
+  (CH.CMask{m}, Some{X.Lit{D.SU32{k}}})
+
+# the valid-row count of a column: its rows (AllValid) or its mask's popcount
+def CX.tcnt(+len: U32, v: CH.CValid) -> CH.CValid & Maybe<&2, X.Expr>:
+  match v:
+    case CH.CAllValid{}:
+      (CH.CAllValid{}, Some{X.Lit{D.SU32{len}}})
+    case CH.CMask{m}:
+      CX.tcnt.k(KC.CK.popcount.w(m))
+
+def CX.twv.k(+t: D.DType, +len: U32, x: CH.CW, r: CH.CValid & Maybe<&2, X.Expr>) -> CH.CColumn & Maybe<&2, X.Expr>:
+  (v, mv) = r
+  (CH.CColumn.mk_w(t, len, v, x), mv)
+
+def CX.twx.k(+t: D.DType, +len: U32, v: CH.CValid, r: CH.CW & Maybe<&2, X.Expr>) -> CH.CColumn & Maybe<&2, X.Expr>:
+  (x, mv) = r
+  (CH.CColumn.mk_w(t, len, v, x), mv)
+
+def CX.tmm.c(+mx: Bool, +len: U32, x: CH.CW) -> CH.CW & Maybe<&2, X.Expr>:
+  match mx:
+    case True{}:
+      CX.tmm.k(len, KC.CK.max.w(x))
+    case False{}:
+      CX.tmm.k(len, KC.CK.min.w(x))
+
+def CX.tmm.b(r: CH.CW & Maybe<&2, X.Expr>) -> CH.CValid & CH.CW & Maybe<&2, X.Expr>:
+  (x, mv) = r
+  (CH.CAllValid{}, x, mv)
+
+def CX.tmm(+mx: Bool, +len: U32, v: CH.CValid, x: CH.CW) -> CH.CValid & CH.CW & Maybe<&2, X.Expr>:
+  match v:
+    case CH.CAllValid{}:
+      CX.tmm.b(CX.tmm.c(mx, len, x))
+    case CH.CMask{m}:
+      (CH.CMask{m}, x, None{})
+
+def CX.tmm.r(+t: D.DType, +len: U32, r: CH.CValid & CH.CW & Maybe<&2, X.Expr>) -> CH.CColumn & Maybe<&2, X.Expr>:
+  (v, x, mv) = r
+  (CH.CColumn.mk_w(t, len, v, x), mv)
+
+def CX.tw.mm(+mx: Bool, +t: D.DType, u32: Bool, +len: U32, v: CH.CValid, x: CH.CW) -> CH.CColumn & Maybe<&2, X.Expr>:
+  match u32:
+    case True{}:
+      CX.tmm.r(t, len, CX.tmm(mx, len, v, x))
+    case False{}:
+      (CH.CColumn.mk_w(t, len, v, x), None{})
+
+# a word column (U32 / I32; sum also over I32, min / max over U32 only)
+def CX.tw(+op: X.AggOp, +t: D.DType, +u32: Bool, +len: U32, v: CH.CValid, x: CH.CW) -> CH.CColumn & Maybe<&2, X.Expr>:
+  match op:
+    case X.Sum{}:
+      CX.twx.k(t, len, v, CX.tsum.k(t, KC.CK.sum.w(x)))
+    case X.Min{}:
+      CX.tw.mm(False{}, t, u32, len, v, x)
+    case X.Max{}:
+      CX.tw.mm(True{}, t, u32, len, v, x)
+    case X.Count{}:
+      CX.twv.k(t, len, x, CX.tcnt(len, v))
+    case X.Len{}:
+      (CH.CColumn.mk_w(t, len, v, x), Some{X.Lit{D.SU32{len}}})
+    case _:
+      (CH.CColumn.mk_w(t, len, v, x), None{})
+
+def CX.tvo.k(c: CH.CColumn, r: CH.CValid & Maybe<&2, X.Expr>) -> CH.CColumn & Maybe<&2, X.Expr>:
+  (v, mv) = r
+  (CX.cset_v(c, v), mv)
+
+def CX.tvo.a(+op: X.AggOp, +len: U32, r: CH.CColumn & CH.CValid) -> CH.CColumn & Maybe<&2, X.Expr>:
+  match op:
+    case X.Count{}:
+      (c, v) = r
+      CX.tvo.k(c, CX.tcnt(len, v))
+    case X.Len{}:
+      (c, v) = r
+      (CX.cset_v(c, v), Some{X.Lit{D.SU32{len}}})
+    case _:
+      (c, v) = r
+      (CX.cset_v(c, v), None{})
+
+# an aggregation of a plain column on its trees, or None (not a tree reduction: the flat path)
+def CX.cagg(+op: X.AggOp, c: CH.CColumn) -> CH.CColumn & Maybe<&2, X.Expr>:
+  match c:
+    case CH.CU32{+len, v, x}:
+      CX.tw(op, D.TU32{}, True{}, len, v, x)
+    case CH.CI32{+len, v, x}:
+      CX.tw(op, D.TI32{}, False{}, len, v, x)
+    case CH.CBool{+len, v, x}:
+      CX.tvo.a(op, len, CX.ctake_v(CH.CBool{len, v, x}))
+    case CH.CF32{+len, v, x}:
+      CX.tvo.a(op, len, CX.ctake_v(CH.CF32{len, v, x}))
+    case CH.CStr{+len, v, x}:
+      CX.tvo.a(op, len, CX.ctake_v(CH.CStr{len, v, x}))
+
+def CX.cw.p(+nm: String, rest: List<&1, CH.CNamed>, r: CH.CColumn & Maybe<&2, X.Expr>) -> List<&1, CH.CNamed> & Maybe<&2, X.Expr>:
+  (c, mv) = r
+  (CH.CNamed{nm, c} <> rest, mv)
+
+def CX.cw.k(eq: Bool, +nm: String, c: CH.CColumn, +op: X.AggOp, r: List<&1, CH.CNamed> & Maybe<&2, X.Expr>) -> List<&1, CH.CNamed> & Maybe<&2, X.Expr>:
+  match eq:
+    case True{}:
+      (rest, m) = r
+      CX.cw.p(nm, rest, CX.cagg(op, c))
+    case False{}:
+      (rest, m) = r
+      (CH.CNamed{nm, c} <> rest, m)
+
+# op over the column named n, on its trees (the columns come back in place)
+def CX.cw(cols: List<&1, CH.CNamed>, +n: String, +op: X.AggOp) -> List<&1, CH.CNamed> & Maybe<&2, X.Expr>:
+  match cols:
+    case Nil{}:
+      (Nil{}, None{})
+    case CH.CNamed{+nm, c} <> rest:
+      CX.cw.k(String.eq(nm, n), nm, c, op, CX.cw(rest, n, op))
+
+type TA is Type:
+  TA{cols: List<&1, CH.CNamed>, vs: List<&2, X.Expr>, ok: Bool}
+
+def CX.tagg.r(vs: List<&2, X.Expr>, r: List<&1, CH.CNamed> & Maybe<&2, X.Expr>) -> TA:
+  (cols, mv) = r
+  match mv:
+    case None{}:
+      TA{cols, vs, False{}}
+    case Some{v}:
+      TA{cols, v <> vs, True{}}
+
+# Len of a literal counts the frame's rows; any other aggregation of a literal goes flat
+def CX.tagg.l(+h: U32, op: X.AggOp, vs: List<&2, X.Expr>, cols: List<&1, CH.CNamed>) -> TA:
+  match op:
+    case X.Len{}:
+      TA{cols, X.Lit{D.SU32{h}} <> vs, True{}}
+    case _:
+      TA{cols, vs, False{}}
+
+def CX.tagg.e(+h: U32, a: X.Expr, vs: List<&2, X.Expr>, cols: List<&1, CH.CNamed>) -> TA:
+  match a:
+    case X.Agg{+op, e}:
+      match e:
+        case X.Col{+n}:
+          CX.tagg.r(vs, CX.cw(cols, n, op))
+        case X.Lit{v}:
+          CX.tagg.l(h, op, vs, cols)
+        case _:
+          TA{cols, vs, False{}}
+    case _:
+      TA{cols, vs, False{}}
+
+def CX.tagg.step(+h: U32, +a: X.Expr, st: TA) -> TA:
+  match st:
+    case TA{cols, vs, ok}:
+      match ok:
+        case True{}:
+          CX.tagg.e(h, a, vs, cols)
+        case False{}:
+          TA{cols, vs, False{}}
+
+# every aggregation on the trees, in order, while each is a tree reduction (values newest first)
+def CX.tagg(as: List<&2, X.Expr>, +h: U32, st: TA) -> TA:
+  match as:
+    case Nil{}:
+      st
+    case a <> +t:
+      CX.tagg(t, h, CX.tagg.step(h, a, st))
+
 # the hoisted expressions (es with every aggregation a literal), or ok = False (an aggregation failed)
 type HO is Type:
   HO{st: CStats, x: XF, es: List<&2, X.Expr>, ok: Bool}
@@ -1623,6 +1808,16 @@ def CX.hoist.c(+es: List<&2, X.Expr>, +as: List<&2, X.Expr>, st: CStats, +h: U32
   (cols, sub) = r
   CX.hoist.d(es, as, h, cols, CX.to(st, CH.CFrame{h, sub}))
 
+# on the trees when every aggregation is a tree reduction, else over a flattened copy of their columns
+def CX.hoist.t(+es: List<&2, X.Expr>, +as: List<&2, X.Expr>, st: CStats, +h: U32, ta: TA) -> HO:
+  match ta:
+    case TA{cols, vs, ok}:
+      match ok:
+        case True{}:
+          HO{st, XChk{CH.CFrame{h, cols}}, CX.subl(es, List.reverse(&2, X.Expr, vs)), True{}}
+        case False{}:
+          CX.hoist.c(es, as, st, h, CX.cpk(cols, V.Eval.refs(as)))
+
 def CX.hoist.b(+es: List<&2, X.Expr>, +as: List<&2, X.Expr>, st: CStats, x: XF) -> HO:
   match x:
     case XFlat{f}:
@@ -1630,7 +1825,7 @@ def CX.hoist.b(+es: List<&2, X.Expr>, +as: List<&2, X.Expr>, st: CStats, x: XF) 
     case XChk{f}:
       match f:
         case CH.CFrame{+h, cols}:
-          CX.hoist.c(es, as, st, h, CX.cpk(cols, V.Eval.refs(as)))
+          CX.hoist.t(es, as, st, h, CX.tagg(as, h, TA{cols, Nil{}, True{}}))
 
 def CX.hoist.a(+es: List<&2, X.Expr>, +as: List<&2, X.Expr>, st: CStats, x: XF) -> HO:
   match as:
@@ -1773,14 +1968,17 @@ type WK is Data:
   KWith{}
   KSel{}
 
-def CX.ws.fin(k: WK, f: CH.CFrame, o: CH.CFrame) -> CH.CFrame:
+# with_columns: the outputs put into the input, whose Dictionary columns get their Dicts back (no output
+# overwrites one: CX.route); select: the outputs alone, fresh columns, so NO Dict is put back (an output
+# may carry the name of a Dictionary input, e.g. `cast(d, u32)` is named d)
+def CX.ws.fin(k: WK, f: CH.CFrame, o: CH.CFrame, ds: List<&1, DN>) -> CH.CFrame:
   match k:
     case KWith{}:
       match f:
         case CH.CFrame{h, cols}:
           match o:
             case CH.CFrame{ho, ocols}:
-              CH.CFrame{h, CX.cputs(ocols, cols)}
+              CX.redictf(CH.CFrame{h, CX.cputs(ocols, cols)}, ds)
     case KSel{}:
       o
 
@@ -1789,7 +1987,7 @@ def CX.ws.w(+k: WK, op: FOp, st: CStats, ds: List<&1, DN>, w: W2) -> XR:
     case W2{f, o, ok}:
       match ok:
         case True{}:
-          CX.pushc(CStats.walk(st, 1), CX.redictf(CX.ws.fin(k, f, o), ds))
+          CX.pushc(CStats.walk(st, 1), CX.ws.fin(k, f, o, ds))
         case False{}:
           CX.bail(op, CStats.walk(st, 1), f, ds)
 
@@ -1860,12 +2058,35 @@ def CX.wc.a(+g: Nat, +es: List<&2, X.Expr>, st: CStats, r: XF & List<&2, S.Field
 def CX.wc(+g: Nat, +es: List<&2, X.Expr>, st: CStats, x: XF) -> XR:
   CX.wc.a(g, es, st, CX.xschema(x))
 
+# a select of one row (literals and aggregations only; Ana.rows is False) over a chunked frame: every
+# aggregation hoisted (on the trees when it is a tree reduction), then the reference select over a frame
+# of no columns evaluates the literals (one row, the dtypes and names of the original expressions)
+def CX.sel1.h(+es: List<&2, X.Expr>, ho: HO) -> XR:
+  match ho:
+    case HO{st, x, es2, ok}:
+      match ok:
+        case True{}:
+          CX.xr(st, V.Eval.select(C.Frame{0, Nil{}}, es2))
+        case False{}:
+          CX.flat(FUn{Q.ISelect{es}}, st, CX.xkeep(x, V.Eval.refs(es)))
+
+def CX.sel.c(+g: Nat, rows: Bool, +es: List<&2, X.Expr>, st: CStats, x: XF) -> XR:
+  match rows:
+    case True{}:
+      CX.ws.r(g, KSel{}, es, CX.nonempty(es), FUn{Q.ISelect{es}}, st, CX.xinfo(CX.xkeep(x, V.Eval.refs(es))))
+    case False{}:
+      match x:
+        case XFlat{f}:
+          CX.flat(FUn{Q.ISelect{es}}, st, XFlat{f})
+        case XChk{f}:
+          CX.sel1.h(es, CX.hoist(es, st, XChk{f}))
+
 def CX.sel.b(+g: Nat, +es: List<&2, X.Expr>, +s: List<&2, S.Field>, st: CStats, x: XF, go: GO) -> XR:
   match go:
     case GFail{e}:
       CX.flat(FUn{Q.ISelect{es}}, st, x)
     case GOk{+s2}:
-      CX.ws.r(g, KSel{}, es, Bool.and(CX.nonempty(es), A.Ana.rows(es, s)), FUn{Q.ISelect{es}}, st, CX.xinfo(CX.xkeep(x, V.Eval.refs(es))))
+      CX.sel.c(g, A.Ana.rows(es, s), es, st, x)
 
 # a plain select on the trees: the ghost checked the names, the columns are moved
 def CX.selp.b(+es: List<&2, X.Expr>, st: CStats, go: GO, x: XF) -> XR:

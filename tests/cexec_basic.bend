@@ -115,6 +115,11 @@ def main() -> IO(Unit):
     IO.print(c("sel literal only (flat)", 37, sel(37, [DF.alias(DF.lit_u32(1), "one")])))
     IO.print(c("sel agg (flat)", 37, sel(37, [DF.alias(DF.sum(DF.col("qty")), "sq")])))
     IO.print(c("sel aggs over chunks (pruned, flat)", 37, DF.lazy_select(flt(37, DF.gt(DF.col("qty"), DF.lit_u32(20))), [DF.alias(DF.sum(DF.col("qty")), "sq"), DF.alias(DF.len(), "n"), DF.alias(DF.max(DF.col("d")), "dm")])))
+    IO.print(c("sel tree reductions over chunks (sum / min / max / count / len)", 37, DF.lazy_select(flt(37, DF.gt(DF.col("qty"), DF.lit_u32(20))), [DF.alias(DF.sum(DF.col("qty")), "sq"), DF.alias(DF.min(DF.col("id")), "mi"), DF.alias(DF.max(DF.col("qty")), "mq"), DF.alias(DF.count(DF.col("disc")), "cd"), DF.alias(DF.len(), "n"), DF.alias(DF.sum(DF.col("n")), "sn"), DF.alias(DF.add(DF.sum(DF.col("id")), DF.lit_u32(1)), "si1")])))
+    IO.print(c("sel tree reductions over an empty chunked frame (min null)", 37, DF.lazy_select(flt(37, DF.gt(DF.col("qty"), DF.lit_u32(200))), [DF.alias(DF.min(DF.col("id")), "mi"), DF.alias(DF.max(DF.col("qty")), "mq"), DF.alias(DF.sum(DF.col("qty")), "sq"), DF.alias(DF.count(DF.col("ok")), "c")])))
+    IO.print(c("sel mean (flat hoist) + count", 37, DF.lazy_select(flt(37, DF.gt(DF.col("qty"), DF.lit_u32(20))), [DF.alias(DF.mean(DF.col("price")), "mp"), DF.alias(DF.count(DF.col("s")), "cs")])))
+    IO.print(c("wc qty - min(qty) (tree reduction)", 37, DF.lazy_with_columns(flt(37, DF.gt(DF.col("qty"), DF.lit_u32(20))), [DF.alias(DF.sub(DF.col("qty"), DF.min(DF.col("qty"))), "dq")])))
+    IO.print(c("sel a u32 output named like a Dictionary input (no Dict put back; G1 d0080 seed 304)", 37, sel(37, [DF.alias(DF.add(DF.cast(DF.eq(DF.col("d"), DF.lit_str("k1")), D.TU32{}), DF.col("qty")), "d"), DF.col("id")])))
     IO.print(c("sel [] (flat)", 37, sel(37, [])))
     IO.print(c("chain", 37, chain(37)))
     IO.print(c("chain n=200", 200, chain(200)))
@@ -165,7 +170,12 @@ def main() -> IO(Unit):
 #|sel plain over chunks (trees moved): h=37 [same] walks=1 flat=0 cin=1 cout=1
 #|sel literal only (flat): h=1 [same] walks=0 flat=1 cin=0 cout=0
 #|sel agg (flat): h=1 [same] walks=0 flat=1 cin=0 cout=0
-#|sel aggs over chunks (pruned, flat): h=1 [same] walks=2 flat=1 cin=1 cout=1
+#|sel aggs over chunks (pruned, flat): h=1 [same] walks=2 flat=0 cin=1 cout=1
+#|sel tree reductions over chunks (sum / min / max / count / len): h=1 [same] walks=2 flat=0 cin=1 cout=0
+#|sel tree reductions over an empty chunked frame (min null): h=1 [same] walks=2 flat=0 cin=1 cout=0
+#|sel mean (flat hoist) + count: h=1 [same] walks=2 flat=0 cin=1 cout=1
+#|wc qty - min(qty) (tree reduction): h=30 [same] walks=3 flat=0 cin=1 cout=1
+#|sel a u32 output named like a Dictionary input (no Dict put back; G1 d0080 seed 304): h=37 [same] walks=1 flat=0 cin=1 cout=1
 #|sel [] (flat): h=0 [same] walks=0 flat=1 cin=0 cout=0
 #|chain: h=20 [same] walks=5 flat=0 cin=1 cout=1
 #|chain n=200: h=24 [same] walks=5 flat=0 cin=1 cout=1
