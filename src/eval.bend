@@ -46,11 +46,37 @@ type SKind is Data:
 type Slot is Type:
   Slot{k: SKind, col: C.Column}
 
+# W4 fusion (T4.2, DESIGN.md 16.3): the fused fragments the peephole pass Eval.fuse emits.
+# An operand of a fused fragment: the column on top of the stack (owned), or a column of the
+# frame read in place by a borrowing kernel (mv False: borrowed, Frame.lend then Frame.replace;
+# mv True: the reference was the column's last (Eval.mark's IMove), the stand-in stays)
+type Opd is Data:
+  OStk{}
+  ORef{name: String, mv: Bool}
+
+# the pre-operation of a frame operand folded into the fused loop: none, a cast (F3: fires only
+# for the total pairs u32 / i32 / bool -> f32 and the identity), fill_null with a literal (F4:
+# fires only for the dtype default, which a null slot already holds)
+type Pre is Data:
+  PNone{}
+  PCast{to: D.DType}
+  PFill{v: D.Scalar}
+
+# Z0: fill_null(a, default) alone (F4); Z1: a op lit / lit op a (left) with the literal a scalar
+# (F1); Z2: a op b, null-propagating arithmetic / comparison in one loop (F2), a total cast folded
+# into the template (F3)
+type Fz is Data:
+  Z0{a: Opd, pa: Pre}
+  Z1{op: X.BinOp, v: D.Scalar, left: Bool, a: Opd, pa: Pre}
+  Z2{op: X.BinOp, a: Opd, pa: Pre, b: Opd, pb: Pre}
+
 # postfix code of an Expr (Alias compiles to nothing; a typed null literal
 # `Cast{Lit{SNull}, t}` compiles to IConst{SNull, t}). Eval.compile emits ICol for every
 # column reference (Frame.get_cloned: a copy, the frame keeps the column); the liveness pass
 # Eval.mark turns the last reference of a column the operator does not keep into IMove
-# (Frame.lend: the column itself, no copy). DESIGN.md 16.2 rule 1
+# (Frame.lend: the column itself, no copy). DESIGN.md 16.2 rule 1. IFz is a fused fragment
+# and the code it replaces (Eval.fuse, after Eval.mark; run only by Eval.runz): when the
+# fragment's runtime shape has no fused kernel the operands go back and `orig` runs
 type Instr is Data:
   IConst{v: D.Scalar, t: D.DType}
   ICol{name: String}
@@ -65,6 +91,7 @@ type Instr is Data:
   IClip{lo: D.Scalar, hi: D.Scalar}
   IStr{op: X.StrPredOp, pat: String}
   IMove{name: String}
+  IFz{fz: Fz, orig: List<&2, Instr>}
 
 # clip bounds as one Data parameter of a map (words / f32)
 type W2 is Data:
@@ -2080,6 +2107,1398 @@ def Eval.fin(s: EvSt) -> C.Frame & E.ResT(Slot):
     case EvSt{f, r}:
       (f, Eval.fin.r(r))
 
+# ---- W4 fusion (T4.2, DESIGN.md 16.3 F1-F4): the peephole pass ------------------------------------
+#
+# Eval.fuse runs over MARKED code (Eval.mark's ICol / IMove decide borrow vs move) and rewrites
+# windows of the postfix code into IFz fragments; nothing is evaluated (a static pass, after the
+# static checks, before any data work). R is ICol{n} / IMove{n}; a fragment F is R, R ICast{t} or
+# R IConst{v} IFill (a frame column with its pre-operation, Pre). The windows, in priority order:
+#   F1 F2 IBin{op}       -> Z2{op, F1, F2}             two frame columns (distinct names)
+#   F IConst{v} IBin{op} -> Z1{op, v, right, F}        literal right
+#   F IBin{op}           -> Z2{op, stack, F}
+#   F                    -> Z0{F}                      a fill nothing above consumed (F4 alone)
+#   IConst{v} F IBin{op} -> Z1{op, v, left, F}         literal left
+#   IConst{v} IBin{op}   -> Z1{op, v, right, stack}
+#   IConst{v} IFill      -> Z0{stack}
+#   IBin{op}             -> Z2{op, stack, stack}
+# op is a null-propagating arithmetic / comparison (Eval.fz.op_ok): Kleene and/or and the integer
+# floor_div / mod keep their own rules (F7). Every IFz keeps the code it replaces (`orig`): the
+# executor (Eval.fz.exec) runs a fused kernel only on the runtime shapes it has one for (dtypes,
+# a total cast, the fill literal being the default, full-length operands) and otherwise puts the
+# operands back and runs `orig`, so a strict (fallible) cast is never folded and keeps its own pass,
+# row order and error. Every fused kernel is total: no fused fragment can fail.
+
+# the binary ops a fused zip computes
+def Eval.fz.op_ok(op: X.BinOp) -> Bool:
+  match op:
+    case X.FloorDiv{}:
+      False{}
+    case X.Mod{}:
+      False{}
+    case X.And{}:
+      False{}
+    case X.Or{}:
+      False{}
+    case _:
+      True{}
+
+def Eval.fz.isdiv(op: X.BinOp) -> Bool:
+  match op:
+    case X.Div{}:
+      True{}
+    case _:
+      False{}
+
+def Eval.fz.is_and(op: X.BinOp) -> Bool:
+  match op:
+    case X.And{}:
+      True{}
+    case _:
+      False{}
+
+# the six comparisons
+def Eval.fz.isrel(op: X.BinOp) -> Bool:
+  match op:
+    case X.Eq{}:
+      True{}
+    case X.Ne{}:
+      True{}
+    case X.Lt{}:
+      True{}
+    case X.Le{}:
+      True{}
+    case X.Gt{}:
+      True{}
+    case X.Ge{}:
+      True{}
+    case _:
+      False{}
+
+# the scan state: the output so far (newest first) and the code still to scan
+type FzS is Data:
+  FzS{out: List<&2, Instr>, rest: List<&2, Instr>}
+
+# xs reversed onto acc
+def Eval.fz.revon(xs: List<&2, Instr>, acc: List<&2, Instr>) -> List<&2, Instr>:
+  match xs:
+    case Nil{}:
+      acc
+    case x <> t:
+      Eval.fz.revon(t, x <> acc)
+
+def Eval.fz.opname(o: Opd) -> String:
+  match o:
+    case OStk{}:
+      ""
+    case ORef{n, mv}:
+      n
+
+# a fragment no fused instruction consumes: Z0 when it is a fill (F4), else its code as is
+def Eval.fz.solo(out: List<&2, Instr>, o: Opd, pre: Pre, frag: List<&2, Instr>, rest: List<&2, Instr>) -> FzS:
+  match pre:
+    case PFill{v}:
+      FzS{IFz{Z0{o, PFill{v}}, frag} <> out, rest}
+    case _:
+      FzS{Eval.fz.revon(frag, out), rest}
+
+def Eval.fz.p1.go(go: Bool, out: List<&2, Instr>, +o1: Opd, +p1: Pre, +f1: List<&2, Instr>, +o2: Opd, +p2: Pre, +f2: List<&2, Instr>, +op: X.BinOp, t: List<&2, Instr>) -> FzS:
+  match go:
+    case True{}:
+      FzS{IFz{Z2{op, o1, p1, o2, p2}, List.append(&2, Instr, f1, List.append(&2, Instr, f2, IBin{op} <> Nil{}))} <> out, t}
+    case False{}:
+      Eval.fz.solo(out, o1, p1, f1, List.append(&2, Instr, f2, IBin{op} <> t))
+
+# F1 F2 then IBin{op}: Z2 over two distinct frame columns
+def Eval.fz.p1(out: List<&2, Instr>, +o1: Opd, +p1: Pre, +f1: List<&2, Instr>, +o2: Opd, +p2: Pre, +f2: List<&2, Instr>, t: List<&2, Instr>) -> FzS:
+  match t:
+    case IBin{+op} <> t2:
+      Eval.fz.p1.go(Bool.and(Eval.fz.op_ok(op), Bool.not(String.eq(Eval.fz.opname(o1), Eval.fz.opname(o2)))), out, o1, p1, f1, o2, p2, f2, op, t2)
+    case other:
+      Eval.fz.solo(out, o1, p1, f1, List.append(&2, Instr, f2, other))
+
+# a second frame column (o2, its instruction i2) after the first fragment: its pre-operation
+def Eval.fz.f2(out: List<&2, Instr>, +o1: Opd, +p1: Pre, +f1: List<&2, Instr>, +o2: Opd, +i2: Instr, t: List<&2, Instr>) -> FzS:
+  match t:
+    case IConst{+v, +ty} <> IFill{} <> t2:
+      Eval.fz.p1(out, o1, p1, f1, o2, PFill{v}, i2 <> IConst{v, ty} <> IFill{} <> Nil{}, t2)
+    case ICast{+to} <> t2:
+      Eval.fz.p1(out, o1, p1, f1, o2, PCast{to}, i2 <> ICast{to} <> Nil{}, t2)
+    case other:
+      Eval.fz.p1(out, o1, p1, f1, o2, PNone{}, i2 <> Nil{}, other)
+
+def Eval.fz.p2(go: Bool, out: List<&2, Instr>, +o: Opd, +p: Pre, +f: List<&2, Instr>, +v: D.Scalar, +ty: D.DType, +op: X.BinOp, t: List<&2, Instr>) -> FzS:
+  match go:
+    case True{}:
+      FzS{IFz{Z1{op, v, False{}, o, p}, List.append(&2, Instr, f, IConst{v, ty} <> IBin{op} <> Nil{})} <> out, t}
+    case False{}:
+      Eval.fz.solo(out, o, p, f, IConst{v, ty} <> IBin{op} <> t)
+
+def Eval.fz.p6(go: Bool, out: List<&2, Instr>, +o: Opd, +p: Pre, +f: List<&2, Instr>, +op: X.BinOp, t: List<&2, Instr>) -> FzS:
+  match go:
+    case True{}:
+      FzS{IFz{Z2{op, OStk{}, PNone{}, o, p}, List.append(&2, Instr, f, IBin{op} <> Nil{})} <> out, t}
+    case False{}:
+      Eval.fz.solo(out, o, p, f, IBin{op} <> t)
+
+# what follows the first fragment (o, its pre-operation p, its code f)
+def Eval.fz.after(out: List<&2, Instr>, +o: Opd, +p: Pre, +f: List<&2, Instr>, t: List<&2, Instr>) -> FzS:
+  match t:
+    case ICol{+m} <> t2:
+      Eval.fz.f2(out, o, p, f, ORef{m, False{}}, ICol{m}, t2)
+    case IMove{+m} <> t2:
+      Eval.fz.f2(out, o, p, f, ORef{m, True{}}, IMove{m}, t2)
+    case IConst{+v, +ty} <> IBin{+op} <> t2:
+      Eval.fz.p2(Eval.fz.op_ok(op), out, o, p, f, v, ty, op, t2)
+    case IBin{+op} <> t2:
+      Eval.fz.p6(Eval.fz.op_ok(op), out, o, p, f, op, t2)
+    case other:
+      Eval.fz.solo(out, o, p, f, other)
+
+# a frame column (o, its instruction i0) at the scan position: its pre-operation
+def Eval.fz.ref(out: List<&2, Instr>, +o: Opd, +i0: Instr, t: List<&2, Instr>) -> FzS:
+  match t:
+    case IConst{+v, +ty} <> IFill{} <> t2:
+      Eval.fz.after(out, o, PFill{v}, i0 <> IConst{v, ty} <> IFill{} <> Nil{}, t2)
+    case ICast{+to} <> t2:
+      Eval.fz.after(out, o, PCast{to}, i0 <> ICast{to} <> Nil{}, t2)
+    case other:
+      Eval.fz.after(out, o, PNone{}, i0 <> Nil{}, other)
+
+def Eval.fz.p3.go(go: Bool, out: List<&2, Instr>, +v: D.Scalar, +ty: D.DType, +o: Opd, +p: Pre, +f: List<&2, Instr>, +op: X.BinOp, t: List<&2, Instr>) -> FzS:
+  match go:
+    case True{}:
+      FzS{IFz{Z1{op, v, True{}, o, p}, IConst{v, ty} <> List.append(&2, Instr, f, IBin{op} <> Nil{})} <> out, t}
+    case False{}:
+      FzS{IConst{v, ty} <> out, List.append(&2, Instr, f, IBin{op} <> t)}
+
+# IConst{v} and a fragment: IBin{op} makes the literal-left Z1
+def Eval.fz.p3(out: List<&2, Instr>, +v: D.Scalar, +ty: D.DType, +o: Opd, +p: Pre, +f: List<&2, Instr>, t: List<&2, Instr>) -> FzS:
+  match t:
+    case IBin{+op} <> t2:
+      Eval.fz.p3.go(Eval.fz.op_ok(op), out, v, ty, o, p, f, op, t2)
+    case other:
+      FzS{IConst{v, ty} <> out, List.append(&2, Instr, f, other)}
+
+def Eval.fz.p3.f(out: List<&2, Instr>, +v: D.Scalar, +ty: D.DType, +o: Opd, +i0: Instr, t: List<&2, Instr>) -> FzS:
+  match t:
+    case IConst{+w, +ty2} <> IFill{} <> t2:
+      Eval.fz.p3(out, v, ty, o, PFill{w}, i0 <> IConst{w, ty2} <> IFill{} <> Nil{}, t2)
+    case ICast{+to} <> t2:
+      Eval.fz.p3(out, v, ty, o, PCast{to}, i0 <> ICast{to} <> Nil{}, t2)
+    case other:
+      Eval.fz.p3(out, v, ty, o, PNone{}, i0 <> Nil{}, other)
+
+def Eval.fz.p5(go: Bool, out: List<&2, Instr>, +v: D.Scalar, +ty: D.DType, +op: X.BinOp, t: List<&2, Instr>) -> FzS:
+  match go:
+    case True{}:
+      FzS{IFz{Z1{op, v, False{}, OStk{}, PNone{}}, IConst{v, ty} <> IBin{op} <> Nil{}} <> out, t}
+    case False{}:
+      FzS{IBin{op} <> IConst{v, ty} <> out, t}
+
+# a literal at the scan position
+def Eval.fz.cst(out: List<&2, Instr>, +v: D.Scalar, +ty: D.DType, t: List<&2, Instr>) -> FzS:
+  match t:
+    case IBin{+op} <> t2:
+      Eval.fz.p5(Eval.fz.op_ok(op), out, v, ty, op, t2)
+    case IFill{} <> t2:
+      FzS{IFz{Z0{OStk{}, PFill{v}}, IConst{v, ty} <> IFill{} <> Nil{}} <> out, t2}
+    case ICol{+m} <> t2:
+      Eval.fz.p3.f(out, v, ty, ORef{m, False{}}, ICol{m}, t2)
+    case IMove{+m} <> t2:
+      Eval.fz.p3.f(out, v, ty, ORef{m, True{}}, IMove{m}, t2)
+    case other:
+      FzS{IConst{v, ty} <> out, other}
+
+def Eval.fz.p7(go: Bool, out: List<&2, Instr>, +op: X.BinOp, t: List<&2, Instr>) -> FzS:
+  match go:
+    case True{}:
+      FzS{IFz{Z2{op, OStk{}, PNone{}, OStk{}, PNone{}}, IBin{op} <> Nil{}} <> out, t}
+    case False{}:
+      FzS{IBin{op} <> out, t}
+
+# one scan step: at least one instruction leaves `rest`
+def Eval.fz.step(s: FzS) -> FzS:
+  match s:
+    case FzS{out, Nil{}}:
+      FzS{out, Nil{}}
+    case FzS{out, ICol{+n} <> t}:
+      Eval.fz.ref(out, ORef{n, False{}}, ICol{n}, t)
+    case FzS{out, IMove{+n} <> t}:
+      Eval.fz.ref(out, ORef{n, True{}}, IMove{n}, t)
+    case FzS{out, IConst{+v, +ty} <> t}:
+      Eval.fz.cst(out, v, ty, t)
+    case FzS{out, IBin{+op} <> t}:
+      Eval.fz.p7(Eval.fz.op_ok(op), out, op, t)
+    case FzS{out, i <> t}:
+      FzS{i <> out, t}
+
+def Eval.fz.go(n: Nat, s: FzS) -> FzS:
+  match n:
+    case 0n:
+      s
+    case 1n+p:
+      Eval.fz.go(p, Eval.fz.step(s))
+
+def Eval.fz.fin(s: FzS) -> List<&2, Instr>:
+  match s:
+    case FzS{out, rest}:
+      Eval.fz.revon(out, rest)
+
+# the peephole pass (one left-to-right scan; each step consumes at least one instruction, so the
+# code's length is enough fuel, and whatever is left unscanned is kept as is)
+def Eval.fuse(+code: List<&2, Instr>) -> List<&2, Instr>:
+  Eval.fz.fin(Eval.fz.go(List.length(&2, Instr, code), FzS{Nil{}, code}))
+
+# ---- W4 fusion: the column-level fused operations (each hands its operands back) ----------------
+#
+# Every operation below reads its operand buffers through a borrowing kernel of src/kernels.bend
+# (map_pb, zipb, zipv) and hands them back: the executor lends a frame column (Frame.lend), runs
+# the operation and puts the column back (Frame.replace), so a column the frame keeps is read in
+# place, not copied (DESIGN.md 16.2 rule 1). An AllValid side is the 1-slot ones array, a literal
+# a scalar parameter (map_pb) or a 1-slot array (zipv). The templates are Eval.zip.u / zip.i /
+# zip.fa / zip.fc's, verbatim (F32 rounding as written: no reassociation, no FMA); a cast (F3) is
+# Eval.cast's template composed in front of the operand. The answer carries Some{column} when a
+# kernel ran and None (the operands untouched) when the shape has none: the caller then runs the
+# unfused code. LAWS.bend section 19.
+
+# the 1-slot ones array: an AllValid side as the fused kernels read it (indices wrap; never written)
+def Eval.fz.ones() -> Array<U32>:
+  Array.new(U32, 0n, 1)
+
+# a validity handed back by zipv: a real mask, or the ones array of an AllValid side (dropped)
+def Eval.fz.back(m: Bool, w: Array<U32>) -> C.Valid:
+  match m:
+    case True{}:
+      C.Mask{w}
+    case False{}:
+      C.AllValid{}
+
+# a fused zip's answer: the result column and the operands' validity and data
+type ZR<-T: Data, -U: Data> is Type:
+  ZR{c: C.Column, va: C.Valid, a: Array<T>, vb: C.Valid, b: Array<U>}
+
+def Eval.fz.zw.b(~T: Data, ~U: Data, rt: D.DType, +n: U32, d: Nat, r: K.ZB<T, U, U32>) -> ZR<T, U>:
+  match r:
+    case K.ZB{o, a, b}:
+      ZR{C.Column.mk_w(rt, n, d, C.AllValid{}, o), C.AllValid{}, a, C.AllValid{}, b}
+
+def Eval.fz.zw.v(~T: Data, ~U: Data, rt: D.DType, +n: U32, d: Nat, ma: Bool, mb: Bool, r: K.ZV<T, U, U32>) -> ZR<T, U>:
+  match r:
+    case K.ZV{o, vo, a, va, b, vb}:
+      ZR{C.Column.mk_w(rt, n, d, C.Mask{vo}, o), Eval.fz.back(ma, va), a, Eval.fz.back(mb, vb), b}
+
+# F2 into words (comparisons, u32 / i32 arithmetic): zipb when both sides are AllValid (the result
+# AllValid), else zipv (the result's validity the AND of the two, its null slots 0: Eval.vand +
+# the zip + Eval.fix in one loop)
+def Eval.fz.zw(~T: Data, ~U: Data, ~f: T -> U -> U32, rt: D.DType, +n: U32, +d: Nat, va: C.Valid, a: Array<T>, vb: C.Valid, b: Array<U>) -> ZR<T, U>:
+  match va vb:
+    case C.AllValid{} C.AllValid{}:
+      Eval.fz.zw.b(~T, ~U, rt, n, d, K.Kernel.zipb(~T, ~U, ~U32, ~f, n, d, a, b, 0))
+    case C.AllValid{} C.Mask{mb}:
+      Eval.fz.zw.v(~T, ~U, rt, n, d, False{}, True{}, K.Kernel.zipv(~T, ~U, ~U32, ~f, n, d, a, Eval.fz.ones(), b, mb, 0))
+    case C.Mask{ma} C.AllValid{}:
+      Eval.fz.zw.v(~T, ~U, rt, n, d, True{}, False{}, K.Kernel.zipv(~T, ~U, ~U32, ~f, n, d, a, ma, b, Eval.fz.ones(), 0))
+    case C.Mask{ma} C.Mask{mb}:
+      Eval.fz.zw.v(~T, ~U, rt, n, d, True{}, True{}, K.Kernel.zipv(~T, ~U, ~U32, ~f, n, d, a, ma, b, mb, 0))
+
+def Eval.fz.zf.b(~T: Data, ~U: Data, +n: U32, d: Nat, r: K.ZB<T, U, F32>) -> ZR<T, U>:
+  match r:
+    case K.ZB{o, a, b}:
+      ZR{C.CF32{n, d, C.AllValid{}, o}, C.AllValid{}, a, C.AllValid{}, b}
+
+def Eval.fz.zf.v(~T: Data, ~U: Data, +n: U32, d: Nat, ma: Bool, mb: Bool, r: K.ZV<T, U, F32>) -> ZR<T, U>:
+  match r:
+    case K.ZV{o, vo, a, va, b, vb}:
+      ZR{C.CF32{n, d, C.Mask{vo}, o}, Eval.fz.back(ma, va), a, Eval.fz.back(mb, vb), b}
+
+# F2 / F3 into f32 (f32 arithmetic)
+def Eval.fz.zf(~T: Data, ~U: Data, ~f: T -> U -> F32, +n: U32, +d: Nat, va: C.Valid, a: Array<T>, vb: C.Valid, b: Array<U>) -> ZR<T, U>:
+  match va vb:
+    case C.AllValid{} C.AllValid{}:
+      Eval.fz.zf.b(~T, ~U, n, d, K.Kernel.zipb(~T, ~U, ~F32, ~f, n, d, a, b, 0.0))
+    case C.AllValid{} C.Mask{mb}:
+      Eval.fz.zf.v(~T, ~U, n, d, False{}, True{}, K.Kernel.zipv(~T, ~U, ~F32, ~f, n, d, a, Eval.fz.ones(), b, mb, 0.0))
+    case C.Mask{ma} C.AllValid{}:
+      Eval.fz.zf.v(~T, ~U, n, d, True{}, False{}, K.Kernel.zipv(~T, ~U, ~F32, ~f, n, d, a, ma, b, Eval.fz.ones(), 0.0))
+    case C.Mask{ma} C.Mask{mb}:
+      Eval.fz.zf.v(~T, ~U, n, d, True{}, True{}, K.Kernel.zipv(~T, ~U, ~F32, ~f, n, d, a, ma, b, mb, 0.0))
+
+# Eval.zip.u's templates (u32 words; the i32 add / sub / mul / eq / ne are the same word ops)
+def Eval.fz.wu(op: X.BinOp, rt: D.DType, +n: U32, +d: Nat, va: C.Valid, a: Array<U32>, vb: C.Valid, b: Array<U32>) -> ZR<U32, U32>:
+  match op:
+    case X.Add{}:
+      Eval.fz.zw(~U32, ~U32, ~(x => y => U32.add(x, y)), rt, n, d, va, a, vb, b)
+    case X.Sub{}:
+      Eval.fz.zw(~U32, ~U32, ~(x => y => U32.sub(x, y)), rt, n, d, va, a, vb, b)
+    case X.Mul{}:
+      Eval.fz.zw(~U32, ~U32, ~(x => y => U32.mul(x, y)), rt, n, d, va, a, vb, b)
+    case X.Eq{}:
+      Eval.fz.zw(~U32, ~U32, ~(x => y => Bool.to_u32(U32.is_eq(x, y))), rt, n, d, va, a, vb, b)
+    case X.Ne{}:
+      Eval.fz.zw(~U32, ~U32, ~(x => y => Bool.to_u32(U32.is_ne(x, y))), rt, n, d, va, a, vb, b)
+    case X.Lt{}:
+      Eval.fz.zw(~U32, ~U32, ~(x => y => Bool.to_u32(U32.is_lt(x, y))), rt, n, d, va, a, vb, b)
+    case X.Le{}:
+      Eval.fz.zw(~U32, ~U32, ~(x => y => Bool.to_u32(U32.is_le(x, y))), rt, n, d, va, a, vb, b)
+    case X.Gt{}:
+      Eval.fz.zw(~U32, ~U32, ~(x => y => Bool.to_u32(U32.is_gt(x, y))), rt, n, d, va, a, vb, b)
+    case _:
+      Eval.fz.zw(~U32, ~U32, ~(x => y => Bool.to_u32(U32.is_ge(x, y))), rt, n, d, va, a, vb, b)
+
+# Eval.zip.i's comparisons (the rest are u32 word ops)
+def Eval.fz.wi(op: X.BinOp, rt: D.DType, +n: U32, +d: Nat, va: C.Valid, a: Array<U32>, vb: C.Valid, b: Array<U32>) -> ZR<U32, U32>:
+  match op:
+    case X.Lt{}:
+      Eval.fz.zw(~U32, ~U32, ~(x => y => Bool.to_u32(Eval.i32_lt(x, y))), rt, n, d, va, a, vb, b)
+    case X.Le{}:
+      Eval.fz.zw(~U32, ~U32, ~(x => y => Bool.to_u32(Bool.not(Eval.i32_lt(y, x)))), rt, n, d, va, a, vb, b)
+    case X.Gt{}:
+      Eval.fz.zw(~U32, ~U32, ~(x => y => Bool.to_u32(Eval.i32_lt(y, x))), rt, n, d, va, a, vb, b)
+    case X.Ge{}:
+      Eval.fz.zw(~U32, ~U32, ~(x => y => Bool.to_u32(Bool.not(Eval.i32_lt(x, y)))), rt, n, d, va, a, vb, b)
+    case other:
+      Eval.fz.wu(other, rt, n, d, va, a, vb, b)
+
+# Eval.zip.fc's templates (the 15.5.2 total order through Kernel.fword)
+def Eval.fz.fc(op: X.BinOp, +n: U32, +d: Nat, va: C.Valid, a: Array<F32>, vb: C.Valid, b: Array<F32>) -> ZR<F32, F32>:
+  match op:
+    case X.Ne{}:
+      Eval.fz.zw(~F32, ~F32, ~(x => y => Bool.to_u32(U32.is_ne(K.Kernel.fword(x), K.Kernel.fword(y)))), D.TBool{}, n, d, va, a, vb, b)
+    case X.Lt{}:
+      Eval.fz.zw(~F32, ~F32, ~(x => y => Bool.to_u32(U32.is_lt(K.Kernel.fword(x), K.Kernel.fword(y)))), D.TBool{}, n, d, va, a, vb, b)
+    case X.Le{}:
+      Eval.fz.zw(~F32, ~F32, ~(x => y => Bool.to_u32(U32.is_le(K.Kernel.fword(x), K.Kernel.fword(y)))), D.TBool{}, n, d, va, a, vb, b)
+    case X.Gt{}:
+      Eval.fz.zw(~F32, ~F32, ~(x => y => Bool.to_u32(U32.is_gt(K.Kernel.fword(x), K.Kernel.fword(y)))), D.TBool{}, n, d, va, a, vb, b)
+    case X.Ge{}:
+      Eval.fz.zw(~F32, ~F32, ~(x => y => Bool.to_u32(U32.is_ge(K.Kernel.fword(x), K.Kernel.fword(y)))), D.TBool{}, n, d, va, a, vb, b)
+    case _:
+      Eval.fz.zw(~F32, ~F32, ~(x => y => Bool.to_u32(U32.is_eq(K.Kernel.fword(x), K.Kernel.fword(y)))), D.TBool{}, n, d, va, a, vb, b)
+
+# Eval.zip.fa's templates (f32 add / sub / mul / div)
+def Eval.fz.fa(op: X.BinOp, +n: U32, +d: Nat, va: C.Valid, a: Array<F32>, vb: C.Valid, b: Array<F32>) -> ZR<F32, F32>:
+  match op:
+    case X.Sub{}:
+      Eval.fz.zf(~F32, ~F32, ~(x => y => F32.sub(x, y)), n, d, va, a, vb, b)
+    case X.Mul{}:
+      Eval.fz.zf(~F32, ~F32, ~(x => y => F32.mul(x, y)), n, d, va, a, vb, b)
+    case X.Div{}:
+      Eval.fz.zf(~F32, ~F32, ~(x => y => F32.div(x, y)), n, d, va, a, vb, b)
+    case _:
+      Eval.fz.zf(~F32, ~F32, ~(x => y => F32.add(x, y)), n, d, va, a, vb, b)
+
+def Eval.fz.ff(cmp: Bool, op: X.BinOp, +n: U32, +d: Nat, va: C.Valid, a: Array<F32>, vb: C.Valid, b: Array<F32>) -> ZR<F32, F32>:
+  match cmp:
+    case True{}:
+      Eval.fz.fc(op, n, d, va, a, vb, b)
+    case False{}:
+      Eval.fz.fa(op, n, d, va, a, vb, b)
+
+# F3: f32(a) op b, a's u32 (or bool 0/1) words through Eval.cast.u / cast.b's U32.to_f32
+def Eval.fz.cu(op: X.BinOp, +n: U32, +d: Nat, va: C.Valid, a: Array<U32>, vb: C.Valid, b: Array<F32>) -> ZR<U32, F32>:
+  match op:
+    case X.Sub{}:
+      Eval.fz.zf(~U32, ~F32, ~(x => y => F32.sub(U32.to_f32(x), y)), n, d, va, a, vb, b)
+    case X.Mul{}:
+      Eval.fz.zf(~U32, ~F32, ~(x => y => F32.mul(U32.to_f32(x), y)), n, d, va, a, vb, b)
+    case X.Div{}:
+      Eval.fz.zf(~U32, ~F32, ~(x => y => F32.div(U32.to_f32(x), y)), n, d, va, a, vb, b)
+    case _:
+      Eval.fz.zf(~U32, ~F32, ~(x => y => F32.add(U32.to_f32(x), y)), n, d, va, a, vb, b)
+
+# F3: f32(a) op b, a's i32 bits through Eval.cast.i's I32.to_f32
+def Eval.fz.ci(op: X.BinOp, +n: U32, +d: Nat, va: C.Valid, a: Array<U32>, vb: C.Valid, b: Array<F32>) -> ZR<U32, F32>:
+  match op:
+    case X.Sub{}:
+      Eval.fz.zf(~U32, ~F32, ~(x => y => F32.sub(D.I32.to_f32(D.I32{x}), y)), n, d, va, a, vb, b)
+    case X.Mul{}:
+      Eval.fz.zf(~U32, ~F32, ~(x => y => F32.mul(D.I32.to_f32(D.I32{x}), y)), n, d, va, a, vb, b)
+    case X.Div{}:
+      Eval.fz.zf(~U32, ~F32, ~(x => y => F32.div(D.I32.to_f32(D.I32{x}), y)), n, d, va, a, vb, b)
+    case _:
+      Eval.fz.zf(~U32, ~F32, ~(x => y => F32.add(D.I32.to_f32(D.I32{x}), y)), n, d, va, a, vb, b)
+
+# F3: a op f32(b), b's u32 (or bool) words
+def Eval.fz.uc(op: X.BinOp, +n: U32, +d: Nat, va: C.Valid, a: Array<F32>, vb: C.Valid, b: Array<U32>) -> ZR<F32, U32>:
+  match op:
+    case X.Sub{}:
+      Eval.fz.zf(~F32, ~U32, ~(x => y => F32.sub(x, U32.to_f32(y))), n, d, va, a, vb, b)
+    case X.Mul{}:
+      Eval.fz.zf(~F32, ~U32, ~(x => y => F32.mul(x, U32.to_f32(y))), n, d, va, a, vb, b)
+    case X.Div{}:
+      Eval.fz.zf(~F32, ~U32, ~(x => y => F32.div(x, U32.to_f32(y))), n, d, va, a, vb, b)
+    case _:
+      Eval.fz.zf(~F32, ~U32, ~(x => y => F32.add(x, U32.to_f32(y))), n, d, va, a, vb, b)
+
+# F3: a op f32(b), b's i32 bits
+def Eval.fz.ic(op: X.BinOp, +n: U32, +d: Nat, va: C.Valid, a: Array<F32>, vb: C.Valid, b: Array<U32>) -> ZR<F32, U32>:
+  match op:
+    case X.Sub{}:
+      Eval.fz.zf(~F32, ~U32, ~(x => y => F32.sub(x, D.I32.to_f32(D.I32{y}))), n, d, va, a, vb, b)
+    case X.Mul{}:
+      Eval.fz.zf(~F32, ~U32, ~(x => y => F32.mul(x, D.I32.to_f32(D.I32{y}))), n, d, va, a, vb, b)
+    case X.Div{}:
+      Eval.fz.zf(~F32, ~U32, ~(x => y => F32.div(x, D.I32.to_f32(D.I32{y}))), n, d, va, a, vb, b)
+    case _:
+      Eval.fz.zf(~F32, ~U32, ~(x => y => F32.add(x, D.I32.to_f32(D.I32{y}))), n, d, va, a, vb, b)
+
+# ---- the operand's side: what the pre-operation makes of it --------------------------------------
+
+# fill_null's literal is the dtype default of a word / f32 column (+0.0 by its bits): the null
+# slots already hold it (P0), so F4 fires
+def Eval.fz.isdef(v: D.Scalar, t: D.DType) -> Bool:
+  match v t:
+    case D.SU32{w} D.TU32{}:
+      U32.is_zero(w)
+    case D.SI32{x} D.TI32{}:
+      U32.is_zero(D.I32.to_u32(x))
+    case D.SBool{b} D.TBool{}:
+      Bool.not(b)
+    case D.SF32{x} D.TF32{}:
+      U32.is_zero(F32.bits(x))
+    case _ _:
+      False{}
+
+# a side of a fused zip: whether its pre-operation fires, whether that is a fill (the validity is
+# then read as AllValid), the dtype the kernel computes in, whether the words are cast to f32
+type Side is Data:
+  Side{ok: Bool, fill: Bool, t: D.DType, cast: Bool}
+
+# the total casts F3 folds (Eval.cast.u / cast.i / cast.b to f32) and the identity; any other cast
+# (fallible: f32 -> u32, str -> ..., u32 -> i32, ...) does not fire
+def Eval.fz.cside(t: D.DType, to: D.DType) -> Side:
+  match t to:
+    case D.TU32{} D.TF32{}:
+      Side{True{}, False{}, D.TF32{}, True{}}
+    case D.TBool{} D.TF32{}:
+      Side{True{}, False{}, D.TF32{}, True{}}
+    case D.TI32{} D.TF32{}:
+      Side{True{}, False{}, D.TF32{}, True{}}
+    case D.TU32{} D.TU32{}:
+      Side{True{}, False{}, D.TU32{}, False{}}
+    case D.TI32{} D.TI32{}:
+      Side{True{}, False{}, D.TI32{}, False{}}
+    case D.TF32{} D.TF32{}:
+      Side{True{}, False{}, D.TF32{}, False{}}
+    case _ _:
+      Side{False{}, False{}, D.TStr{}, False{}}
+
+def Eval.fz.side(pre: Pre, +t: D.DType) -> Side:
+  match pre:
+    case PNone{}:
+      Side{True{}, False{}, t, False{}}
+    case PFill{v}:
+      Side{Eval.fz.isdef(v, t), True{}, t, False{}}
+    case PCast{to}:
+      Eval.fz.cside(t, to)
+
+# a fired fill reads the column with validity AllValid; the mask is kept aside and put back after
+def Eval.fz.view(fill: Bool, c: C.Column) -> C.Column & C.Valid:
+  match fill:
+    case True{}:
+      C.Column.take_valid(c)
+    case False{}:
+      (c, C.AllValid{})
+
+def Eval.fz.unview(fill: Bool, c: C.Column, aside: C.Valid) -> C.Column:
+  match fill:
+    case True{}:
+      C.Column.set_valid(c, aside)
+    case False{}:
+      c
+
+# ---- Z2 (F2 / F3): a op b ------------------------------------------------------------------------
+
+# the kernel family: none; word columns of one dtype (u32 / i32); f32 columns; f32 arithmetic with
+# one side's words cast to f32
+type K2 is Data:
+  KNo{}
+  KW{}
+  KF{}
+  KC{}
+
+def Eval.fz.k2.f(+op: X.BinOp, ca: Bool, cb: Bool) -> K2:
+  match ca cb:
+    case False{} False{}:
+      KF{}
+    case True{} True{}:
+      KNo{}
+    case _ _:
+      Bool.pick(K2, Eval.is_cmp(op), KNo{}, KC{})
+
+def Eval.fz.k2.t(t: D.DType, +op: X.BinOp, ca: Bool, cb: Bool) -> K2:
+  match t:
+    case D.TU32{}:
+      Bool.pick(K2, Eval.fz.isdiv(op), KNo{}, KW{})
+    case D.TI32{}:
+      Bool.pick(K2, Eval.fz.isdiv(op), KNo{}, KW{})
+    case D.TF32{}:
+      Eval.fz.k2.f(op, ca, cb)
+    case _:
+      KNo{}
+
+def Eval.fz.k2.g(go: Bool, t: D.DType, +op: X.BinOp, ca: Bool, cb: Bool) -> K2:
+  match go:
+    case True{}:
+      Eval.fz.k2.t(t, op, ca, cb)
+    case False{}:
+      KNo{}
+
+# the family of a op b over operands of equal length (eq) after their pre-operations: both fire,
+# one dtype, a fused op
+def Eval.fz.k2(eq: Bool, +op: X.BinOp, sa: Side, sb: Side) -> K2:
+  match sa sb:
+    case Side{oka, fa, +ta, ca} Side{okb, fb, tb, cb}:
+      Eval.fz.k2.g(Bool.and(Bool.and(eq, Bool.and(oka, okb)), Bool.and(Eval.fz.op_ok(op), D.DType.eq(ta, tb))), ta, op, ca, cb)
+
+type Z2R is Type:
+  Z2R{r: Maybe<&1, C.Column>, a: C.Column, b: C.Column}
+
+def Eval.fz.zr.ww(ta: D.DType, tb: D.DType, +n: U32, +d: Nat, +n2: U32, +d2: Nat, r: ZR<U32, U32>) -> Z2R:
+  match r:
+    case ZR{c, va, a, vb, b}:
+      Z2R{Some{c}, C.Column.mk_w(ta, n, d, va, a), C.Column.mk_w(tb, n2, d2, vb, b)}
+
+def Eval.fz.zr.ff(+n: U32, +d: Nat, +n2: U32, +d2: Nat, r: ZR<F32, F32>) -> Z2R:
+  match r:
+    case ZR{c, va, a, vb, b}:
+      Z2R{Some{c}, C.CF32{n, d, va, a}, C.CF32{n2, d2, vb, b}}
+
+def Eval.fz.zr.wf(ta: D.DType, +n: U32, +d: Nat, +n2: U32, +d2: Nat, r: ZR<U32, F32>) -> Z2R:
+  match r:
+    case ZR{c, va, a, vb, b}:
+      Z2R{Some{c}, C.Column.mk_w(ta, n, d, va, a), C.CF32{n2, d2, vb, b}}
+
+def Eval.fz.zr.fw(tb: D.DType, +n: U32, +d: Nat, +n2: U32, +d2: Nat, r: ZR<F32, U32>) -> Z2R:
+  match r:
+    case ZR{c, va, a, vb, b}:
+      Z2R{Some{c}, C.CF32{n, d, va, a}, C.Column.mk_w(tb, n2, d2, vb, b)}
+
+# the kernel of the family over the two columns (validity as the kernel reads it); the output has
+# a's length and depth, as Eval.bin's
+def Eval.fz.z2k(k: K2, +op: X.BinOp, a: C.Column, b: C.Column) -> Z2R:
+  match k a b:
+    case KW{} C.CU32{+n, +d, va, xa} C.CU32{+n2, +d2, vb, xb}:
+      Eval.fz.zr.ww(D.TU32{}, D.TU32{}, n, d, n2, d2, Eval.fz.wu(op, Eval.bin.t(Eval.is_cmp(op), D.TU32{}), n, d, va, xa, vb, xb))
+    case KW{} C.CI32{+n, +d, va, xa} C.CI32{+n2, +d2, vb, xb}:
+      Eval.fz.zr.ww(D.TI32{}, D.TI32{}, n, d, n2, d2, Eval.fz.wi(op, Eval.bin.t(Eval.is_cmp(op), D.TI32{}), n, d, va, xa, vb, xb))
+    case KF{} C.CF32{+n, +d, va, xa} C.CF32{+n2, +d2, vb, xb}:
+      Eval.fz.zr.ff(n, d, n2, d2, Eval.fz.ff(Eval.is_cmp(op), op, n, d, va, xa, vb, xb))
+    case KC{} C.CU32{+n, +d, va, xa} C.CF32{+n2, +d2, vb, xb}:
+      Eval.fz.zr.wf(D.TU32{}, n, d, n2, d2, Eval.fz.cu(op, n, d, va, xa, vb, xb))
+    case KC{} C.CBool{+n, +d, va, xa} C.CF32{+n2, +d2, vb, xb}:
+      Eval.fz.zr.wf(D.TBool{}, n, d, n2, d2, Eval.fz.cu(op, n, d, va, xa, vb, xb))
+    case KC{} C.CI32{+n, +d, va, xa} C.CF32{+n2, +d2, vb, xb}:
+      Eval.fz.zr.wf(D.TI32{}, n, d, n2, d2, Eval.fz.ci(op, n, d, va, xa, vb, xb))
+    case KC{} C.CF32{+n, +d, va, xa} C.CU32{+n2, +d2, vb, xb}:
+      Eval.fz.zr.fw(D.TU32{}, n, d, n2, d2, Eval.fz.uc(op, n, d, va, xa, vb, xb))
+    case KC{} C.CF32{+n, +d, va, xa} C.CBool{+n2, +d2, vb, xb}:
+      Eval.fz.zr.fw(D.TBool{}, n, d, n2, d2, Eval.fz.uc(op, n, d, va, xa, vb, xb))
+    case KC{} C.CF32{+n, +d, va, xa} C.CI32{+n2, +d2, vb, xb}:
+      Eval.fz.zr.fw(D.TI32{}, n, d, n2, d2, Eval.fz.ic(op, n, d, va, xa, vb, xb))
+    case _ a2 b2:
+      Z2R{None{}, a2, b2}
+
+def Eval.fz.z2.e(fa: Bool, fb: Bool, xa: C.Valid, xb: C.Valid, r: Z2R) -> Z2R:
+  match r:
+    case Z2R{res, a, b}:
+      Z2R{res, Eval.fz.unview(fa, a, xa), Eval.fz.unview(fb, b, xb)}
+
+def Eval.fz.z2.d(k: K2, +op: X.BinOp, fa: Bool, fb: Bool, ra: C.Column & C.Valid, rb: C.Column & C.Valid) -> Z2R:
+  (a, xa) = ra
+  (b, xb) = rb
+  Eval.fz.z2.e(fa, fb, xa, xb, Eval.fz.z2k(k, op, a, b))
+
+def Eval.fz.z2.c(k: K2, +op: X.BinOp, +fa: Bool, +fb: Bool, a: C.Column, b: C.Column) -> Z2R:
+  match k:
+    case KNo{}:
+      Z2R{None{}, a, b}
+    case k2:
+      Eval.fz.z2.d(k2, op, fa, fb, Eval.fz.view(fa, a), Eval.fz.view(fb, b))
+
+def Eval.fz.z2.b(+op: X.BinOp, +eq: Bool, sa: Side, sb: Side, a: C.Column, b: C.Column) -> Z2R:
+  match sa sb:
+    case Side{oka, +fa, +ta, ca} Side{okb, +fb, +tb, cb}:
+      Eval.fz.z2.c(Eval.fz.k2(eq, op, Side{oka, fa, ta, ca}, Side{okb, fb, tb, cb}), op, fa, fb, a, b)
+
+def Eval.fz.z2.a(+op: X.BinOp, pa: Pre, pb: Pre, +eq: Bool, ra: C.Column & D.DType, rb: C.Column & D.DType) -> Z2R:
+  (a, +ta) = ra
+  (b, +tb) = rb
+  Eval.fz.z2.b(op, eq, Eval.fz.side(pa, ta), Eval.fz.side(pb, tb), a, b)
+
+def Eval.fz.z2.l(+op: X.BinOp, pa: Pre, pb: Pre, ra: C.Column & U32, rb: C.Column & U32) -> Z2R:
+  (a, +la) = ra
+  (b, +lb) = rb
+  Eval.fz.z2.a(op, pa, pb, U32.is_eq(la, lb), C.Column.dtype(a), C.Column.dtype(b))
+
+# F2 / F3: a op b over two columns of one length (pre-operations pa, pb), both handed back
+def Eval.fz.z2(+op: X.BinOp, pa: Pre, pb: Pre, a: C.Column, b: C.Column) -> Z2R:
+  Eval.fz.z2.l(op, pa, pb, C.Column.len(a), C.Column.len(b))
+
+# ---- Z1 (F1): a op lit, lit op a ------------------------------------------------------------------
+
+type LR<-T: Data> is Type:
+  LR{c: C.Column, v: C.Valid, a: Array<T>}
+
+def Eval.fz.lw.m(~T: Data, rt: D.DType, +n: U32, d: Nat, r: Array<U32> & Array<T>) -> LR<T>:
+  (o, a) = r
+  LR{C.Column.mk_w(rt, n, d, C.AllValid{}, o), C.AllValid{}, a}
+
+def Eval.fz.lw.r(~T: Data, rt: D.DType, +n: U32, d: Nat, r: K.ZV<T, T, U32>) -> LR<T>:
+  match r:
+    case K.ZV{o, vo, a, va, b, vb}:
+      LR{C.Column.mk_w(rt, n, d, C.Mask{vo}, o), C.Mask{va}, a}
+
+def Eval.fz.lw.l(~T: Data, rt: D.DType, +n: U32, d: Nat, r: K.ZV<T, T, U32>) -> LR<T>:
+  match r:
+    case K.ZV{o, vo, a, va, b, vb}:
+      LR{C.Column.mk_w(rt, n, d, C.Mask{vo}, o), C.Mask{vb}, b}
+
+# F1 into words: the literal p a scalar parameter of map_pb (an AllValid operand), or a 1-slot array
+# of zipv next to the operand's mask (the result's validity the operand's, its null slots 0)
+def Eval.fz.lw(~T: Data, ~f: T -> T -> U32, rt: D.DType, left: Bool, +n: U32, +d: Nat, v: C.Valid, a: Array<T>, +p: T) -> LR<T>:
+  match left v:
+    case False{} C.AllValid{}:
+      Eval.fz.lw.m(~T, rt, n, d, K.Kernel.map_pb(~T, ~T, ~U32, ~(q => x => f(x, q)), n, d, a, p, 0))
+    case True{} C.AllValid{}:
+      Eval.fz.lw.m(~T, rt, n, d, K.Kernel.map_pb(~T, ~T, ~U32, ~(q => x => f(q, x)), n, d, a, p, 0))
+    case False{} C.Mask{m}:
+      Eval.fz.lw.r(~T, rt, n, d, K.Kernel.zipv(~T, ~T, ~U32, ~f, n, d, a, m, Array.new(T, 0n, p), Eval.fz.ones(), 0))
+    case True{} C.Mask{m}:
+      Eval.fz.lw.l(~T, rt, n, d, K.Kernel.zipv(~T, ~T, ~U32, ~f, n, d, Array.new(T, 0n, p), Eval.fz.ones(), a, m, 0))
+
+def Eval.fz.lf.m(+n: U32, d: Nat, r: Array<F32> & Array<F32>) -> LR<F32>:
+  (o, a) = r
+  LR{C.CF32{n, d, C.AllValid{}, o}, C.AllValid{}, a}
+
+def Eval.fz.lf.r(+n: U32, d: Nat, r: K.ZV<F32, F32, F32>) -> LR<F32>:
+  match r:
+    case K.ZV{o, vo, a, va, b, vb}:
+      LR{C.CF32{n, d, C.Mask{vo}, o}, C.Mask{va}, a}
+
+def Eval.fz.lf.l(+n: U32, d: Nat, r: K.ZV<F32, F32, F32>) -> LR<F32>:
+  match r:
+    case K.ZV{o, vo, a, va, b, vb}:
+      LR{C.CF32{n, d, C.Mask{vo}, o}, C.Mask{vb}, b}
+
+# F1 into f32 (f32 arithmetic)
+def Eval.fz.lf(~f: F32 -> F32 -> F32, left: Bool, +n: U32, +d: Nat, v: C.Valid, a: Array<F32>, +p: F32) -> LR<F32>:
+  match left v:
+    case False{} C.AllValid{}:
+      Eval.fz.lf.m(n, d, K.Kernel.map_pb(~F32, ~F32, ~F32, ~(q => x => f(x, q)), n, d, a, p, 0.0))
+    case True{} C.AllValid{}:
+      Eval.fz.lf.m(n, d, K.Kernel.map_pb(~F32, ~F32, ~F32, ~(q => x => f(q, x)), n, d, a, p, 0.0))
+    case False{} C.Mask{m}:
+      Eval.fz.lf.r(n, d, K.Kernel.zipv(~F32, ~F32, ~F32, ~f, n, d, a, m, Array.new(F32, 0n, p), Eval.fz.ones(), 0.0))
+    case True{} C.Mask{m}:
+      Eval.fz.lf.l(n, d, K.Kernel.zipv(~F32, ~F32, ~F32, ~f, n, d, Array.new(F32, 0n, p), Eval.fz.ones(), a, m, 0.0))
+
+# u32 words with a literal (Eval.zip.u's templates)
+def Eval.fz.lu(op: X.BinOp, rt: D.DType, left: Bool, +n: U32, +d: Nat, v: C.Valid, a: Array<U32>, +p: U32) -> LR<U32>:
+  match op:
+    case X.Add{}:
+      Eval.fz.lw(~U32, ~(x => y => U32.add(x, y)), rt, left, n, d, v, a, p)
+    case X.Sub{}:
+      Eval.fz.lw(~U32, ~(x => y => U32.sub(x, y)), rt, left, n, d, v, a, p)
+    case X.Mul{}:
+      Eval.fz.lw(~U32, ~(x => y => U32.mul(x, y)), rt, left, n, d, v, a, p)
+    case X.Eq{}:
+      Eval.fz.lw(~U32, ~(x => y => Bool.to_u32(U32.is_eq(x, y))), rt, left, n, d, v, a, p)
+    case X.Ne{}:
+      Eval.fz.lw(~U32, ~(x => y => Bool.to_u32(U32.is_ne(x, y))), rt, left, n, d, v, a, p)
+    case X.Lt{}:
+      Eval.fz.lw(~U32, ~(x => y => Bool.to_u32(U32.is_lt(x, y))), rt, left, n, d, v, a, p)
+    case X.Le{}:
+      Eval.fz.lw(~U32, ~(x => y => Bool.to_u32(U32.is_le(x, y))), rt, left, n, d, v, a, p)
+    case X.Gt{}:
+      Eval.fz.lw(~U32, ~(x => y => Bool.to_u32(U32.is_gt(x, y))), rt, left, n, d, v, a, p)
+    case _:
+      Eval.fz.lw(~U32, ~(x => y => Bool.to_u32(U32.is_ge(x, y))), rt, left, n, d, v, a, p)
+
+# i32 bits with a literal (Eval.zip.i's comparisons, else the word ops)
+def Eval.fz.li(op: X.BinOp, rt: D.DType, left: Bool, +n: U32, +d: Nat, v: C.Valid, a: Array<U32>, +p: U32) -> LR<U32>:
+  match op:
+    case X.Lt{}:
+      Eval.fz.lw(~U32, ~(x => y => Bool.to_u32(Eval.i32_lt(x, y))), rt, left, n, d, v, a, p)
+    case X.Le{}:
+      Eval.fz.lw(~U32, ~(x => y => Bool.to_u32(Bool.not(Eval.i32_lt(y, x)))), rt, left, n, d, v, a, p)
+    case X.Gt{}:
+      Eval.fz.lw(~U32, ~(x => y => Bool.to_u32(Eval.i32_lt(y, x))), rt, left, n, d, v, a, p)
+    case X.Ge{}:
+      Eval.fz.lw(~U32, ~(x => y => Bool.to_u32(Bool.not(Eval.i32_lt(x, y)))), rt, left, n, d, v, a, p)
+    case other:
+      Eval.fz.lu(other, rt, left, n, d, v, a, p)
+
+# f32 with a literal: comparisons into words (Eval.zip.fc), arithmetic into f32 (Eval.zip.fa)
+def Eval.fz.lfo(op: X.BinOp, left: Bool, +n: U32, +d: Nat, v: C.Valid, a: Array<F32>, +p: F32) -> LR<F32>:
+  match op:
+    case X.Ne{}:
+      Eval.fz.lw(~F32, ~(x => y => Bool.to_u32(U32.is_ne(K.Kernel.fword(x), K.Kernel.fword(y)))), D.TBool{}, left, n, d, v, a, p)
+    case X.Lt{}:
+      Eval.fz.lw(~F32, ~(x => y => Bool.to_u32(U32.is_lt(K.Kernel.fword(x), K.Kernel.fword(y)))), D.TBool{}, left, n, d, v, a, p)
+    case X.Le{}:
+      Eval.fz.lw(~F32, ~(x => y => Bool.to_u32(U32.is_le(K.Kernel.fword(x), K.Kernel.fword(y)))), D.TBool{}, left, n, d, v, a, p)
+    case X.Gt{}:
+      Eval.fz.lw(~F32, ~(x => y => Bool.to_u32(U32.is_gt(K.Kernel.fword(x), K.Kernel.fword(y)))), D.TBool{}, left, n, d, v, a, p)
+    case X.Ge{}:
+      Eval.fz.lw(~F32, ~(x => y => Bool.to_u32(U32.is_ge(K.Kernel.fword(x), K.Kernel.fword(y)))), D.TBool{}, left, n, d, v, a, p)
+    case X.Eq{}:
+      Eval.fz.lw(~F32, ~(x => y => Bool.to_u32(U32.is_eq(K.Kernel.fword(x), K.Kernel.fword(y)))), D.TBool{}, left, n, d, v, a, p)
+    case X.Sub{}:
+      Eval.fz.lf(~(x => y => F32.sub(x, y)), left, n, d, v, a, p)
+    case X.Mul{}:
+      Eval.fz.lf(~(x => y => F32.mul(x, y)), left, n, d, v, a, p)
+    case X.Div{}:
+      Eval.fz.lf(~(x => y => F32.div(x, y)), left, n, d, v, a, p)
+    case _:
+      Eval.fz.lf(~(x => y => F32.add(x, y)), left, n, d, v, a, p)
+
+type Z1R is Type:
+  Z1R{r: Maybe<&1, C.Column>, a: C.Column}
+
+def Eval.fz.l.w(t: D.DType, +n: U32, +d: Nat, r: LR<U32>) -> Z1R:
+  match r:
+    case LR{c, v, a}:
+      Z1R{Some{c}, C.Column.mk_w(t, n, d, v, a)}
+
+def Eval.fz.l.f(+n: U32, +d: Nat, r: LR<F32>) -> Z1R:
+  match r:
+    case LR{c, v, a}:
+      Z1R{Some{c}, C.CF32{n, d, v, a}}
+
+# F1 over a column (its validity as the kernel reads it) and a literal of its dtype; any other
+# pair (a bool or str column, a null or other-dtype literal) has no kernel
+def Eval.fz.z1c(+op: X.BinOp, left: Bool, c: C.Column, v: D.Scalar) -> Z1R:
+  match c v:
+    case C.CU32{+n, +d, va, a} D.SU32{+p}:
+      Eval.fz.l.w(D.TU32{}, n, d, Eval.fz.lu(op, Eval.bin.t(Eval.is_cmp(op), D.TU32{}), left, n, d, va, a, p))
+    case C.CI32{+n, +d, va, a} D.SI32{+p}:
+      Eval.fz.l.w(D.TI32{}, n, d, Eval.fz.li(op, Eval.bin.t(Eval.is_cmp(op), D.TI32{}), left, n, d, va, a, D.I32.to_u32(p)))
+    case C.CF32{+n, +d, va, a} D.SF32{+p}:
+      Eval.fz.l.f(n, d, Eval.fz.lfo(op, left, n, d, va, a, p))
+    case c2 v2:
+      Z1R{None{}, c2}
+
+def Eval.fz.z1.e(fill: Bool, x: C.Valid, r: Z1R) -> Z1R:
+  match r:
+    case Z1R{res, a}:
+      Z1R{res, Eval.fz.unview(fill, a, x)}
+
+def Eval.fz.z1.d(+fill: Bool, +op: X.BinOp, left: Bool, v: D.Scalar, r: C.Column & C.Valid) -> Z1R:
+  (c, x) = r
+  Eval.fz.z1.e(fill, x, Eval.fz.z1c(op, left, c, v))
+
+def Eval.fz.z1.c(go: Bool, +fill: Bool, +op: X.BinOp, left: Bool, v: D.Scalar, c: C.Column) -> Z1R:
+  match go:
+    case True{}:
+      Eval.fz.z1.d(fill, op, left, v, Eval.fz.view(fill, c))
+    case False{}:
+      Z1R{None{}, c}
+
+def Eval.fz.z1.b(+op: X.BinOp, left: Bool, v: D.Scalar, s: Side, c: C.Column) -> Z1R:
+  match s:
+    case Side{ok, +fill, t, cast}:
+      Eval.fz.z1.c(Bool.and(Bool.and(ok, Bool.not(cast)), Bool.and(Eval.fz.op_ok(op), Bool.or(D.DType.eq(t, D.TF32{}), Bool.not(Eval.fz.isdiv(op))))), fill, op, left, v, c)
+
+def Eval.fz.z1.a(+op: X.BinOp, left: Bool, v: D.Scalar, pre: Pre, r: C.Column & D.DType) -> Z1R:
+  (c, +t) = r
+  Eval.fz.z1.b(op, left, v, Eval.fz.side(pre, t), c)
+
+# F1: c op v (left False) or v op c (left True), c's pre-operation pre (none or a fill of the
+# default); c handed back
+def Eval.fz.z1(+op: X.BinOp, v: D.Scalar, left: Bool, pre: Pre, c: C.Column) -> Z1R:
+  Eval.fz.z1.a(op, left, v, pre, C.Column.dtype(c))
+
+# ---- Z0 (F4): fill_null(c, default) ----------------------------------------------------------------
+
+type Z0R is Type:
+  Z0R{ok: Bool, c: C.Column}
+
+# F4 fires: a fill of a word / f32 column with its dtype default
+def Eval.fz.f4(pre: Pre, +t: D.DType) -> Bool:
+  match pre:
+    case PFill{v}:
+      Eval.fz.isdef(v, t)
+    case _:
+      False{}
+
+def Eval.fz.z0.b(go: Bool, c: C.Column) -> Z0R:
+  match go:
+    case True{}:
+      Z0R{True{}, C.Column.set_valid(c, C.AllValid{})}
+    case False{}:
+      Z0R{False{}, c}
+
+def Eval.fz.z0.a(pre: Pre, r: C.Column & D.DType) -> Z0R:
+  (c, +t) = r
+  Eval.fz.z0.b(Eval.fz.f4(pre, t), c)
+
+# F4 on an owned column: fill_null with the dtype default is the column itself with validity
+# AllValid (the null slots already hold the default: P0). NOT a no-op: the validity changes
+def Eval.fz.z0(pre: Pre, c: C.Column) -> Z0R:
+  Eval.fz.z0.a(pre, C.Column.dtype(c))
+
+def Eval.fz.dc.w(+t: D.DType, +n: U32, +d: Nat, v: C.Valid, r: Array<U32> & Array<U32>) -> Z1R:
+  (x1, x2) = r
+  Z1R{Some{C.Column.mk_w(t, n, d, C.AllValid{}, x1)}, C.Column.mk_w(t, n, d, v, x2)}
+
+def Eval.fz.dc.f(+n: U32, +d: Nat, v: C.Valid, r: Array<F32> & Array<F32>) -> Z1R:
+  (x1, x2) = r
+  Z1R{Some{C.CF32{n, d, C.AllValid{}, x1}}, C.CF32{n, d, v, x2}}
+
+# F4 on a BORROWED column: the result needs its own payload because the frame keeps the column
+# (a move cannot work: the reference is not the column's last); one copy of the data buffer (v0.1
+# copied data and mask, then ran Kernel.choose over the copy)
+def Eval.fz.dc(c: C.Column) -> Z1R:
+  match c:
+    case C.CBool{+n, +d, v, x}:
+      Eval.fz.dc.w(D.TBool{}, n, d, v, Array.clone(U32, x))
+    case C.CU32{+n, +d, v, x}:
+      Eval.fz.dc.w(D.TU32{}, n, d, v, Array.clone(U32, x))
+    case C.CI32{+n, +d, v, x}:
+      Eval.fz.dc.w(D.TI32{}, n, d, v, Array.clone(U32, x))
+    case C.CF32{+n, +d, v, x}:
+      Eval.fz.dc.f(n, d, v, Array.clone(F32, x))
+    case C.CStr{n, d, v, x}:
+      Z1R{None{}, C.CStr{n, d, v, x}}
+
+def Eval.fz.z0b.b(go: Bool, c: C.Column) -> Z1R:
+  match go:
+    case True{}:
+      Eval.fz.dc(c)
+    case False{}:
+      Z1R{None{}, c}
+
+def Eval.fz.z0b.a(pre: Pre, r: C.Column & D.DType) -> Z1R:
+  (c, +t) = r
+  Eval.fz.z0b.b(Eval.fz.f4(pre, t), c)
+
+def Eval.fz.z0b(pre: Pre, c: C.Column) -> Z1R:
+  Eval.fz.z0b.a(pre, C.Column.dtype(c))
+
+# ---- the executor: a fused fragment over the stack machine's state --------------------------------
+#
+# The operands are taken (popped, or lent from the frame), the column-level operation runs, and a
+# borrowed column goes back into the frame at its place (Frame.replace; a moved one leaves its
+# hollow stand-in, as IMove does). When the operation answers None, every operand goes back where
+# it was and `orig` runs (Eval.run): the unfused code from the very same state.
+
+# a lent column after the kernel: back into the frame (a borrow), or dropped (a move)
+def Eval.fz.put(+h: U32, mv: Bool, name: String, f: C.Frame, c: C.Column) -> C.Frame:
+  match mv:
+    case True{}:
+      f
+    case False{}:
+      C.Frame.replace.c(f, name, c, h)
+
+def Eval.fz.x1.s(+h: U32, +k: SKind, rest: List<&1, Slot>, orig: List<&2, Instr>, f: C.Frame, r: Z1R) -> EvSt:
+  match r:
+    case Z1R{Some{c}, a}:
+      EvSt{f, Done{Slot{k, c} <> rest}}
+    case Z1R{None{}, a}:
+      Eval.run(orig, h, EvSt{f, Done{Slot{k, a} <> rest}})
+
+def Eval.fz.x1.stk(+h: U32, +op: X.BinOp, v: D.Scalar, left: Bool, pa: Pre, orig: List<&2, Instr>, f: C.Frame, stk: List<&1, Slot>) -> EvSt:
+  match stk:
+    case Slot{k, c} <> rest:
+      Eval.fz.x1.s(h, k, rest, orig, f, Eval.fz.z1(op, v, left, pa, c))
+    case Nil{}:
+      Eval.run(orig, h, EvSt{f, Done{Nil{}}})
+
+def Eval.fz.x1.rk(+h: U32, +name: String, mv: Bool, stk: List<&1, Slot>, orig: List<&2, Instr>, f: C.Frame, r: Z1R) -> EvSt:
+  match r:
+    case Z1R{Some{c}, a}:
+      EvSt{Eval.fz.put(h, mv, name, f, a), Done{Slot{KFull{}, c} <> stk}}
+    case Z1R{None{}, a}:
+      Eval.run(orig, h, EvSt{C.Frame.replace.c(f, name, a, h), Done{stk}})
+
+def Eval.fz.x1.r(+h: U32, +op: X.BinOp, v: D.Scalar, left: Bool, pa: Pre, +name: String, mv: Bool, orig: List<&2, Instr>, stk: List<&1, Slot>, r: C.Frame & E.ResT(C.Column)) -> EvSt:
+  (f, rc) = r
+  match rc:
+    case Done{c}:
+      Eval.fz.x1.rk(h, name, mv, stk, orig, f, Eval.fz.z1(op, v, left, pa, c))
+    case Fail{e}:
+      Eval.run(orig, h, EvSt{f, Done{stk}})
+
+def Eval.fz.x1(+h: U32, +op: X.BinOp, v: D.Scalar, left: Bool, a: Opd, pa: Pre, orig: List<&2, Instr>, f: C.Frame, stk: List<&1, Slot>) -> EvSt:
+  match a:
+    case OStk{}:
+      Eval.fz.x1.stk(h, op, v, left, pa, orig, f, stk)
+    case ORef{+name, mv}:
+      Eval.fz.x1.r(h, op, v, left, pa, name, mv, orig, stk, C.Frame.lend(f, name))
+
+def Eval.fz.x2.ss.k(+h: U32, ka: SKind, kb: SKind, rest: List<&1, Slot>, orig: List<&2, Instr>, f: C.Frame, r: Z2R) -> EvSt:
+  match r:
+    case Z2R{Some{c}, a, b}:
+      EvSt{f, Done{Slot{KFull{}, c} <> rest}}
+    case Z2R{None{}, a, b}:
+      Eval.run(orig, h, EvSt{f, Done{Slot{kb, b} <> Slot{ka, a} <> rest}})
+
+# only two full columns fuse: a 1-row side (a literal, an aggregation) broadcasts in `orig`
+def Eval.fz.z2f(full: Bool, +op: X.BinOp, pa: Pre, pb: Pre, a: C.Column, b: C.Column) -> Z2R:
+  match full:
+    case True{}:
+      Eval.fz.z2(op, pa, pb, a, b)
+    case False{}:
+      Z2R{None{}, a, b}
+
+def Eval.fz.x2.ss(+h: U32, +op: X.BinOp, pa: Pre, pb: Pre, orig: List<&2, Instr>, f: C.Frame, stk: List<&1, Slot>) -> EvSt:
+  match stk:
+    case Slot{+kb, b} <> Slot{+ka, a} <> rest:
+      Eval.fz.x2.ss.k(h, ka, kb, rest, orig, f, Eval.fz.z2f(Bool.and(SKind.is_full(ka), SKind.is_full(kb)), op, pa, pb, a, b))
+    case other:
+      Eval.run(orig, h, EvSt{f, Done{other}})
+
+def Eval.fz.x2.sr.k(+h: U32, ka: SKind, +nb: String, mvb: Bool, rest: List<&1, Slot>, orig: List<&2, Instr>, f: C.Frame, r: Z2R) -> EvSt:
+  match r:
+    case Z2R{Some{c}, a, b}:
+      EvSt{Eval.fz.put(h, mvb, nb, f, b), Done{Slot{KFull{}, c} <> rest}}
+    case Z2R{None{}, a, b}:
+      Eval.run(orig, h, EvSt{C.Frame.replace.c(f, nb, b, h), Done{Slot{ka, a} <> rest}})
+
+def Eval.fz.x2.sr.b(+h: U32, +op: X.BinOp, pa: Pre, pb: Pre, +nb: String, mvb: Bool, orig: List<&2, Instr>, +ka: SKind, a: C.Column, rest: List<&1, Slot>, r: C.Frame & E.ResT(C.Column)) -> EvSt:
+  (f, rc) = r
+  match rc:
+    case Done{b}:
+      Eval.fz.x2.sr.k(h, ka, nb, mvb, rest, orig, f, Eval.fz.z2f(SKind.is_full(ka), op, pa, pb, a, b))
+    case Fail{e}:
+      Eval.run(orig, h, EvSt{f, Done{Slot{ka, a} <> rest}})
+
+def Eval.fz.x2.sr(+h: U32, +op: X.BinOp, pa: Pre, pb: Pre, +nb: String, mvb: Bool, orig: List<&2, Instr>, f: C.Frame, stk: List<&1, Slot>) -> EvSt:
+  match stk:
+    case Slot{ka, a} <> rest:
+      Eval.fz.x2.sr.b(h, op, pa, pb, nb, mvb, orig, ka, a, rest, C.Frame.lend(f, nb))
+    case Nil{}:
+      Eval.run(orig, h, EvSt{f, Done{Nil{}}})
+
+def Eval.fz.x2.rr.k(+h: U32, +na: String, mva: Bool, +nb: String, mvb: Bool, stk: List<&1, Slot>, orig: List<&2, Instr>, f: C.Frame, r: Z2R) -> EvSt:
+  match r:
+    case Z2R{Some{c}, a, b}:
+      EvSt{Eval.fz.put(h, mvb, nb, Eval.fz.put(h, mva, na, f, a), b), Done{Slot{KFull{}, c} <> stk}}
+    case Z2R{None{}, a, b}:
+      Eval.run(orig, h, EvSt{C.Frame.replace.c(C.Frame.replace.c(f, na, a, h), nb, b, h), Done{stk}})
+
+def Eval.fz.x2.rr.b(+h: U32, +op: X.BinOp, pa: Pre, pb: Pre, +na: String, mva: Bool, +nb: String, mvb: Bool, orig: List<&2, Instr>, stk: List<&1, Slot>, a: C.Column, r: C.Frame & E.ResT(C.Column)) -> EvSt:
+  (f, rc) = r
+  match rc:
+    case Done{b}:
+      Eval.fz.x2.rr.k(h, na, mva, nb, mvb, stk, orig, f, Eval.fz.z2(op, pa, pb, a, b))
+    case Fail{e}:
+      Eval.run(orig, h, EvSt{C.Frame.replace.c(f, na, a, h), Done{stk}})
+
+def Eval.fz.x2.rr(+h: U32, +op: X.BinOp, pa: Pre, pb: Pre, +na: String, mva: Bool, +nb: String, mvb: Bool, orig: List<&2, Instr>, stk: List<&1, Slot>, r: C.Frame & E.ResT(C.Column)) -> EvSt:
+  (f, rc) = r
+  match rc:
+    case Done{a}:
+      Eval.fz.x2.rr.b(h, op, pa, pb, na, mva, nb, mvb, orig, stk, a, C.Frame.lend(f, nb))
+    case Fail{e}:
+      Eval.run(orig, h, EvSt{f, Done{stk}})
+
+def Eval.fz.x2(+h: U32, +op: X.BinOp, a: Opd, pa: Pre, b: Opd, pb: Pre, orig: List<&2, Instr>, f: C.Frame, stk: List<&1, Slot>) -> EvSt:
+  match a b:
+    case OStk{} OStk{}:
+      Eval.fz.x2.ss(h, op, pa, pb, orig, f, stk)
+    case OStk{} ORef{+nb, mvb}:
+      Eval.fz.x2.sr(h, op, pa, pb, nb, mvb, orig, f, stk)
+    case ORef{+na, mva} ORef{+nb, mvb}:
+      Eval.fz.x2.rr(h, op, pa, pb, na, mva, nb, mvb, orig, stk, C.Frame.lend(f, na))
+    case ORef{na, mva} OStk{}:
+      Eval.run(orig, h, EvSt{f, Done{stk}})
+
+def Eval.fz.x0.s.k(+h: U32, +k: SKind, rest: List<&1, Slot>, orig: List<&2, Instr>, f: C.Frame, r: Z0R) -> EvSt:
+  match r:
+    case Z0R{True{}, c}:
+      EvSt{f, Done{Slot{k, c} <> rest}}
+    case Z0R{False{}, c}:
+      Eval.run(orig, h, EvSt{f, Done{Slot{k, c} <> rest}})
+
+def Eval.fz.x0.stk(+h: U32, pa: Pre, orig: List<&2, Instr>, f: C.Frame, stk: List<&1, Slot>) -> EvSt:
+  match stk:
+    case Slot{k, c} <> rest:
+      Eval.fz.x0.s.k(h, k, rest, orig, f, Eval.fz.z0(pa, c))
+    case Nil{}:
+      Eval.run(orig, h, EvSt{f, Done{Nil{}}})
+
+def Eval.fz.x0.mk(+h: U32, +name: String, orig: List<&2, Instr>, stk: List<&1, Slot>, f: C.Frame, r: Z0R) -> EvSt:
+  match r:
+    case Z0R{True{}, c}:
+      EvSt{f, Done{Slot{KFull{}, c} <> stk}}
+    case Z0R{False{}, c}:
+      Eval.run(orig, h, EvSt{C.Frame.replace.c(f, name, c, h), Done{stk}})
+
+# a moved column is reused as the result (no copy); a borrowed one gives a copy of its data
+def Eval.fz.x0.rm(+h: U32, mv: Bool, pa: Pre, +name: String, orig: List<&2, Instr>, stk: List<&1, Slot>, f: C.Frame, c: C.Column) -> EvSt:
+  match mv:
+    case True{}:
+      Eval.fz.x0.mk(h, name, orig, stk, f, Eval.fz.z0(pa, c))
+    case False{}:
+      Eval.fz.x1.rk(h, name, False{}, stk, orig, f, Eval.fz.z0b(pa, c))
+
+def Eval.fz.x0.r(+h: U32, pa: Pre, +name: String, mv: Bool, orig: List<&2, Instr>, stk: List<&1, Slot>, r: C.Frame & E.ResT(C.Column)) -> EvSt:
+  (f, rc) = r
+  match rc:
+    case Done{c}:
+      Eval.fz.x0.rm(h, mv, pa, name, orig, stk, f, c)
+    case Fail{e}:
+      Eval.run(orig, h, EvSt{f, Done{stk}})
+
+def Eval.fz.x0(+h: U32, a: Opd, pa: Pre, orig: List<&2, Instr>, f: C.Frame, stk: List<&1, Slot>) -> EvSt:
+  match a:
+    case OStk{}:
+      Eval.fz.x0.stk(h, pa, orig, f, stk)
+    case ORef{+name, mv}:
+      Eval.fz.x0.r(h, pa, name, mv, orig, stk, C.Frame.lend(f, name))
+
+def Eval.fz.exec(+h: U32, fz: Fz, orig: List<&2, Instr>, f: C.Frame, stk: List<&1, Slot>) -> EvSt:
+  match fz:
+    case Z0{a, pa}:
+      Eval.fz.x0(h, a, pa, orig, f, stk)
+    case Z1{+op, v, left, a, pa}:
+      Eval.fz.x1(h, op, v, left, a, pa, orig, f, stk)
+    case Z2{+op, a, pa, b, pb}:
+      Eval.fz.x2(h, op, a, pa, b, pb, orig, f, stk)
+
+def Eval.stepz.i(+h: U32, i: Instr, f: C.Frame, stk: List<&1, Slot>) -> EvSt:
+  match i:
+    case IFz{fz, orig}:
+      Eval.fz.exec(h, fz, orig, f, stk)
+    case other:
+      Eval.exec(h, other, f, stk)
+
+def Eval.stepz.r(+h: U32, i: Instr, f: C.Frame, r: E.ResT(List<&1, Slot>)) -> EvSt:
+  match r:
+    case Fail{e}:
+      EvSt{f, Fail{e}}
+    case Done{stk}:
+      Eval.stepz.i(h, i, f, stk)
+
+def Eval.stepz(+h: U32, i: Instr, s: EvSt) -> EvSt:
+  match s:
+    case EvSt{f, r}:
+      Eval.stepz.r(h, i, f, r)
+
+# Eval.run over fused code: Eval.step for every instruction but IFz, which Eval.fz.exec runs
+def Eval.runz(code: List<&2, Instr>, +h: U32, s: EvSt) -> EvSt:
+  match code:
+    case Nil{}:
+      s
+    case i <> t:
+      Eval.runz(t, h, Eval.stepz(h, i, s))
+
+# ---- W4 fusion: the filter predicate's mask and kept count (F5) -----------------------------------
+#
+# A predicate that is a conjunction (Bin{And} tree) of bool columns and comparisons `column op
+# literal` (u32 / i32 / f32, the literal of the column's dtype, on the right) is computed by
+# Kernel.pred_count passes over the BORROWED columns (Frame.lend, then Frame.replace: no predicate
+# column is copied), each pass ANDing one conjunct into the mask so far and counting the kept rows
+# in the same loop; a leading bool column and comparison share one pass (q1's `ok & (qty > 50)`).
+# The mask of Kleene `&` under filter is "every conjunct true and valid", which is what the
+# passes compute (a null row of any conjunct is dropped); Kleene `|` is not F5. The plan is static
+# (the schema's dtypes, checked with the predicate's type); the passes are total.
+
+type P5 is Data:
+  T5B{name: String}
+  T5C{op: X.BinOp, name: String, v: D.Scalar}
+  T5BC{nb: String, op: X.BinOp, name: String, v: D.Scalar}
+
+def Eval.f5.isbool(t: Maybe<&2, D.DType>) -> Bool:
+  match t:
+    case Some{D.TBool{}}:
+      True{}
+    case _:
+      False{}
+
+# the column's dtype is the literal's, a u32 / i32 / f32
+def Eval.f5.num(t: Maybe<&2, D.DType>, v: D.Scalar) -> Bool:
+  match t v:
+    case Some{D.TU32{}} D.SU32{w}:
+      True{}
+    case Some{D.TI32{}} D.SI32{w}:
+      True{}
+    case Some{D.TF32{}} D.SF32{w}:
+      True{}
+    case _ _:
+      False{}
+
+def Eval.f5.one(ok: Bool, +t: P5) -> Maybe<&2, List<&2, P5>>:
+  match ok:
+    case True{}:
+      Some{t <> Nil{}}
+    case False{}:
+      None{}
+
+def Eval.f5.and(a: Maybe<&2, List<&2, P5>>, b: Maybe<&2, List<&2, P5>>) -> Maybe<&2, List<&2, P5>>:
+  match a b:
+    case Some{xs} Some{ys}:
+      Some{List.append(&2, P5, xs, ys)}
+    case _ _:
+      None{}
+
+def Eval.f5.cmp(+op: X.BinOp, a: X.Expr, b: X.Expr, +s: List<&2, S.Field>) -> Maybe<&2, List<&2, P5>>:
+  match a b:
+    case X.Col{+n} X.Lit{+v}:
+      Eval.f5.one(Bool.and(Eval.fz.isrel(op), Eval.f5.num(S.Schema.find(s, n), v)), T5C{op, n, v})
+    case _ _:
+      None{}
+
+def Eval.f5.bin(is_and: Bool, +op: X.BinOp, a: X.Expr, b: X.Expr, +s: List<&2, S.Field>, la: Maybe<&2, List<&2, P5>>, lb: Maybe<&2, List<&2, P5>>) -> Maybe<&2, List<&2, P5>>:
+  match is_and:
+    case True{}:
+      Eval.f5.and(la, lb)
+    case False{}:
+      Eval.f5.cmp(op, a, b, s)
+
+# the conjuncts of e, or None when some leaf is not a bool column or a fused comparison
+def Eval.f5.leaves(e: X.Expr, +s: List<&2, S.Field>) -> Maybe<&2, List<&2, P5>>:
+  match e:
+    case X.Col{+n}:
+      Eval.f5.one(Eval.f5.isbool(S.Schema.find(s, n)), T5B{n})
+    case X.Bin{+op, +a, +b}:
+      Eval.f5.bin(Eval.fz.is_and(op), op, a, b, s, Eval.f5.leaves(a, s), Eval.f5.leaves(b, s))
+    case _:
+      None{}
+
+# a leading bool column and comparison share one pass
+def Eval.f5.plan.k(xs: List<&2, P5>) -> List<&2, P5>:
+  match xs:
+    case T5B{+nb} <> T5C{+op, +n, +v} <> t:
+      T5BC{nb, op, n, v} <> t
+    case T5C{+op, +n, +v} <> T5B{+nb} <> t:
+      T5BC{nb, op, n, v} <> t
+    case other:
+      other
+
+def Eval.f5.plan.m(r: Maybe<&2, List<&2, P5>>) -> Maybe<&2, List<&2, P5>>:
+  match r:
+    case Some{xs}:
+      Some{Eval.f5.plan.k(xs)}
+    case None{}:
+      None{}
+
+# the F5 passes of a predicate over a frame of schema s, or None (the predicate is evaluated)
+def Eval.f5.plan(e: X.Expr, +s: List<&2, S.Field>) -> Maybe<&2, List<&2, P5>>:
+  Eval.f5.plan.m(Eval.f5.leaves(e, s))
+
+# a validity as pred_count reads it: its words (AllValid: the 1-slot ones array) and whether a mask
+def Eval.f5.vw(v: C.Valid) -> Array<U32> & Bool:
+  match v:
+    case C.AllValid{}:
+      (Eval.fz.ones(), False{})
+    case C.Mask{m}:
+      (m, True{})
+
+# one conjunct ANDed into the mask so far a (validity words va): m'[i] = (va[i] & vb[i]) != 0 ?
+# a[i] & g(b[i], p) : 0, the kept count in the same loop; g is Eval.zip's comparison template with
+# the literal p in the right operand's place
+def Eval.f5.pk(~T: Data, ~g: T -> T -> U32, +n: U32, +d: Nat, +p: T, a: Array<U32>, va: Array<U32>, b: Array<T>, vb: Array<U32>) -> K.PC<U32, T>:
+  K.Kernel.pred_count(~U32, ~T, ~T, ~(q => x => y => U32.and(x, g(y, q))), n, d, p, a, va, b, vb)
+
+def Eval.f5.wu(op: X.BinOp, +n: U32, +d: Nat, +p: U32, a: Array<U32>, va: Array<U32>, b: Array<U32>, vb: Array<U32>) -> K.PC<U32, U32>:
+  match op:
+    case X.Eq{}:
+      Eval.f5.pk(~U32, ~(x => y => Bool.to_u32(U32.is_eq(x, y))), n, d, p, a, va, b, vb)
+    case X.Ne{}:
+      Eval.f5.pk(~U32, ~(x => y => Bool.to_u32(U32.is_ne(x, y))), n, d, p, a, va, b, vb)
+    case X.Lt{}:
+      Eval.f5.pk(~U32, ~(x => y => Bool.to_u32(U32.is_lt(x, y))), n, d, p, a, va, b, vb)
+    case X.Le{}:
+      Eval.f5.pk(~U32, ~(x => y => Bool.to_u32(U32.is_le(x, y))), n, d, p, a, va, b, vb)
+    case X.Gt{}:
+      Eval.f5.pk(~U32, ~(x => y => Bool.to_u32(U32.is_gt(x, y))), n, d, p, a, va, b, vb)
+    case _:
+      Eval.f5.pk(~U32, ~(x => y => Bool.to_u32(U32.is_ge(x, y))), n, d, p, a, va, b, vb)
+
+def Eval.f5.wi(op: X.BinOp, +n: U32, +d: Nat, +p: U32, a: Array<U32>, va: Array<U32>, b: Array<U32>, vb: Array<U32>) -> K.PC<U32, U32>:
+  match op:
+    case X.Lt{}:
+      Eval.f5.pk(~U32, ~(x => y => Bool.to_u32(Eval.i32_lt(x, y))), n, d, p, a, va, b, vb)
+    case X.Le{}:
+      Eval.f5.pk(~U32, ~(x => y => Bool.to_u32(Bool.not(Eval.i32_lt(y, x)))), n, d, p, a, va, b, vb)
+    case X.Gt{}:
+      Eval.f5.pk(~U32, ~(x => y => Bool.to_u32(Eval.i32_lt(y, x))), n, d, p, a, va, b, vb)
+    case X.Ge{}:
+      Eval.f5.pk(~U32, ~(x => y => Bool.to_u32(Bool.not(Eval.i32_lt(x, y)))), n, d, p, a, va, b, vb)
+    case other:
+      Eval.f5.wu(other, n, d, p, a, va, b, vb)
+
+def Eval.f5.fc(op: X.BinOp, +n: U32, +d: Nat, +p: F32, a: Array<U32>, va: Array<U32>, b: Array<F32>, vb: Array<U32>) -> K.PC<U32, F32>:
+  match op:
+    case X.Ne{}:
+      Eval.f5.pk(~F32, ~(x => y => Bool.to_u32(U32.is_ne(K.Kernel.fword(x), K.Kernel.fword(y)))), n, d, p, a, va, b, vb)
+    case X.Lt{}:
+      Eval.f5.pk(~F32, ~(x => y => Bool.to_u32(U32.is_lt(K.Kernel.fword(x), K.Kernel.fword(y)))), n, d, p, a, va, b, vb)
+    case X.Le{}:
+      Eval.f5.pk(~F32, ~(x => y => Bool.to_u32(U32.is_le(K.Kernel.fword(x), K.Kernel.fword(y)))), n, d, p, a, va, b, vb)
+    case X.Gt{}:
+      Eval.f5.pk(~F32, ~(x => y => Bool.to_u32(U32.is_gt(K.Kernel.fword(x), K.Kernel.fword(y)))), n, d, p, a, va, b, vb)
+    case X.Ge{}:
+      Eval.f5.pk(~F32, ~(x => y => Bool.to_u32(U32.is_ge(K.Kernel.fword(x), K.Kernel.fword(y)))), n, d, p, a, va, b, vb)
+    case _:
+      Eval.f5.pk(~F32, ~(x => y => Bool.to_u32(U32.is_eq(K.Kernel.fword(x), K.Kernel.fword(y)))), n, d, p, a, va, b, vb)
+
+# one pass's answer: whether the operand had the planned dtype, the mask and count, the mask so far
+# (a) with its validity words handed back, the conjunct's column rebuilt
+type F5R is Type:
+  F5R{ok: Bool, m: Array<U32>, k: U32, a: Array<U32>, va: Array<U32>, c: C.Column}
+
+def Eval.f5.rw(t: D.DType, +n: U32, +d: Nat, mb: Bool, r: K.PC<U32, U32>) -> F5R:
+  match r:
+    case K.PC{m, k, a, va, b, vb}:
+      F5R{True{}, m, k, a, va, C.Column.mk_w(t, n, d, Eval.fz.back(mb, vb), b)}
+
+def Eval.f5.rf(+n: U32, +d: Nat, mb: Bool, r: K.PC<U32, F32>) -> F5R:
+  match r:
+    case K.PC{m, k, a, va, b, vb}:
+      F5R{True{}, m, k, a, va, C.CF32{n, d, Eval.fz.back(mb, vb), b}}
+
+def Eval.f5.c.u(+op: X.BinOp, +n: U32, +d: Nat, +p: U32, a: Array<U32>, va: Array<U32>, b: Array<U32>, r: Array<U32> & Bool) -> F5R:
+  (vb, +mb) = r
+  Eval.f5.rw(D.TU32{}, n, d, mb, Eval.f5.wu(op, n, d, p, a, va, b, vb))
+
+def Eval.f5.c.i(+op: X.BinOp, +n: U32, +d: Nat, +p: U32, a: Array<U32>, va: Array<U32>, b: Array<U32>, r: Array<U32> & Bool) -> F5R:
+  (vb, +mb) = r
+  Eval.f5.rw(D.TI32{}, n, d, mb, Eval.f5.wi(op, n, d, p, a, va, b, vb))
+
+def Eval.f5.c.f(+op: X.BinOp, +n: U32, +d: Nat, +p: F32, a: Array<U32>, va: Array<U32>, b: Array<F32>, r: Array<U32> & Bool) -> F5R:
+  (vb, +mb) = r
+  Eval.f5.rf(n, d, mb, Eval.f5.fc(op, n, d, p, a, va, b, vb))
+
+# the conjunct `c op v` ANDed into a (validity words va)
+def Eval.f5.c(+op: X.BinOp, a: Array<U32>, va: Array<U32>, c: C.Column, v: D.Scalar) -> F5R:
+  match c v:
+    case C.CU32{+n, +d, vb, b} D.SU32{+p}:
+      Eval.f5.c.u(op, n, d, p, a, va, b, Eval.f5.vw(vb))
+    case C.CI32{+n, +d, vb, b} D.SI32{+p}:
+      Eval.f5.c.i(op, n, d, D.I32.to_u32(p), a, va, b, Eval.f5.vw(vb))
+    case C.CF32{+n, +d, vb, b} D.SF32{+p}:
+      Eval.f5.c.f(op, n, d, p, a, va, b, Eval.f5.vw(vb))
+    case c2 v2:
+      F5R{False{}, Eval.fz.ones(), 0, a, va, c2}
+
+def Eval.f5.b.k(+n: U32, +d: Nat, mb: Bool, r: K.PC<U32, U32>) -> F5R:
+  match r:
+    case K.PC{m, k, a, va, b, vb}:
+      F5R{True{}, m, k, a, va, C.CBool{n, d, Eval.fz.back(mb, vb), b}}
+
+def Eval.f5.b.v(+n: U32, +d: Nat, a: Array<U32>, va: Array<U32>, b: Array<U32>, r: Array<U32> & Bool) -> F5R:
+  (vb, +mb) = r
+  Eval.f5.b.k(n, d, mb, K.Kernel.pred_count(~U32, ~U32, ~U32, ~(q => x => y => U32.and(x, y)), n, d, 0, a, va, b, vb))
+
+# the conjunct `c` (a bool column: true and valid) ANDed into a
+def Eval.f5.b(a: Array<U32>, va: Array<U32>, c: C.Column) -> F5R:
+  match c:
+    case C.CBool{+n, +d, vb, b}:
+      Eval.f5.b.v(n, d, a, va, b, Eval.f5.vw(vb))
+    case c2:
+      F5R{False{}, Eval.fz.ones(), 0, a, va, c2}
+
+# the state of the passes: the frame (every predicate column back in place), the mask so far, the
+# kept count of the last pass, the first error
+type F5St is Type:
+  F5St{f: C.Frame, m: Array<U32>, k: U32, err: Maybe<&2, E.Err>}
+
+def Eval.f5.fail(err: Maybe<&2, E.Err>, e: E.Err) -> Maybe<&2, E.Err>:
+  match err:
+    case Some{x}:
+      Some{x}
+    case None{}:
+      Some{e}
+
+def Eval.f5.err(ok: Bool, err: Maybe<&2, E.Err>) -> Maybe<&2, E.Err>:
+  match ok:
+    case True{}:
+      err
+    case False{}:
+      Eval.f5.fail(err, Eval.bug("operand dtype in a fused filter"))
+
+def Eval.f5.s.k(+h: U32, +name: String, f: C.Frame, err: Maybe<&2, E.Err>, r: F5R) -> F5St:
+  match r:
+    case F5R{ok, m, k, a, va, c}:
+      F5St{C.Frame.replace.c(f, name, c, h), m, k, Eval.f5.err(ok, err)}
+
+def Eval.f5.s.c(+h: U32, +op: X.BinOp, v: D.Scalar, +name: String, m: Array<U32>, err: Maybe<&2, E.Err>, r: C.Frame & E.ResT(C.Column)) -> F5St:
+  (f, rc) = r
+  match rc:
+    case Done{c}:
+      Eval.f5.s.k(h, name, f, err, Eval.f5.c(op, m, Eval.fz.ones(), c, v))
+    case Fail{e}:
+      F5St{f, m, 0, Eval.f5.fail(err, e)}
+
+def Eval.f5.s.b(+h: U32, +name: String, m: Array<U32>, err: Maybe<&2, E.Err>, r: C.Frame & E.ResT(C.Column)) -> F5St:
+  (f, rc) = r
+  match rc:
+    case Done{c}:
+      Eval.f5.s.k(h, name, f, err, Eval.f5.b(m, Eval.fz.ones(), c))
+    case Fail{e}:
+      F5St{f, m, 0, Eval.f5.fail(err, e)}
+
+def Eval.f5.bc.f(+h: U32, +nb: String, +n1: U32, +d1: Nat, mba: Bool, +name: String, f: C.Frame, err: Maybe<&2, E.Err>, r: F5R) -> F5St:
+  match r:
+    case F5R{ok, m, k, a, va, c}:
+      F5St{C.Frame.replace.c(C.Frame.replace.c(f, name, c, h), nb, C.CBool{n1, d1, Eval.fz.back(mba, va), a}, h), m, k, Eval.f5.err(ok, err)}
+
+def Eval.f5.bc.e(+h: U32, +op: X.BinOp, v: D.Scalar, +nb: String, +n1: U32, +d1: Nat, xb: Array<U32>, +name: String, err: Maybe<&2, E.Err>, rv: Array<U32> & Bool, r: C.Frame & E.ResT(C.Column)) -> F5St:
+  (va, +mba) = rv
+  (f, rc) = r
+  match rc:
+    case Done{c}:
+      Eval.f5.bc.f(h, nb, n1, d1, mba, name, f, err, Eval.f5.c(op, xb, va, c, v))
+    case Fail{e}:
+      F5St{C.Frame.replace.c(f, nb, C.CBool{n1, d1, Eval.fz.back(mba, va), xb}, h), Eval.fz.ones(), 0, Eval.f5.fail(err, e)}
+
+def Eval.f5.bc.d(+h: U32, +op: X.BinOp, v: D.Scalar, +nb: String, +name: String, err: Maybe<&2, E.Err>, c: C.Column, f: C.Frame) -> F5St:
+  match c:
+    case C.CBool{+n1, +d1, vb1, xb}:
+      Eval.f5.bc.e(h, op, v, nb, n1, d1, xb, name, err, Eval.f5.vw(vb1), C.Frame.lend(f, name))
+    case c2:
+      F5St{C.Frame.replace.c(f, nb, c2, h), Eval.fz.ones(), 0, Eval.f5.fail(err, Eval.bug("operand dtype in a fused filter"))}
+
+# the first pass of `nb & (name op v)`: the bool column's data is the mask so far, its validity the
+# first validity words (one loop for both conjuncts)
+def Eval.f5.bc(+h: U32, +op: X.BinOp, v: D.Scalar, +nb: String, +name: String, err: Maybe<&2, E.Err>, m: Array<U32>, r: C.Frame & E.ResT(C.Column)) -> F5St:
+  (f, rc) = r
+  match rc:
+    case Done{c}:
+      Eval.f5.bc.d(h, op, v, nb, name, err, c, f)
+    case Fail{e}:
+      F5St{f, m, 0, Eval.f5.fail(err, e)}
+
+def Eval.f5.step.k(+h: U32, t: P5, f: C.Frame, m: Array<U32>, err: Maybe<&2, E.Err>) -> F5St:
+  match t:
+    case T5B{+name}:
+      Eval.f5.s.b(h, name, m, err, C.Frame.lend(f, name))
+    case T5C{+op, +name, v}:
+      Eval.f5.s.c(h, op, v, name, m, err, C.Frame.lend(f, name))
+    case T5BC{+nb, +op, +name, v}:
+      Eval.f5.bc(h, op, v, nb, name, err, m, C.Frame.lend(f, nb))
+
+def Eval.f5.step(+h: U32, t: P5, st: F5St) -> F5St:
+  match st:
+    case F5St{f, m, k, err}:
+      Eval.f5.step.k(h, t, f, m, err)
+
+def Eval.f5.go(ps: List<&2, P5>, +h: U32, st: F5St) -> F5St:
+  match ps:
+    case Nil{}:
+      st
+    case p <> t:
+      Eval.f5.go(t, h, Eval.f5.step(h, p, st))
+
+def Eval.f5.fin(st: F5St) -> E.ResT(C.Frame):
+  match st:
+    case F5St{f, m, +k, None{}}:
+      Done{C.Frame.filter_mask(f, m, k)}
+    case F5St{f, m, k, Some{e}}:
+      Fail{e}
+
+def Eval.f5.run.h(ps: List<&2, P5>, r: C.Frame & U32) -> E.ResT(C.Frame):
+  (f, +h) = r
+  Eval.f5.fin(Eval.f5.go(ps, h, F5St{f, Eval.fz.ones(), 0, None{}}))
+
+# the filter by the F5 passes: the mask and kept count, then Frame.filter_mask (as Eval.filter.q)
+def Eval.f5.run(ps: List<&2, P5>, f: C.Frame) -> E.ResT(C.Frame):
+  Eval.f5.run.h(ps, C.Frame.height(f))
+
 # ---- entry points ---------------------------------------------------------------------------
 
 def Eval.slot.h(+e: X.Expr, r: C.Frame & U32) -> C.Frame & E.ResT(Slot):
@@ -2103,10 +3522,12 @@ def Eval.slot(f: C.Frame, +e: X.Expr) -> C.Frame & E.ResT(Slot):
 
 # Eval.slot with the liveness facts (all, dead, later; Eval.mark): the same type check, the
 # same instructions and the same answer, except that the last reference of a movable column
-# takes it out of the frame (a hollow stand-in stays) instead of copying it
+# takes it out of the frame (a hollow stand-in stays) instead of copying it, and the fused
+# fragments (Eval.fuse, after the marks: W4, DESIGN.md 16.3 F1-F4) read the frame columns they
+# name in place (borrowed, or moved on a last reference) instead of copying them
 def Eval.slot.mh(+e: X.Expr, +all: Bool, +dead: List<&2, String>, +later: List<&2, String>, r: C.Frame & U32) -> C.Frame & E.ResT(Slot):
   (f, +h) = r
-  Eval.fin(Eval.run(Eval.mark(Eval.compile(e, Nil{}), all, dead, later), h, EvSt{f, Done{Nil{}}}))
+  Eval.fin(Eval.runz(Eval.fuse(Eval.mark(Eval.compile(e, Nil{}), all, dead, later)), h, EvSt{f, Done{Nil{}}}))
 
 def Eval.slot.mt(+e: X.Expr, +all: Bool, +dead: List<&2, String>, +later: List<&2, String>, f: C.Frame, t: E.Res(D.DType)) -> C.Frame & E.ResT(Slot):
   match t:
@@ -2414,27 +3835,36 @@ def Eval.filter.go(r: C.Frame & E.ResT(C.Column)) -> E.ResT(C.Frame):
   (f, rc) = r
   Eval.filter.go2(rc, f)
 
-# the predicate's column references copy (Eval.full): filter keeps every input column (they are
-# all compacted by the mask), so none is dead after the operator and a move cannot work; a
-# borrow would need the predicate's operations to hand their operands back (W4's fused
-# pred_count kernel, DESIGN.md 16.3 F5)
-def Eval.filter.t(t: D.DType, f: C.Frame, +pred: X.Expr) -> E.ResT(C.Frame):
+# The predicate: a conjunction of bool columns and `column op literal` comparisons runs the F5
+# passes (Eval.f5.run: one pred_count loop per conjunct over the BORROWED columns, mask and kept
+# count together); any other predicate is evaluated by the fused evaluator with no moves (filter
+# keeps every input column, all compacted by the mask, so none is dead and a move cannot work):
+# its column references are borrowed by the fused fragments (W4) and copied otherwise
+def Eval.filter.x(plan: Maybe<&2, List<&2, P5>>, f: C.Frame, +pred: X.Expr) -> E.ResT(C.Frame):
+  match plan:
+    case Some{ps}:
+      Eval.f5.run(ps, f)
+    case None{}:
+      Eval.filter.go(Eval.mode.a(True{}, Eval.slot.mh(pred, False{}, Nil{}, Nil{}, C.Frame.height(f))))
+
+def Eval.filter.t(t: D.DType, f: C.Frame, +pred: X.Expr, plan: Maybe<&2, List<&2, P5>>) -> E.ResT(C.Frame):
   match t:
     case D.TBool{}:
-      Eval.filter.go(Eval.full(f, pred))
+      Eval.filter.x(plan, f, pred)
     case other:
       Fail{E.TypeMismatch{"filter", "bool", D.DType.show(other)}}
 
-def Eval.filter.b(+pred: X.Expr, f: C.Frame, r: E.Res(D.DType)) -> E.ResT(C.Frame):
+def Eval.filter.b(+pred: X.Expr, f: C.Frame, r: E.Res(D.DType), plan: Maybe<&2, List<&2, P5>>) -> E.ResT(C.Frame):
   match r:
     case Fail{e}:
       Fail{e}
     case Done{t}:
-      Eval.filter.t(t, f, pred)
+      Eval.filter.t(t, f, pred, plan)
 
+# the static work first (the type check, the F5 plan from the schema), then the data work
 def Eval.filter.a(+pred: X.Expr, r: C.Frame & List<&2, S.Field>) -> E.ResT(C.Frame):
-  (f, s) = r
-  Eval.filter.b(pred, f, A.Ana.type(pred, s))
+  (f, +s) = r
+  Eval.filter.b(pred, f, A.Ana.type(pred, s), Eval.f5.plan(pred, s))
 
 # the rows where pred is true (null counts as false), in order; pred must be
 # bool (TypeMismatch{"filter", "bool", got}); a 1-row pred broadcasts
