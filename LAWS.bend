@@ -23,6 +23,7 @@ import ./src/plan.bend as P
 import ./src/exec.bend as Q
 import ./src/eval.bend as V
 import ./src/dump.bend as DP
+import ./src/chunks.bend as CH
 
 # ---- helpers used only to state laws ----------------------------------------------
 
@@ -3166,3 +3167,68 @@ law compact4_contents:
   for +z4: U32
   for room: CRoom(U32.to_nat(n), 0, 0, d, m)
   CSpec(U32, U32.to_nat(n), 0, 0, d, a1, m, c4_o1(U32, U32, U32, U32, K.Kernel.compact4(~U32, ~U32, ~U32, ~U32, n, d, m, a1, a2, a3, a4, z1, z2, z3, z4))) & CSpec(U32, U32.to_nat(n), 0, 0, d, a2, m, c4_o2(U32, U32, U32, U32, K.Kernel.compact4(~U32, ~U32, ~U32, ~U32, n, d, m, a1, a2, a3, a4, z1, z2, z3, z4))) & CSpec(U32, U32.to_nat(n), 0, 0, d, a3, m, c4_o3(U32, U32, U32, U32, K.Kernel.compact4(~U32, ~U32, ~U32, ~U32, n, d, m, a1, a2, a3, a4, z1, z2, z3, z4))) & CSpec(U32, U32.to_nat(n), 0, 0, d, a4, m, c4_o4(U32, U32, U32, U32, K.Kernel.compact4(~U32, ~U32, ~U32, ~U32, n, d, m, a1, a2, a3, a4, z1, z2, z3, z4)))
+
+# =====================================================================================
+# 21. Chunk trees (v0.2 T5.1, DESIGN.md 16.1 D1): src/chunks.bend's word tree CW (Bool/U32/I32
+#     payloads, validity masks, dictionary codes; CF / CS are the same text over F32 / String)
+# =====================================================================================
+#
+# The model is Nat-indexed: crows(t) is the row count, ncell(t, m) the logical cell at row m (a leaf
+# reads its buffer at addn(0, m); a node answers its left child below lrows, else its right child at
+# m - lrows, a NAT subtraction: no word arithmetic is stated over the trees). WFChunks(t): every leaf
+# fits its slots (n <= 2^d) and is a well-formed array; every node's counts are exact: lrows ==
+# crows(l) and lrows + crows(r) == rows as natural numbers (so no sum of row counts wrapped).
+# TreeAt(t, st, src): row m of t is row st + m of the flat buffer src (the builder's spec; flatten's is
+# the same relation read the other way). The claims are the bridge of DESIGN.md 16.6 in offset form:
+# builders and flatten in the model, their round trip, rechunk / head / concat preserving WFChunks and
+# the logical cells, the per-leaf compaction precondition croom_of_cap, the chunked map's congruence.
+
+def crows(t: CH.CW) -> U32:
+  match t:
+    case CH.WL{n, d, a}:
+      n
+    case CH.WN{rows, lrows, l, r}:
+      rows
+
+def nrows(t: CH.CW) -> Nat:
+  U32.to_nat(crows(t))
+
+def ncell(t: CH.CW, +m: Nat) -> U32:
+  match t:
+    case CH.WL{n, d, a}:
+      rd_at(U32, a, addn(0, m))
+    case CH.WN{rows, +lrows, l, r}:
+      Bool.pick(U32, Nat.is_lt(m, U32.to_nat(lrows)), ncell(l, m), ncell(r, Nat.sub(m, U32.to_nat(lrows))))
+
+def WFChunks(t: CH.CW) -> Type:
+  match t:
+    case CH.WL{n, +d, a}:
+      {U32.is_le(n, U32.shln(1, d)) == True{} : Bool} & WFArray(U32, d, a)
+    case CH.WN{rows, +lrows, l, r}:
+      {lrows == crows(l) : U32} & {Nat.add(U32.to_nat(lrows), nrows(r)) == U32.to_nat(rows) : Nat} & WFChunks(l) & WFChunks(r)
+
+# row m of t is row st + m of src, for every row of t
+def TreeAt(-t: CH.CW, +st: Nat, -src: Array<U32>) -> Type:
+  @m: Nat -> {Nat.is_lt(m, nrows(t)) == True{} : Bool} -> {ncell(t, m) == rd_at(U32, src, addn(0, Nat.add(st, m))) : U32}
+
+# LAW (the builder's leaf copy): Ch.rng IS Kernel.range with the source handed back (so one flat buffer
+# feeds every leaf of a build; range_cell then gives the leaf's cells)
+law ch_rng_range:
+  for +n: U32
+  for +d: Nat
+  for +off: U32
+  for a: Array<U32>
+  for +z: U32
+  {CH.Ch.rng(~U32, n, d, off, a, z) == (K.Kernel.range(~U32, n, d, off, a, z), a) : Array<U32> & Array<U32>}
+
+# LAW (the builder): CW.of builds a well-formed tree of exactly n rows whose row m is row m of the
+# source, for any grain (the one-leaf case moves the buffer; the binary-counter case copies the leaves
+# with Ch.rng and folds them; no fuel argument: the out-of-fuel branch is correct too)
+law cw_of:
+  for +n: U32
+  for +ds: Nat
+  for +g: Nat
+  for src: Array<U32>
+  for fits: {U32.is_le(n, U32.shln(1, ds)) == True{} : Bool}
+  for wf: WFArray(U32, ds, src)
+  &t: CH.CW -> {CH.CW.of(n, ds, g, src) == t : CH.CW} & WFChunks(t) & {crows(t) == n : U32} & TreeAt(t, 0n, src)
