@@ -1,0 +1,218 @@
+rep 0 load   16.3 ms       8 real   0.31 user 0.03 rss 31.3 exit 0 :: ./build/coder --threads 1 distinct 100000 new
+rep 0 load   16.3 ms     856 real   0.89 user 0.87 rss 57.7 exit 0 :: ./build/coder --threads 1 distinct 100000 old
+rep 0 load   16.3 ms      21 real   0.18 user 0.14 rss 99.9 exit 0 :: ./build/coder --threads 1 prefix 100000 new
+rep 0 load   16.3 ms    4721 real   4.87 user 4.75 rss 218.7 exit 0 :: ./build/coder --threads 1 prefix 100000 old
+rep 0 load   15.9 ms       8 real   0.03 user 0.02 rss 23.5 exit 0 :: ./build/coder --threads 1 skew 100000 new
+rep 0 load   15.9 ms     375 real   0.40 user 0.38 rss 35.0 exit 0 :: ./build/coder --threads 1 skew 100000 old
+rep 0 load   15.9 ms      11 real   0.01 user 0.01 rss 6.7 exit 0 :: ./build/coder --threads 1 equal 100000 new
+rep 0 load   15.9 ms      67 real   0.07 user 0.07 rss 5.0 exit 0 :: ./build/coder --threads 1 equal 100000 old
+rep 0 load   15.9 ms       8 real   0.02 user 0.01 rss 15.6 exit 0 :: ./build/coder --threads 1 low 100000 new
+rep 0 load   15.9 ms      64 real   0.07 user 0.07 rss 14.4 exit 0 :: ./build/coder --threads 1 low 100000 old
+rep 0 load   15.9 ms       7 real   0.02 user 0.02 rss 14.8 exit 0 :: ./build/coder --threads 1 uni 100000 new
+rep 0 load   15.9 ms     150 real   0.16 user 0.16 rss 15.5 exit 0 :: ./build/coder --threads 1 uni 100000 old
+rep 0 load   15.9 ms      30 real   0.14 user 0.11 rss 95.4 exit 0 :: ./build/coder --threads 1 distinct 300000 new
+rep 0 load   15.9 ms    3449 real   3.56 user 3.46 rss 169.8 exit 0 :: ./build/coder --threads 1 distinct 300000 old
+rep 0 load   16.4 ms      72 real   0.47 user 0.42 rss 301.4 exit 0 :: ./build/coder --threads 1 prefix 300000 new
+rep 0 load   16.4 ms   16245 real  16.70 user 15.36 rss 637.4 exit 0 :: ./build/coder --threads 1 prefix 300000 old
+rep 0 load   16.4 ms      32 real   0.09 user 0.09 rss 72.0 exit 0 :: ./build/coder --threads 1 skew 300000 new
+rep 0 load   16.4 ms    1579 real   1.65 user 1.58 rss 105.6 exit 0 :: ./build/coder --threads 1 skew 300000 old
+rep 0 load   16.4 ms      37 real   0.05 user 0.04 rss 21.7 exit 0 :: ./build/coder --threads 1 equal 300000 new
+rep 0 load   16.4 ms     206 real   0.21 user 0.21 rss 15.0 exit 0 :: ./build/coder --threads 1 equal 300000 old
+rep 0 load   15.7 ms      28 real   0.06 user 0.05 rss 48.4 exit 0 :: ./build/coder --threads 1 low 300000 new
+rep 0 load   15.7 ms     179 real   0.22 user 0.2 rss 42.2 exit 0 :: ./build/coder --threads 1 low 300000 old
+rep 0 load   15.7 ms      25 real   0.07 user 0.06 rss 46.0 exit 0 :: ./build/coder --threads 1 uni 300000 new
+rep 0 load   15.7 ms     316 real   0.38 user 0.35 rss 41.7 exit 0 :: ./build/coder --threads 1 uni 300000 old
+rep 0 load   15.7 ms     129 real   0.56 user 0.43 rss 287.5 exit 0 :: ./build/coder --threads 1 distinct 1000000 new
+rep 0 load   15.7 ms   20355 real  20.79 user 19.13 rss 599.7 exit 0 :: ./build/coder --threads 1 distinct 1000000 old
+rep 0 load   14.0 ms     346 real   1.78 user 1.5 rss 974.1 exit 0 :: ./build/coder --threads 1 prefix 1000000 new
+rep 0 load   14.0 ms   78408 real  80.16 user 72.05 rss 2296.7 exit 0 :: ./build/coder --threads 1 prefix 1000000 old
+rep 0 load   13.9 ms     115 real   0.33 user 0.31 rss 209.4 exit 0 :: ./build/coder --threads 1 skew 1000000 new
+rep 0 load   13.9 ms    8258 real   8.48 user 8.34 rss 351.1 exit 0 :: ./build/coder --threads 1 skew 1000000 old
+rep 0 load   14.0 ms     123 real   0.15 user 0.14 rss 41.7 exit 0 :: ./build/coder --threads 1 equal 1000000 new
+rep 0 load   14.0 ms     680 real   0.71 user 0.7 rss 28.2 exit 0 :: ./build/coder --threads 1 equal 1000000 old
+rep 0 load   14.0 ms      82 real   0.20 user 0.18 rss 130.7 exit 0 :: ./build/coder --threads 1 low 1000000 new
+rep 0 load   14.0 ms     597 real   0.71 user 0.68 rss 117.9 exit 0 :: ./build/coder --threads 1 low 1000000 old
+rep 0 load   14.0 ms      82 real   0.22 user 0.2 rss 122.6 exit 0 :: ./build/coder --threads 1 uni 1000000 new
+rep 0 load   17.0 ms     990 real   1.13 user 1.09 rss 112.4 exit 0 :: ./build/coder --threads 1 uni 1000000 old
+rep 1 load   17.0 ms    1467 real   1.51 user 1.15 rss 57.6 exit 0 :: ./build/coder --threads 1 distinct 100000 old
+rep 1 load   17.0 ms      43 real   0.44 user 0.15 rss 99.9 exit 0 :: ./build/coder --threads 1 prefix 100000 new
+rep 1 load   17.0 ms   12724 real  13.03 user 5.7 rss 218.1 exit 0 :: ./build/coder --threads 1 prefix 100000 old
+rep 1 load  128.3 ms      10 real   0.07 user 0.03 rss 23.4 exit 0 :: ./build/coder --threads 1 skew 100000 new
+rep 1 load  128.3 ms    1017 real   1.09 user 0.47 rss 35.0 exit 0 :: ./build/coder --threads 1 skew 100000 old
+rep 1 load  128.3 ms      12 real   0.01 user 0.01 rss 6.7 exit 0 :: ./build/coder --threads 1 equal 100000 new
+rep 1 load  128.3 ms      90 real   0.10 user 0.07 rss 5.0 exit 0 :: ./build/coder --threads 1 equal 100000 old
+rep 1 load  128.3 ms      12 real   0.04 user 0.02 rss 15.6 exit 0 :: ./build/coder --threads 1 low 100000 new
+rep 1 load  128.3 ms      68 real   0.12 user 0.08 rss 14.4 exit 0 :: ./build/coder --threads 1 low 100000 old
+rep 1 load  128.3 ms       8 real   0.05 user 0.02 rss 14.8 exit 0 :: ./build/coder --threads 1 uni 100000 new
+rep 1 load  128.3 ms     244 real   0.28 user 0.19 rss 15.5 exit 0 :: ./build/coder --threads 1 uni 100000 old
+rep 1 load  128.3 ms      44 real   0.23 user 0.13 rss 95.4 exit 0 :: ./build/coder --threads 1 distinct 300000 new
+rep 1 load  128.3 ms   10959 real  11.20 user 4.46 rss 168.3 exit 0 :: ./build/coder --threads 1 distinct 300000 old
+rep 1 load  176.4 ms     276 real   1.45 user 0.48 rss 301.4 exit 0 :: ./build/coder --threads 1 prefix 300000 new
+rep 1 load  196.0 ms   30945 real  31.84 user 17.69 rss 642.3 exit 0 :: ./build/coder --threads 1 prefix 300000 old
+rep 1 load  236.9 ms      35 real   0.10 user 0.09 rss 72.0 exit 0 :: ./build/coder --threads 1 skew 300000 new
+rep 1 load  236.9 ms    1483 real   1.55 user 1.53 rss 105.6 exit 0 :: ./build/coder --threads 1 skew 300000 old
+rep 1 load  236.9 ms      38 real   0.05 user 0.04 rss 21.7 exit 0 :: ./build/coder --threads 1 equal 300000 new
+rep 1 load  236.9 ms     216 real   0.22 user 0.21 rss 15.0 exit 0 :: ./build/coder --threads 1 equal 300000 old
+rep 1 load  220.5 ms      27 real   0.07 user 0.05 rss 48.4 exit 0 :: ./build/coder --threads 1 low 300000 new
+rep 1 load  220.5 ms     195 real   0.23 user 0.21 rss 42.2 exit 0 :: ./build/coder --threads 1 low 300000 old
+rep 1 load  220.5 ms      32 real   0.08 user 0.06 rss 46.0 exit 0 :: ./build/coder --threads 1 uni 300000 new
+rep 1 load  220.5 ms     323 real   0.38 user 0.35 rss 41.7 exit 0 :: ./build/coder --threads 1 uni 300000 old
+rep 1 load  220.5 ms     131 real   0.47 user 0.42 rss 287.5 exit 0 :: ./build/coder --threads 1 distinct 1000000 new
+rep 1 load  220.5 ms   21690 real  22.18 user 20.01 rss 597.6 exit 0 :: ./build/coder --threads 1 distinct 1000000 old
+rep 1 load  161.5 ms     308 real   2.67 user 1.54 rss 973.4 exit 0 :: ./build/coder --threads 1 prefix 1000000 new
+rep 1 load  149.3 ms   97951 real 100.55 user 77.48 rss 2027.0 exit 0 :: ./build/coder --threads 1 prefix 1000000 old
+rep 1 load   41.0 ms     122 real   0.34 user 0.32 rss 209.4 exit 0 :: ./build/coder --threads 1 skew 1000000 new
+rep 1 load   41.0 ms    8991 real   9.22 user 8.84 rss 349.2 exit 0 :: ./build/coder --threads 1 skew 1000000 old
+rep 1 load   37.2 ms     124 real   0.15 user 0.14 rss 41.7 exit 0 :: ./build/coder --threads 1 equal 1000000 new
+rep 1 load   37.2 ms     771 real   0.82 user 0.74 rss 28.2 exit 0 :: ./build/coder --threads 1 equal 1000000 old
+rep 1 load   37.2 ms      86 real   0.21 user 0.19 rss 130.7 exit 0 :: ./build/coder --threads 1 low 1000000 new
+rep 1 load   37.2 ms     591 real   0.72 user 0.68 rss 117.9 exit 0 :: ./build/coder --threads 1 low 1000000 old
+rep 1 load   37.2 ms      92 real   0.23 user 0.21 rss 122.6 exit 0 :: ./build/coder --threads 1 uni 1000000 new
+rep 1 load   37.2 ms     975 real   1.11 user 1.07 rss 112.4 exit 0 :: ./build/coder --threads 1 uni 1000000 old
+rep 1 load   37.2 ms       7 real   0.04 user 0.03 rss 31.3 exit 0 :: ./build/coder --threads 1 distinct 100000 new
+rep 2 load   37.2 ms      22 real   0.17 user 0.14 rss 99.9 exit 0 :: ./build/coder --threads 1 prefix 100000 new
+rep 2 load   37.2 ms    5113 real   5.25 user 5.07 rss 218.6 exit 0 :: ./build/coder --threads 1 prefix 100000 old
+rep 2 load   33.2 ms       9 real   0.03 user 0.02 rss 23.4 exit 0 :: ./build/coder --threads 1 skew 100000 new
+rep 2 load   33.2 ms     459 real   0.48 user 0.45 rss 35.0 exit 0 :: ./build/coder --threads 1 skew 100000 old
+rep 2 load   33.2 ms      12 real   0.02 user 0.01 rss 6.7 exit 0 :: ./build/coder --threads 1 equal 100000 new
+rep 2 load   33.2 ms      73 real   0.08 user 0.07 rss 5.0 exit 0 :: ./build/coder --threads 1 equal 100000 old
+rep 2 load   33.2 ms       8 real   0.02 user 0.01 rss 15.6 exit 0 :: ./build/coder --threads 1 low 100000 new
+rep 2 load   33.2 ms      77 real   0.10 user 0.08 rss 14.4 exit 0 :: ./build/coder --threads 1 low 100000 old
+rep 2 load   33.2 ms       9 real   0.02 user 0.02 rss 14.8 exit 0 :: ./build/coder --threads 1 uni 100000 new
+rep 2 load   33.2 ms     170 real   0.18 user 0.17 rss 15.5 exit 0 :: ./build/coder --threads 1 uni 100000 old
+rep 2 load   33.2 ms      44 real   0.16 user 0.13 rss 95.4 exit 0 :: ./build/coder --threads 1 distinct 300000 new
+rep 2 load   33.2 ms    4093 real   4.20 user 3.96 rss 169.7 exit 0 :: ./build/coder --threads 1 distinct 300000 old
+rep 2 load   31.5 ms     101 real   0.53 user 0.46 rss 301.4 exit 0 :: ./build/coder --threads 1 prefix 300000 new
+rep 2 load   31.5 ms   18457 real  18.93 user 16.61 rss 643.1 exit 0 :: ./build/coder --threads 1 prefix 300000 old
+rep 2 load   28.5 ms      35 real   0.10 user 0.09 rss 72.0 exit 0 :: ./build/coder --threads 1 skew 300000 new
+rep 2 load   26.9 ms    1664 real   1.73 user 1.65 rss 105.6 exit 0 :: ./build/coder --threads 1 skew 300000 old
+rep 2 load   26.9 ms      41 real   0.05 user 0.04 rss 21.7 exit 0 :: ./build/coder --threads 1 equal 300000 new
+rep 2 load   26.9 ms     281 real   0.30 user 0.24 rss 15.0 exit 0 :: ./build/coder --threads 1 equal 300000 old
+rep 2 load   26.9 ms      55 real   0.17 user 0.07 rss 48.4 exit 0 :: ./build/coder --threads 1 low 300000 new
+rep 2 load   26.9 ms     271 real   0.34 user 0.23 rss 42.2 exit 0 :: ./build/coder --threads 1 low 300000 old
+rep 2 load   26.9 ms      43 real   0.10 user 0.08 rss 46.0 exit 0 :: ./build/coder --threads 1 uni 300000 new
+rep 2 load   26.9 ms     339 real   0.39 user 0.36 rss 41.7 exit 0 :: ./build/coder --threads 1 uni 300000 old
+rep 2 load   26.9 ms     142 real   0.57 user 0.45 rss 287.5 exit 0 :: ./build/coder --threads 1 distinct 1000000 new
+rep 2 load   26.9 ms   25792 real  26.23 user 21.83 rss 597.3 exit 0 :: ./build/coder --threads 1 distinct 1000000 old
+rep 2 load   21.0 ms     343 real   2.45 user 1.54 rss 973.9 exit 0 :: ./build/coder --threads 1 prefix 1000000 new
+rep 2 load   21.0 ms  111155 real 112.77 user 78.02 rss 2297.3 exit 0 :: ./build/coder --threads 1 prefix 1000000 old
+rep 2 load   33.7 ms     118 real   0.33 user 0.31 rss 209.4 exit 0 :: ./build/coder --threads 1 skew 1000000 new
+rep 2 load   33.7 ms    8372 real   8.59 user 8.39 rss 351.1 exit 0 :: ./build/coder --threads 1 skew 1000000 old
+rep 2 load   31.4 ms     116 real   0.15 user 0.14 rss 41.7 exit 0 :: ./build/coder --threads 1 equal 1000000 new
+rep 2 load   31.4 ms     685 real   0.72 user 0.7 rss 28.2 exit 0 :: ./build/coder --threads 1 equal 1000000 old
+rep 2 load   29.4 ms      84 real   0.20 user 0.18 rss 130.7 exit 0 :: ./build/coder --threads 1 low 1000000 new
+rep 2 load   29.4 ms     566 real   0.68 user 0.66 rss 117.9 exit 0 :: ./build/coder --threads 1 low 1000000 old
+rep 2 load   29.4 ms      84 real   0.22 user 0.2 rss 122.6 exit 0 :: ./build/coder --threads 1 uni 1000000 new
+rep 2 load   29.4 ms     997 real   1.13 user 1.08 rss 112.4 exit 0 :: ./build/coder --threads 1 uni 1000000 old
+rep 2 load   29.4 ms       9 real   0.04 user 0.03 rss 31.3 exit 0 :: ./build/coder --threads 1 distinct 100000 new
+rep 2 load   29.4 ms     895 real   0.93 user 0.91 rss 57.7 exit 0 :: ./build/coder --threads 1 distinct 100000 old
+rep 3 load   29.4 ms    4791 real   4.92 user 4.83 rss 218.7 exit 0 :: ./build/coder --threads 1 prefix 100000 old
+rep 3 load   28.4 ms       8 real   0.03 user 0.02 rss 23.4 exit 0 :: ./build/coder --threads 1 skew 100000 new
+rep 3 load   28.4 ms     394 real   0.42 user 0.4 rss 35.0 exit 0 :: ./build/coder --threads 1 skew 100000 old
+rep 3 load   28.4 ms      12 real   0.01 user 0.01 rss 6.7 exit 0 :: ./build/coder --threads 1 equal 100000 new
+rep 3 load   28.4 ms      67 real   0.07 user 0.07 rss 5.0 exit 0 :: ./build/coder --threads 1 equal 100000 old
+rep 3 load   28.4 ms       8 real   0.02 user 0.01 rss 15.6 exit 0 :: ./build/coder --threads 1 low 100000 new
+rep 3 load   28.4 ms      66 real   0.08 user 0.07 rss 14.4 exit 0 :: ./build/coder --threads 1 low 100000 old
+rep 3 load   28.4 ms       8 real   0.02 user 0.02 rss 14.8 exit 0 :: ./build/coder --threads 1 uni 100000 new
+rep 3 load   28.4 ms     156 real   0.17 user 0.16 rss 15.5 exit 0 :: ./build/coder --threads 1 uni 100000 old
+rep 3 load   28.4 ms      35 real   0.13 user 0.12 rss 95.4 exit 0 :: ./build/coder --threads 1 distinct 300000 new
+rep 3 load   28.4 ms    3463 real   3.57 user 3.49 rss 170.0 exit 0 :: ./build/coder --threads 1 distinct 300000 old
+rep 3 load   27.7 ms      73 real   0.50 user 0.43 rss 301.4 exit 0 :: ./build/coder --threads 1 prefix 300000 new
+rep 3 load   27.7 ms   15408 real  15.82 user 15.43 rss 645.9 exit 0 :: ./build/coder --threads 1 prefix 300000 old
+rep 3 load   23.4 ms      32 real   0.10 user 0.09 rss 72.0 exit 0 :: ./build/coder --threads 1 skew 300000 new
+rep 3 load   23.4 ms    1574 real   1.64 user 1.58 rss 105.6 exit 0 :: ./build/coder --threads 1 skew 300000 old
+rep 3 load   22.9 ms      37 real   0.05 user 0.04 rss 21.7 exit 0 :: ./build/coder --threads 1 equal 300000 new
+rep 3 load   22.9 ms     209 real   0.22 user 0.21 rss 15.0 exit 0 :: ./build/coder --threads 1 equal 300000 old
+rep 3 load   22.9 ms      26 real   0.06 user 0.05 rss 48.4 exit 0 :: ./build/coder --threads 1 low 300000 new
+rep 3 load   22.9 ms     176 real   0.21 user 0.2 rss 42.2 exit 0 :: ./build/coder --threads 1 low 300000 old
+rep 3 load   22.9 ms      27 real   0.07 user 0.06 rss 46.0 exit 0 :: ./build/coder --threads 1 uni 300000 new
+rep 3 load   22.9 ms     306 real   0.35 user 0.34 rss 41.7 exit 0 :: ./build/coder --threads 1 uni 300000 old
+rep 3 load   22.9 ms     117 real   0.45 user 0.41 rss 287.5 exit 0 :: ./build/coder --threads 1 distinct 1000000 new
+rep 3 load   22.9 ms   19121 real  19.51 user 18.93 rss 606.0 exit 0 :: ./build/coder --threads 1 distinct 1000000 old
+rep 3 load   19.3 ms     267 real   1.71 user 1.46 rss 974.2 exit 0 :: ./build/coder --threads 1 prefix 1000000 new
+rep 3 load   19.3 ms   73734 real  75.53 user 71.13 rss 2291.6 exit 0 :: ./build/coder --threads 1 prefix 1000000 old
+rep 3 load   12.6 ms     103 real   0.31 user 0.29 rss 209.4 exit 0 :: ./build/coder --threads 1 skew 1000000 new
+rep 3 load   12.6 ms    7889 real   8.10 user 7.97 rss 351.1 exit 0 :: ./build/coder --threads 1 skew 1000000 old
+rep 3 load   11.4 ms     117 real   0.14 user 0.14 rss 41.7 exit 0 :: ./build/coder --threads 1 equal 1000000 new
+rep 3 load   11.4 ms     670 real   0.70 user 0.69 rss 28.2 exit 0 :: ./build/coder --threads 1 equal 1000000 old
+rep 3 load   11.4 ms      80 real   0.20 user 0.18 rss 130.7 exit 0 :: ./build/coder --threads 1 low 1000000 new
+rep 3 load   11.4 ms     549 real   0.67 user 0.64 rss 117.9 exit 0 :: ./build/coder --threads 1 low 1000000 old
+rep 3 load   11.4 ms      82 real   0.21 user 0.2 rss 122.6 exit 0 :: ./build/coder --threads 1 uni 1000000 new
+rep 3 load   11.4 ms     927 real   1.06 user 1.03 rss 112.4 exit 0 :: ./build/coder --threads 1 uni 1000000 old
+rep 3 load   11.2 ms       8 real   0.04 user 0.03 rss 31.3 exit 0 :: ./build/coder --threads 1 distinct 100000 new
+rep 3 load   11.2 ms     833 real   0.86 user 0.85 rss 57.7 exit 0 :: ./build/coder --threads 1 distinct 100000 old
+rep 3 load   11.2 ms      23 real   0.15 user 0.13 rss 99.9 exit 0 :: ./build/coder --threads 1 prefix 100000 new
+rep 4 load   11.2 ms       7 real   0.03 user 0.02 rss 23.4 exit 0 :: ./build/coder --threads 1 skew 100000 new
+rep 4 load   11.2 ms     393 real   0.41 user 0.4 rss 35.0 exit 0 :: ./build/coder --threads 1 skew 100000 old
+rep 4 load   11.2 ms      12 real   0.01 user 0.01 rss 6.7 exit 0 :: ./build/coder --threads 1 equal 100000 new
+rep 4 load   11.2 ms      68 real   0.07 user 0.07 rss 5.0 exit 0 :: ./build/coder --threads 1 equal 100000 old
+rep 4 load   11.2 ms       8 real   0.02 user 0.01 rss 15.6 exit 0 :: ./build/coder --threads 1 low 100000 new
+rep 4 load   11.2 ms      67 real   0.08 user 0.07 rss 14.4 exit 0 :: ./build/coder --threads 1 low 100000 old
+rep 4 load   11.2 ms       9 real   0.02 user 0.02 rss 14.8 exit 0 :: ./build/coder --threads 1 uni 100000 new
+rep 4 load   11.2 ms     167 real   0.18 user 0.17 rss 15.5 exit 0 :: ./build/coder --threads 1 uni 100000 old
+rep 4 load   11.2 ms      31 real   0.13 user 0.12 rss 95.4 exit 0 :: ./build/coder --threads 1 distinct 300000 new
+rep 4 load   11.2 ms    3332 real   3.44 user 3.34 rss 170.0 exit 0 :: ./build/coder --threads 1 distinct 300000 old
+rep 4 load   11.6 ms      71 real   0.45 user 0.42 rss 301.4 exit 0 :: ./build/coder --threads 1 prefix 300000 new
+rep 4 load   11.6 ms   15115 real  15.51 user 15.07 rss 645.7 exit 0 :: ./build/coder --threads 1 prefix 300000 old
+rep 4 load   10.6 ms      32 real   0.10 user 0.09 rss 72.0 exit 0 :: ./build/coder --threads 1 skew 300000 new
+rep 4 load   10.6 ms    1354 real   1.42 user 1.39 rss 105.6 exit 0 :: ./build/coder --threads 1 skew 300000 old
+rep 4 load   10.6 ms      36 real   0.04 user 0.04 rss 21.7 exit 0 :: ./build/coder --threads 1 equal 300000 new
+rep 4 load   10.6 ms     199 real   0.21 user 0.2 rss 15.0 exit 0 :: ./build/coder --threads 1 equal 300000 old
+rep 4 load   10.6 ms      25 real   0.06 user 0.05 rss 48.4 exit 0 :: ./build/coder --threads 1 low 300000 new
+rep 4 load   10.6 ms     172 real   0.20 user 0.2 rss 42.2 exit 0 :: ./build/coder --threads 1 low 300000 old
+rep 4 load   10.6 ms      26 real   0.07 user 0.06 rss 46.0 exit 0 :: ./build/coder --threads 1 uni 300000 new
+rep 4 load   10.6 ms     313 real   0.35 user 0.34 rss 41.7 exit 0 :: ./build/coder --threads 1 uni 300000 old
+rep 4 load   10.6 ms     119 real   0.45 user 0.41 rss 287.5 exit 0 :: ./build/coder --threads 1 distinct 1000000 new
+rep 4 load   10.3 ms   18581 real  18.91 user 18.48 rss 606.0 exit 0 :: ./build/coder --threads 1 distinct 1000000 old
+rep 4 load   11.0 ms     268 real   1.67 user 1.48 rss 974.2 exit 0 :: ./build/coder --threads 1 prefix 1000000 new
+rep 4 load   11.3 ms   87214 real  89.16 user 74.59 rss 1998.6 exit 0 :: ./build/coder --threads 1 prefix 1000000 old
+rep 4 load   13.8 ms     130 real   0.36 user 0.33 rss 209.4 exit 0 :: ./build/coder --threads 1 skew 1000000 new
+rep 4 load   13.8 ms    9172 real   9.39 user 8.98 rss 350.7 exit 0 :: ./build/coder --threads 1 skew 1000000 old
+rep 4 load   13.9 ms     115 real   0.14 user 0.14 rss 41.7 exit 0 :: ./build/coder --threads 1 equal 1000000 new
+rep 4 load   13.9 ms     688 real   0.72 user 0.7 rss 28.2 exit 0 :: ./build/coder --threads 1 equal 1000000 old
+rep 4 load   13.2 ms      99 real   0.24 user 0.2 rss 130.7 exit 0 :: ./build/coder --threads 1 low 1000000 new
+rep 4 load   13.2 ms     584 real   0.71 user 0.67 rss 117.9 exit 0 :: ./build/coder --threads 1 low 1000000 old
+rep 4 load   13.2 ms      85 real   0.22 user 0.2 rss 122.6 exit 0 :: ./build/coder --threads 1 uni 1000000 new
+rep 4 load   13.2 ms    1011 real   1.15 user 1.08 rss 112.4 exit 0 :: ./build/coder --threads 1 uni 1000000 old
+rep 4 load   13.2 ms       8 real   0.04 user 0.03 rss 31.3 exit 0 :: ./build/coder --threads 1 distinct 100000 new
+rep 4 load   13.2 ms     981 real   1.02 user 0.96 rss 57.7 exit 0 :: ./build/coder --threads 1 distinct 100000 old
+rep 4 load   13.2 ms      23 real   0.17 user 0.14 rss 99.9 exit 0 :: ./build/coder --threads 1 prefix 100000 new
+rep 4 load   13.2 ms    5277 real   5.45 user 5.15 rss 218.4 exit 0 :: ./build/coder --threads 1 prefix 100000 old
+
+summary (median [min..max]); ms = the program's own timer
+ms               8 [7..9]  user_s 0.03  rss_mb        31 [31..31]  load    16 [11..37]  chk 3686109669  :: ./build/coder --threads 1 distinct 100000 new
+ms        895 [833..1467]  user_s 0.91  rss_mb        58 [58..58]  load    16 [11..29]  chk 3686109669  :: ./build/coder --threads 1 distinct 100000 old
+ms            23 [21..43]  user_s 0.14  rss_mb     100 [100..100]  load    16 [11..37]  chk 3686109669  :: ./build/coder --threads 1 prefix 100000 new
+ms     5113 [4721..12724]  user_s 5.07  rss_mb     219 [218..219]  load    17 [13..37]  chk 3686109669  :: ./build/coder --threads 1 prefix 100000 old
+ms              8 [7..10]  user_s 0.02  rss_mb        23 [23..24]  load   28 [11..128]  chk 2467515565  :: ./build/coder --threads 1 skew 100000 new
+ms        394 [375..1017]  user_s 0.4  rss_mb        35 [35..35]  load   28 [11..128]  chk 2467515565  :: ./build/coder --threads 1 skew 100000 old
+ms            12 [11..12]  user_s 0.01  rss_mb           7 [7..7]  load   28 [11..128]  chk 4053907013  :: ./build/coder --threads 1 equal 100000 new
+ms            68 [67..90]  user_s 0.07  rss_mb           5 [5..5]  load   28 [11..128]  chk 4053907013  :: ./build/coder --threads 1 equal 100000 old
+ms              8 [8..12]  user_s 0.01  rss_mb        16 [16..16]  load   28 [11..128]  chk 2140360830  :: ./build/coder --threads 1 low 100000 new
+ms            67 [64..77]  user_s 0.07  rss_mb        14 [14..14]  load   28 [11..128]  chk 2140360830  :: ./build/coder --threads 1 low 100000 old
+ms               8 [7..9]  user_s 0.02  rss_mb        15 [15..15]  load   28 [11..128]  chk 1043705274  :: ./build/coder --threads 1 uni 100000 new
+ms         167 [150..244]  user_s 0.17  rss_mb        16 [16..16]  load   28 [11..128]  chk 1043705274  :: ./build/coder --threads 1 uni 100000 old
+ms            35 [30..44]  user_s 0.12  rss_mb        95 [95..95]  load   28 [11..128]  chk 3145849893  :: ./build/coder --threads 1 distinct 300000 new
+ms     3463 [3332..10959]  user_s 3.49  rss_mb     170 [168..170]  load   28 [11..128]  chk 3145849893  :: ./build/coder --threads 1 distinct 300000 old
+ms           73 [71..276]  user_s 0.43  rss_mb     301 [301..301]  load   28 [12..176]  chk 3145849893  :: ./build/coder --threads 1 prefix 300000 new
+ms   16245 [15115..30945]  user_s 15.43  rss_mb     643 [637..646]  load   28 [12..196]  chk 3145849893  :: ./build/coder --threads 1 prefix 300000 old
+ms            32 [32..35]  user_s 0.09  rss_mb        72 [72..72]  load   23 [11..237]  chk 2263039757  :: ./build/coder --threads 1 skew 300000 new
+ms      1574 [1354..1664]  user_s 1.58  rss_mb     106 [106..106]  load   23 [11..237]  chk 2263039757  :: ./build/coder --threads 1 skew 300000 old
+ms            37 [36..41]  user_s 0.04  rss_mb        22 [22..22]  load   23 [11..237]  chk 3271403333  :: ./build/coder --threads 1 equal 300000 new
+ms         209 [199..281]  user_s 0.21  rss_mb        15 [15..15]  load   23 [11..237]  chk 3271403333  :: ./build/coder --threads 1 equal 300000 old
+ms            27 [25..55]  user_s 0.05  rss_mb        48 [48..48]  load   23 [11..221]  chk 1654229163  :: ./build/coder --threads 1 low 300000 new
+ms         179 [172..271]  user_s 0.2  rss_mb        42 [42..42]  load   23 [11..221]  chk 1654229163  :: ./build/coder --threads 1 low 300000 old
+ms            27 [25..43]  user_s 0.06  rss_mb        46 [46..46]  load   23 [11..221]  chk 4102105004  :: ./build/coder --threads 1 uni 300000 new
+ms         316 [306..339]  user_s 0.35  rss_mb        42 [42..42]  load   23 [11..221]  chk 4102105004  :: ./build/coder --threads 1 uni 300000 old
+ms         129 [117..142]  user_s 0.42  rss_mb     288 [288..288]  load   23 [11..221]  chk 3150042885  :: ./build/coder --threads 1 distinct 1000000 new
+ms   20355 [18581..25792]  user_s 19.13  rss_mb     600 [597..606]  load   23 [10..221]  chk 3150042885  :: ./build/coder --threads 1 distinct 1000000 old
+ms         308 [267..346]  user_s 1.5  rss_mb     974 [973..974]  load   19 [11..162]  chk 3150042885  :: ./build/coder --threads 1 prefix 1000000 new
+ms  87214 [73734..111155]  user_s 74.59  rss_mb  2292 [1999..2297]  load   19 [11..149]  chk 3150042885  :: ./build/coder --threads 1 prefix 1000000 old
+ms         118 [103..130]  user_s 0.31  rss_mb     209 [209..209]  load    14 [13..41]  chk 3845751865  :: ./build/coder --threads 1 skew 1000000 new
+ms      8372 [7889..9172]  user_s 8.39  rss_mb     351 [349..351]  load    14 [13..41]  chk 3845751865  :: ./build/coder --threads 1 skew 1000000 old
+ms         117 [115..124]  user_s 0.14  rss_mb        42 [42..42]  load    14 [11..37]  chk 1463407301  :: ./build/coder --threads 1 equal 1000000 new
+ms         685 [670..771]  user_s 0.7  rss_mb        28 [28..28]  load    14 [11..37]  chk 1463407301  :: ./build/coder --threads 1 equal 1000000 old
+ms            84 [80..99]  user_s 0.18  rss_mb     131 [131..131]  load    14 [11..37]  chk 140940297  :: ./build/coder --threads 1 low 1000000 new
+ms         584 [549..597]  user_s 0.67  rss_mb     118 [118..118]  load    14 [11..37]  chk 140940297  :: ./build/coder --threads 1 low 1000000 old
+ms            84 [82..92]  user_s 0.2  rss_mb     123 [123..123]  load    14 [11..37]  chk 600152934  :: ./build/coder --threads 1 uni 1000000 new
+ms        990 [927..1011]  user_s 1.08  rss_mb     112 [112..112]  load    17 [11..37]  chk 600152934  :: ./build/coder --threads 1 uni 1000000 old

@@ -1,0 +1,110 @@
+rep 0 load   16.2 ms      53 real   0.08 user 0.06 rss 36.6 exit 0 :: ./build/coder2 --threads 1 distinct 100000 rrad
+rep 0 load   16.2 ms     165 real   0.24 user 0.22 rss 111.2 exit 0 :: ./build/coder2 --threads 1 prefix 100000 rrad
+rep 0 load   16.2 ms      13 real   0.02 user 0.01 rss 15.9 exit 0 :: ./build/coder2 --threads 1 low 100000 rrad
+rep 0 load   16.2 ms      30 real   0.04 user 0.03 rss 25.5 exit 0 :: ./build/coder2 --threads 1 skew 100000 rrad
+rep 0 load   16.2 ms      14 real   0.02 user 0.02 rss 15.4 exit 0 :: ./build/coder2 --threads 1 uni 100000 rrad
+rep 0 load   16.2 ms     165 real   0.21 user 0.2 rss 107.8 exit 0 :: ./build/coder2 --threads 1 distinct 300000 rrad
+rep 0 load   16.2 ms     521 real   0.75 user 0.68 rss 328.0 exit 0 :: ./build/coder2 --threads 1 prefix 300000 rrad
+rep 0 load   16.2 ms      43 real   0.06 user 0.05 rss 48.7 exit 0 :: ./build/coder2 --threads 1 low 300000 rrad
+rep 0 load   16.2 ms     108 real   0.14 user 0.13 rss 81.3 exit 0 :: ./build/coder2 --threads 1 skew 300000 rrad
+rep 0 load   16.2 ms      42 real   0.06 user 0.06 rss 46.6 exit 0 :: ./build/coder2 --threads 1 uni 300000 rrad
+rep 0 load   15.4 ms     680 real   0.91 user 0.77 rss 327.5 exit 0 :: ./build/coder2 --threads 1 distinct 1000000 rrad
+rep 0 load   15.4 ms    1835 real   2.61 user 2.38 rss 1044.9 exit 0 :: ./build/coder2 --threads 1 prefix 1000000 rrad
+rep 0 load   15.4 ms     136 real   0.20 user 0.18 rss 131.0 exit 0 :: ./build/coder2 --threads 1 low 1000000 rrad
+rep 0 load   15.4 ms     377 real   0.48 user 0.46 rss 223.8 exit 0 :: ./build/coder2 --threads 1 skew 1000000 rrad
+rep 0 load   15.4 ms     139 real   0.22 user 0.2 rss 123.2 exit 0 :: ./build/coder2 --threads 1 uni 1000000 rrad
+rep 0 load   15.4 ms     136 real   0.21 user 0.2 rss 122.9 exit 0 :: ./build/coder2 --threads 1 uni 1000000 rnew
+rep 0 load   15.4 ms     166 real   0.27 user 0.23 rss 123.5 exit 0 :: ./build/coder2 --threads 1 uni 1000000 rmap
+rep 0 load   15.4 ms     156 real   0.16 user 0.16 rss 15.6 exit 0 :: ./build/coder2 --threads 1 uni 100000 rold
+rep 1 load   15.0 ms     166 real   0.24 user 0.22 rss 111.2 exit 0 :: ./build/coder2 --threads 1 prefix 100000 rrad
+rep 1 load   15.0 ms      14 real   0.02 user 0.01 rss 15.9 exit 0 :: ./build/coder2 --threads 1 low 100000 rrad
+rep 1 load   15.0 ms      31 real   0.04 user 0.04 rss 25.5 exit 0 :: ./build/coder2 --threads 1 skew 100000 rrad
+rep 1 load   15.0 ms      15 real   0.02 user 0.02 rss 15.4 exit 0 :: ./build/coder2 --threads 1 uni 100000 rrad
+rep 1 load   15.0 ms     209 real   0.28 user 0.22 rss 107.7 exit 0 :: ./build/coder2 --threads 1 distinct 300000 rrad
+rep 1 load   15.0 ms     516 real   0.77 user 0.69 rss 329.7 exit 0 :: ./build/coder2 --threads 1 prefix 300000 rrad
+rep 1 load   15.0 ms      46 real   0.06 user 0.05 rss 48.7 exit 0 :: ./build/coder2 --threads 1 low 300000 rrad
+rep 1 load   15.0 ms     109 real   0.14 user 0.13 rss 81.3 exit 0 :: ./build/coder2 --threads 1 skew 300000 rrad
+rep 1 load   15.0 ms      45 real   0.07 user 0.06 rss 46.6 exit 0 :: ./build/coder2 --threads 1 uni 300000 rrad
+rep 1 load   15.0 ms     704 real   0.87 user 0.75 rss 327.8 exit 0 :: ./build/coder2 --threads 1 distinct 1000000 rrad
+rep 1 load   15.0 ms    1898 real   3.26 user 2.37 rss 1061.6 exit 0 :: ./build/coder2 --threads 1 prefix 1000000 rrad
+rep 1 load   15.2 ms     139 real   0.19 user 0.18 rss 131.0 exit 0 :: ./build/coder2 --threads 1 low 1000000 rrad
+rep 1 load   15.2 ms     359 real   0.46 user 0.44 rss 223.8 exit 0 :: ./build/coder2 --threads 1 skew 1000000 rrad
+rep 1 load   15.2 ms     136 real   0.21 user 0.2 rss 123.2 exit 0 :: ./build/coder2 --threads 1 uni 1000000 rrad
+rep 1 load   15.2 ms     136 real   0.21 user 0.2 rss 122.9 exit 0 :: ./build/coder2 --threads 1 uni 1000000 rnew
+rep 1 load   15.2 ms     143 real   0.22 user 0.21 rss 123.5 exit 0 :: ./build/coder2 --threads 1 uni 1000000 rmap
+rep 1 load   15.2 ms     159 real   0.16 user 0.16 rss 15.6 exit 0 :: ./build/coder2 --threads 1 uni 100000 rold
+rep 1 load   15.2 ms      51 real   0.06 user 0.06 rss 36.6 exit 0 :: ./build/coder2 --threads 1 distinct 100000 rrad
+rep 2 load   15.2 ms      14 real   0.02 user 0.01 rss 15.9 exit 0 :: ./build/coder2 --threads 1 low 100000 rrad
+rep 2 load   15.2 ms      30 real   0.04 user 0.03 rss 25.5 exit 0 :: ./build/coder2 --threads 1 skew 100000 rrad
+rep 2 load   15.2 ms      15 real   0.02 user 0.02 rss 15.4 exit 0 :: ./build/coder2 --threads 1 uni 100000 rrad
+rep 2 load   15.2 ms     165 real   0.21 user 0.2 rss 107.7 exit 0 :: ./build/coder2 --threads 1 distinct 300000 rrad
+rep 2 load   15.2 ms     498 real   0.70 user 0.66 rss 329.7 exit 0 :: ./build/coder2 --threads 1 prefix 300000 rrad
+rep 2 load   15.2 ms      42 real   0.06 user 0.05 rss 48.7 exit 0 :: ./build/coder2 --threads 1 low 300000 rrad
+rep 2 load   15.2 ms     111 real   0.15 user 0.13 rss 81.3 exit 0 :: ./build/coder2 --threads 1 skew 300000 rrad
+rep 2 load   15.2 ms      44 real   0.07 user 0.06 rss 46.5 exit 0 :: ./build/coder2 --threads 1 uni 300000 rrad
+rep 2 load   15.2 ms     609 real   0.77 user 0.72 rss 327.8 exit 0 :: ./build/coder2 --threads 1 distinct 1000000 rrad
+rep 2 load   15.2 ms    1771 real   3.00 user 2.32 rss 1062.2 exit 0 :: ./build/coder2 --threads 1 prefix 1000000 rrad
+rep 2 load   14.3 ms     141 real   0.19 user 0.18 rss 131.0 exit 0 :: ./build/coder2 --threads 1 low 1000000 rrad
+rep 2 load   14.3 ms     360 real   0.47 user 0.44 rss 223.8 exit 0 :: ./build/coder2 --threads 1 skew 1000000 rrad
+rep 2 load   14.3 ms     143 real   0.22 user 0.21 rss 123.2 exit 0 :: ./build/coder2 --threads 1 uni 1000000 rrad
+rep 2 load   14.3 ms     141 real   0.22 user 0.2 rss 122.9 exit 0 :: ./build/coder2 --threads 1 uni 1000000 rnew
+rep 2 load   14.3 ms     144 real   0.22 user 0.21 rss 123.5 exit 0 :: ./build/coder2 --threads 1 uni 1000000 rmap
+rep 2 load   14.3 ms     160 real   0.17 user 0.16 rss 15.5 exit 0 :: ./build/coder2 --threads 1 uni 100000 rold
+rep 2 load   14.3 ms      51 real   0.06 user 0.06 rss 36.6 exit 0 :: ./build/coder2 --threads 1 distinct 100000 rrad
+rep 2 load   14.3 ms     180 real   0.24 user 0.23 rss 111.2 exit 0 :: ./build/coder2 --threads 1 prefix 100000 rrad
+rep 3 load   14.3 ms      29 real   0.04 user 0.03 rss 25.5 exit 0 :: ./build/coder2 --threads 1 skew 100000 rrad
+rep 3 load   14.3 ms      14 real   0.02 user 0.02 rss 15.4 exit 0 :: ./build/coder2 --threads 1 uni 100000 rrad
+rep 3 load   14.3 ms     163 real   0.21 user 0.2 rss 107.8 exit 0 :: ./build/coder2 --threads 1 distinct 300000 rrad
+rep 3 load   14.3 ms     500 real   0.71 user 0.67 rss 329.7 exit 0 :: ./build/coder2 --threads 1 prefix 300000 rrad
+rep 3 load   13.9 ms      46 real   0.06 user 0.05 rss 48.7 exit 0 :: ./build/coder2 --threads 1 low 300000 rrad
+rep 3 load   13.9 ms     111 real   0.14 user 0.13 rss 81.3 exit 0 :: ./build/coder2 --threads 1 skew 300000 rrad
+rep 3 load   13.9 ms      44 real   0.07 user 0.06 rss 46.5 exit 0 :: ./build/coder2 --threads 1 uni 300000 rrad
+rep 3 load   13.9 ms     644 real   0.81 user 0.75 rss 327.8 exit 0 :: ./build/coder2 --threads 1 distinct 1000000 rrad
+rep 3 load   13.9 ms    1829 real   2.81 user 2.35 rss 1045.2 exit 0 :: ./build/coder2 --threads 1 prefix 1000000 rrad
+rep 3 load   13.9 ms     137 real   0.19 user 0.18 rss 131.0 exit 0 :: ./build/coder2 --threads 1 low 1000000 rrad
+rep 3 load   13.9 ms     369 real   0.47 user 0.45 rss 223.8 exit 0 :: ./build/coder2 --threads 1 skew 1000000 rrad
+rep 3 load   13.1 ms     137 real   0.21 user 0.2 rss 123.2 exit 0 :: ./build/coder2 --threads 1 uni 1000000 rrad
+rep 3 load   13.1 ms     137 real   0.21 user 0.2 rss 122.9 exit 0 :: ./build/coder2 --threads 1 uni 1000000 rnew
+rep 3 load   13.1 ms     146 real   0.22 user 0.21 rss 123.5 exit 0 :: ./build/coder2 --threads 1 uni 1000000 rmap
+rep 3 load   13.1 ms     157 real   0.16 user 0.16 rss 15.6 exit 0 :: ./build/coder2 --threads 1 uni 100000 rold
+rep 3 load   13.1 ms      52 real   0.07 user 0.06 rss 36.6 exit 0 :: ./build/coder2 --threads 1 distinct 100000 rrad
+rep 3 load   13.1 ms     161 real   0.23 user 0.21 rss 111.2 exit 0 :: ./build/coder2 --threads 1 prefix 100000 rrad
+rep 3 load   13.1 ms      13 real   0.02 user 0.01 rss 15.9 exit 0 :: ./build/coder2 --threads 1 low 100000 rrad
+rep 4 load   13.1 ms      15 real   0.02 user 0.02 rss 15.4 exit 0 :: ./build/coder2 --threads 1 uni 100000 rrad
+rep 4 load   13.1 ms     164 real   0.21 user 0.19 rss 107.7 exit 0 :: ./build/coder2 --threads 1 distinct 300000 rrad
+rep 4 load   13.1 ms     517 real   0.73 user 0.67 rss 329.7 exit 0 :: ./build/coder2 --threads 1 prefix 300000 rrad
+rep 4 load   13.1 ms      44 real   0.06 user 0.05 rss 48.7 exit 0 :: ./build/coder2 --threads 1 low 300000 rrad
+rep 4 load   13.1 ms     107 real   0.14 user 0.13 rss 81.3 exit 0 :: ./build/coder2 --threads 1 skew 300000 rrad
+rep 4 load   13.1 ms      45 real   0.07 user 0.06 rss 46.6 exit 0 :: ./build/coder2 --threads 1 uni 300000 rrad
+rep 4 load   13.1 ms     620 real   0.78 user 0.73 rss 327.8 exit 0 :: ./build/coder2 --threads 1 distinct 1000000 rrad
+rep 4 load   13.1 ms    1895 real   3.02 user 2.38 rss 1061.9 exit 0 :: ./build/coder2 --threads 1 prefix 1000000 rrad
+rep 4 load   12.7 ms     138 real   0.19 user 0.18 rss 131.0 exit 0 :: ./build/coder2 --threads 1 low 1000000 rrad
+rep 4 load   12.7 ms     360 real   0.46 user 0.44 rss 223.8 exit 0 :: ./build/coder2 --threads 1 skew 1000000 rrad
+rep 4 load   12.7 ms     136 real   0.21 user 0.2 rss 123.2 exit 0 :: ./build/coder2 --threads 1 uni 1000000 rrad
+rep 4 load   12.7 ms     135 real   0.21 user 0.2 rss 122.9 exit 0 :: ./build/coder2 --threads 1 uni 1000000 rnew
+rep 4 load   12.7 ms     142 real   0.22 user 0.21 rss 123.5 exit 0 :: ./build/coder2 --threads 1 uni 1000000 rmap
+rep 4 load   12.7 ms     164 real   0.17 user 0.17 rss 15.6 exit 0 :: ./build/coder2 --threads 1 uni 100000 rold
+rep 4 load   12.7 ms      50 real   0.06 user 0.06 rss 36.6 exit 0 :: ./build/coder2 --threads 1 distinct 100000 rrad
+rep 4 load   12.7 ms     178 real   0.24 user 0.22 rss 111.2 exit 0 :: ./build/coder2 --threads 1 prefix 100000 rrad
+rep 4 load   12.7 ms      35 real   0.04 user 0.02 rss 15.9 exit 0 :: ./build/coder2 --threads 1 low 100000 rrad
+rep 4 load   12.7 ms      35 real   0.05 user 0.04 rss 25.5 exit 0 :: ./build/coder2 --threads 1 skew 100000 rrad
+
+summary (median [min..max]); ms = the program's own timer
+ms            51 [50..53]  user_s 0.06  rss_mb        37 [37..37]  load    14 [13..16]  chk 2621231563  :: ./build/coder2 --threads 1 distinct 100000 rrad
+ms         166 [161..180]  user_s 0.22  rss_mb     111 [111..111]  load    14 [13..16]  chk 2621231563  :: ./build/coder2 --threads 1 prefix 100000 rrad
+ms            14 [13..35]  user_s 0.01  rss_mb        16 [16..16]  load    15 [13..16]  chk 2169310945  :: ./build/coder2 --threads 1 low 100000 rrad
+ms            30 [29..35]  user_s 0.03  rss_mb        26 [26..26]  load    15 [13..16]  chk 340766123  :: ./build/coder2 --threads 1 skew 100000 rrad
+ms            15 [14..15]  user_s 0.02  rss_mb        15 [15..15]  load    15 [13..16]  chk 2153057757  :: ./build/coder2 --threads 1 uni 100000 rrad
+ms         165 [163..209]  user_s 0.2  rss_mb     108 [108..108]  load    15 [13..16]  chk 997805745  :: ./build/coder2 --threads 1 distinct 300000 rrad
+ms         516 [498..521]  user_s 0.67  rss_mb     330 [328..330]  load    15 [13..16]  chk 997805745  :: ./build/coder2 --threads 1 prefix 300000 rrad
+ms            44 [42..46]  user_s 0.05  rss_mb        49 [49..49]  load    15 [13..16]  chk 1850713588  :: ./build/coder2 --threads 1 low 300000 rrad
+ms         109 [107..111]  user_s 0.13  rss_mb        81 [81..81]  load    15 [13..16]  chk 3490520182  :: ./build/coder2 --threads 1 skew 300000 rrad
+ms            44 [42..45]  user_s 0.06  rss_mb        47 [46..47]  load    15 [13..16]  chk 1633469266  :: ./build/coder2 --threads 1 uni 300000 rrad
+ms         644 [609..704]  user_s 0.75  rss_mb     328 [328..328]  load    15 [13..15]  chk 2946920045  :: ./build/coder2 --threads 1 distinct 1000000 rrad
+ms      1835 [1771..1898]  user_s 2.37  rss_mb  1062 [1045..1062]  load    15 [13..15]  chk 2946920045  :: ./build/coder2 --threads 1 prefix 1000000 rrad
+ms         138 [136..141]  user_s 0.18  rss_mb     131 [131..131]  load    14 [13..15]  chk 1679469477  :: ./build/coder2 --threads 1 low 1000000 rrad
+ms         360 [359..377]  user_s 0.44  rss_mb     224 [224..224]  load    14 [13..15]  chk 3857945405  :: ./build/coder2 --threads 1 skew 1000000 rrad
+ms         137 [136..143]  user_s 0.2  rss_mb     123 [123..123]  load    14 [13..15]  chk 831805023  :: ./build/coder2 --threads 1 uni 1000000 rrad
+ms         136 [135..141]  user_s 0.2  rss_mb     123 [123..123]  load    14 [13..15]  chk 831805023  :: ./build/coder2 --threads 1 uni 1000000 rnew
+ms         144 [142..166]  user_s 0.21  rss_mb     124 [124..124]  load    14 [13..15]  chk 831805023  :: ./build/coder2 --threads 1 uni 1000000 rmap
+ms         159 [156..164]  user_s 0.16  rss_mb        16 [16..16]  load    14 [13..15]  chk 2153057757  :: ./build/coder2 --threads 1 uni 100000 rold

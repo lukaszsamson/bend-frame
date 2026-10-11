@@ -2569,6 +2569,26 @@ consequences are these.
    the grouped scatter invariant, Dictionary completeness and rank order). The plan section 0
    release claim is unchanged.
 
+### v0.2 W0 strings / reader (D5, D6; design in section 17)
+
+Planned changes of implementation, none of the data contract (section 15 is unchanged); recorded
+here so W2 / W6 do not rediscover them. Evidence: bench/spikes/w0_strings/, section 17.9.
+
+1. **Plan revision proposed (M_02 G2)**: the CSV parse cannot reach >= 4x at 12 threads with the
+   installed File API: bytes arrive as cons lists built sequentially on the IO thread, so the
+   producer (~34 % of the 1-thread parse) is serial. Proposed: >= 2x end to end and >= 4x on the
+   fork phase (17.8, 17.10 item 1); an Array-returning read in Base is the upstream lever.
+2. **Plan revision proposed (M_02 D5 / D6 "parser-private cold types")**: no private cons parser
+   types; flat packed bytes and cold scalar loop records instead (17.10 item 2).
+3. **Reader pieces** (amends M4 item 5 for the W6 reader only): pieces of 256 KiB - 1 MiB, not
+   64 MiB; the 64 MiB reason (allocator scatter of cons cells) does not apply to flat regions.
+   15.6.4's "in pieces of up to 64 MiB" wording changes with W6; behaviour does not.
+4. **String coding**: group_by / unique / n_unique / sort words / the join's string keys move from
+   Base Map and `J.Dict` to the presized flat coder and the radix rank stage (17.3); codes and
+   words are identical to v0.1's; the coder and ranks stay tested-only, as the code they replace.
+5. **Dictionary laws**: unchanged unless W2.6 migrates `ST.Dict`'s index, in which case the
+   Probe-family hypotheses are restated over the new seek (still hypotheses), never dropped.
+
 ## 15. v0.1 contract (frozen)
 
 The exact semantics every M1-M6 agent codes and tests against. Tables over prose;
@@ -3313,3 +3333,611 @@ applicable) and loses the marker when fixed.
 ### M0 review (dump location)
 - The §15.1 oracle lives in `src/dump.bend` (`Dump.frame`, `Dump.frame_k` which hands the frame back, `Dump.result`), not `Fmt.dump` in `src/fmt.bend`; `DF.dump(r: ResT(Frame))` and `DF.dump_frame(f)` (consumes `f`). A frame whose columns are longer than its height dumps an extra `excess` line; shorter columns print `?` cells. Both are outside the §15.1 grammar, so `bench/check.py --dump` rejects them.
 - `scripts/test.sh` skips `tests/**/lib/*.bend` (helper modules imported by tests).
+
+## 17. v0.2 performance design (strings and reader)
+
+Work package W0 of plans/M_02.txt, design decisions **D5 (strings)** and **D6 (reader)**. The
+engine decisions D1-D4 are section 16 (written in parallel; not edited here). Section 15 (the
+v0.1 data contract) does not change: every rule below produces the same values, validity,
+names, row order, dictionary codes, errors and error precedence as v0.1.
+
+Evidence: disposable spikes in `bench/spikes/w0_strings/` (its README: build and run lines,
+tools; raw samples in `results/*.jsonl`, one record per process with the load before and
+after). **Every number here is PROVISIONAL**: the machine was shared (1-minute load mostly
+11-20 during the campaigns, spikes to 100-280 from other agents; each table gives the load range
+of its samples), medians of 5 fresh interleaved processes, Bend 2.0.36 native, Apple M2 Pro.
+Gate numbers are the orchestrator's (quiet machine, bench/m2/). Every spike run was checked
+against the v0.1 code by a checksum of its output (same first-appearance codes, same sort
+words, same cells, validity, dictionary codes and dictionary size).
+
+### 17.1 Platform facts measured in W0 (they constrain both designs)
+
+1. **The File API returns cons lists only.** Base 2.0.36 has `File.read(f, max) -> String`
+   (bytes decoded by the runtime's `io_str`: an invalid byte becomes U+FFFD and the byte is read
+   again), `File.read_bytes(f, max)` and `File.read_at(f, off, max) -> List<&2, U32>` (one cell
+   per byte; `read_at` is `pread`: the position does not move), `File.size`, `File.open/close`.
+   No read into an `Array`, no mmap, no streaming primitive other than repeated reads.
+2. **IO is sequential.** The syscall runs on an IO helper thread, but the result's cons cells are
+   built (`io_list`, `io_str`) on the single IO event-loop thread, and `IO.fork` / `IO.spawn` are
+   green threads on that loop. Several handles on one file are possible (one `File.open` each,
+   each affine and threaded) but buy nothing: list construction serialises. **Parallel work
+   exists only inside pure parallel lets**: "a producer of owned pieces" is a sequential IO loop
+   and the parse forks after it.
+3. **Hotness is decided per constructor over the program's reachable code.** In every program
+   importing frame.bend, `String` (SCon, Chr), `List` (Con), `Some`, `CsvCell`, `CsvRec` and ~200
+   more constructors are hot (`tools/hot.py build/rd_frame.c`): every constructed field is
+   `rfc_seal`ed (one extra heap cell) and every read goes through the redirect (`term_peek`: one
+   more dependent load; `ctr_take`: an atomic and a free). Private single-constructor loop records
+   (the spike's 17-field tokenizer state `TK`, `PK`, `LW`, `LS`, ...) stay cold in the integrated
+   program and are passed unboxed in registers (spin arguments; no allocation per row). So
+   **cold private loop state survives integration; private cold cons types do not help, because
+   their input arrives as hot String / List from the File API.** In situ (T4, 41 MB, 1 thread,
+   load 12-13):
+
+   | probe | cold build | inside a frame.bend program |
+   |---|---|---|
+   | File.read_at 1 MiB pieces, only count the bytes (the API floor) | 117 ms | 273 ms |
+   | the producer of 17.4.1 (read_at + pack + lexical scan) | 197 ms | 334 ms |
+   | today's parser: File.read of the whole file + H.step (records of cells, no columns) | 361 ms | 889 ms |
+
+   The review's "2x hot tax" on the parser is confirmed (2.5x here). The new reader has exactly
+   one hot boundary, the byte list of one piece, charged to the producer.
+4. **Freeing cons strings is expensive and is timed where the last owner drops them**: 1M short
+   strings ~0.2 s, 1M 41-char strings ~0.7 s (the first T1-T3 campaign, results/superseded/,
+   dropped the input rows inside the timed region). A field bound by a `match` and never used is
+   dropped AT the match, before a later `IO.now()`: benchmarks keep inputs alive past the clock,
+   kernels hand string arrays back instead of dropping a consumed copy (rule 2 of the brief).
+5. **Walking cons strings**: hashing 1M strings laid out in allocation order costs 2-4 ns per
+   code point; the same data as a flat UTF-8 buffer 0.2-0.6 ns (T6). Scattered strings (built
+   between other allocations) walk slower; a coder probe costs 80-130 ns per short key (T1).
+6. **f32**: `F32.read` is C `strtof` on the text (correctly rounded; accepts `nan`, `inf`,
+   exponents, a sign; rejects hex); `F32` is C `float` and the emitted division is one float
+   division.
+
+### 17.2 Summary of the evidence (tables in 17.9)
+
+- **Coder (T1)**: the flat coder codes 1M distinct short keys in 129 ms against 20.4 s for
+  today's Map coder (158x), 1M 41-char shared-prefix keys in 308 ms against 87 s (283x); skewed
+  71x, low-cardinality 7x, all-equal 6x. Per-row time grows at most 1.6x from 100k to 1M rows
+  (cache), never superlinearly. Codes identical to `Sort.str_codes` on every shape.
+- **Ranks (T2)**: on 1M distinct keys, ranks after coding take 370 ms (radix refinement) against
+  1,152 ms (merge sort over a flat code-point buffer) and 7,052 ms (Base Map over the distinct
+  entries); today's `Sort.str_words` takes 23 s. Words identical on every shape.
+- **Parallel coding (T3)**: owned hash partitions reproduce the sequential codes exactly and give
+  2.8x (distinct) / 3.7x (41-char prefix) at 12 threads on 1M rows; skewed and all-equal keys
+  gain little (the hot keys' lane) and lose at 1 thread.
+- **Reader (T5)**: the piece reader parses the 41 MB sales file (explicit schema, Dictionary
+  strings) in 987 ms at 1 thread and 472 ms at 12 (443 with 256 KiB pieces), RSS 266-310 MB,
+  against 5,538 / 2,276 ms and 1,227-1,245 MB for today's reader; the cells, validity and
+  dictionary codes are identical. The serial producer is 334-356 ms of it (34 %).
+- **Adversarial boundaries (T5b)**: 30 adversarial files x 15 piece sizes (1 byte .. 1 MiB):
+  identical values, codes and errors to today's reader except two header-step cases the spike
+  does not implement (17.4.1).
+
+### 17.3 D5 strings
+
+#### 17.3.1 The distinct-key coder (replaces `Sort.str_codes`, `str_codes_par`, `pcodes`, `pmerge`, `kbc`)
+
+    Hc.code(~hash: String -> U32, +n: U32, +d: Nat, +first: U32, a: Array<String>)
+      -> HC{next, a, hs, rp, ids, codes, fr}      # a comes back untouched
+
+- **Table**: three `Array<U32>` of 2^b slots, `b = ceil(log2(max(2n, 2)))`, at most 24 (the row
+  cap 2^23 gives 2n <= 2^24): `hs[j]` the key's hash, `rp[j]` its first row + 1 (0 = empty),
+  `ids[j]` its id. **No string is stored in the table**: the rows stay in `a`, borrowed and handed
+  back. Load <= 1/2 for any input (every row distinct at worst): presized once, never grown,
+  never rehashed.
+- **Hash**: FNV-1a over the code points (`ST.Str.hash`, the function `ST.Dict` uses), passed as
+  the `~hash` template so a test can instantiate a constant hash (every probe collides) and
+  exercise the comparison path. Slot = the top b bits of `h * 2654435769`; linear probing.
+- **Equality**: a probe compares the stored hash first and walks the strings only on a hash hit
+  (the representative row `rp[j] - 1` against the current row: a tail-recursive, borrowed
+  code-point walk with early exit). A hash match never decides equality.
+- **Ids**: first appearance, starting at `first` (group_by 1, unique / ranks 0): identical to
+  `Sort.str_codes` (T1). `fr[id - first]` = the entry's first row: the entries, for ranks, and
+  for a parallel remap.
+- **Probe exhaustion**: fuel 2^b; unreachable, because an empty slot exists while distinct keys
+  <= n <= 2^(b-1). On fuel exhaustion the probe answers the slot it stopped at, exactly like
+  `ST.Ix.seek`; correctness then rests on the same kind of hypothesis as `LAWS.Probe` (the probe
+  stops at an empty slot or at the key), stated for this table and not proven (tested-only, 17.6).
+- **Empty / null**: `""` is a key like any other. A Raw null slot holds `""` (v0.1 invariant), so
+  null rows get the code of `""` and consumers apply validity afterwards as today (`Grp.zero`
+  zeroes null rows' codes; `Sort.words.z` their words; n_unique counts the distinct codes of the
+  VALID rows plus one if any null, 15.2.5: a `""` coded only from null rows is not a value).
+  n = 0 answers `next = first` and touches no slot.
+- **Cost** (T1, 1 thread): 80-130 ns per row for short keys, ~310 ns for 41-char keys (7.6 ns
+  per code point); per-row growth 100k -> 1M at most 1.6x. Memory: 12 bytes x 2^b (24 MB at 1M
+  rows) + 4n (codes) + 4n (first rows), transient.
+
+#### 17.3.2 Lexical ranks (never first-appearance ids as sort words)
+
+First-appearance ids are not an order. Sorting by a string column, string min / max and `<`
+between dictionaries need the RANK of each distinct entry in code-point order with a prefix first
+(Base `Map.to_list` order = `String.is_lt`), mapped back by one gather:
+`rank[id] = position of entry id among the entries`, `word[row] = rank[code[row]]`.
+
+1. **Pack** the k entries once into big-endian U32 words of UTF-8 bytes (4 bytes per word, word
+   offset and byte length per entry). UTF-8 byte order is code-point order, so comparing words
+   compares strings. W2 computes the byte length in the coder's hash walk (the spike walks each
+   entry twice: the pack is 60-75 % of the stage, T2). **Fallback**: a code point above U+10FFFF
+   (a `Chr` can hold any U32) has no order-preserving 4-byte form; the packer then switches the
+   column to one code point per word (same algorithm).
+2. **Radix refinement**: round r stable-sorts every entry by
+   `(group, word 2r, word 2r + 1, min(bytes left, 8))` with four `Radix.sort` calls (LSD: last key
+   first; digits that never vary are skipped), then splits the groups (group = equal keys so far,
+   id = its first position). The last key puts a string before its extensions even when they
+   continue with U+0000 (padding and NUL compare equal, the remaining length does not). Distinct
+   entries end in singleton groups after `ceil((LCP + 1) / 8)` rounds (LCP: the longest common
+   prefix of two entries, in bytes); the loop stops at the first round with no tie.
+3. `rank[perm[p]] = p` (one scatter), the words by one gather.
+
+**Decision: radix refinement** (T2: 3.1-3.2x faster than the merge sort, 19-25x faster than Base
+Map over the same entries, identical words on every shape). Left to W2 if measured worthwhile:
+re-sort only the tied entries each round (long shared prefixes re-sort every entry 6 times today).
+Plugs into `Sort.str_words` (Raw: coder, then ranks) and `ST.Dict.ranks` (Dictionary: the entries
+are already distinct: ranks only), hence every `Dict.ranks` caller (`Eval.zd.ord.w` comparisons
+between dictionaries, `Eval.ds.ext.r` min / max). No rank cache in v0.2 (no invalidation story;
+the stage is O(k x rounds) per request).
+
+#### 17.3.3 Probe ownership (the parallel question)
+
+- **Sequential borrowed coder / probe (DEFAULT)**: one table; the rows (and, for a join, the
+  build side's rows) borrowed and handed back; no copy; deterministic by construction.
+- **Per-worker copies: rejected** above 4096 slots (today's `Probe.levels` bound, kept). A lane
+  needs the representative STRINGS, not only the three flat arrays: a deep copy (`Str.copy`,
+  today's `Dict.clone`) walks and allocates every key per lane (1.4 s of the 5.1 s distinct-key
+  join, Fable); a shallow `Array.clone(String)` shares every key (an atomic per read in every
+  lane, and a hot type). `Array.fork` is never used.
+- **Owned hash partitions (the approved parallel architecture, demonstrated in probe.bend)**:
+  hashes by one balanced fork over the rows' ANode spine (it copies the pointer blocks down and
+  up; included in the timings, 11-39 ms at 12 threads, small next to the string walks: the one
+  measured exception to brief rule 3, for string arrays only); partition id = top L bits of
+  `h * 2246822519` (independent of the table's slot bits); one stable `Radix.sort` groups the rows
+  by partition, in row order inside each; each partition's rows are MOVED (`Array.swap`) into its
+  own arrays (strings, hashes, global rows); ONE fork over the partition tree codes each
+  partition with its own presized table; the global first-appearance order comes back from the
+  entries' first rows by one flat scan over the rows (deterministic, independent of completion
+  order); codes are scattered to row order and the strings moved back. Nothing is copied or
+  shared. Skew: a hot key's rows land in one lane (T3 skew / equal: 1.2x at 12 threads, and
+  skew loses 1.8x at 1 thread).
+
+**Decision for v0.2**: group_by / unique / n_unique / str_words code **sequentially, borrowed**;
+the join probes **sequentially, borrowed** (17.8: the G3 cells are met without parallelism).
+W2.5 may enable owned partitions for n >= 2^18 rows and >= 4 threads, never at 1 thread, if the
+gate machine confirms >= 1.5x at 12 threads on 1M distinct keys and no skew regression above
+10 %; its serial phases (partition move-out, remap, move-back) are inside the measurement.
+`Probe.fork`'s per-lane `Dict.clone` disappears with W1a.
+
+#### 17.3.4 Integration points (W2)
+
+| consumer | v0.1 | v0.2 |
+|---|---|---|
+| group_by Raw key (`Grp.enc.str`, `Grp.enc.strk`) | `Sort.str_codes_par(n, d, 1, a)` (Map, 8 blocks, sequential re-insert merge) | `Hc.code(~ST.Str.hash, n, d, 1, a)`; identical codes; `Grp.zero` unchanged |
+| unique / n_unique Raw | same coder / list sort | `Hc.code`; n_unique = distinct codes of the valid rows + 1 if any null (15.2.5) |
+| sort by Raw (`Sort.str_words`) | coder + `Map.to_list` ranks | `Hc.code` + 17.3.2 |
+| order on a Dictionary (`ST.Dict.ranks`) | Map over the entries | 17.3.2 over the entries |
+| join Raw key (`Key.enc.sb` / `sp`) | `J.Dict` (SSlot strings) + `Probe.fork` with `Dict.clone` per lane | a flat table over the right column (ids = first appearance on the right), sequential borrowed probe of the left; miss / null = DEAD as today |
+| join Dictionary key (`Key.ids`) | `J.Dict` over the right entries | the same flat table over the entries |
+| `ST.Dict`'s index (`Ix`: `Array<SSlot{String, id}>`, grown by doubling) | unchanged by W2.1-W2.5 | optional W2.6: flat `hs` / `ids` arrays presized when the entry count is known (the reader's merge, 17.4.7) |
+
+**Dictionary laws stay conditional.** `LAWS.Probe`, `EncProbe`, `MergeProbe` and `FindProbe` are
+hypotheses about `ST.Ix.seek`. If W2 leaves `ST.Dict`'s index alone, LAWS.bend does not change.
+If W2.6 migrates it, the hypothesis is RESTATED over the new seek (same shape: "the probe for s
+stops at a slot that is empty or holds s"), still a hypothesis, and `dict_code_spec`,
+`strs_encode_cells`, the merge / recode / find laws keep their statements; no obligation
+disappears by omission (G5). The coder, the rank stage and the join's string table are
+tested-only, as the code they replace (v0.1 has no content theorem for `Sort.str_codes`,
+`Sort.str_words` or the join's string table), and are listed so in the assurance matrix.
+
+### 17.4 D6 reader
+
+#### 17.4.1 Pipeline
+
+    header step (sequential: the reference logic on a bounded prefix)
+      -> producer (IO, sequential): read_at pieces -> packed bytes + lexical scan -> regions
+      -> ONE balanced fork over the regions; per region: tokenizer -> typed column loops ->
+         per-region string coders -> entry decoding
+      -> combine (sequential, region order): error summary, dictionary merge, remap, row cap,
+         concatenation into the frame's columns (or the engine's chunk leaves, 17.5)
+
+1. **Header step**: v0.1's prefix logic (it exists for `scan_csv`, 15.6.4): leading blank lines
+   (has_header), the header record and its names, the width k, the dtype-count check of an
+   explicit schema, headerless names `column_i` (width of the first non-blank record), empty
+   file / header only (no region parsed), inference over the first `infer_rows` records
+   (17.4.5). It answers the byte offset where the data starts and the physical line there; the
+   producer starts at that offset. (The spike only skips the first non-blank record of the first
+   non-empty region: its two adversarial misses, `lead_blank` and `empty`, are this step.)
+2. **Producer** (`Rd.*`): `File.read_at(f, off, P)` pieces; each piece's byte list is walked ONCE
+   (`Pk.go`), packing 4 bytes per U32 word (little endian) into the current region and running
+   the lexical scan in the same walk: quote parity, LF count, the last record terminator (an LF at
+   even parity). A region ends after the piece's last terminator; the bytes after it are
+   replayed into the next region (a copy of at most one record). A piece with no terminator (a
+   record longer than a piece) leaves the region open and it grows (doubling capacity; the spike
+   re-replays, quadratic only for multi-piece records). Each region records its first physical
+   line and its terminator count, an upper bound of its rows that sizes its builders (never the
+   piece size). **P = 256 KiB - 1 MiB** (T5: 4 MiB leaves 10 regions for 12 threads; 256 KiB is
+   the fastest at 12). v0.1's 64 MiB default (14 M4 item 5: the allocator scattered the CONS cells
+   of consecutive pieces) does not apply to flat regions. Serial cost: 330-350 ms per 41 MB in a
+   frame.bend program, of which ~270 ms is the File API floor (17.1.3).
+3. **Fork**: regions -> leaves in file order -> a balanced tree by pairing (`Rt.top`; never
+   1-vs-rest) -> `a b = Ln.tree(l) Ln.tree(r)`. Everything a lane touches is its own (region
+   bytes, field arrays, builders, string table); the schema list is the only shared value.
+4. **Lane**: tokenizer (17.4.3), one flat loop per column (17.4.4), the region's string entries
+   decoded once each (UTF-8 with `io_str`'s rules).
+5. **Combine**: 17.4.6, 17.4.7.
+
+#### 17.4.2 Global record boundaries
+
+The producer scans sequentially, so every region starts at a globally valid record boundary and
+no lane guesses its start state. Argument (the reader is tested-only; this is the reasoning the
+tests check): the hub parser is inside a quoted field exactly in mode ME. Before the first
+rejecting byte q, every `"` either opens a quoted field (MS -> ME), closes or half-escapes one
+(ME -> MQ) or completes a doubled quote (MQ -> ME); each flips the quote parity, and ME holds
+exactly at odd parity (MS, MB, MSC, MBC, MQ, MQC at even). Hence an LF ends a record iff the
+parity before it is even, up to q. Every cut before q is a true record boundary, so the lane whose
+region contains q starts at a true boundary, parses as the sequential parser does and rejects at
+q; well-formed input makes no lane reject; an input that ends in ME has odd final parity and its
+last lane rejects at the end. Cuts after q may be wrong, which is harmless: malformed quoting
+outranks every other error (17.4.6). CRLF split across pieces, `""` at a piece edge, a UTF-8
+sequence split across pieces and records longer than a piece need no special case (bytes are
+carried; cuts are at ASCII LF bytes). **Associative lexical-state summaries are not needed**: the
+producer is sequential anyway (17.1.2). If a parallel producer ever exists (an Array-returning
+read), each piece summarises its parity and its last LF at even and at odd local parity (plus LF
+counts) and the summaries are prefix-composed in piece order.
+
+#### 17.4.3 Tokenizer
+
+One flat loop over the region's words, 4 bytes per word, each byte one transition of the modes
+MS / MB / ME / MQ / MQC (field start, bare, in quotes, after a quote, CR after a closing quote) on
+the classes LF / CR / separator / quote / other. A bare field keeps its CRs and drops one CR right
+before the LF or the end of input that ends it (exactly the hub's CR-holding modes MSC / MBC); a CR
+after a closing quote must be followed by LF. Output per region: field start / end / flags
+(quoted, holds a doubled quote) at slot `r * k + c` in three flat `Array<U32>`, each kept
+record's physical line, the first ragged record (line, width), a reject flag. A blank record (one
+empty unquoted field) is skipped when k > 1 and kept as a null row when k = 1; LFs inside quotes
+count toward physical lines. No allocation per byte: the state record is passed in registers
+(C: `spin_296` -> `spin_289` -> `spin_274` in build/rd_frame.c, only `blk_read` / `blk_write`).
+Cost: ~0.4 s per 41 MB at 1 thread (9.6 ns per byte; the kernel W6 should tighten: the state has
+17 fields and each byte is a non-inlined call).
+
+#### 17.4.4 Typed column loops (no CsvCell, no per-field String, no reverse / trim lists)
+
+Per column one flat loop over the region's records reading `[start, end)` from the packed bytes,
+trimming ASCII `Char.is_space` bytes (9-13, 32: the same set on bytes as on code points):
+- **u32**: `acc' = acc * 10 + (b - 48)`, ok while `acc' / 10 == acc`: U32.read's own test, so every
+  non-digit byte (a UTF-8 byte >= 0x80 too) fails exactly as its code point does. Empty -> null.
+- **i32**: an optional `-`, then the u32 rule and `I32.read`'s bounds (W6.2).
+- **f32**: fast path `[+-]digits[.digits]` with mantissa M <= 2^24 and at most 10 fraction digits:
+  `F32.div(U32.to_f32(M), 10^fd)` is ONE correctly rounded division of two exact f32 values
+  (Clinger), the value `strtof` returns (negative zero by `F32.neg`). Anything else (exponents,
+  `nan`, `inf`, long mantissas, escaped quoted fields) decodes the field and calls `F32.read`.
+  Bit-equal to `F32.read` on 20,000 random fast-path decimals and every edge of tools/adv.py.
+- **bool**: exactly `true` / `True` -> 1, `false` / `False` -> 0 after trimming.
+- **str**: a per-region coder keyed on byte RANGES (FNV-1a over the content bytes, a doubled quote
+  read as one; bytes compared on a hash hit); validity = quoted or non-empty (15.6.1); the
+  region's entries = each entry's first content, decoded once. Two different byte sequences can
+  decode to the same string (invalid UTF-8 -> U+FFFD), so region codes are never exposed: the
+  merge (17.4.7) codes decoded strings.
+- the first bad cell per column per region: its row; its line from the region's lines and its
+  text decoded from the region's bytes inside the lane (no second read).
+Cost per column at 1 thread (T5 phases): u32 ~11 ms, bool ~20 ms, f32 ~45 ms, Dictionary str
+~65-70 ms per 1M rows.
+
+#### 17.4.5 Inference, schemas, headerless, empty input (contracts kept)
+
+- explicit schema: no inference; the dtype count is checked against the header width in the
+  header step, before any region is read.
+- `infer_rows = N > 0` (default 100): the header step infers from the first N records with the
+  reference code (`Csv.infer.col` on a bounded prefix, as scan_csv), freezes the dtypes, and the
+  regions parse strictly: a later value that does not fit is that column's bad cell
+  (`ParseError` at its line), as 15.6.3 requires.
+- `infer_rows = 0` (all rows decide): two passes over the packed regions (in memory: no second
+  read). Pass 1 per lane, per column: `has_value` and the four "every cell fits" flags (u32, i32,
+  f32, bool) with the same field rules; AND (has_value: OR) over lanes is order-free;
+  `Csv.pick` decides; pass 2 parses typed. Cost: one more tokenizer + classify pass, forked.
+- headerless, empty file, header only, blank lines before the header: the header step, exactly
+  15.6.2; the producer starts after it.
+
+#### 17.4.6 Error precedence (15.6's order, combined in region order, never completion order)
+
+1. malformed quoting anywhere: some lane rejected (or the final parity is odd);
+2. no data records: the empty frame, or the dtype-count error (header step);
+3. the first ragged record in file order (the first region, in order, that saw one);
+4. the dtype count (header step);
+5. the row cap: the total rows (sum over regions) checked before the combined columns are
+   allocated (region parts are bounded by their region, not by the cap);
+6. the first column in column order holding a bad cell, at its first such row (the first region
+   with one for that column), with its line and text.
+tools/adv.py checks 1, 3 and 6 and their competition (malformed after ragged, an earlier bad
+cell in a later column) at 15 piece sizes.
+
+#### 17.4.7 Dictionary merge, storage choice, Raw
+
+- Per Str column, regions in order: each region's entries, in its local first-appearance order,
+  are coded into ONE `ST.Dict` starting from `Dict.empty()` (`""` = code 0) by `ST.Dict.code`
+  (a `Dict.merge` of the region's entries); `map[local id] = global code`; the region's codes are
+  remapped by one gather. The global codes are the column's first-appearance order, i.e. v0.1's
+  codes exactly (identical checksums including codes and dictionary size). Serial cost: entries
+  x regions probes (2.6k for the sales file: 18-24 ms of merge + concatenation for 7 x 1M cells).
+- **High-cardinality columns**: read as a 1M-distinct Dictionary column (`id` as str), the merge
+  is 629-681 ms serial (T5: 1M `Dict.code` calls into an index that grows by doubling). W6.3 must
+  (a) decide EncAuto's fallback per region BEFORE decoding entries (a region whose distinct count
+  already exceeds the threshold makes the column Raw: rows decoded in the lanes, no merge) and
+  (b) presize the global coder for the forced-Dictionary case (W2.6 or the flat coder of 17.3.1
+  over the entries, then `Dict` built once from the entries and their codes).
+- EncAuto (v0.1: `k > max(16384, rows / 64)` falls back to Raw at that cell): the decision is
+  computable after the regions: entry e with global code c_e first appears at global row r_e =
+  region row offset + local first row; the column falls back iff some entry has
+  `c_e + 1 > max(floor, (r_e + 1) / den)`. W6 replicates the rule exactly (storage is not data,
+  but tests and bench/README compare storages).
+- Raw (EncRaw, or the fallback): each lane decodes one String per row of its region (parallel);
+  a fallback decided after the merge decodes `entries[code]` per row (a gather of shared
+  strings). Raw stays the expensive storage (24 bytes per code point, hot).
+
+#### 17.4.8 Memory
+
+Peak RSS for the 41 MB file: 266 MB at 1 thread, 306-310 MB at 12 (v0.1: 1,227-1,245 MB), with a
+1M-distinct str column 449-488 MB. Budget: 1 byte per file byte packed (regions freed by their
+lanes) + per region in flight 3 words per field + the builders + the output columns + decoded
+entries. The producer holds one piece's byte list at a time (P x ~24 bytes hot).
+
+### 17.5 Chunk hand-off (with section 16)
+
+The combine step is where the engine's chunk leaves (16, D1) are built: region parts are row
+ranges in file order, so leaves are cut by row count (the D1 grain) from the region parts with
+one copy, no flat intermediate. Until D1 freezes, W6 concatenates into v0.1's flat columns (the
+spike: 18-24 ms for 7 columns x 1M rows plus the dictionary merge).
+
+### 17.6 Proof and test obligations
+
+- **Assurance status**: coder, rank stage, the join's string table, producer, tokenizer, typed
+  loops and merge are TESTED-ONLY, as the v0.1 code they replace (Sort.str_codes, Sort.str_words,
+  the join's table, csv.bend, csvparse.bend), and listed so in the assurance matrix. The kernels
+  they reuse keep their laws (`Kernel.gather`, `Kernel.copy_into`; `Radix.sort` is tested-only
+  today). LAWS.bend changes only if W2.6 migrates `ST.Dict`'s index (17.3.4: hypotheses restated,
+  never dropped; `make proofs` and `make verdict` re-run). Every PR that touches files imported
+  by PROOF*.bend runs `make verdict`.
+- **D5 tests (W2)**: differential against the pinned v0.1 coder (codes) and v0.1
+  `Sort.str_words` / `Dict.ranks` (words) on distinct / 41-char shared prefix / skewed /
+  all-equal / low-cardinality / Unicode keys (NUL, the 1-4 byte UTF-8 boundaries, U+10FFFF,
+  prefixes of each other; the spike's `uni` shape) at sizes 0, 1, 2^k +- 1 and 1M; forced
+  collisions (the coder instantiated with a constant `~hash`, and a fixture of real FNV-1a 32-bit
+  collisions); null rows; group_by / unique / sort / join outputs equal to v0.1 on the
+  differential suite (Raw and Dictionary, joinstress).
+- **D6 tests (W6)**: tools/adv.py promoted into the differential harness (bench/diff): every case
+  x piece sizes 1 .. 2^20 against the reference reader, comparing typed values, validity, names,
+  codes, errors and lines; a random CSV generator (quoting, CR / LF mixes, UTF-8 and invalid
+  bytes, blank lines, ragged and malformed mutations, competing errors in different rows,
+  columns and regions); f32 fast path vs `F32.read` (random decimals, bit-equal); UTF-8 decoding
+  byte for byte vs `File.read` of the same bytes; every 15.6 row (inference prefix vs a later
+  conflicting value, infer_rows = 0, explicit schemas, headerless, empty, header only, blank lines
+  before the header); the B02 regressions; EncAuto's storage decision equal to v0.1's.
+- **Performance probes**: the spikes (or their successors under bench/micro/) are W2 / W6's
+  before / after probes; G6 instrumentation reports producer, fork and combine phases and RSS.
+
+### 17.7 Work breakdown (W2 strings, W6 reader)
+
+Tiers: **opus** for cross-module integration and anything touching proofs, contracts or error
+precedence; **sonnet** for one kernel with its tests.
+
+| task | tier | scope | done when |
+|---|---|---|---|
+| W2.1 coder | sonnet | `Hc.code` (template hash, first rows, entry byte lengths from the hash walk) in src/strs.bend or a new src/hcode.bend; 17.6 D5 tests | differential green on every shape incl. forced collisions; 17.8 coder cells |
+| W2.2 ranks | sonnet | the rank stage (packing with the > U+10FFFF fallback; radix refinement) | words equal to v0.1 `Sort.str_words` / `Dict.ranks` on every shape |
+| W2.3 wiring | opus | group_by, unique, n_unique Raw, `Sort.str_words`, `Dict.ranks` callers; delete `pcodes` / `pmerge` / `kbc` / `str_codes_par` after the differential; proof-import audit (`make proofs`, `make verdict`); assurance matrix | make ci and diff-smoke green; G3 distinct-string cells |
+| W2.4 join | opus | the join's flat string table (Raw and Dictionary keys), sequential borrowed probe; `Probe.fork` / `Dict.clone` removed (after W1a); joinstress, duplicates, nulls, misses, collisions | distinct-key join G3 cell; joinstress differential green |
+| W2.5 partitions (optional) | sonnet | owned-hash-partition coder behind the 17.3.3 threshold | >= 1.5x at 12 threads on 1M distinct keys on the gate machine, no skew regression > 10 % |
+| W2.6 Dict index (optional) | opus | `ST.Dict`'s index on flat arrays, presized from a known entry count; `LAWS.Probe` restated over the new seek | `make proofs` / `make verdict` green, no law dropped |
+| W6.1 producer | sonnet | read_at pieces, pack + scan in one walk, regions with carries (doubling growth), lines, terminator counts | region starts equal the reference parser's record starts on every adversarial case x piece size |
+| W6.2 lane | sonnet | tokenizer, typed loops (u32, i32, f32 fast / slow, bool, str coder), entry decoding, first bad (line, text) | field-level differential vs csvparse + Csv conversions; f32 and UTF-8 bit tests |
+| W6.3 integration | opus | header step, inference (prefix, two-pass), explicit / headerless / empty, error precedence, row cap, dictionary merge + EncAuto rule + per-region early fallback, Raw, scan_csv collect, chunk hand-off with 16 | tests/csv*, B02 regressions, CSV diff with piece sizes and competing errors green; G3 / G4 parse cells |
+| W6.4 fuzz harness | sonnet | random CSV generator + the adversarial cases in bench/diff, both readers, typed comparison | 10,000 cases x piece sizes clean |
+| W6.5 close | opus | G2 / G3 / G4 parse measurement on the gate machine; DESIGN 14, IMPLEMENTING, bench README; the v0.1 reader kept as the reference per D7 | gate report |
+
+### 17.8 Proposed G2 / G3 / G4 thresholds (strings and reader)
+
+Measured values PROVISIONAL (17.9); thresholds leave 1.5-3x headroom for the gate machine and
+for what the spikes leave out (null handling, i32, inference prefix, EncAuto, hand-back).
+
+| cell (1 thread unless noted) | M_02 | spike | proposed | justification |
+|---|---|---|---|---|
+| coder, 1M distinct short keys | (in <= 2 s) | 129 ms | <= 0.4 s | 3x: integration adds validity and the hand-back |
+| coder growth 100k -> 1M, every shape | report per row and byte | <= 1.6x per row | per-row time at 1M <= 2x that at 100k | cache only; no superlinear step left |
+| distinct-string group_by / unique, 1M | <= 2 s | coder 129 ms + v0.1 remainder (~0.9 s: 5 % of 17-18 s) | <= 1.5 s | as measured, plus margin |
+| sort words of a distinct Raw string column, 1M | | 515 ms (coder + ranks) | <= 1.0 s | 2x |
+| distinct-key join 1M x 1M | <= 2 s | not measured end to end | <= 2 s (keep) | v0.1 5.1 s minus 1.4 s copy (W1a) minus the Map / clone walks |
+| 41 MB parse | <= 2 s | 987 ms | <= 1.5 s | header step, i32, inference prefix, EncAuto still to add |
+| 41 MB parse, 12 threads | <= 0.6 s | 472 ms (443 at 256 KiB pieces) | <= 0.6 s (keep) | the serial producer is ~0.34 s of it |
+| parse scaling 12 vs 1 (G2) | >= 4x | 2.1x end to end; 5.5x on the fork phase | **revise: >= 2x end to end and >= 4x on the fork phase** | serial fraction 34 % (producer): even infinite threads give < 3x (M_02 G2's own rule) |
+| read of a 1M-distinct str column (sales with `id` as str) | | 1,731 / 1,163 ms (1 / 12 threads; merge 629 ms serial) | <= 1.5 s / <= 0.8 s | after 17.4.7 (a) / (b) remove most of the serial merge |
+| parse peak RSS (share of G4) | (<= 600 MB whole workload) | 266 / 306-310 MB | <= 400 MB at 1-12 threads | leaves >= 200 MB of G4 to the engine |
+
+### 17.9 Measurements (PROVISIONAL; raw samples: bench/spikes/w0_strings/results/)
+
+**T1 coder (1 thread): ms = coding only (rows alive past the clock); ns/row and ns/char of the new coder**
+
+| shape | n | k | chars/row | new ms | old ms | speedup | new ns/row | new ns/char | load | codes equal |
+|---|---|---|---|---|---|---|---|---|---|---|
+| distinct | 100000 | 100000 | 10.7 | 8 | 895 | 112x | 80 | 7.4 | 11-37 | yes |
+| distinct | 300000 | 300000 | 10.7 | 35 | 3463 | 99x | 117 | 10.9 | 11-128 | yes |
+| distinct | 1000000 | 1000000 | 10.7 | 129 | 20355 | 158x | 129 | 12.0 | 10-221 | yes |
+| prefix | 100000 | 100000 | 40.7 | 23 | 5113 | 222x | 230 | 5.6 | 11-37 | yes |
+| prefix | 300000 | 300000 | 40.7 | 73 | 16245 | 223x | 243 | 6.0 | 12-196 | yes |
+| prefix | 1000000 | 1000000 | 40.7 | 308 | 87214 | 283x | 308 | 7.6 | 11-162 | yes |
+| skew | 100000 | 50008 | 7.4 | 8 | 394 | 49x | 80 | 10.9 | 11-128 | yes |
+| skew | 300000 | 150008 | 7.4 | 32 | 1574 | 49x | 107 | 14.5 | 11-237 | yes |
+| skew | 1000000 | 500008 | 7.4 | 118 | 8372 | 71x | 118 | 16.0 | 13-41 | yes |
+| equal | 100000 | 1 | 28.0 | 12 | 68 | 6x | 120 | 4.3 | 11-128 | yes |
+| equal | 300000 | 1 | 28.0 | 37 | 209 | 6x | 123 | 4.4 | 11-237 | yes |
+| equal | 1000000 | 1 | 28.0 | 117 | 685 | 6x | 117 | 4.2 | 11-37 | yes |
+| low | 100000 | 1000 | 3.9 | 8 | 67 | 8x | 80 | 20.6 | 11-128 | yes |
+| low | 300000 | 1000 | 3.9 | 27 | 179 | 7x | 90 | 23.1 | 11-221 | yes |
+| low | 1000000 | 1000 | 3.9 | 84 | 584 | 7x | 84 | 21.6 | 11-37 | yes |
+| uni | 100000 | 5016 | 3.6 | 8 | 167 | 21x | 80 | 22.5 | 11-128 | yes |
+| uni | 300000 | 5016 | 3.6 | 27 | 316 | 12x | 90 | 25.3 | 11-221 | yes |
+| uni | 1000000 | 5016 | 3.6 | 84 | 990 | 12x | 84 | 23.7 | 11-37 | yes |
+
+Load: the range of the samples' 1-minute load (other agents' jobs spiked it; medians are robust). The `old` times include nothing but coding; `codes equal` = identical checksums of the code arrays.
+
+**T2 lexical ranks (1 thread), ms: total (coder + stage) and the stage's parts**
+
+| shape | n | k | rrad total (code/pack/sort/rank) | rounds | rnew total (flat/sort) | rmap total (map) | rold | load | words equal |
+|---|---|---|---|---|---|---|---|---|---|
+| distinct | 100000 | 100000 | 38 (9/20/8/0) | 2 | 62 (22/32) | 389 (379) | 1070 | 13-86 | yes |
+| distinct | 300000 | 300000 | 137 (32/60/27/1) | 2 | 281 (61/184) | 1551 (1523) | - | 13-86 | yes |
+| distinct | 1000000 | 1000000 | 515 (133/220/147/3) | 2 | 1281 (194/958) | 7185 (7052) | 22979 | 12-264 | yes |
+| prefix | 100000 | 100000 | 107 (22/74/14/0) | 6 | 215 (72/126) | 1909 (1888) | 5245 | 13-86 | yes |
+| prefix | 300000 | 300000 | 379 (81/222/56/1) | 6 | 881 (279/479) | 5935 (5837) | - | 13-155 | yes |
+| prefix | 1000000 | 1000000 | 1254 (314/719/237/2) | 6 | 3194 (884/2102) | 24431 (24107) | - | 16-237 | yes |
+| skew | 100000 | 50008 | 25 (8/11/2/0) | 1 | 35 (10/16) | 154 (142) | 443 | 13-86 | yes |
+| skew | 300000 | 150008 | 76 (33/31/12/0) | 2 | 113 (28/51) | 573 (539) | - | 12-282 | yes |
+| skew | 1000000 | 500008 | 263 (119/101/43/1) | 2 | 587 (98/360) | 2888 (2748) | - | 18-144 | yes |
+| low | 100000 | 1000 | 8 (8/0/0/0) | 1 | 8 (0/0) | 9 (1) | 74 | 13-86 | yes |
+| low | 300000 | 1000 | 27 (26/0/0/0) | 1 | 26 (0/0) | 27 (1) | - | 12-264 | yes |
+| low | 1000000 | 1000 | 93 (92/0/1/1) | 1 | 88 (0/0) | 94 (2) | - | 18-144 | yes |
+| uni | 100000 | 5016 | 9 (8/0/1/0) | 2 | 9 (0/1) | 17 (8) | 182 | 13-86 | yes |
+| uni | 300000 | 5016 | 28 (27/0/1/0) | 2 | 29 (0/1) | 36 (9) | - | 12-264 | yes |
+| uni | 1000000 | 5016 | 98 (95/1/1/1) | 2 | 95 (0/1) | 97 (9) | - | 18-134 | yes |
+
+`rold` is today's `Sort.str_words` and also frees its input rows inside the call (it drops the strings it was handed); the other modes keep them alive. `words equal` = identical sort words in all four modes.
+
+**T3 parallel coding, owned hash partitions vs sequential borrowed (1M rows), ms**
+
+| shape | seq (1 thr) | part L, threads | total | hash | partition+move | lanes | remap+assemble | load | codes equal |
+|---|---|---|---|---|---|---|---|---|---|
+| distinct | 138 | L=0, 1 thr | 132 | 24 | 7 | 92 | 7 | 11-15 | yes |
+| distinct | 138 | L=4, 1 thr | 93 | 31 | 15 | 34 | 11 | 11-15 | yes |
+| distinct | 138 | L=4, 4 thr | 48 | 13 | 14 | 12 | 11 | 11-15 | yes |
+| distinct | 138 | L=4, 12 thr | 49 | 11 | 14 | 11 | 12 | 12-15 | yes |
+| distinct | 138 | L=6, 12 thr | 58 | 11 | 20 | 9 | 17 | 12-15 | yes |
+| prefix | 284 | L=0, 1 thr | 283 | 169 | 9 | 102 | 8 | 11-15 | yes |
+| prefix | 284 | L=4, 1 thr | 234 | 170 | 16 | 36 | 11 | 11-14 | yes |
+| prefix | 284 | L=4, 4 thr | 100 | 62 | 16 | 13 | 12 | 12-14 | yes |
+| prefix | 284 | L=4, 12 thr | 77 | 39 | 14 | 12 | 12 | 12-14 | yes |
+| prefix | 284 | L=6, 12 thr | 77 | 29 | 23 | 9 | 19 | 12-14 | yes |
+| skew | 123 | L=0, 1 thr | 132 | 20 | 7 | 96 | 7 | 12-15 | yes |
+| skew | 123 | L=4, 1 thr | 223 | 23 | 15 | 173 | 12 | 11-15 | yes |
+| skew | 123 | L=4, 4 thr | 116 | 11 | 13 | 80 | 12 | 11-15 | yes |
+| skew | 123 | L=4, 12 thr | 106 | 10 | 14 | 71 | 12 | 11-15 | yes |
+| skew | 123 | L=6, 12 thr | 104 | 11 | 20 | 58 | 16 | 11-15 | yes |
+| equal | 120 | L=0, 1 thr | 124 | 39 | 6 | 74 | 5 | 11-15 | yes |
+| equal | 120 | L=4, 1 thr | 131 | 43 | 8 | 74 | 5 | 11-15 | yes |
+| equal | 120 | L=4, 4 thr | 104 | 17 | 8 | 73 | 5 | 11-15 | yes |
+| equal | 120 | L=4, 12 thr | 102 | 14 | 8 | 73 | 6 | 11-15 | yes |
+| equal | 120 | L=6, 12 thr | 100 | 13 | 8 | 74 | 5 | 11-15 | yes |
+
+seq = the sequential borrowed coder in the same program. `hash` includes the ANode split/rebuild copies of the pointer blocks.
+
+**T4 hot-type tax in situ (41 MB), ms**
+
+| probe | ms | read | parse | max RSS MB | load |
+|---|---|---|---|---|---|
+| hs_solo --threads 1 | 361 | 132 | 229 | 805 | 12-13 |
+| rd_frame --threads 1 sales_1000000.csv 0 hstep | 889 | 268 | 623 | 1188 | 12-12 |
+| pk_cold --threads 1 | 197 | - | - | 181 | 12-12 |
+| rd_frame --threads 1 sales_1000000.csv 1048576 pack | 334 | - | - | 188 | 12-12 |
+| cnt_cold | 117 | - | - | 20 | 12-12 |
+| cnt_hot | 273 | - | - | 29 | 12-12 |
+
+cold builds: hs_solo (imports only csvparse.bend), pk_cold / cnt_cold (no List shared); hot: rd_frame (imports frame.bend), cnt_hot (one owned second use of a List).
+
+**T5 reader scaling (41 MB, 1M rows), ms**
+
+| command | total | producer (read) | fork (lanes) | merge | max RSS MB | user s | load | chk |
+|---|---|---|---|---|---|---|---|---|
+| rd_frame --threads 1 F 1048576 spike | 987 | 339 | 627 | 21 | 266 | 0.93 | 12-18 | 3590274662 |
+| rd_frame --threads 4 F 1048576 spike | 537 | 328 | 189 | 20 | 278 | 0.96 | 12-18 | 3590274662 |
+| rd_frame --threads 12 F 1048576 spike | 472 | 338 | 113 | 18 | 306 | 1.02 | 13-18 | 3590274662 |
+| rd_frame --threads 12 F 262144 spike | 443 | 330 | 85 | 22 | 310 | 1.02 | 13-18 | 3590274662 |
+| rd_frame --threads 12 F 4194304 spike | 528 | 353 | 166 | 16 | 460 | 1.00 | 13-18 | 3590274662 |
+| rd_frame --threads 1 F 4194304 spike | 1024 | 356 | 635 | 22 | 396 | 0.94 | 13-18 | 3590274662 |
+| rd_solo --threads 1 F 1048576 spike | 1034 | 365 | 641 | 23 | 266 | 0.96 | 13-18 | 3590274662 |
+| rd_solo --threads 12 F 1048576 spike | 498 | 361 | 112 | 20 | 306 | 1.03 | 13-18 | 3590274662 |
+| rd_frame --threads 1 F 1048576 ref | 5538 | 5538 | - | - | 1227 | 4.47 | 13-18 | 3590274662 |
+| rd_frame --threads 12 F 1048576 ref | 2276 | 2276 | - | - | 1245 | 4.75 | 12-18 | 3590274662 |
+| rd_frame --threads 1 F 1048576 hstep | 844 | 261 | - | - | 1188 | 1.47 | 13-18 | 1000001 |
+| rd_frame --threads 1 F 1048576 spike SSSUFFB | 1731 | 355 | 741 | 629 | 449 | 2.13 | 13-18 | 3551339577 |
+| rd_frame --threads 12 F 1048576 spike SSSUFFB | 1163 | 348 | 132 | 681 | 488 | 2.24 | 13-18 | 3551339577 |
+| rd_frame --threads 1 F 1048576 ref SSSUFFB | 5235 | 5235 | - | - | 1236 | 4.43 | 13-18 | 244979450 |
+
+F = bench/data/sales_1000000.csv (41.2 MB, 1M rows); the spike reads with the explicit schema `USSUFFB` (Dictionary strings), `ref` is today's `Csv.read_with` with the same schema (EncAuto default); equal chk = identical cells, validity, codes and dictionary sizes. `SSSUFFB` reads `id` as a 1M-distinct str column (ref: EncAuto falls back to Raw, so its chk differs by construction).
+
+**T5 reader phase decomposition (1 thread), ms**
+
+| command | total | producer (read) | fork (lanes) | merge | max RSS MB | user s | load | chk |
+|---|---|---|---|---|---|---|---|---|
+| rd_frame --threads 1 F 1048576 spike ------- | 748 | 343 | 396 | 0 | 197 | 0.70 | 15-17 | 1088006010 |
+| rd_frame --threads 1 F 1048576 spike U------ | 749 | 344 | 407 | 3 | 206 | 0.71 | 15-17 | 114751354 |
+| rd_frame --threads 1 F 1048576 spike ----F-- | 797 | 352 | 441 | 3 | 206 | 0.73 | 15-17 | 3603036329 |
+| rd_frame --threads 1 F 1048576 spike -S----- | 824 | 338 | 461 | 4 | 207 | 0.76 | 15-17 | 572181243 |
+| rd_frame --threads 1 F 1048576 spike --S---- | 820 | 332 | 467 | 4 | 207 | 0.77 | 15-16 | 228599724 |
+| rd_frame --threads 1 F 1048576 spike ------B | 765 | 348 | 416 | 3 | 206 | 0.71 | 15-16 | 2162188621 |
+| rd_frame --threads 1 F 1048576 spike USSUFFB | 1045 | 351 | 655 | 21 | 262 | 0.95 | 15-16 | 3590274662 |
+| rd_frame --threads 1 F 1048576 pack | 326 | - | - | - | 188 | 0.30 | 15-16 | 42193279 |
+
+A dash skips that column's loop: the fork time of a column = its row minus the tokenizer-only row (`-------`).
+
+**T5b adversarial boundaries** (tools/adv.py, results/t5_adv.jsonl): 30 files (quoted newlines in every
+record with LF and CRLF; CR soup in bare fields, lone CR, `\r\r\n`, a final CR without LF; 2- to
+4-byte UTF-8 in typed and str columns; records longer than 100 pieces; blank lines with k = 1 and
+k > 1; no final newline; invalid UTF-8 bytes that decode to the same U+FFFD; malformed quoting
+early, late, after a closing quote, unclosed at the end, CR then quote, malformed after a ragged
+record; ragged short and long; a ragged record after a bad cell; bad cells competing across
+columns and rows; f32 edges and 20,000 random fast-path decimals; u32 edges, overflow, `+5`; bool
+spellings; escaped quoted numbers; quote runs of every length straddling piece edges) x 15 piece
+sizes (1, 2, 3, 4, 5, 7, 8, 13, 16, 31, 64, 97, 256, 4096, 1 MiB bytes): spike = reference on 28
+files x 15 sizes; the 2 exceptions are header-step cases the spike does not implement (17.4.1):
+`lead_blank` (blank lines before the header, piece sizes <= 7) and `empty` (the dtype-count
+check of an empty file).)
+
+**T6 hashing every row: cons String vs flat UTF-8 buffer (1 thread), ms**
+
+| shape | n | code points | flat words | cons hash | flat hash | flat build | cons ns per code point | flat ns per code point | load |
+|---|---|---|---|---|---|---|---|---|---|
+| distinct | 1000000 | 10741299 | 2997670 | 23 | 2 | 210 | 2.1 | 0.19 | 11-12 |
+| prefix | 1000000 | 40741299 | 10767147 | 169 | 7 | 740 | 4.1 | 0.17 | 12-12 |
+| low | 1000000 | 3890004 | 1000000 | 9 | 1 | 63 | 2.3 | 0.26 | 12-13 |
+| uni | 1000000 | 3550444 | 1927869 | 9 | 2 | 81 | 2.5 | 0.56 | 12-13 |
+
+1M rows (the 100k rows are below the 1 ms clock for the flat hash). Per code point; `flat build` (two walks of each cons string) is what converting an existing cons column costs.
+
+### 17.10 M_02 assumptions that did not hold, and the revisions
+
+1. **"Read the file in pieces with File.read_at and fork over them" (Fable P3) holds only
+   halfway.** Pieces can be read, but only sequentially, and their bytes arrive as hot cons lists
+   built on the IO thread: in a real program the producer is a serial ~0.33 s per 41 MB (floor
+   ~0.27 s to build and walk the lists). Revision: a sequential producer that does the lexical
+   scan in the same walk; G2's parse target becomes >= 2x end to end and >= 4x on the fork phase
+   (17.8). The lever beyond that is upstream: a Base primitive reading into a U32 buffer (e.g.
+   `File.read_words(f, off, max) -> Array<U32>`) would remove most of the serial 0.33 s. Recorded
+   as a toolchain request, not assumed.
+2. **"Parser-private cold types" (D5 / D6)**: private loop RECORDS do stay cold in the integrated
+   program; private cons CHAR / CELL types would not, because their input is the File API's hot
+   String / List. Revision: no cons parser; flat packed bytes, cold scalar records, one hot
+   boundary per piece, charged to the producer.
+3. **Associative lexical-state summaries** are unnecessary with a sequential producer (17.4.2);
+   kept as the documented option for a future parallel producer.
+4. **The 64 MiB default piece** (v0.1, 14 M4) was a cons-list allocator effect; flat regions run
+   as fast with 1 MiB / 256 KiB pieces at 1 thread and need them for 12-thread balance.
+5. **A parallel coder is not needed for G3**: the sequential flat coder meets the distinct-key
+   cells by a wide margin; owned partitions are approved and optional (W2.5).
+6. **W7 (flat string storage)**: 17.11.
+
+### 17.11 Flat string storage sizing (input to W7)
+
+Per row of a Raw string column (T6 and the T1 RSS): a hot cons `String` costs ~24 bytes per code
+point (16-byte cell + the seal's redirect cell) + 8 bytes for the row slot: ~270 bytes for an
+11-character key, ~1 KB for a 41-character one. A flat buffer (UTF-8 bytes packed 4 per word +
+a 4-byte offset and a 4-byte length per row) costs bytes + 8: ~19 / ~49 bytes (14-20x smaller).
+A Dictionary costs 4 bytes per row + its entries (cons) + its index. Hashing every row: 2.1-4.1
+ns per code point on cons strings laid out in order (slower when scattered), 0.2-0.6 ns per code
+point flat (T6: 23 vs 2 ms for 1M short keys, 169 vs 7 ms for 1M 41-char keys); building the flat
+form from cons strings costs 210 / 740 ms (two walks), i.e. a flat column pays only if it is
+produced directly (by the reader, from its packed bytes) and never converted back per operation.
+Every string operation of the API (predicates, `len_chars`, casts, render, dump, `Column.cell`,
+the String values the facade returns) and the proof model (`LAWS.scell`) work on cons `String`, so
+a third storage needs a decode at each of those boundaries or byte-level re-implementations, plus
+a third case in the storage proofs (M4 chose a sum type to avoid a sixth Column constructor).
+**Recommendation**: do not schedule W7 in v0.2 unless the gate shows a Raw-string cell (parse of a
+high-cardinality column, RSS) outside 17.8 after W2 / W6; the distinct-key cells are met with the
+coder alone. If scheduled, scope it to "reader-produced flat Raw columns, decoded at the API
+boundary", measured against the per-region Raw decode of 17.4.7.

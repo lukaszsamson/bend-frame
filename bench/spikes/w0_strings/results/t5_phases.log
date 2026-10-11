@@ -1,0 +1,50 @@
+rep 0 load   16.7 ms     748 real   0.76 user 0.7 rss 197.6 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike -------
+rep 0 load   16.7 ms     768 real   0.78 user 0.72 rss 207.4 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike U------
+rep 0 load   16.7 ms     845 real   0.86 user 0.75 rss 207.4 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike ----F--
+rep 0 load   16.7 ms     830 real   0.85 user 0.77 rss 206.9 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike -S-----
+rep 0 load   15.8 ms     803 real   0.82 user 0.76 rss 207.0 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike --S----
+rep 0 load   15.8 ms     765 real   0.78 user 0.71 rss 206.4 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike ------B
+rep 0 load   15.8 ms    1046 real   1.06 user 0.96 rss 261.7 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike USSUFFB
+rep 0 load   15.8 ms     373 real   0.38 user 0.31 rss 188.9 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 pack
+rep 1 load   15.8 ms     803 real   0.82 user 0.72 rss 206.4 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike U------
+rep 1 load   15.8 ms     824 real   0.84 user 0.73 rss 207.4 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike ----F--
+rep 1 load   15.7 ms     869 real   0.88 user 0.79 rss 207.9 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike -S-----
+rep 1 load   15.7 ms     786 real   0.80 user 0.75 rss 207.0 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike --S----
+rep 1 load   15.7 ms     747 real   0.76 user 0.7 rss 204.5 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike ------B
+rep 1 load   15.7 ms    1045 real   1.06 user 0.93 rss 212.4 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike USSUFFB
+rep 1 load   15.7 ms     325 real   0.33 user 0.3 rss 187.9 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 pack
+rep 1 load   15.7 ms     804 real   0.83 user 0.7 rss 193.4 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike -------
+rep 2 load   15.7 ms     778 real   0.79 user 0.72 rss 206.4 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike ----F--
+rep 2 load   15.7 ms     824 real   0.84 user 0.76 rss 195.8 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike -S-----
+rep 2 load   15.7 ms     896 real   0.91 user 0.78 rss 199.6 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike --S----
+rep 2 load   15.7 ms     788 real   0.80 user 0.72 rss 204.5 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike ------B
+rep 2 load   15.7 ms    1138 real   1.15 user 0.97 rss 248.7 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike USSUFFB
+rep 2 load   15.7 ms     350 real   0.36 user 0.31 rss 173.0 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 pack
+rep 2 load   15.4 ms     723 real   0.74 user 0.69 rss 196.6 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike -------
+rep 2 load   15.4 ms     740 real   0.75 user 0.7 rss 206.4 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike U------
+rep 3 load   15.4 ms     794 real   0.80 user 0.75 rss 206.9 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike -S-----
+rep 3 load   15.4 ms     832 real   0.84 user 0.77 rss 208.0 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike --S----
+rep 3 load   15.4 ms     749 real   0.76 user 0.7 rss 207.4 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike ------B
+rep 3 load   15.4 ms     989 real   1.00 user 0.93 rss 266.7 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike USSUFFB
+rep 3 load   15.2 ms     326 real   0.33 user 0.3 rss 187.9 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 pack
+rep 3 load   15.2 ms     768 real   0.78 user 0.7 rss 197.6 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike -------
+rep 3 load   15.2 ms     749 real   0.76 user 0.71 rss 207.4 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike U------
+rep 3 load   15.2 ms     742 real   0.75 user 0.71 rss 206.4 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike ----F--
+rep 4 load   15.2 ms     820 real   0.83 user 0.77 rss 207.0 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike --S----
+rep 4 load   15.2 ms     833 real   0.85 user 0.77 rss 207.4 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike ------B
+rep 4 load   15.2 ms    1011 real   1.03 user 0.95 rss 266.7 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike USSUFFB
+rep 4 load   14.8 ms     322 real   0.32 user 0.29 rss 187.9 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 pack
+rep 4 load   14.8 ms     715 real   0.73 user 0.67 rss 196.6 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike -------
+rep 4 load   14.8 ms     726 real   0.74 user 0.69 rss 206.4 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike U------
+rep 4 load   14.8 ms     797 real   0.81 user 0.74 rss 206.4 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike ----F--
+rep 4 load   14.8 ms     795 real   0.81 user 0.75 rss 207.9 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike -S-----
+
+summary (median [min..max]); ms = the program's own timer
+ms         748 [715..804]  user_s 0.7  rss_mb     197 [193..198]  load    15 [15..17]  chk 1088006010  :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike -------
+ms         749 [726..803]  user_s 0.71  rss_mb     206 [206..207]  load    15 [15..17]  chk 114751354  :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike U------
+ms         797 [742..845]  user_s 0.73  rss_mb     206 [206..207]  load    16 [15..17]  chk 3603036329  :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike ----F--
+ms         824 [794..869]  user_s 0.76  rss_mb     207 [196..208]  load    16 [15..17]  chk 572181243  :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike -S-----
+ms         820 [786..896]  user_s 0.77  rss_mb     207 [200..208]  load    16 [15..16]  chk 228599724  :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike --S----
+ms         765 [747..833]  user_s 0.71  rss_mb     206 [204..207]  load    16 [15..16]  chk 2162188621  :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike ------B
+ms       1045 [989..1138]  user_s 0.95  rss_mb     262 [212..267]  load    16 [15..16]  chk 3590274662  :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 spike USSUFFB
+ms         326 [322..373]  user_s 0.3  rss_mb     188 [173..189]  load    16 [15..16]  chk 42193279  :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 pack
