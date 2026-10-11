@@ -123,3 +123,45 @@ coverage:
 	python3 scripts/coverage_matrix.py
 
 ci: coverage
+
+# ---- W0 measurement harness (bench/m2/README.md, plans/M_02.txt W0, G2-G6) ---------------------
+# make m2-baseline            materialise commit 3612482 into build/m2/baseline-src (git archive) and build its
+#                             native driver; build/m2/baseline/driver and build/m2/candidate/driver coexist
+# make m2-candidate           build the driver from the current checkout (run.py refuses a stale one)
+# make m2-data                generate bench/data (sales, hc, nunique, long-prefix keys) and check the frozen sha256
+# make m2-smoke               1 process per cell, 1k/100k rows only, threads 1 and 12, both binaries (sanity check)
+# make m2-bench LABEL=x       the FULL gate run: every frozen workload, threads 1/4/12, 5 fresh interleaved
+#                             processes per cell, results in bench/m2/results/x.jsonl. Needs a quiet machine
+#                             (load < M2_QUIET at the start); on a shared machine add M2_ARGS="--provisional"
+# make m2-summary LABEL=x     medians, ranges, ratios candidate/baseline, 12-vs-1 scaling, RSS, stage table
+# make m2-freeze              re-freeze bench/m2/expected.json from the BASELINE binary (deliberate act)
+# make m2-micro LABEL=x       the preserved review probes (bench/micro) under the interleaved runner
+# The driver and the probes are also compiled by `make check` (EXAMPLES below).
+EXAMPLES += $(wildcard bench/m2/*.bend) $(wildcard bench/micro/*.bend)
+.PHONY: m2-baseline m2-candidate m2-data m2-smoke m2-bench m2-summary m2-freeze m2-micro
+LABEL ?= $(shell date +%Y%m%d-%H%M%S)
+M2_QUIET ?= 2
+M2_ARGS ?=
+m2-baseline:
+	bench/m2/baseline.sh
+
+m2-candidate:
+	bench/m2/baseline.sh --candidate
+
+m2-data:
+	uv run --project bench python bench/m2/gen.py
+
+m2-smoke: m2-baseline m2-candidate
+	uv run --project bench python bench/m2/run.py run --label smoke-$(LABEL) --smoke $(M2_ARGS)
+
+m2-bench: m2-baseline m2-candidate
+	uv run --project bench python bench/m2/run.py run --label $(LABEL) --require-quiet $(M2_QUIET) $(M2_ARGS)
+
+m2-summary:
+	uv run --project bench python bench/m2/run.py summary bench/m2/results/$(LABEL).jsonl --raw
+
+m2-freeze: m2-baseline
+	uv run --project bench python bench/m2/run.py freeze
+
+m2-micro:
+	uv run --project bench python bench/m2/run.py micro --label $(LABEL)

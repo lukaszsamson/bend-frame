@@ -1,0 +1,17 @@
+{
+ "bench/data/hc/dim_100000.csv": "93bf9aaf9ace71702bd49cd818ca3c9144569d98a158771999025c726531418e",
+ "bench/data/hc/dim_1000000.csv": "13a888454a714a9d03a79896aed407cf6a44420d8164d50c060342fd4838279e",
+ "bench/data/hc/dim_300000.csv": "661f7a288307b6b3deef1d09a07f1e2856da07b403fdb4d506e746c5bfc842b7",
+ "bench/data/hc/t_100000.csv": "aeac994f872f726bca49754daf5226477ae644a8d36a4fd5a5bfbd4718f97ed3",
+ "bench/data/hc/t_1000000.csv": "5b6345645c84c1af941edbef52a8abce4afa4d3a84fb28d0d5f1f6e68a269b8b",
+ "bench/data/hc/t_300000.csv": "5a4242568cd1a1788d8698baaf73c072508b44b17c1142e9669d8f22fe22aebf",
+ "bench/data/m2/lp_dim_100000.csv": "1aadcffb8dbf7ce852fa58c2a5a8797b92ac7254c539f0b6b41a3316575f6c1c",
+ "bench/data/m2/lp_dim_300000.csv": "b4c869cd8affe849ebc98b25c6be4f2fb01098a838365b8953faf99d8bc150ff",
+ "bench/data/m2/lp_t_100000.csv": "bbbd060ad15e055db76e6db434b7f4e06554e2e9eb5555348d667b67e6c4077c",
+ "bench/data/m2/lp_t_300000.csv": "9bbee7fa45db21f00e833475c80486353eaf859bcaa1d077180bf79fdc9865e2",
+ "bench/data/m2/nunique_1048576.csv": "498cf388b8957cd8d72246760590cd46f13f53b7be7776945479aaec9895c7df",
+ "bench/data/products.csv": "b0222ca6acf5a069171574286e9a327373a5c58ea5808dd68e0fb3fe603be54c",
+ "bench/data/sales_1000.csv": "bad9d048a89a7bf729acff95e3f4ebde9e8ddfc74e2b0f9ab0d24c7f8d87cae8",
+ "bench/data/sales_100000.csv": "1446e10c64f12d765409a026e75cf96ce34e7dcfca49a6f21c5fbf3a328bc04e",
+ "bench/data/sales_1000000.csv": "85cc7d7c5b5a9ae832e45e54ebea83e0d6d410b01c5ffd169d223e3fe8ab74c8"
+}

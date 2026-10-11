@@ -1,0 +1,1308 @@
+{
+ "ctl_q1_1k": {
+  "chk": 585174541,
+  "csv_bytes": 4812,
+  "csv_sha256": "7df052732ef0d2ae83dae79575b8aec041286a0e7ec0c291919921eda4372f6b",
+  "dump": 2590510785,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    11.23,
+    48.55,
+    91.01
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:14:56+00:00"
+  },
+  "has_dump": 1,
+  "rows": 248
+ },
+ "ctl_q2_1k": {
+  "chk": 1208793071,
+  "csv_bytes": 52551,
+  "csv_sha256": "ec86328f9120d6666c218232937ee4fcd05b3d768663c0eac02bef53f96a940b",
+  "dump": 151939821,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    12.11,
+    47.5,
+    90.14
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:15:08+00:00"
+  },
+  "has_dump": 1,
+  "rows": 1000
+ },
+ "ctl_q3_1k": {
+  "chk": 3965476956,
+  "csv_bytes": 334,
+  "csv_sha256": "1580e8d8789df1d3ac9b9e143255d83ce2f1211db1137e2d23603b9476f3b89e",
+  "dump": 1672705308,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    12.41,
+    45.83,
+    88.8
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:15:19+00:00"
+  },
+  "has_dump": 1,
+  "rows": 8
+ },
+ "ctl_q4_1k": {
+  "chk": 434690393,
+  "csv_bytes": 481,
+  "csv_sha256": "3843b06e5a3a86e2301ec36436567853df02a5121455b38de747f23fdf37c1ed",
+  "dump": 3555956276,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    12.41,
+    45.83,
+    88.8
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:15:20+00:00"
+  },
+  "has_dump": 1,
+  "rows": 10
+ },
+ "ctl_q5_1k": {
+  "chk": 554724739,
+  "csv_bytes": 83,
+  "csv_sha256": "95ba9718f8ce7e8c2696cba17331e5062d9ff41f72f170890b81c3b19e2a4df0",
+  "dump": 2323373391,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    12.41,
+    45.83,
+    88.8
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:15:21+00:00"
+  },
+  "has_dump": 1,
+  "rows": 6
+ },
+ "ctl_q6_1k": {
+  "chk": 2382741731,
+  "csv_bytes": 373,
+  "csv_sha256": "17598b5041f17078ed98420ef626af0b6aa23ddac7e4af3a4a72b0aba7ad1705",
+  "dump": 1593080013,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    12.41,
+    45.83,
+    88.8
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:15:22+00:00"
+  },
+  "has_dump": 1,
+  "rows": 9
+ },
+ "filter_sel0_1m": {
+  "chk": 930728968,
+  "dump": 2452404073,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    23.82,
+    28.66,
+    61.09
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:23:12+00:00"
+  },
+  "has_dump": 1,
+  "rows": 0
+ },
+ "filter_sel100_1m": {
+  "chk": 521005157,
+  "dump": 0,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    50.43,
+    36.51,
+    59.9
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:25:09+00:00"
+  },
+  "has_dump": 0,
+  "rows": 1000000
+ },
+ "filter_sel1_1m": {
+  "chk": 1255134924,
+  "dump": 0,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    33.55,
+    31.2,
+    60.57
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:23:51+00:00"
+  },
+  "has_dump": 0,
+  "rows": 9837
+ },
+ "filter_sel50_1m": {
+  "chk": 3357616475,
+  "dump": 0,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    29.16,
+    30.4,
+    59.44
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:24:16+00:00"
+  },
+  "has_dump": 0,
+  "rows": 499547
+ },
+ "lp_group_100k": {
+  "chk": 1208466178,
+  "dump": 0,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    36.27,
+    34.48,
+    58.22
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:25:48+00:00"
+  },
+  "has_dump": 0,
+  "rows": 100000
+ },
+ "lp_group_300k": {
+  "chk": 1704231506,
+  "dump": 0,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    30.71,
+    33.22,
+    56.79
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:26:23+00:00"
+  },
+  "has_dump": 0,
+  "rows": 300000
+ },
+ "lp_join_100k": {
+  "chk": 2894049370,
+  "dump": 0,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    32.6,
+    33.63,
+    57.08
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:26:17+00:00"
+  },
+  "has_dump": 0,
+  "rows": 90000
+ },
+ "lp_join_300k": {
+  "chk": 2752780424,
+  "dump": 0,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    33.71,
+    32.7,
+    54.41
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:27:39+00:00"
+  },
+  "has_dump": 0,
+  "rows": 270000
+ },
+ "lp_unique_100k": {
+  "chk": 4061852539,
+  "dump": 0,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    31.03,
+    33.4,
+    57.42
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:26:02+00:00"
+  },
+  "has_dump": 0,
+  "rows": 100000
+ },
+ "lp_unique_300k": {
+  "chk": 2553432395,
+  "dump": 0,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    20.61,
+    30.29,
+    54.64
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:27:03+00:00"
+  },
+  "has_dump": 0,
+  "rows": 300000
+ },
+ "nunique_1m": {
+  "chk": 4108286729,
+  "dump": 1084652324,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    32.48,
+    31.06,
+    60.18
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:24:00+00:00"
+  },
+  "has_dump": 1,
+  "rows": 1
+ },
+ "parse_1m": {
+  "chk": 521005157,
+  "dump": 0,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    24.42,
+    28.86,
+    61.35
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:23:08+00:00"
+  },
+  "has_dump": 0,
+  "rows": 1000000
+ },
+ "q1_100k": {
+  "chk": 2887300695,
+  "csv_bytes": 530543,
+  "csv_sha256": "5af7aad0402417fd2eb82c91573232479c6f033bd1e4553c595730d88bc53efd",
+  "dump": 0,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    18.33,
+    27.86,
+    64.57
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:21:38+00:00"
+  },
+  "has_dump": 0,
+  "rows": 25056
+ },
+ "q1_1m": {
+  "chk": 383004541,
+  "csv_bytes": 5528682,
+  "csv_sha256": "fbe528aea7f3dc62da91511a1a313293b9a8584f6ef1f670ca555b7483f472b9",
+  "dump": 0,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    12.87,
+    44.3,
+    87.5
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:15:35+00:00"
+  },
+  "has_dump": 0,
+  "rows": 249356
+ },
+ "q2_100k": {
+  "chk": 371440428,
+  "csv_bytes": 5430982,
+  "csv_sha256": "1b976330b0e2bd447a11cef5e2c6b65f40559c36cf4d9305129ff7ce3b5ff8b3",
+  "dump": 0,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    17.66,
+    27.57,
+    64.25
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:21:41+00:00"
+  },
+  "has_dump": 0,
+  "rows": 100000
+ },
+ "q2_1m": {
+  "chk": 1458363826,
+  "csv_bytes": 55307702,
+  "csv_sha256": "14a108bdea7dc706c3bff303e6b540a56a6ab4060fdb16cc03ec73503cfcbc2f",
+  "dump": 0,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    12.58,
+    42.22,
+    85.75
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:15:57+00:00"
+  },
+  "has_dump": 0,
+  "rows": 1000000
+ },
+ "q3_100k": {
+  "chk": 1309244577,
+  "csv_bytes": 368,
+  "csv_sha256": "f94772cad71df8f6d0ee181c8910f7d3369f3c2a352d5d654db0b795059a6523",
+  "dump": 2807431626,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    11.86,
+    49.31,
+    91.52
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:14:53+00:00"
+  },
+  "has_dump": 1,
+  "rows": 8
+ },
+ "q3_1m": {
+  "chk": 2441642363,
+  "csv_bytes": 384,
+  "csv_sha256": "4edfc90d5fca63acdef22997afd0bf623803c2b8822a1e4ded12230594f2a905",
+  "dump": 4020636450,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    19.69,
+    29.94,
+    68.36
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:20:28+00:00"
+  },
+  "has_dump": 1,
+  "rows": 8
+ },
+ "q4_100k": {
+  "chk": 3250823016,
+  "csv_bytes": 504,
+  "csv_sha256": "4ac332c16f765300aa3b20433f198edd8d3c498379f9e6e02f2cce02b30841d2",
+  "dump": 262793138,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    24.42,
+    28.86,
+    61.35
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:23:06+00:00"
+  },
+  "has_dump": 1,
+  "rows": 10
+ },
+ "q4_1m": {
+  "chk": 996192388,
+  "csv_bytes": 506,
+  "csv_sha256": "94e000d9ef70fc03772cf6c8e84dba559db19b5ed4d40b9e4ca2bb01a9cc17da",
+  "dump": 3759918618,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    24.37,
+    29.97,
+    66.82
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:21:01+00:00"
+  },
+  "has_dump": 1,
+  "rows": 10
+ },
+ "q5_100k": {
+  "chk": 2627914167,
+  "csv_bytes": 95,
+  "csv_sha256": "ba9d46de24b777695a1f826096595c567edf74aae5704ce17ac9b9768e82a817",
+  "dump": 3669093122,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    24.42,
+    28.86,
+    61.35
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:23:08+00:00"
+  },
+  "has_dump": 1,
+  "rows": 6
+ },
+ "q5_1m": {
+  "chk": 3210337892,
+  "csv_bytes": 101,
+  "csv_sha256": "8813a452cabd89b5d50dc57b08052be6662ff6f84d39be155626d19b348993a6",
+  "dump": 3167531697,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    18.33,
+    27.86,
+    64.57
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:21:38+00:00"
+  },
+  "has_dump": 1,
+  "rows": 6
+ },
+ "q6_100k": {
+  "chk": 2981589996,
+  "csv_bytes": 395,
+  "csv_sha256": "0a3a3032697f4b099f56c28959ee72183857d33f986f8b7722c444dd0e6583a1",
+  "dump": 4255909087,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    23.82,
+    28.66,
+    61.09
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:23:10+00:00"
+  },
+  "has_dump": 1,
+  "rows": 9
+ },
+ "q6_1m": {
+  "chk": 2704508534,
+  "csv_bytes": 406,
+  "csv_sha256": "f8e2d59196dd4c5da7088ac73f9f67b9c07cfea4500543aa525a09976754ecf8",
+  "dump": 2937286861,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    29.57,
+    30.13,
+    62.76
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:22:40+00:00"
+  },
+  "has_dump": 1,
+  "rows": 9
+ },
+ "stages_100k": {
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    12.41,
+    45.83,
+    88.8
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:15:23+00:00"
+  },
+  "stages": {
+   "describe_q6_chk": 2981589996,
+   "describe_q6_rows": 9,
+   "filter_q1_chk": 1360928427,
+   "filter_q1_rows": 25056,
+   "groupby_q3_chk": 1263337109,
+   "groupby_q3_rows": 8,
+   "groupby_q5_chk": 1568671999,
+   "groupby_q5_rows": 6,
+   "head_q4_chk": 3250823016,
+   "head_q4_rows": 10,
+   "join_q5_chk": 2838978655,
+   "join_q5_rows": 100000,
+   "select_q1_chk": 2887300695,
+   "select_q1_rows": 25056,
+   "sort_q3_chk": 1309244577,
+   "sort_q3_rows": 8,
+   "sort_q4_chk": 2111874593,
+   "sort_q4_rows": 100000,
+   "sort_q5_chk": 2627914167,
+   "sort_q5_rows": 6,
+   "withcols_q2_chk": 371440428,
+   "withcols_q2_rows": 100000
+  }
+ },
+ "stages_1m": {
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    29.16,
+    30.4,
+    59.44
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:24:14+00:00"
+  },
+  "stages": {
+   "describe_q6_chk": 2704508534,
+   "describe_q6_rows": 9,
+   "filter_q1_chk": 4188970880,
+   "filter_q1_rows": 249356,
+   "groupby_q3_chk": 3746928779,
+   "groupby_q3_rows": 8,
+   "groupby_q5_chk": 2341788632,
+   "groupby_q5_rows": 6,
+   "head_q4_chk": 996192388,
+   "head_q4_rows": 10,
+   "join_q5_chk": 3894102675,
+   "join_q5_rows": 1000000,
+   "select_q1_chk": 383004541,
+   "select_q1_rows": 249356,
+   "sort_q3_chk": 2441642363,
+   "sort_q3_rows": 8,
+   "sort_q4_chk": 1146554959,
+   "sort_q4_rows": 1000000,
+   "sort_q5_chk": 3210337892,
+   "sort_q5_rows": 6,
+   "withcols_q2_chk": 1458363826,
+   "withcols_q2_rows": 1000000
+  }
+ },
+ "str_group_100k": {
+  "chk": 1376044455,
+  "dump": 0,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    47.51,
+    36.14,
+    59.63
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:25:18+00:00"
+  },
+  "has_dump": 0,
+  "rows": 100000
+ },
+ "str_group_1m": {
+  "chk": 865068551,
+  "dump": 0,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    18.33,
+    27.86,
+    64.57
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:21:38+00:00"
+  },
+  "has_dump": 0,
+  "rows": 1000000
+ },
+ "str_group_300k": {
+  "chk": 2949644513,
+  "dump": 0,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    42.6,
+    35.47,
+    59.12
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:25:25+00:00"
+  },
+  "has_dump": 0,
+  "rows": 300000
+ },
+ "str_join_100k": {
+  "chk": 2457326127,
+  "dump": 0,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    45.79,
+    35.97,
+    59.44
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:25:22+00:00"
+  },
+  "has_dump": 0,
+  "rows": 90000
+ },
+ "str_join_1m": {
+  "chk": 1151196290,
+  "dump": 0,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    35.86,
+    31.61,
+    60.89
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:23:45+00:00"
+  },
+  "has_dump": 0,
+  "rows": 900000
+ },
+ "str_join_300k": {
+  "chk": 2491519566,
+  "dump": 0,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    37.17,
+    34.63,
+    58.41
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:25:40+00:00"
+  },
+  "has_dump": 0,
+  "rows": 270000
+ },
+ "str_unique_100k": {
+  "chk": 4268446718,
+  "dump": 0,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    45.79,
+    35.97,
+    59.44
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:25:20+00:00"
+  },
+  "has_dump": 0,
+  "rows": 100000
+ },
+ "str_unique_1m": {
+  "chk": 612271006,
+  "dump": 0,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    29.57,
+    30.13,
+    62.76
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:22:44+00:00"
+  },
+  "has_dump": 0,
+  "rows": 1000000
+ },
+ "str_unique_300k": {
+  "chk": 2402794040,
+  "dump": 0,
+  "frozen_from": {
+   "binary": "baseline",
+   "build": {
+    "bend_version": "bend 2.0.36",
+    "binary_sha256": "ab19dd9f943e18f2b83e4b3a6d01ccd8d734526cef5cd2260dce76fefea305b9",
+    "built_at": "2026-10-10T23:14:21Z",
+    "commit": "36124822c90e45c98d558826c9f0c554593cf199",
+    "dirty_src": false,
+    "driver_hash": "0c5675572fb8fb17be55f76eac216a380ed3c2caf6bedaaa868fbda97d224a36",
+    "facade_changed_lines_vs_baseline": null,
+    "src_hash": "0bf1c69670ed3c2f45fd8711ab0330c5fe0eb43e1e5ad4e212740184f144c162",
+    "which": "baseline"
+   },
+   "load": [
+    41.35,
+    35.33,
+    58.93
+   ],
+   "threads": [
+    1,
+    12
+   ],
+   "ts": "2026-10-10T23:25:33+00:00"
+  },
+  "has_dump": 0,
+  "rows": 300000
+ }
+}
