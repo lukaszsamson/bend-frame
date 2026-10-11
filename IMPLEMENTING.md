@@ -1049,3 +1049,41 @@ Practical lessons gathered while building bend-frame. Read after DESIGN.md
   answers "source not in env: " (empty name) where `collect` / `collect_schema` answer the static
   "concat_vertical: no inputs" first. Not reachable through collect; do not use it as "a plan with
   no Source" (use `DF.scan_csv_schema`, which has none).
+
+## W0 harness (bench/m2/, v0.2 performance milestone)
+
+- **One driver, two builds.** `bench/m2/driver.bend` is built unchanged at the pinned baseline (`git archive 3612482`
+  into `build/m2/baseline-src`, the driver copied in) and at the candidate checkout, so the binaries differ only in
+  `src/` and `frame.bend`. It uses the public facade for every operation and `src/` only in a marked shim (the cell
+  walk `Fw.*`, the content hash `Hc.*`, `P.GroupBy`). `bench/main.bend` stays as it was (`scripts/bench.sh`,
+  `make bench-check`); the same bend binary produced byte-identical drivers from identical sources
+  (`binary_sha256` in `BUILD.json`), so builds are reproducible.
+- **Hashing a frame without building text.** A streaming order-sensitive FNV-1a per column through
+  `Kernel.fold`: names, dtype tag, length, validity, payload. Null slots are reset with `Kernel.mask_data` first
+  (the hash must not see garbage under nulls); an all-ones mask is normalised to `AllValid` (popcount == n);
+  F32 as `F32.bits` with NaN canonicalised (`Kernel.is_nan`); a Dictionary column hashes the dict entries once
+  (`Kernel.map`) and gathers the hash per row (`Kernel.gather`), so it equals the Raw column's hash and never
+  decodes (decoding copies every string, which would put a spike into the RSS of the parse workload). The check consumes the frame (the last
+  use), so no `Column.clone`. `driver selfcheck f.csv` proves Raw = Dictionary = Auto = clone.
+- **Compiler rules met on the way** (all errors of `--check-only`, none surprising once known): a `match` cannot
+  scrutinise a computed value (`match String.eq(..):` is refused: pass the Bool as a parameter of its own def);
+  a self-call must keep arguments unchanged until one SHRINKS, read left to right (`Hc.cols(cols, +acc)`: the
+  list first, the accumulator after); no mutual recursion, so a non-tail list walk is `f(i, ..) = g(step(i), f(t))`
+  with a non-recursive `g`; a name bound by `x : T <- io` is affine: reuse a timestamp as `+t : Nat <- IO.now()`;
+  a frame is affine, so "use twice" is `DF.clone` into a pair taken apart in the next helper's parameter, and a
+  state record of frames (`type W is Type`) carries them through an IO loop.
+- **`IO.pure(T, f(x))` evaluates `f(x)` before the next `IO.now`** (call-by-value): the eager stage times
+  match the lazy compute times (describe 12 ms both ways at 100k). Pending PARALLEL work can still outlive a
+  call: the first walk after a read costs `walk_ms` (5 ms for the 1M-row sales file, 0.4 s for the 1M-row string
+  join inputs) and `check_ms` bills what a result still owes; that is why `e2e` (read + compute + hash in one
+  region) is the honest end-to-end figure.
+- **Process stats on macOS.** `/usr/bin/time -l` works in this sandbox and also gives `instructions retired`,
+  `cycles elapsed`, `peak memory footprint` and `page reclaims`: the first two are far less sensitive to the
+  machine load than wall time (load was 10-250 from other agents while W0 ran), so record them with every
+  process. The wait4 rusage fallback is implemented and labelled in each record.
+- **What the baseline looked like** (shared machine, provisional; bench/m2/README.md): q1-q6 compute at 1M rows is
+  exactly serial (12 threads = 1 thread), the CSV read forks per column only (2.1x, saturated at 4 threads), and
+  parse is >99% of an end-to-end q1-q6 run; the 1.3 GB peak RSS is the reader's (parse alone 1,314 MB, the
+  input-preservation clone adds ~30 MB). n_unique over a CSV-parsed, shuffled 2^20 distinct U32 column takes 4.4 s,
+  not the 0.2 s of the in-memory sorted iota probe. A harness that bills `check` (the hash) apart from `compute`
+  showed q2's 14 ms hash cost; keep it out of compute figures.
