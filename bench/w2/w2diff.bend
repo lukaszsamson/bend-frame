@@ -1,5 +1,5 @@
 # W2.1 / W2.2 native differential (v0.2): Hc.code vs Sort.str_codes and Rk.words / Rk.dict vs
-# Sort.str_words / ST.Dict.ranks, the same comparators as tests/hcode_diff.bend and
+# Sort.str_words / Dict.ranks (v0.1, tests/lib/v01str.bend), the same comparators as tests/hcode_diff.bend and
 # tests/ranks_diff.bend (imported), at sizes and on shapes the interpreter tests cannot reach: the
 # WIDE shape (code points above U+10FFFF: the interpreter refuses such a Chr, the native runtime
 # holds any U32) and bigger n.

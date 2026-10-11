@@ -189,6 +189,9 @@ src/kernels.bend           template array loops                               [s
 src/column.bend            Valid, Column, Named, Frame + column ops           [sonnet]
 src/schema.bend            Field, Schema ops, Frame.schema                    [sonnet]
 src/expr.bend              UnOp/BinOp/AggOp/Expr, Expr.type/name/refs         [sonnet]
+src/radix.bend             Radix.sort, WS: the (word, row) LSD radix sort (T3.2; own file since W2.3)
+src/hcode.bend             Hc.code: the flat distinct-key string coder (v0.2 W2.1, wired W2.3)
+src/ranks.bend             Rk.words / Rk.dict: lexical ranks of string entries (W2.2, wired W2.3)
 src/eval.bend              Eval.expr: dtype×op dispatch onto kernels           [opus]
 src/sort.bend              argsort, multi-key stable sort, Sort.frame          [opus]
 src/groupby.bend           GroupBy.run                                         [opus]
@@ -975,8 +978,10 @@ Dictionary mode, `make diff-reduce`, the goldens of `make bench-check`), not by 
 3. Per-entry maps over a Dictionary: `Strs.map` / `Strs.map_p` / `Dict.map.*` / `Dict.mp.t` /
    `Dict.mm.*` (string predicates `contains_literal` / `starts_with` / `ends_with`, `len_chars`, `is_in` on
    a Str column: computed once per entry, then gathered by code).
-4. Rank order of a Dictionary: `Dict.ranks` (`Dict.rk.*`), `Sort.dict_words`, `Eval.zd.ord.*`
-   (Str `<` / `<=` / `>` / `>=`, sort keys over Dictionary codes).
+4. Rank order of a Dictionary: `Rk.dict` (src/ranks.bend, the v0.2 rank stage: `Rl.*`, `Rw.*`,
+   `Pb.*`, `Rf.*` / `Rq.*`, `Rx.*`, `Rg.*`, `Rk.*`; v0.1's Base-Map `Dict.ranks` until W2.3, now only a
+   test reference in tests/lib/v01str.bend), `Sort.dict_words`, `Sort.kd*`, `Eval.zd.ord.*`, `Eval.ds.ext*`
+   (Str `<` / `<=` / `>` / `>=`, sort keys over Dictionary codes, min / max).
 5. Str evaluators beyond fill_null and when's storage: comparisons (items 2, 4), string
    predicates and `len_chars` (item 3), casts to and from `str`, `is_in`, and `when`'s
    validity (`Eval.when.valid`); and over every dtype, the cell values of the evaluator: the
@@ -990,11 +995,15 @@ Dictionary mode, `make diff-reduce`, the goldens of `make bench-check`), not by 
    per-row encoder of section 14 is proven, its use inside `src/csv.bend` is not), the writer
    and every round trip; IO in general (plan section 6 "IO boundary").
 7. group_by and join: the group encoders (`Grp.codes`, `Grp.enc.*`, `Grp.rank` / `Grp.prank`,
-   `Grp.densify`, also behind `unique`), the grouped scatter accumulators (the plan's "per-group
+   `Grp.densify`, also behind `unique`; a Raw string key is coded by the packed flat coder
+   `Hc.code.pk`, src/hcode.bend, since W2.3: `Hc.*`, with its own probe hypothesis "the probe for s stops at a
+   slot that is empty or holds s", stated in the file's header, not a law, as v0.1's Base-Map
+   coder had none either), Raw n_unique (`Eval.nu.str`, the same coder's entry count), the grouped scatter accumulators (the plan's "per-group
    invariant for count and U32 sum given valid group ids" was not reached), the aggregations,
    the hash join (`src/join.bend`'s own `Dict`, `Probe`, `Dense`), semi / anti, and the
    partition correctness of both. Sort: the stable LSD radix argsort and its order words
-   (`Sort.*`, `Radix.sort`), including stability.
+   (`Sort.*`, `Radix.*` / `WS.*` in src/radix.bend since W2.3), including stability; the order
+   words of a Raw string key (`Rk.words` = `Hc.code.fnv` then the rank stage, item 4).
 8. Floats: every F32 result (Neumaier sums, mean, std / var / median, describe quantiles,
    the 15.5.2 order words, casts, `F32.show` / `F32.read`). Checked against an exact or f64
    reference with the T2.3 bound (`make diff-reduce`), not proven.
@@ -2705,7 +2714,7 @@ n_unique / median tests, diff-smoke and the m2 content hashes (q4 `chk` / `dump`
    pair (v0.1 answered fresh zero-padded arrays when a pass ran). Every caller (n_unique, median,
    group_by ranks, the sort) reads rows below n only.
 5. **Raw string keys still code a clone** (T3.2 brief: `Sort.str_words` / `str_codes` / `pcodes`
-   and their callers stay as they are for W2): a `SRaw` key is cloned and coded by `Sort.words` as
+   and their callers stay as they are for W2; resolved by W2.3: borrowed through `Rk.words`): a `SRaw` key is cloned and coded by `Sort.words` as
    in v0.1; numeric, Bool and Dictionary keys are borrowed in place (`Sort.split` /
    `Sort.unsplit`), a Dictionary key through `Dict.ranks` and the rank lookup inside the words pass.
 ### v0.2 W2.4 (the join's string table)
@@ -2794,6 +2803,46 @@ default and the reference.
 8. **Driver shim** (bench/m2): the driver reads CSV through bench/m2/engine.bend (BF_ENGINE=v02 selects the
    v0.2 reader); baseline.sh copies bench/m2/engine_v01.bend in as the baseline's engine.bend, and the
    driver hash covers both files (run.py `driver_hash`).
+### v0.2 W2.3 (wiring the flat coder and the rank stage)
+
+Implementation only; group_by / unique / n_unique / sort / min / max / Str comparisons give v0.1's
+values, validity, names, row order and errors (bench/w2/wire.sh: 8,762 frame-level content hashes over
+11 key shapes x 9 sizes up to 100k (+ 300k / 1M cells) x 4 null patterns, Raw and Dictionary, equal to
+the pre-W2.3 build's; tests/strwire.bend passes on both builds).
+
+1. **Amends 17.3.4 (group_by / unique / n_unique rows)**: a Raw key is coded by `Hc.code.pk` (W2.4's
+   packed coder: one walk per row hashes AND copies the code points, a hash hit compares flat words),
+   not by `Hc.code(~ST.Str.hash, .., first = 1)`. Same codes: pk's ids are `Hc.code(first = 0)`'s, so
+   group_by adds 1 in the pass that zeroes the null rows (`Grp.enc.p1`: `Sort.xmap` + 1, then
+   `Sort.words.z`, as the Dictionary key already did); `k` = distinct + 1 as before. Measured both
+   (provisional, IMPLEMENTING W2.3): equal within noise on 1M distinct short keys (median 189 vs 232 ms, ranges overlapping), pk
+   ~15 % slower on distinct 45-char keys (lp 300k: 112 vs 93 ms), pk 2.2x faster on repeated keys read
+   from a CSV (1M rows, 20k distinct 22-char keys: 525 vs 1,163 ms; n_unique 535 vs 2,851), because a
+   hit of `Hc.code` walks the representative cons string at a scattered place (W2.4's finding).
+   Cost: pk holds 4 bytes per code point of the distinct keys, presized at 8 words per row and doubled
+   (peak RSS of lp_group_300k 585 vs 477 MB with `Hc.code.h`, one process each; v0.1 803 MB).
+2. **Sort words of a Raw column** (`Sort.str_words`, a Raw sort key): `Rk.words` = `Hc.code.fnv` +
+   the rank stage (17.3.2), unchanged from W2.2; the key is now BORROWED (`Rk.words` hands the rows
+   back), which removes T3.2's item 5 exception (no `Column.clone` of a Raw key). Not moved to the
+   packed coder: the rank stage reads entries through their first rows (`fr`) and UTF-8 byte lengths
+   (`bl`), which `Hc.code.pk` does not answer; on repeated keys read from a CSV the hits still walk
+   the representative string (open, IMPLEMENTING W2.3).
+3. **`Dict.ranks` callers** (`Sort.kd`, `Sort.dict_words`, `Eval.zd.ord.m`, `Eval.ds.ext`) use
+   `Rk.dict`. `ST.Dict.ranks` (Base Map) is DELETED from src/strs.bend; with `Sort.str_codes`,
+   `Sort.codes.*`, `Sort.code.*`, `CS`, `Sort.pcodes`, `Sort.pmerge*`, `Sort.kbc*`, `Sort.str_fork`,
+   `Sort.str_codes_par`, `Sort.ranks.*`, `Sort.str_words.b/.c` (src/sort.bend) and `Eval.nuniq*`,
+   `Eval.distinct*` (the cons-list n_unique, src/eval.bend) it lives on only as the v0.1 REFERENCE of
+   the differential tests, byte-identical, in tests/lib/v01str.bend.
+4. **Raw n_unique** = `Hc.code.pk`'s entry count over the valid rows (`Eval.dropnull` as before) plus
+   one for any null (15.2.5); `PROOF_evalops.bend`'s witness `aggdense_nu_s` names `Eval.nu.str`
+   instead of `Eval.nuniq` (a witness, not a claim: no law changed).
+5. **`Radix.*` and `WS` moved to src/radix.bend** (byte-identical; sort.bend, ranks.bend, eval.bend and
+   groupby.bend import it) to break the ranks.bend -> sort.bend import cycle; eval.bend no longer
+   imports sort.bend. No PROOF / LAWS file named them.
+6. **Proof-import audit**: LAWS.bend unchanged; the Probe / EncProbe / MergeProbe / FindProbe premises
+   are about `ST.Ix.seek`, untouched; `make proofs`, `make verdict`, `make mutation-check` green. The
+   coder, the packed coder and the rank stage are tested-only, as the v0.1 code they replace (8.1,
+   "Not proven" items 4 and 7 updated).
 
 ## 15. v0.1 contract (frozen)
 
