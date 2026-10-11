@@ -4,7 +4,7 @@
   uv run --project bench python bench/m2/run.py freeze [--only GLOB ...]       # expected outputs from the BASELINE
   uv run --project bench python bench/m2/run.py run --label NAME [--smoke] [--procs 5] [--threads 1 4 12]
           [--only GLOB ...] [--group G ...] [--modes phases e2e ...] [--binaries baseline candidate]
-          [--engine v01] [--resume] [--require-quiet 2] [--timeout S]
+          [--engine reference] [--resume] [--require-quiet 2] [--timeout S]
   uv run --project bench python bench/m2/run.py summary results/NAME.jsonl [...] [--max-load X] [--raw]
   uv run --project bench python bench/m2/run.py micro --label NAME [--procs 3] [--threads 1 4 12]
   uv run --project bench python bench/m2/run.py list                          # the frozen workload list
@@ -915,17 +915,22 @@ def cmd_list(a):
 
 G6_DEFAULT = ["q?_1m", "parse_1m", "str_*"]
 G6_SMOKE = ["q?_100k", "str_*_100k"]
-G6_CFG_ORDER = ["baseline", "reference", "v02", "chunked", "v02,chunked"]
-G6_CFG_NAME = {"baseline": "baseline 3612482", "reference": "candidate reference", "v02": "candidate v02 reader",
-               "chunked": "candidate chunked", "v02,chunked": "candidate v02,chunked"}
+G6_CFG_ORDER = ["baseline", "v01", "reference", "v02", "chunked", "v02,chunked"]
+G6_CFG_NAME = {"baseline": "baseline 3612482", "v01": "candidate v0.1 reader", "reference": "candidate reference (default reader)",
+               "v02": "candidate v02 reader", "chunked": "candidate chunked", "v02,chunked": "candidate v02,chunked"}
 
 
 def g6_cfg(r):
-    """The engine combination of a record: baseline (it ignores BF_ENGINE), reference, v02, chunked, v02,chunked."""
+    """The engine combination of a record: baseline (it ignores BF_ENGINE), v01, reference, v02, chunked, v02,chunked.
+    A candidate record with the token `v01` read with the v0.1 reader (before W8 the token-less reference did too, and
+    the records of g6-master-prov carry `v01` for it); `reference` is the candidate's DEFAULT reader (v0.2 since W8)
+    with the reference executor."""
     if r["binary"] == "baseline":
         return "baseline"
     toks = set((r.get("engine") or "").split(","))
-    v, c = "v02" in toks, "chunked" in toks
+    o, v, c = "v01" in toks, "v02" in toks, "chunked" in toks
+    if o:
+        return "v01"
     return "v02,chunked" if (v and c) else "v02" if v else "chunked" if c else "reference"
 
 
@@ -1036,7 +1041,8 @@ def g6_render(recs, metas, cstats, note=""):
     bad = [(w, c) for (w, c), v in cells.items() if v["valid"] is False]
     L.append("- every result validated against `expected.json`" + (f"; INVALID: {bad}" if bad else ": all valid")
              + "; configs: `baseline` = the pinned 3612482 binary (it ignores `BF_ENGINE`: its three engine combinations are one "
-               "run), `reference` / `v02` / `v02,chunked` = the candidate with `BF_ENGINE` unset / `v02` / `v02,chunked`")
+               "run), `v01` / `reference` / `v02` / `v02,chunked` = the candidate with `BF_ENGINE` `v01` (the v0.1 reader) / "
+               "without a reader token (the default reader: v0.2 since W8, v0.1 before) / `v02` / `v02,chunked`")
     if note:
         L.append(f"- note: {note}")
     L.append("")
@@ -1097,7 +1103,7 @@ def g6_render(recs, metas, cstats, note=""):
           "`flat lower bound` is 4 bytes x columns x rows of the CSV files: one U32 / F32 / dictionary code per cell, string payload "
           "NOT included, so string workloads exceed 1.0 legitimately; array blocks are power-of-two sized (1M rows occupy 2^20 slots, "
           "+4.9%), which is most of the 1.20 of the sales file (its dictionary column adds the rest). `alloc MB` of the v0.1 reader counts every cons cell of the "
-          "intermediate character lists; the v0.2 reader (`v02` rows) shows what removing them saves.")
+          "intermediate character lists; the v0.2 reader (`v02` rows, and since W8 the `reference` rows) shows what removing them saves.")
 
     def tot_row(w, c):
         t = cells[(w, c)]["total"]
@@ -1261,7 +1267,9 @@ def cmd_g6(a):
     if not ws:
         sys.exit("no workload selected")
     cfgs = [("baseline", "v01")] if not a.baseline_engines else [("baseline", e) for e in ("v01", "v02", "v02,chunked")]
-    cfgs += [("candidate", e) for e in ("v01", "v02", "v02,chunked")]
+    # W8: the candidate's default reader is v0.2: `reference` (no reader token) reads with it, `v01` selects the v0.1
+    # reader explicitly (bench/m2/engine.bend)
+    cfgs += [("candidate", e) for e in ("v01", "reference", "v02,chunked")]
     if out.exists() and not a.resume:
         sys.exit(f"{out} exists: pick another --label or pass --resume")
     done = set()
@@ -1344,7 +1352,9 @@ def main():
     r.add_argument("--group", nargs="+")
     r.add_argument("--modes", nargs="+")
     r.add_argument("--binaries", nargs="+", default=["baseline", "candidate"], choices=["baseline", "candidate"])
-    r.add_argument("--engine", default="v01")
+    r.add_argument("--engine", default="reference",
+                   help="BF_ENGINE tokens (bench/m2/engine.bend): reference = default reader (v0.2 since W8) + reference "
+                        "executor; v01 = the v0.1 reader; v02, chunked, scan")
     r.add_argument("--resume", action="store_true")
     r.add_argument("--require-quiet", type=float, default=None)
     r.add_argument("--wait", type=int, default=0, help="seconds to wait for --require-quiet")

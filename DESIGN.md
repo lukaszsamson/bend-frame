@@ -3381,6 +3381,37 @@ exec term and no law changed (LAWS.bend / PROOF*.bend name no `CX.*` def). Decis
    (exact): q1's compute 52,365 -> 12,212 allocations (reference 1,116), q2 88,924 -> 28,366 (1,626), filter
    67,016 -> 19,322 (634); per leaf q1 922 -> 160, q2 1,505 -> 410, filter 1,251 -> 279.
 
+### W8: the v0.2 reader is the default (D7: the flip, separate from any removal)
+
+No change of the data contract (section 15): the v0.2 reader answers v0.1's frame or error on every input tested.
+What changed, and only this: `Csv.read_enc` / `Csv.read_with` / `Csv.read` (so `read_csv`, `read_csv_opts`,
+`read_csv_schema`, `read_csv_enc`) and the scans of `Exec.run` / `Lazy.collect` / `collect_raw` / `Exec.run_with`
+(both engines) read with `Csv.engine_default()` = `CsvV02{P.Pr.piece()}`. Nothing was removed: the v0.1 reader is
+`Csv.read_full` / `Csv.read_enc_v01`, selectable as `csv_engine_v01()` (`read_csv_engine`, `collect_engine`,
+`Lazy.collect_with_rd`), and stays the pinned reference of tests/coverage/csv_engine.bend, tests/lib/v02cmp.bend (every
+csv_v02_* test) and the CSV fuzz (bench/diff/csvfuzz.bend reads with `Csv.read_full`). The v0.2 reader's own fall back
+for a non-ASCII separator still calls the v0.1 reader. Removal is a later explicit gate (M_02 D7: a stabilization
+period, two independently reproduced full gate runs with the new default, a reproducible final baseline run).
+
+1. **Justification (G1 for the reader, exact)**: every CSV test (tests/csv*, tests/coverage/csv_*, the B02 regressions)
+   with the v0.1 reader as reference; the W6.4 fuzz, 10,000 cases x 7 piece sizes (1, 2, 3, 7, 64, 4096, the default)
+   plus the two chunk-mode reads per case, and the adversarial corpus (W0 tools/adv.py, promoted); `make test` 203/203 with
+   the default flipped (every test that reads a CSV through the default now runs the v0.2 reader against unchanged
+   expectations). Performance (PROVISIONAL, shared machine; W6.3 / W6.6 records and plans/GATES_V02.md): 41 MB parse
+   ~0.68 s against ~5.3 s for v0.1 at 1 thread, peak RSS ~200-250 MB against ~1.3 GB.
+2. **The chunked ENGINE stays opt-in** (`engine_chunked()`; `Exec.run` / `collect` keep the reference executor). It is
+   exact (G1) but helps only some workloads: scan-fed row-wise pipelines (filter / with_columns / row-wise select over a
+   scan_csv, where the reader builds the leaves: W6.6) and multi-threaded runs of them (q1 / q2 / filter 3.75-5.6x at 12
+   vs 1 thread on pre-chunked inputs, T5.5). It does not help eager env frames (each flat Source pays a conversion in and
+   the result one out: q1 / q2 3-5x slower than the reference end to end of compute, T5.3) nor q3 / q4 / q5 / q6, whose
+   heavy stages (group_by, sort, join, describe) run flat behind the boundary (q3 / q5 1.3-1.4x at 12 threads). G2 is not
+   met across q1-q6 (plans/GATES_V02.md), so the engine default does not flip in v0.2.
+3. **scan_csv's plan-time schema inference** (`Csv.scan_fields`, the bounded prefix) is unchanged and shared by both
+   readers; with `infer_rows = 0` it reads the whole file with the v0.1 prefix scanner at plan time (as v0.1 did).
+4. **bench/m2**: `BF_ENGINE` without a reader token now reads with the default (v0.2) reader on the candidate; the new
+   token `v01` selects the v0.1 reader (bench/m2/engine.bend); `run.py run --engine` defaults to `reference`; `make m2-g6`
+   runs the candidate as `v01` / `reference` / `v02,chunked`. The baseline binary (3612482) ignores `BF_ENGINE` as before.
+
 ## 15. v0.1 contract (frozen)
 
 The exact semantics every M1-M6 agent codes and tests against. Tables over prose;

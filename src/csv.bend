@@ -2102,16 +2102,10 @@ def Csv.read_full(path: String, +opts: CsvOpts, ts: List<&2, D.DType>, enc: ST.S
     case CsvOpts{+sep, +hdr, +inf}:
       Csv.read_chk(Csv.sep_err(sep), path, chunk, Char.to_u32(sep), Sink.new(hdr, Csv.limit(inf), ts, cap, enc))
 
-# Csv.read_with with the Str storage chosen (EncRaw / EncDict / EncAuto)
-def Csv.read_enc(path: String, opts: CsvOpts, ts: List<&2, D.DType>, enc: ST.StrEnc) -> IO(E.ResT(C.Frame)):
+# the v0.1 reader (the pinned reference of the v0.2 reader: CsvV01{}, tests, the CSV fuzz) with the Str
+# storage chosen (EncRaw / EncDict / EncAuto)
+def Csv.read_enc_v01(path: String, opts: CsvOpts, ts: List<&2, D.DType>, enc: ST.StrEnc) -> IO(E.ResT(C.Frame)):
   Csv.read_full(path, opts, ts, enc, Csv.chunk(), K.Kernel.max_rows())
-
-# Strict explicit dtypes (by column position), see Csv.parse_with.
-def Csv.read_with(path: String, opts: CsvOpts, ts: List<&2, D.DType>) -> IO(E.ResT(C.Frame)):
-  Csv.read_enc(path, opts, ts, Csv.enc_default())
-
-def Csv.read(path: String, opts: CsvOpts) -> IO(E.ResT(C.Frame)):
-  Csv.read_with(path, opts, Nil{})
 
 def Csv.write.done(f: C.Frame, file: File, w: Result<&1, &1, U32 & String, Unit>) -> IO(C.Frame & Result<&1, &1, U32 & String, Unit>):
   do IO<C.Frame & Result<&1, &1, U32 & String, Unit>>:
@@ -2160,9 +2154,12 @@ def Csv.write(f: C.Frame, path: String) -> IO(C.Frame & Result<&1, &1, U32 & Str
   Csv.write_with(f, path, Csv.write_default())
 
 # ==== the v0.2 reader (W6.3; DESIGN.md 17.4 D6, 16.5 D7) =============================================
-# Opt-in (D7): the default stays v0.1 (every Csv.read* above) until W8 flips it; the engine is chosen
-# by a `CsvEngine` value (`Csv.read_eng`, the facade's `read_csv_engine` / `read_csv_v02`, and
-# `Exec.run_rd` / `Lazy.collect_rd` for scan_csv's collect). Same contract as v0.1 (DESIGN.md 15.6):
+# The DEFAULT since W8 (D7: flipped separately from any removal; Csv.engine_default): every Csv.read,
+# Csv.read_with, Csv.read_enc and scan_csv's collect reads with it. The v0.1 reader (Csv.read_full,
+# Csv.read_enc_v01) stays, selectable as CsvV01{} and pinned as the reference of the tests and the CSV
+# fuzz. The engine is chosen by a `CsvEngine` value (`Csv.read_eng`, the facade's `read_csv_engine` /
+# `read_csv_v02`, and `Exec.run_rd` / `Lazy.collect_rd` for scan_csv's collect; scan_csv's plan-time
+# schema inference stays the v0.1 prefix scan, Csv.scan_fields). Same contract as v0.1 (DESIGN.md 15.6):
 # the same values, validity, F32 bits, strings, dictionary codes, column order and dtypes, errors and
 # their order and lines. Pipeline:
 #
@@ -2213,7 +2210,7 @@ def Csv.write(f: C.Frame, path: String) -> IO(C.Frame & Result<&1, &1, U32 & Str
 # Idioms: DESIGN 9 (helpers above callers, pairs taken apart in the next helper's parameter, no
 # mutual recursion, early exits by a Bool field of the loop record).
 
-# the reader engine (D7): v0.1 (the reference, default) or v0.2 with its piece size in bytes
+# the reader engine (D7): v0.1 (the pinned reference) or v0.2 with its piece size in bytes (the default)
 type CsvEngine is Data:
   CsvV01{}
   CsvV02{piece: U32}
@@ -2223,6 +2220,12 @@ def Csv.engine_v01() -> CsvEngine:
 
 def Csv.engine_v02() -> CsvEngine:
   CsvV02{P.Pr.piece()}
+
+# the default reader engine of every read_csv* and of scan_csv's collect: v0.2 at the default piece size
+# (W8, D7: G1 exact on every CSV test, 10k fuzz cases x 7 piece sizes and the adversarial corpus; parse
+# and RSS in DESIGN.md 14 "W8: the v0.2 reader is the default")
+def Csv.engine_default() -> CsvEngine:
+  Csv.engine_v02()
 
 def Csv.v2.sel(c: Bool, +a: U32, +b: U32) -> U32:
   match c:
@@ -3620,11 +3623,11 @@ def Csv.read_v02_full(path: String, +opts: CsvOpts, ts: List<&2, D.DType>, enc: 
     r : E.ResT(CsvOut) <- Csv.read_v02_mode(CMFlat{}, path, opts, ts, enc, piece, cap)
     return Csv.v2.unflat(r)
 
-# the reader by engine: Csv.read_enc (v0.1) or the v0.2 reader at its piece size
+# the reader by engine: Csv.read_enc_v01 (v0.1) or the v0.2 reader at its piece size
 def Csv.read_eng(eng: CsvEngine, path: String, opts: CsvOpts, ts: List<&2, D.DType>, enc: ST.StrEnc) -> IO(E.ResT(C.Frame)):
   match eng:
     case CsvV01{}:
-      Csv.read_enc(path, opts, ts, enc)
+      Csv.read_enc_v01(path, opts, ts, enc)
     case CsvV02{+piece}:
       Csv.read_v02_full(path, opts, ts, enc, piece, K.Kernel.max_rows())
 
@@ -3634,7 +3637,20 @@ def Csv.read_eng_m(eng: CsvEngine, cm: CsvMode, path: String, opts: CsvOpts, ts:
   match eng:
     case CsvV01{}:
       do IO<E.ResT(CsvOut)>:
-        r : E.ResT(C.Frame) <- Csv.read_enc(path, opts, ts, enc)
+        r : E.ResT(C.Frame) <- Csv.read_enc_v01(path, opts, ts, enc)
         return Csv.v2.flat(r)
     case CsvV02{+piece}:
       Csv.read_v02_mode(cm, path, opts, ts, enc, piece, K.Kernel.max_rows())
+
+# ---- the default readers (W8: by Csv.engine_default, the v0.2 reader) --------------------------------
+# Csv.read_with with the Str storage chosen (EncRaw / EncDict / EncAuto), by the DEFAULT reader engine
+# (Csv.engine_default: the v0.2 reader since W8, DESIGN.md 14 "W8: the v0.2 reader is the default")
+def Csv.read_enc(path: String, opts: CsvOpts, ts: List<&2, D.DType>, enc: ST.StrEnc) -> IO(E.ResT(C.Frame)):
+  Csv.read_eng(Csv.engine_default(), path, opts, ts, enc)
+
+# Strict explicit dtypes (by column position), see Csv.parse_with.
+def Csv.read_with(path: String, opts: CsvOpts, ts: List<&2, D.DType>) -> IO(E.ResT(C.Frame)):
+  Csv.read_enc(path, opts, ts, Csv.enc_default())
+
+def Csv.read(path: String, opts: CsvOpts) -> IO(E.ResT(C.Frame)):
+  Csv.read_with(path, opts, Nil{})

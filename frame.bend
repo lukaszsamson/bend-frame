@@ -438,11 +438,13 @@ def str_auto() -> ST.StrEnc:
 def read_csv_enc(path: String, opts: R.CsvOpts, dtypes: List<&2, D.DType>, enc: ST.StrEnc) -> IO(E.ResT(C.Frame)):
   R.Csv.read_enc(path, opts, dtypes, enc)
 
-# ---- the CSV reader engine (v0.2 W6.3, DESIGN.md 16.5 D7 and 17.4): OPT-IN ----------------------
-# csv_engine_v01() is the v0.1 reader, the reference and the default of every read_csv* / scan_csv
-# collect above; csv_engine_v02() is the v0.2 reader (a producer of flat byte regions, one parallel
-# fork of typed lanes, a sequential combine). Both answer the same frame or the same error (values,
-# validity, F32 bits, strings, dictionary codes, column order and dtypes, error texts and lines).
+# ---- the CSV reader engine (v0.2 W6.3, DESIGN.md 16.5 D7 and 17.4) ------------------------------
+# csv_engine_v02() is the v0.2 reader (a producer of flat byte regions, one parallel fork of typed
+# lanes, a sequential combine) and, since W8, the DEFAULT of every read_csv* and scan_csv collect
+# above; csv_engine_v01() is the v0.1 reader, kept selectable and pinned as the reference of the
+# tests and the CSV fuzz. Both answer the same frame or the same error (values, validity, F32 bits,
+# strings, dictionary codes, column order and dtypes, error texts and lines). scan_csv's plan-time
+# schema inference (a bounded prefix) is the same for both.
 def csv_engine_v01() -> R.CsvEngine:
   R.Csv.engine_v01()
 

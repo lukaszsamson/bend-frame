@@ -34,12 +34,20 @@ def rd(+tag: String, +path: String, +o: DF.CsvOpts(), +ts: List<&2, D.DType>) ->
     r2 : E.ResT(C.Frame) <- DF.read_csv_engine(DF.csv_engine_v02(), path, o, ts, DF.str_auto())
     IO.print(show(tag, DF.dump(r1), DF.dump(r2)))
 
-# read_csv (v0.1) against read_csv_v02
+# the v0.1 reader (read_csv's options) against read_csv_v02; read_csv (the default reader, v0.2 since W8)
+# must print the same dump as read_csv_v02 ("DEFAULT DIFF" otherwise)
+def dflt(+b: String, +c: String) -> String:
+  Bool.pick(String, String.eq(b, c), "", "DEFAULT DIFF:\n" ++ c)
+
+def rdv.k(+tag: String, +a: String, +b: String, +c: String) -> String:
+  show(tag, a, b) ++ dflt(b, c)
+
 def rdv(+tag: String, +path: String) -> IO(Unit):
   do IO<Unit>:
-    r1 : E.ResT(C.Frame) <- DF.read_csv(path)
+    r1 : E.ResT(C.Frame) <- DF.read_csv_engine(DF.csv_engine_v01(), path, DF.csv_opts(',', True{}, 100), [], DF.str_auto())
     r2 : E.ResT(C.Frame) <- DF.read_csv_v02(path)
-    IO.print(show(tag, DF.dump(r1), DF.dump(r2)))
+    r3 : E.ResT(C.Frame) <- DF.read_csv(path)
+    IO.print(rdv.k(tag, DF.dump(r1), DF.dump(r2), DF.dump(r3)))
 
 # a scan collected by both engines
 def sc.run(+tag: String, +p: P.Plan) -> IO(Unit):
