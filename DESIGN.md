@@ -2696,6 +2696,28 @@ n_unique / median tests, diff-smoke and the m2 content hashes (q4 `chk` / `dump`
    and their callers stay as they are for W2): a `SRaw` key is cloned and coded by `Sort.words` as
    in v0.1; numeric, Bool and Dictionary keys are borrowed in place (`Sort.split` /
    `Sort.unsplit`), a Dictionary key through `Dict.ranks` and the rank lookup inside the words pass.
+### v0.2 W2.4 (the join's string table)
+
+Implementation only; the join's output (rows, order, values, validity, names, errors) is v0.1's
+(tests/join_str.bend expectations were produced by the pre-W2.4 build).
+
+1. **Amends 17.3.3 / 17.3.4 (join row)**: the probe does NOT compare a hash hit against the build
+   side's representative ROW. Measured on the 1M distinct-key join (provisional, IMPLEMENTING.md
+   W2.4): a lookup into `Hc.code`'s table that walks the representative cons string cost 1.25 s, of
+   which ~1.1 s was that walk (a hot String costs a redirect and a cell per code point, at a random
+   place: dependent misses); borrowing instead of taking it changed nothing, packing afterwards in a
+   second walk cost 0.7 s more. Instead the build uses `Hc.code.pk` (src/hcode.bend, additive): the
+   ONE walk of each build row hashes it, counts it and copies its code points to a flat word array
+   `pk` (a repeated key's copy is overwritten), build-side hits compare flat against flat, and the
+   probe (`Hc.find.pk`, sequential) compares the left string against the packed entry. Codes / ids
+   are exactly `Hc.code(.., first = 0)`'s (tests/hcode_pk.bend). The table is `hs` + `ix` (entry + 1)
+   instead of `hs` / `rp` / `ids`.
+2. **Copy** (brief rule 2): 4 bytes per code point of each DISTINCT build key plus 12 bytes per build
+   row (codes, offsets, counts), transient, made by the walk that has to read the key anyway; the
+   build strings are borrowed and handed back to the right column right after the build (no longer
+   held through the probe). No per-lane table, no `Dict.clone` / `Str.copy` (`Probe.fork`,
+   `Probe.dd`, `J.Dict` removed). The probe is sequential (17.3.3 default); W2.5 may partition it.
+3. **Assurance**: the packed coder and lookup are tested-only, as the table they replace.
 
 ## 15. v0.1 contract (frozen)
 
