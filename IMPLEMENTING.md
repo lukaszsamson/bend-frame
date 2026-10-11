@@ -1327,3 +1327,68 @@ all numbers provisional, shared machine, load recorded in results/*.jsonl).
   input-preservation clone adds ~30 MB). n_unique over a CSV-parsed, shuffled 2^20 distinct U32 column takes 4.4 s,
   not the 0.2 s of the in-memory sorted iota probe. A harness that bills `check` (the hash) apart from `compute`
   showed q2's 14 ms hash cost; keep it out of compute figures.
+
+## T3.2/T3.4 (sort pipeline; Sort + Head bounded gather, LAWS section 16)
+
+Performance (the C read in the REAL imported program, `bend bench/m2/driver.bend -o x.c`; numbers
+PROVISIONAL, 1 thread, shared machine, see the commit report for load and raw samples):
+
+- **One pass per key builds the words AND does the radix read pass.** `Sort.wm.go` (first key: rows in
+  order), `Sort.wg.go` (later keys: rows `perm[j]`), `Sort.wgm.go` (a validity mask: null rows get word 0),
+  `Sort.wgd.go` (a Dictionary key: `rk[codes[perm[j]]]`) write `ws[j]` and fold it into one
+  single-constructor record `WS{ws, h, prev, vor, vand, ok}`: both 16-bit digit histograms (one 2^17-slot
+  array: low digit at `g`, high digit at `2^16 | g`), OR and AND of the words (vary = OR xor AND: no first
+  word needed) and "non-decreasing so far". The record rides the spin's registers: every word / scan /
+  scatter loop in the driver's C (`spin_162` scan, `spin_169` scatter, `spin_556`..`spin_830` the word
+  kernels at each dtype instance) has zero `term_keep` / `ctr_take` / `rfc_seal` / `blk_new` / `blk_copy` /
+  `term_ctr` in its transitive callee closure: nothing allocated per row, nothing per pass but the two
+  scratch arrays (`Radix.run`) and the 512 KB histogram (`WS.new`) per key.
+- **Sorted words skip the radix entirely** (a stable sort of a non-decreasing sequence is the identity). q4's
+  `id` key (already sorted) went from 18-20 ms to 3-5 ms; review P7's "sorted input runs the radix 2x
+  slower" is gone because there is no pass at all.
+- **Ping-pong**: pass 1 scatters (ws, perm) into ONE scratch pair, pass 2 scatters back into the input pair
+  (dead after pass 1 read it in full). Two `Array.new` per sort instead of two per pass; the scatter writes
+  every slot below n, so the scratch's zero fill is never read.
+- **Borrow the key column** (`Sort.split` / `Sort.unsplit`: the first column of that name taken out of the
+  list with the columns before it reversed and the ones after it, put back in place): no `get_cloned`, no
+  identity xmap, no iota gather. A Raw string key still clones (its v0.1 coder consumes the strings; W2's).
+- `U32.shrn(x, sh)` with a `Nat` shift compiles to a native `>>` (with a `sh >= 32` guard): no loop.
+- Small things that did not matter: the second histogram increment per row when only the low digit varies
+  (always counted: the read pass decides before it knows), and the iota array for the first key (one
+  sequential pass); both left as they are.
+
+Proofs (PROOF_sorthead.bend, 154 laws total):
+
+- **A physical shortcut whose buffers differ cannot be a term law.** `Frame.head` keeps buffers, a bounded
+  gather does not, so `Head{n, Head{m, Sort}}` and its merged form differ as terms once the shortcut sits
+  inside `Exec.run_pure`: that would have broken `release_run`. Keep `run_pure` as is, put the shortcut in a
+  separate runner (`Exec.run_phys`) and prove an OBSERVATIONAL law: a Data observation per row k (`robs`:
+  error, or height and per column name / dtype / length / `ccell` at k) for EVERY k. `ccell` ignores the
+  length field, so `ccell(CU32{min(j, n), ..}, k)` and `ccell(CU32{n, ..}, k)` are the same term after
+  unfolding: the head side needs no extra lemma.
+- **A forall over rows is affine; an equation is not (with `+`).** Take the gather loop's `@k -> k < n -> ..`
+  once at the one k of the claim, turn it into an equation, then share it (`pk2`: the cell equation used
+  for the column and for its head).
+- **One live value, two lemmas: duplicate it as a proof witness.** A column gathered at two cuts:
+  `PV.clone_w(col)` (two columns equal to col); the permutation: `PC.clone_eq`; an environment spent by
+  `release_run` and `run_phys_obs`: `env_dup` (frames, column lists, named frames, scans). The witnesses
+  are proof terms only (no runtime clone).
+- **Higher-order chain**: one chain lemma `ch` (Frame.info, Sort.miss, Sort.argsort, gather) for an
+  arbitrary observation context: ERASED function parameters `-c1: E.ResT(C.Frame) -> Laws.RObs`, a failure
+  hypothesis `hf: @e -> {c1(Fail e) == c2(Fail e)}` and a frame hypothesis with ERASED binders
+  `hd: @-g1: C.Frame -> @-g2: C.Frame -> {robs(Done g1) == robs(Done head(g2))} -> {c1(Done g1) == c2(Done
+  g2)}` (erased binders let the caller pass computed frames that share a live variable). The frame law is
+  the identity context (`r => robs(r, k)`), the runner law the last steps (push, IHead, fin) over the
+  stack's rest; `g1 => g2 => h => h` inhabits the erased-binder type.
+- **No mutual recursion between proof helpers either**: the recursive lemma passes its inductive hypothesis
+  as a lambda (`gc` hands `q1 => .. => gc(rest, ..)` to `gc_cons`), like `gather_go` / `tgather_go`.
+- **`+` on the LAST component of a destructured witness fails** ("an annotated term (cannot infer)"):
+  destructure it plainly and pass it once (`(ca, cb, ecl, eca, ecb) = w`).
+- A production `match` with a catch-all (`case other: run_pure(other, env)`) is proven by enumerating every
+  other constructor with `{==}` (the goal only reduces on a constructor).
+- The four word / F32 column cases of the gather witness are the same text with a different cell
+  constructor: written once in a generator, then committed as plain Bend.
+
+Tests: `String.eq` on two 60 KB dumps overflows the native stack (one non-tail frame per char); compare
+with a tail loop (`seq.go`). A list walk's shrinking argument must come first ("a decreasing self-call:
+arguments are read left to right").
