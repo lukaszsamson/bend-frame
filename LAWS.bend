@@ -3457,3 +3457,34 @@ law peep_f5_count:
   for +lit: U32
   for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
   {f5r_k(V.Eval.f5.c(X.Gt{}, ok, V.Eval.fz.ones(), C.CU32{n, d, C.AllValid{}, q}, D.SU32{lit})) == Pair.snd(Array<U32>, U32, K.Kernel.popcount(n, f5r_m(V.Eval.f5.c(X.Gt{}, ok, V.Eval.fz.ones(), C.CU32{n, d, C.AllValid{}, q}, D.SU32{lit})))) : U32}
+
+# LAW (F4 against v0.1's fill_null): over a masked u32 column whose null slot at row k holds the
+# default (P0: the pick below is the slot itself), the fused fill's cell at k is Eval.fill's against the
+# literal 0's broadcast column (Kernel.choose into the column's buffer, which must be well formed)
+law peep_f4_cell:
+  for +n: U32
+  for +d: Nat
+  for m: Array<U32>
+  for a: Array<U32>
+  for +k: U32
+  for wf: WFArray(U32, d, a)
+  for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for +hk: {U32.is_lt(k, n) == True{} : Bool}
+  for +p0: {Bool.pick(U32, U32.is_ne(rd_at(U32, m, k), 0), rd_at(U32, a, k), 0) == rd_at(U32, a, k) : U32}
+  {ccell(z0_col(V.Eval.fz.z0(V.PFill{D.SU32{0}}, C.CU32{n, d, C.Mask{m}, a})), k) == ccell(res_col(V.Eval.fill(C.CU32{n, d, C.Mask{m}, a}, V.Eval.const_col(D.SU32{0}, D.TU32{}, n))), k) : D.Scalar}
+
+# LAW (F2, both operands masked, against v0.1's three passes): the fused cell of a + b (one zipv loop:
+# the null slots reset to 0 and the validity the AND, in the same loop) is the cell of Eval.bin's
+# column (Eval.vand's mask_and, the zip, Eval.fix's mask_data) at every row below n
+law peep_f2_mask:
+  for +n: U32
+  for +d: Nat
+  for +d2: Nat
+  for a: Array<U32>
+  for ma: Array<U32>
+  for b: Array<U32>
+  for mb: Array<U32>
+  for +k: U32
+  for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for +hk: {U32.is_lt(k, n) == True{} : Bool}
+  {ccell(z2_col(V.Eval.fz.z2(X.Add{}, V.PNone{}, V.PNone{}, C.CU32{n, d, C.Mask{ma}, a}, C.CU32{n, d2, C.Mask{mb}, b})), k) == ccell(res_col(V.Eval.bin(X.Add{}, C.CU32{n, d, C.Mask{ma}, a}, C.CU32{n, d2, C.Mask{mb}, b})), k) : D.Scalar}

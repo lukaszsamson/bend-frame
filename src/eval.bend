@@ -3284,7 +3284,7 @@ def Eval.f5.vw(v: C.Valid) -> Array<U32> & Bool:
 # a[i] & g(b[i], p) : 0, the kept count in the same loop; g is Eval.zip's comparison template with
 # the literal p in the right operand's place
 def Eval.f5.pk(~T: Data, ~g: T -> T -> U32, +n: U32, +d: Nat, +p: T, a: Array<U32>, va: Array<U32>, b: Array<T>, vb: Array<U32>) -> K.PC<U32, T>:
-  K.Kernel.pred_count(~U32, ~T, ~T, ~(q => x => y => U32.and(x, g(y, q))), n, d, p, a, va, b, vb)
+  K.Kernel.pred_count(~U32, ~T, ~T, ~(p => x => y => U32.and(x, g(y, p))), n, d, p, a, va, b, vb)
 
 def Eval.f5.wu(op: X.BinOp, +n: U32, +d: Nat, +p: U32, a: Array<U32>, va: Array<U32>, b: Array<U32>, vb: Array<U32>) -> K.PC<U32, U32>:
   match op:
@@ -3375,7 +3375,7 @@ def Eval.f5.b.k(+n: U32, +d: Nat, mb: Bool, r: K.PC<U32, U32>) -> F5R:
 
 def Eval.f5.b.v(+n: U32, +d: Nat, a: Array<U32>, va: Array<U32>, b: Array<U32>, r: Array<U32> & Bool) -> F5R:
   (vb, +mb) = r
-  Eval.f5.b.k(n, d, mb, K.Kernel.pred_count(~U32, ~U32, ~U32, ~(q => x => y => U32.and(x, y)), n, d, 0, a, va, b, vb))
+  Eval.f5.b.k(n, d, mb, K.Kernel.pred_count(~U32, ~U32, ~U32, ~(p => x => y => U32.and(x, y)), n, d, 0, a, va, b, vb))
 
 # the conjunct `c` (a bool column: true and valid) ANDed into a
 def Eval.f5.b(a: Array<U32>, va: Array<U32>, c: C.Column) -> F5R:
