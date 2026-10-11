@@ -1516,3 +1516,137 @@ Bend / proof lessons:
   subdirectory.
 - `bench/m2/run.py run` checks EVERY input of `inputs.json`, not only the selected workloads': a
   worktree needs all of `bench/data` (symlink the big shared files, `bench/m2/gen.py` the rest).
+
+## T4.1 (W4 fused kernels: map_pb, zipb, zipv, pred_count, compact3/4; LAWS section 17)
+
+What was done: six flat loops in `src/kernels.bend` (W4 section, additive; no existing signature
+changed), every one BORROWING its inputs and handing them back in its result (so T4.2/T4.3 can read a
+column with `Frame.lend`, run the kernel, and put the buffer back with `Frame.replace`, no copy):
+
+| kernel | answers | replaces (v0.1 passes) |
+|---|---|---|
+| `Kernel.map_pb(~T,~P,~U,~f: P->T->U, n, d, a, p, z)` | `(out, a)`, `out[i] = f(p, a[i])` | F1: broadcast `Array.new(d, lit)` + zip (or `Kernel.map_p`, which consumes `a`) |
+| `Kernel.zipb(~T,~U,~V,~f, n, d, a, b, z)` | `ZB{o, a, b}` | F1/F3 over AllValid operands: zip (cast map + zip for F3) |
+| `Kernel.zipv(~T,~U,~V,~f, n, d, a, va, b, vb, z)` | `ZV{o, vo, a, va, b, vb}`, `w = va[i] & vb[i]`, `o[i] = w != 0 ? f(a[i], b[i]) : z`, `vo[i] = w` | F2/F3: `Eval.vand` (mask_and) + zip + `Eval.fix` (mask_data) |
+| `Kernel.pred_count(~T,~U,~P,~f: P->T->U->U32, n, d, p, a, va, b, vb)` | `PC{m, k, a, va, b, vb}`, `m[i] = (va[i] & vb[i]) != 0 ? f(p, a[i], b[i]) : 0`, `k = sum m` | F5: the predicate's copies + zips + `Eval.pred` + popcount |
+| `Kernel.compact3 / compact4(~A,~B,~C(,~D), n, d, m, a1.., z1..)` | `C3{o1, o2, o3, m, a1, a2, a3, k}` / `C4{..}` | F6: one `Kernel.compact_keep` per buffer |
+
+17 laws (LAWS section 17, proofs in `PROOF_fused.bend`, 1355 lines), 20 in-place mutation controls (all
+caught; 41 of 41 overall), `tests/kernels_fused.bend` (hand-worked 8-row cases incl. nulls, AllValid as
+the 1-slot ones array, n = 0, all/none kept; 3000-row fused-vs-unfused differential, F32 by bits), and a
+probe `bench/w4/fused.bend` + `bench/w4/run.py` (results in `bench/w4/results/`). Not wired into
+Eval/Exec (T4.2/T4.3).
+
+Performance (PROVISIONAL: 2^20 rows, 1 thread, 7 fresh processes x 40 reps, interleaved, load 4.9-6.1;
+medians and raw per-rep ms; checksums of today's and the fused cells agree):
+
+- q1 predicate + compaction: today (2 column copies, broadcast 50, zip gt, zip and, popcount, 5
+  `compact_keep` into `depth_for(kept + 1)`) 6.58 ms [6.50-6.83]; the same with only the 3 selected
+  columns compacted 5.20 [5.00-5.35]; fused (`pred_count` over the borrowed ok/qty + `compact3`)
+  **2.33 ms** [2.25-2.38]: 2.8x (2.2x of it without F8's projection). The review's fused prototype: 1.8-2.3.
+- q2 arithmetic `f32(qty) * price * (1.0 - fill_null(discount, 0.0))`: today (3 copies + mask copy,
+  cast, mul, 2 broadcasts, choose, sub, mul: 11 passes) 4.47 ms [4.45-4.70]; fused (zipb with the cast,
+  F4 = AllValid over the same payload, map_pb `1.0 - x`, one zip) **1.80 ms** [1.73-1.82]: 2.5x. The
+  review's ~1 ms was ONE 4-input loop (W0's R4); three 2-input loops cost ~0.6 ms each. A 3-operand
+  fusion is not in D3's list; it is the next lever if G3 needs it.
+- q2' (discount nullable, no fill_null; F2): today 5.30 [5.22-5.53] -> zipb + zipv (literal as a 1-slot
+  array) + zipv **2.30 ms** [2.27-2.38]: 2.3x.
+- Reference, the real evaluator at HEAD once per process (6-column frame, filter compacts all six):
+  q1 `DF.filter + DF.select` 11 ms, q2 `DF.with_columns` 7 ms: the kernel-level "today" cells are a
+  LOWER bound of today's cost, so the ratios above are conservative.
+
+Emitted C (`bend bench/w4/fused.bend -o fused.c`, the program imports frame.bend and runs the real
+evaluator too: 78k lines; `python3 -I bench/w2/spins.py fused.c <param names>`): every kernel is ONE
+`spin_N` with `WL_AGAIN` and only `blk_read` / `blk_write` (zero `term_keep`, `ctr_take`, `rfc_seal`,
+`blk_copy`, `blk_half`, `blk_node`, `heap_alloc` per row):
+`map_pb.go` spin_665 (2 reads, 1 write), `zipb.go` spin_674 (3 / 1; the u32 -> f32 cast inlined),
+`zipv.go` spin_648 / spin_656 (6 / 2), `pred_count.go` spin_677 (5 / 1), `compact3.go` spin_662 (7 / 3),
+`compact4.go` (in tests/kernels_fused's C) 9 / 4. Per write there is one dead `blk_read`: Base's
+`Array.set` is `Array.swap` and drops the old value (every kernel in the code base pays it). `Bool.pick`
+inlines as a `spin` helper with `term_sink` on an unboxed word (no allocation). The record results
+(`ZV`, `PC`, `C3`) are built once at the loop exit (`o[0..7] = ..`), never per row.
+
+Bend / proof lessons:
+
+- **Simulation beats cell chains wherever the fused loop writes what an existing kernel writes.**
+  `map_pb` vs `map_p`, `zipb` vs `zip`, `zipv`'s validity vs `mask_and`, `compact3/4` vs one
+  `compact_keep` per buffer and the cursor vs popcount's `fold.go`: one induction proves the TERM
+  equality `fused.go(state) == R{existing.go(state).., inputs}` (unfold one step on both sides, rewrite
+  the pending `Array.get` reads with `PC.get_w`, apply the IH); no distinct-paths, no well-formedness, no
+  room. The existing content theorems then apply verbatim. compact_keep reads `a[i]` inside its step
+  while compact3 reads ahead: state the unfolded step as its own goal def (`C3U` with the reads `r_j`
+  and compact_keep's `s_j` as separate parameters) and rewrite both holes at once.
+- **Hand-back laws as "eta" records**: `zipv(..) == ZV{zv_o(zipv(..)), mask_and(va, vb), a, va, b, vb}`
+  states the validity output AND that every operand comes back, in one law, by the same induction.
+- **Cell chains with several reads**: PROOF_contents' zip chain with one step lemma per read (`*_s1`
+  .. `*_s4`: the array read at this step is erased, its live copy comes out of `get_w`; arrays read later
+  stay live for the next call site) and one for the write. Pre-compose the written value's model into one
+  equation (`pcc_eq`: four `%` rewrites of the read equations into the cell def) so the "next" lemmas
+  are the map chain's. A carried second output or a counter is just quantified in the IH (`@vo3`,
+  `@cnt3`) and never inspected.
+- **A count over a final array needs the cell at every row; a forall is affine.** `pred_count_count`:
+  the loop's running sum is described over the INPUTS (`PSum`, by the read-only induction that also
+  proves the hand-backs), and each row's word is turned into the final mask's cell by calling the cell
+  THEOREM again on fresh clones of the inputs (`fs_step`: `clone_eq` x4, `pco_cell`, rewrite back);
+  `FSum` is popcount's own spec, and `fsum_uniq` (two FSum chains over one array end at one result)
+  gives `count == popcount(mask)`. A theorem can be re-run; a hypothesis cannot.
+- **The body of a Type-valued def is code**: passing a term over an ERASED variable into a non-erased
+  parameter of another Type def is refused (`PSR` -> `PSum(.., +res)`): make the parameter erased
+  (`-res`); signature types are erased contexts and accept it. `Laws.FSum`'s `+res` is fine from
+  signatures.
+- `WFArray` is Type-kinded: `+wo` on a destructured WF witness is refused ("must be Data"); clone the
+  array with `PC.clone_wf` (two copies, two WF proofs, two equations). A live array is needed by
+  `rd_at_wf` AND by `PI.mask_data_w`: that is the clone.
+- **Template applications under `%` (BendTT)**: rewriting the GOAL so that a template application
+  `f(..)` lands on the replacing side (`%Equal.sym(.., eok) : {Bool.pick(V, .., _, z) == ..}` with
+  `eok : {rd_at(o, k) == f(..)}`) was accepted by `--verdict` at the u32 and f32 instances; the refused
+  form remains a REPLACED term containing `f(..)`.
+- **`+` on parameters that only feed types**: `-res`, `-r1`, `-r2` of the count lemmas must be erased
+  (a call site passes `pc_k(pred_count(.. erased arrays ..))`); a `Nat` used twice in a lemma signature
+  (`+q`, `+f`) needs the `+` too.
+- **Mutation locations**: the cell chains spell the kernel's step (the count update `U32.add(cnt, v)`
+  sits in `PCOSet`), so a count mutation fails at `pco_s4` before the count law: the same effect T3.1
+  saw with `mark_reads`. A swap of the generic record's fields is a TYPE error when the fields have
+  different template types (`C3{o1, .., o1, ..}` is an affine error, not a semantic catch): mutate words
+  (`U32.inc(k)`) or indices instead.
+- **Worktree-isolated agents**: a Bash command with a `$VAR` path or a long multi-line heredoc mixing
+  paths is refused as unverifiable; write helper scripts to the scratchpad and run `python3 -I
+  /full/path/script.py args` with literal paths.
+
+What T4.2 (Eval.compile peepholes) needs:
+
+- Call shapes: destructure the records in a helper's parameters (`match r: case K.ZV{o, vo, a, va, b,
+  vb}:`), put `a` / `b` back with `Frame.replace` (or drop a 1-slot stand-in). An AllValid side is
+  `Array.new(U32, 0n, 1)`; a literal operand of zipv/zipb is `Array.new(T, 0n, lit)` (reads wrap). Never
+  pass a 1-slot array to a kernel that WRITES it (none of these do).
+- Output validity: `zipv`'s `vo` with an AllValid side is `1 & w`: equal to Eval.vand's reuse of the
+  other mask only on 0/1 words (the P0 invariant). Both sides AllValid: use `zipb`/`map_pb` (no `vo`
+  pass) and answer AllValid. Eval.vand never collapses an all-ones mask to AllValid; nobody observes the
+  difference (cells only), but the frozen contract is cells, so either is fine.
+- F4: `fill_null(e, lit)` with lit == the dtype default only sets validity to AllValid (the null slots
+  hold the default by P0); no kernel, but NOT a no-op (the validity changes; a law over Eval is T4.2's).
+  Another literal needs `out[i] = va[i] ? a[i] : lit`, a two-read map with a runtime scalar: none of the
+  six kernels is that (a template cannot capture the literal), so keep today's `Eval.fill` (Kernel.choose
+  into a COPY: a borrowed buffer must never be written) or add a `fill_pb` kernel with its own chain.
+- Templates: spell them EXACTLY as the laws do (`~(x => y => U32.add(x, y))`, `~(p => w =>
+  Bool.to_u32(U32.is_gt(w, p)))`, `~(p => x => F32.sub(p, x))`, `~(x => y => F32.mul(U32.to_f32(x),
+  y))`); a new instance is a one-line law over the template proofs (`mp_cell`, `mpb_sim`, `zb_sim`,
+  `zb_cell`, `zvo_cell`, `zvv_go`, `zv_unfused`, `pco_cell`, `pcq_go`, `pc_count`, `c3_sim`, `c4_sim`).
+- F5 covers CONJUNCTIONS only: `m = (va & vb) ? f : 0` is the filter mask of Kleene `&` (true iff both
+  valid-true), not of Kleene `|` (`true | null` keeps the row). One operand: pass a 1-slot b and ignore
+  it in f. `f` must answer 0/1 for the mask to be 0/1 (CRoom needs it).
+- Error precedence: all six kernels are total; a fallible fragment (strict cast, str parse) keeps its
+  own pass and row index (D3 rule).
+
+What T4.3 (Filter + Select shortcut, `filter_select_run`) needs:
+
+- `compact3_unfused` / `compact4_unfused` are term equalities with `Kernel.compact_keep` (what
+  `Column.compact` runs per buffer) and `Kernel.popcount(n, m)`, for ANY d; `pred_count_count` gives
+  `kept == popcount(mask)`; `pred_count_keeps` / the records give the operands back. Allocate the
+  outputs as `Column.compact` does (`depth_for(kept + 1)`) and the existing compaction theorems carry
+  over unchanged; `compact3/4_contents` keep compact_contents' `CRoom` hypothesis (not discharged here:
+  `croom_of_cap` is T5.1's).
+- Validity buffers are just more U32 buffers in the same compaction (a Mask column = data + mask: two
+  slots of a compact3/4); a Raw Str column's strings are `Array<String>` (templates allow it; no law at
+  String yet) and a Dictionary's codes are U32.
+- The count wraps mod 2^32 like popcount; the row cap (2^23) keeps it exact.

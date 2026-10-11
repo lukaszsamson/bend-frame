@@ -467,3 +467,158 @@ def Kernel.map_p.go(~T: Data, ~P: Data, ~U: Data, ~f: P -> T -> U, n: Nat, +i: U
 
 def Kernel.map_p(~T: Data, ~P: Data, ~U: Data, ~f: P -> T -> U, +n: U32, +d: Nat, a: Array<T>, +p: P, +z: U) -> Array<U>:
   Kernel.map_p.go(~T, ~P, ~U, ~f, U32.to_nat(n), 0, p, Array.new(U, d, z), Array.get(T, a, 0))
+
+# ---- W4 fusion (T4.1, DESIGN.md 16.3): flat fused loops that BORROW their operands -------------
+# Every kernel below hands its input buffers back in its result, unchanged (D2 rule 1): the
+# evaluator lends a column (Frame.lend), runs the kernel and puts the buffer back (Frame.replace),
+# so a column the frame keeps is read in place, not copied. An AllValid side is the 1-slot ones
+# array (indices wrap to slot 0: read every row, never written); a scalar operand is a parameter
+# (map_pb, pred_count) or a 1-slot array (zipb, zipv), never a broadcast column. A borrowed buffer is
+# never written. Each loop is one tail def (one spin loop in the C) with nothing allocated
+# per row; the outputs are fresh arrays of 2^d slots (D2 rule 2). Laws: LAWS.bend section 17.
+
+# F1: out[i] = f(p, a[i]) for i < n, the literal p a scalar parameter; a is borrowed: answers
+# (out, a). Kernel.map_p's loop with the operand handed back.
+def Kernel.map_pb.go(~T: Data, ~P: Data, ~U: Data, ~f: P -> T -> U, n: Nat, +i: U32, +p: P, out: Array<U>, r: Array<T> & T) -> Array<U> & Array<T>:
+  match n:
+    case 0n:
+      (a, x) = r
+      (out, a)
+    case 1n+q:
+      (a, x) = r
+      +j = U32.inc(i)
+      Kernel.map_pb.go(~T, ~P, ~U, ~f, q, j, p, Array.set(U, out, i, f(p, x)), Array.get(T, a, j))
+
+def Kernel.map_pb(~T: Data, ~P: Data, ~U: Data, ~f: P -> T -> U, +n: U32, +d: Nat, a: Array<T>, +p: P, +z: U) -> Array<U> & Array<T>:
+  Kernel.map_pb.go(~T, ~P, ~U, ~f, U32.to_nat(n), 0, p, Array.new(U, d, z), Array.get(T, a, 0))
+
+# a borrowing zip's answer: the output and both operands
+type ZB<-T: Data, -U: Data, -V: Data> is Type:
+  ZB{o: Array<V>, a: Array<T>, b: Array<U>}
+
+# out[i] = f(a[i], b[i]) for i < n (both operands AllValid); a and b are borrowed. F3 when f
+# composes a total cast (u32/i32/bool -> f32 ...): `~(x => y => F32.mul(U32.to_f32(x), y))` is the
+# cast, then the product, rounded at the same points as the two passes (no reassociation, no FMA).
+def Kernel.zipb.go(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> V, n: Nat, +i: U32, out: Array<V>, ra: Array<T> & T, rb: Array<U> & U) -> ZB<T, U, V>:
+  match n:
+    case 0n:
+      (a, x) = ra
+      (b, y) = rb
+      ZB{out, a, b}
+    case 1n+p:
+      (a, x) = ra
+      (b, y) = rb
+      +j = U32.inc(i)
+      Kernel.zipb.go(~T, ~U, ~V, ~f, p, j, Array.set(V, out, i, f(x, y)), Array.get(T, a, j), Array.get(U, b, j))
+
+def Kernel.zipb(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> V, +n: U32, +d: Nat, a: Array<T>, b: Array<U>, +z: V) -> ZB<T, U, V>:
+  Kernel.zipb.go(~T, ~U, ~V, ~f, U32.to_nat(n), 0, Array.new(V, d, z), Array.get(T, a, 0), Array.get(U, b, 0))
+
+# a validity zip's answer: value and validity outputs, both operands with their validity arrays
+type ZV<-T: Data, -U: Data, -V: Data> is Type:
+  ZV{o: Array<V>, vo: Array<U32>, a: Array<T>, va: Array<U32>, b: Array<U>, vb: Array<U32>}
+
+# F2: the null-propagating zip with validity in one loop: w = va[i] & vb[i], out[i] = w != 0 ?
+# f(a[i], b[i]) : z (the null slot holds the default: Eval.fix in the same pass), vout[i] = w. An
+# AllValid side is the 1-slot ones array. Replaces vand + zip + fix (three passes). All four
+# inputs are borrowed. F3: f composes a total cast.
+def Kernel.zipv.go(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> V, n: Nat, +i: U32, +z: V, out: Array<V>, vout: Array<U32>, ra: Array<T> & T, rva: Array<U32> & U32, rb: Array<U> & U, rvb: Array<U32> & U32) -> ZV<T, U, V>:
+  match n:
+    case 0n:
+      (a, x) = ra
+      (va, wa) = rva
+      (b, y) = rb
+      (vb, wb) = rvb
+      ZV{out, vout, a, va, b, vb}
+    case 1n+p:
+      (a, x) = ra
+      (va, wa) = rva
+      (b, y) = rb
+      (vb, wb) = rvb
+      +j = U32.inc(i)
+      +w = U32.and(wa, wb)
+      Kernel.zipv.go(~T, ~U, ~V, ~f, p, j, z, Array.set(V, out, i, Bool.pick(V, U32.is_ne(w, 0), f(x, y), z)), Array.set(U32, vout, i, w), Array.get(T, a, j), Array.get(U32, va, j), Array.get(U, b, j), Array.get(U32, vb, j))
+
+def Kernel.zipv(~T: Data, ~U: Data, ~V: Data, ~f: T -> U -> V, +n: U32, +d: Nat, a: Array<T>, va: Array<U32>, b: Array<U>, vb: Array<U32>, +z: V) -> ZV<T, U, V>:
+  Kernel.zipv.go(~T, ~U, ~V, ~f, U32.to_nat(n), 0, z, Array.new(V, d, z), Array.new(U32, d, 0), Array.get(T, a, 0), Array.get(U32, va, 0), Array.get(U, b, 0), Array.get(U32, vb, 0))
+
+# a predicate's answer: the 0/1 keep mask, the kept count, the borrowed operands
+type PC<-T: Data, -U: Data> is Type:
+  PC{m: Array<U32>, k: U32, a: Array<T>, va: Array<U32>, b: Array<U>, vb: Array<U32>}
+
+# F5: a filter predicate over two borrowed operands (and their validity: a null row is dropped)
+# with the scalar p: m[i] = (va[i] & vb[i]) != 0 ? f(p, a[i], b[i]) : 0 and the kept count
+# (the modulo-2^32 sum of the words written) in ONE loop. f answers 0/1 words (then so does m).
+# One operand: pass a 1-slot array as b and ignore it in f. q1: `ok & (qty > 50)` is
+# f = (p => x => y => U32.and(x, Bool.to_u32(U32.is_gt(y, p)))), p = 50.
+def Kernel.pred_count.go(~T: Data, ~U: Data, ~P: Data, ~f: P -> T -> U -> U32, n: Nat, +i: U32, +k: U32, +p: P, out: Array<U32>, ra: Array<T> & T, rva: Array<U32> & U32, rb: Array<U> & U, rvb: Array<U32> & U32) -> PC<T, U>:
+  match n:
+    case 0n:
+      (a, x) = ra
+      (va, wa) = rva
+      (b, y) = rb
+      (vb, wb) = rvb
+      PC{out, k, a, va, b, vb}
+    case 1n+q:
+      (a, x) = ra
+      (va, wa) = rva
+      (b, y) = rb
+      (vb, wb) = rvb
+      +j = U32.inc(i)
+      +w = Bool.pick(U32, U32.is_ne(U32.and(wa, wb), 0), f(p, x, y), 0)
+      Kernel.pred_count.go(~T, ~U, ~P, ~f, q, j, U32.add(k, w), p, Array.set(U32, out, i, w), Array.get(T, a, j), Array.get(U32, va, j), Array.get(U, b, j), Array.get(U32, vb, j))
+
+def Kernel.pred_count(~T: Data, ~U: Data, ~P: Data, ~f: P -> T -> U -> U32, +n: U32, +d: Nat, +p: P, a: Array<T>, va: Array<U32>, b: Array<U>, vb: Array<U32>) -> PC<T, U>:
+  Kernel.pred_count.go(~T, ~U, ~P, ~f, U32.to_nat(n), 0, 0, p, Array.new(U32, d, 0), Array.get(T, a, 0), Array.get(U32, va, 0), Array.get(U, b, 0), Array.get(U32, vb, 0))
+
+# a 3-column compaction's answer: the outputs, the mask and the inputs back, the kept count
+type C3<-A: Data, -B: Data, -C: Data> is Type:
+  C3{o1: Array<A>, o2: Array<B>, o3: Array<C>, m: Array<U32>, a1: Array<A>, a2: Array<B>, a3: Array<C>, k: U32}
+
+# F6: three aligned buffers compacted by ONE mask with ONE cursor in one loop: o_j[k] = a_j[i],
+# k += m[i] (the legacy branchless write of Kernel.compact_keep: a dropped row lands at the cursor
+# and is overwritten or left past the kept rows, so the outputs need the room compact_keep needs:
+# Column.compact's depth_for(kept + 1)). Mask and inputs are borrowed; the count is the cursor.
+def Kernel.compact3.go(~A: Data, ~B: Data, ~C: Data, n: Nat, +i: U32, +k: U32, o1: Array<A>, o2: Array<B>, o3: Array<C>, rm: Array<U32> & U32, r1: Array<A> & A, r2: Array<B> & B, r3: Array<C> & C) -> C3<A, B, C>:
+  match n:
+    case 0n:
+      (m, bit) = rm
+      (a1, x1) = r1
+      (a2, x2) = r2
+      (a3, x3) = r3
+      C3{o1, o2, o3, m, a1, a2, a3, k}
+    case 1n+p:
+      (m, bit) = rm
+      (a1, x1) = r1
+      (a2, x2) = r2
+      (a3, x3) = r3
+      +j = U32.inc(i)
+      Kernel.compact3.go(~A, ~B, ~C, p, j, U32.add(k, bit), Array.set(A, o1, k, x1), Array.set(B, o2, k, x2), Array.set(C, o3, k, x3), Array.get(U32, m, j), Array.get(A, a1, j), Array.get(B, a2, j), Array.get(C, a3, j))
+
+def Kernel.compact3(~A: Data, ~B: Data, ~C: Data, +n: U32, +d: Nat, m: Array<U32>, a1: Array<A>, a2: Array<B>, a3: Array<C>, +z1: A, +z2: B, +z3: C) -> C3<A, B, C>:
+  Kernel.compact3.go(~A, ~B, ~C, U32.to_nat(n), 0, 0, Array.new(A, d, z1), Array.new(B, d, z2), Array.new(C, d, z3), Array.get(U32, m, 0), Array.get(A, a1, 0), Array.get(B, a2, 0), Array.get(C, a3, 0))
+
+type C4<-A: Data, -B: Data, -C: Data, -D: Data> is Type:
+  C4{o1: Array<A>, o2: Array<B>, o3: Array<C>, o4: Array<D>, m: Array<U32>, a1: Array<A>, a2: Array<B>, a3: Array<C>, a4: Array<D>, k: U32}
+
+# F6 with four buffers (k > 4 buffers: chain compact4 / compact3 calls with the same mask)
+def Kernel.compact4.go(~A: Data, ~B: Data, ~C: Data, ~D: Data, n: Nat, +i: U32, +k: U32, o1: Array<A>, o2: Array<B>, o3: Array<C>, o4: Array<D>, rm: Array<U32> & U32, r1: Array<A> & A, r2: Array<B> & B, r3: Array<C> & C, r4: Array<D> & D) -> C4<A, B, C, D>:
+  match n:
+    case 0n:
+      (m, bit) = rm
+      (a1, x1) = r1
+      (a2, x2) = r2
+      (a3, x3) = r3
+      (a4, x4) = r4
+      C4{o1, o2, o3, o4, m, a1, a2, a3, a4, k}
+    case 1n+p:
+      (m, bit) = rm
+      (a1, x1) = r1
+      (a2, x2) = r2
+      (a3, x3) = r3
+      (a4, x4) = r4
+      +j = U32.inc(i)
+      Kernel.compact4.go(~A, ~B, ~C, ~D, p, j, U32.add(k, bit), Array.set(A, o1, k, x1), Array.set(B, o2, k, x2), Array.set(C, o3, k, x3), Array.set(D, o4, k, x4), Array.get(U32, m, j), Array.get(A, a1, j), Array.get(B, a2, j), Array.get(C, a3, j), Array.get(D, a4, j))
+
+def Kernel.compact4(~A: Data, ~B: Data, ~C: Data, ~D: Data, +n: U32, +d: Nat, m: Array<U32>, a1: Array<A>, a2: Array<B>, a3: Array<C>, a4: Array<D>, +z1: A, +z2: B, +z3: C, +z4: D) -> C4<A, B, C, D>:
+  Kernel.compact4.go(~A, ~B, ~C, ~D, U32.to_nat(n), 0, 0, Array.new(A, d, z1), Array.new(B, d, z2), Array.new(C, d, z3), Array.new(D, d, z4), Array.get(U32, m, 0), Array.get(A, a1, 0), Array.get(B, a2, 0), Array.get(C, a3, 0), Array.get(D, a4, 0))
