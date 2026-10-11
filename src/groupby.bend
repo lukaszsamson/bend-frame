@@ -572,10 +572,18 @@ def Grp.agg.v(op: X.AggOp, +ng: U32, +dg: Nat, gids: Array<U32>, first: Array<U3
     case C.CStr{+n, +d, v, x}:
       Grp.agg.s(op, n, ng, dg, gids, first, C.Valid.materialize(v, 0n), ST.Strs.decode(n, d, x))
 
-# Len: rows per group
+# Len: rows per group (n = the input's height)
+def Grp.agg.len.n(+ng: U32, +dg: Nat, gids: Array<U32>, first: Array<U32>, +n: U32) -> Groups & E.ResT(C.Column):
+  Grp.wrap.w(D.TU32{}, ng, dg, first, Grp.scat(~U32, ~U32, ~(a => w => v => U32.add(a, v)), n, gids, Array.new(U32, 0n, 0), Array.new(U32, 0n, 1), Array.new(U32, dg, 0)))
+
+def Grp.agg.len.g(+n: U32, g: Groups) -> Groups & E.ResT(C.Column):
+  match g:
+    case Groups{+ng, gids, first}:
+      Grp.agg.len.n(ng, K.Kernel.depth_for(ng), gids, first, n)
+
 def Grp.agg.len(+ng: U32, +dg: Nat, gids: Array<U32>, first: Array<U32>, r: C.Column & U32) -> Groups & E.ResT(C.Column):
   (c, +n) = r
-  Grp.wrap.w(D.TU32{}, ng, dg, first, Grp.scat(~U32, ~U32, ~(a => w => v => U32.add(a, v)), n, gids, Array.new(U32, 0n, 0), Array.new(U32, 0n, 1), Array.new(U32, dg, 0)))
+  Grp.agg.len.n(ng, dg, gids, first, n)
 
 # Count: valid rows per group
 def Grp.agg.count.b(+n: U32, +ng: U32, +dg: Nat, gids: Array<U32>, first: Array<U32>, r: C.Column & C.Valid) -> Groups & E.ResT(C.Column):
@@ -824,6 +832,104 @@ def Grp.dup(d: Maybe<&2, String>) -> Maybe<&2, E.Err>:
 def Grp.static(+keys: List<&2, X.Expr>, +aggs: List<&2, X.Expr>, +s: List<&2, S.Field>) -> Maybe<&2, E.Err>:
   Maybe.or(&2, E.Err, Grp.validate(keys, aggs, s), Grp.dup(C.Names.dup(V.Eval.names(List.append(&2, X.Expr, keys, aggs)), Nil{}, None{})))
 
+# ---- ownership of the operator's inputs (DESIGN.md 16.2 rule 1, T3.3) --------------------------------
+#
+# group_by consumes its frame. A bare column (`Col n` under Aliases) used as a key or as an
+# aggregation input is MOVED out of the frame (Frame.take) when no later key / aggregation
+# expression reads it; every earlier reference clones (V.Eval.full: Frame.get_cloned), so a column
+# referenced k times costs k - 1 clones. Keys are evaluated first, then the aggregations, in list
+# order. Everything else (computed expressions) still goes through V.Eval.full. The static checks
+# (Grp.static) ran before: the column exists with its type, so the take cannot miss.
+
+def Grp.is_len(op: X.AggOp) -> Bool:
+  match op:
+    case X.Len{}:
+      True{}
+    case _:
+      False{}
+
+# the column name of `Col n` under Aliases
+def Grp.bare(e: X.Expr) -> Maybe<&2, String>:
+  match e:
+    case X.Col{n}:
+      Some{n}
+    case X.Alias{e2, n}:
+      Grp.bare(e2)
+    case _:
+      None{}
+
+# a column or a literal under Aliases: evaluating it cannot fail
+def Grp.simple(e: X.Expr) -> Bool:
+  match e:
+    case X.Col{n}:
+      True{}
+    case X.Lit{v}:
+      True{}
+    case X.Alias{e2, n}:
+      Grp.simple(e2)
+    case _:
+      False{}
+
+def Grp.len_free.k(s: Maybe<&2, X.AggSplit>) -> Bool:
+  match s:
+    case Some{X.AggSplit{op, inner}}:
+      Bool.and(Grp.is_len(op), Grp.simple(inner))
+    case None{}:
+      False{}
+
+# `Agg{Len, col or lit}` (under Aliases): the group sizes need the frame's height only, the input
+# column is never read (before T3.3 a literal was broadcast to a full column and a column cloned)
+def Grp.len_free(e: X.Expr) -> Bool:
+  Grp.len_free.k(X.Expr.split_agg(e))
+
+def Grp.has(ns: List<&2, String>, +name: String) -> Bool:
+  match ns:
+    case Nil{}:
+      False{}
+    case n <> t:
+      Bool.or(String.eq(name, n), Grp.has(t, name))
+
+def Grp.reads.e(+e: X.Expr,+name: String) -> Bool:
+  Bool.pick(Bool, Grp.len_free(e), False{}, Grp.has(X.Expr.refs(e), name))
+
+# does any expression of es read the column `name`?
+def Grp.reads(es: List<&2, X.Expr>, +name: String) -> Bool:
+  match es:
+    case Nil{}:
+      False{}
+    case e <> t:
+      Bool.or(Grp.reads.e(e, name), Grp.reads(t, name))
+
+def Grp.mv.k(m: Maybe<&2, String>, +a: List<&2, X.Expr>, +b: List<&2, X.Expr>) -> Maybe<&2, String>:
+  match m:
+    case Some{+n}:
+      Bool.pick(Maybe<&2, String>, Bool.or(Grp.reads(a, n), Grp.reads(b, n)), None{}, Some{n})
+    case None{}:
+      None{}
+
+# Some name when `e` is a bare column and neither list (the expressions that come after it) reads it
+def Grp.mv(e: X.Expr, +a: List<&2, X.Expr>, +b: List<&2, X.Expr>) -> Maybe<&2, String>:
+  Grp.mv.k(Grp.bare(e), a, b)
+
+def Grp.take.k(name: String, r: C.Frame & Maybe<&1, C.Column>) -> C.Frame & E.ResT(C.Column):
+  (f, m) = r
+  match m:
+    case Some{c}:
+      (f, Done{c})
+    case None{}:
+      (f, Fail{Grp.bug("missing column " ++ name)})
+
+def Grp.take(f: C.Frame, +name: String) -> C.Frame & E.ResT(C.Column):
+  Grp.take.k(name, C.Frame.take(f, name))
+
+# the full column of e: moved out of the frame when mv says so, else evaluated (clones)
+def Grp.eval(mv: Maybe<&2, String>, f: C.Frame, e: X.Expr) -> C.Frame & E.ResT(C.Column):
+  match mv:
+    case Some{n}:
+      Grp.take(f, n)
+    case None{}:
+      V.Eval.full(f, e)
+
 # ---- keys ------------------------------------------------------------------------------------------
 
 def Grp.key.add(+name: String, acc: List<&1, C.Named>, r: C.Frame & E.ResT(C.Column)) -> GSt:
@@ -834,20 +940,21 @@ def Grp.key.add(+name: String, acc: List<&1, C.Named>, r: C.Frame & E.ResT(C.Col
     case Done{c}:
       GSt{f, Done{C.Named{name, c} <> acc}}
 
-def Grp.key.step(+e: X.Expr, st: GSt) -> GSt:
+def Grp.key.step(+e: X.Expr, mv: Maybe<&2, String>, st: GSt) -> GSt:
   match st:
     case GSt{f, Fail{err}}:
       GSt{f, Fail{err}}
     case GSt{f, Done{acc}}:
-      Grp.key.add(X.Expr.name(e), acc, V.Eval.full(f, e))
+      Grp.key.add(X.Expr.name(e), acc, Grp.eval(mv, f, e))
 
-# every key expression as a full column (newest first)
-def Grp.keys(ks: List<&2, X.Expr>, st: GSt) -> GSt:
+# every key expression as a full column (newest first); `aggs` are read after all keys, so a key
+# column is moved only when no later key and no aggregation reads it
+def Grp.keys(ks: List<&2, X.Expr>, +aggs: List<&2, X.Expr>, st: GSt) -> GSt:
   match ks:
     case Nil{}:
       st
-    case k <> t:
-      Grp.keys(t, Grp.key.step(k, st))
+    case +k <> +t:
+      Grp.keys(t, aggs, Grp.key.step(k, Grp.mv(k, t, aggs), st))
 
 def Grp.codes.add(+n: U32, +d: Nat, name: String, acc: List<&1, C.Named>, g: Codes, cc: C.Column & Codes) -> List<&1, C.Named> & Codes:
   (c1, cd) = cc
@@ -917,12 +1024,19 @@ def Grp.aout.lit(+name: String, g: Groups, acc: List<&1, C.Named>, r: C.Frame & 
     case Done{c}:
       Grp.aout.lit.b(name, f, acc, c, g)
 
-def Grp.aout.kind(lit: Bool, +op: X.AggOp, +inner: X.Expr, +name: String, f: C.Frame, g: Groups, acc: List<&1, C.Named>) -> ASt:
-  match lit:
-    case True{}:
+# Len over a column or a literal: the groups' sizes from the frame's height, the frame handed back
+def Grp.aout.lenh(+name: String, g: Groups, acc: List<&1, C.Named>, r: C.Frame & U32) -> ASt:
+  (f, +h) = r
+  Grp.aout.put(name, f, acc, Grp.agg.len.g(h, g))
+
+def Grp.aout.kind(lit: Bool, lenfree: Bool, +op: X.AggOp, +inner: X.Expr, +name: String, +rest: List<&2, X.Expr>, f: C.Frame, g: Groups, acc: List<&1, C.Named>) -> ASt:
+  match lit lenfree:
+    case True{} _:
       Grp.aout.lit(name, g, acc, V.Eval.expr(f, X.Agg{op, inner}))
-    case False{}:
-      Grp.aout.full(op, name, g, acc, V.Eval.full(f, inner))
+    case False{} True{}:
+      Grp.aout.lenh(name, g, acc, C.Frame.height(f))
+    case False{} False{}:
+      Grp.aout.full(op, name, g, acc, Grp.eval(Grp.mv(inner, rest, Nil{}), f, inner))
 
 def Grp.is_klit(k: V.SKind) -> Bool:
   match k:
@@ -931,33 +1045,26 @@ def Grp.is_klit(k: V.SKind) -> Bool:
     case _:
       False{}
 
-def Grp.is_len(op: X.AggOp) -> Bool:
-  match op:
-    case X.Len{}:
-      True{}
-    case _:
-      False{}
-
-def Grp.aout.split(+name: String, s: Maybe<&2, X.AggSplit>, f: C.Frame, g: Groups, acc: List<&1, C.Named>) -> ASt:
+def Grp.aout.split(+name: String, +rest: List<&2, X.Expr>, s: Maybe<&2, X.AggSplit>, f: C.Frame, g: Groups, acc: List<&1, C.Named>) -> ASt:
   match s:
     case None{}:
       ASt{f, g, Fail{Grp.bug("non-aggregation")}}
     case Some{X.AggSplit{+op, +inner}}:
-      Grp.aout.kind(Bool.and(Grp.is_klit(V.Eval.kind(inner)), Bool.not(Grp.is_len(op))), op, inner, name, f, g, acc)
+      Grp.aout.kind(Bool.and(Grp.is_klit(V.Eval.kind(inner)), Bool.not(Grp.is_len(op))), Bool.and(Grp.is_len(op), Grp.simple(inner)), op, inner, name, rest, f, g, acc)
 
-def Grp.aout.step(+e: X.Expr, st: ASt) -> ASt:
+def Grp.aout.step(+e: X.Expr, +rest: List<&2, X.Expr>, st: ASt) -> ASt:
   match st:
     case ASt{f, g, Fail{err}}:
       ASt{f, g, Fail{err}}
     case ASt{f, g, Done{acc}}:
-      Grp.aout.split(X.Expr.name(e), X.Expr.split_agg(e), f, g, acc)
+      Grp.aout.split(X.Expr.name(e), rest, X.Expr.split_agg(e), f, g, acc)
 
 def Grp.aout(ags: List<&2, X.Expr>, st: ASt) -> ASt:
   match ags:
     case Nil{}:
       st
-    case a <> t:
-      Grp.aout(t, Grp.aout.step(a, st))
+    case +a <> +t:
+      Grp.aout(t, Grp.aout.step(a, t, st))
 
 # ---- entry point -----------------------------------------------------------------------------------------
 
@@ -981,10 +1088,42 @@ def GroupBy.group(+n: U32, +d: Nat, aggs: List<&2, X.Expr>, f: C.Frame, r: List<
     case Codes{+k, c}:
       GroupBy.out(aggs, f, kc, Grp.densify(n, d, k, c))
 
+# the first key's codes. A single key goes straight to GroupBy.group's densify: combining with the
+# constant code 1 (g * k + c with g = 0) is the identity and its densify numbers the groups by first
+# appearance exactly as the final one does, so the result is identical without the zipk pass, the
+# zeroed constant array and the second densify. With more keys the first key is still compacted to
+# its distinct count (what the combine's densify did; the codes are < ng, so the pair products stay
+# small), but by one densify, never the pair-rank sort a wide key used to take.
+def Grp.compact(+n: U32, +d: Nat, cd: Codes) -> Codes:
+  match cd:
+    case Codes{+k, c}:
+      Grp.to_codes(Grp.densify(n, d, k, c))
+
+def GroupBy.first.one(+n: U32, +d: Nat, aggs: List<&2, X.Expr>, f: C.Frame, name: String, r: C.Column & Codes) -> E.ResT(C.Frame):
+  (c1, cd) = r
+  GroupBy.group(n, d, aggs, f, (C.Named{name, c1} <> Nil{}, cd))
+
+def GroupBy.first.many(+n: U32, +d: Nat, aggs: List<&2, X.Expr>, f: C.Frame, name: String, rest: List<&1, C.Named>, r: C.Column & Codes) -> E.ResT(C.Frame):
+  (c1, cd) = r
+  GroupBy.group(n, d, aggs, f, Grp.codes(rest, n, d, (C.Named{name, c1} <> Nil{}, Grp.compact(n, d, cd))))
+
+def GroupBy.first.c(+n: U32, +d: Nat, aggs: List<&2, X.Expr>, f: C.Frame, name: String, rest: List<&1, C.Named>, r: C.Column & Codes) -> E.ResT(C.Frame):
+  match rest:
+    case Nil{}:
+      GroupBy.first.one(n, d, aggs, f, name, r)
+    case other:
+      GroupBy.first.many(n, d, aggs, f, name, other, r)
+
+def GroupBy.first(+n: U32, +d: Nat, aggs: List<&2, X.Expr>, f: C.Frame, kc: List<&1, C.Named>) -> E.ResT(C.Frame):
+  match kc:
+    case Nil{}:
+      GroupBy.group(n, d, aggs, f, (Nil{}, Codes{1, Array.new(U32, d, 0)}))
+    case C.Named{name, col} <> t:
+      GroupBy.first.c(n, d, aggs, f, name, t, Grp.encode_keep(col))
+
 def GroupBy.keyed.b(aggs: List<&2, X.Expr>, kc: List<&1, C.Named>, r: C.Frame & U32) -> E.ResT(C.Frame):
   (f, +n) = r
-  +d = K.Kernel.depth_for(n)
-  GroupBy.group(n, d, aggs, f, Grp.codes(kc, n, d, (Nil{}, Codes{1, Array.new(U32, d, 0)})))
+  GroupBy.first(n, K.Kernel.depth_for(n), aggs, f, kc)
 
 def GroupBy.keyed(aggs: List<&2, X.Expr>, st: GSt) -> E.ResT(C.Frame):
   match st:
@@ -993,12 +1132,12 @@ def GroupBy.keyed(aggs: List<&2, X.Expr>, st: GSt) -> E.ResT(C.Frame):
     case GSt{f, Done{kc}}:
       GroupBy.keyed.b(aggs, kc, C.Frame.height(f))
 
-def GroupBy.run.b(err: Maybe<&2, E.Err>, f: C.Frame, keys: List<&2, X.Expr>, aggs: List<&2, X.Expr>) -> E.ResT(C.Frame):
+def GroupBy.run.b(err: Maybe<&2, E.Err>, f: C.Frame, keys: List<&2, X.Expr>, +aggs: List<&2, X.Expr>) -> E.ResT(C.Frame):
   match err:
     case Some{e}:
       Fail{e}
     case None{}:
-      GroupBy.keyed(aggs, Grp.keys(keys, GSt{f, Done{Nil{}}}))
+      GroupBy.keyed(aggs, Grp.keys(keys, aggs, GSt{f, Done{Nil{}}}))
 
 # the row cap (DESIGN.md 15.8): ng <= the input height h, so h under the cap bounds every group
 # array; checked after the type errors and before any key expression is evaluated or any array built
