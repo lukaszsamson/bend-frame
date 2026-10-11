@@ -2744,7 +2744,23 @@ in bench/w5/results/t53.jsonl, summary t53_summary.md; every mode's result hash 
 | q5 | 10 / 10 | 11 / 10 | 16 / 15 / 14.5 | 1.10x | 6 / 4 | 0 |
 | filter qty > 50 (7 columns) | 8 / 8.5 | 17.5 / 11 | 8 / 5 / 5 | 1.60x | 6 / 4 | 3 / 2 |
 
-m2 harness (bench/m2/run.py, candidate binary, `--engine v01` vs `--engine chunked`, phases mode, 5 fresh
+**After T4.4** (master 2da8d7a merged; the leaves take the fused entry and the F5 passes; same procedure,
+load 5.4-9.9; bench/w5/results/t53_final.jsonl / t53_final_summary.md; every hash equal):
+
+| query | reference 1 / 12 thr | chunked from a flat env 1 / 4 / 12 thr | pre-chunked compute 1 / 4 / 12 thr | 12-vs-1 |
+|---|---|---|---|---|
+| q1 | 2 / 2 | 8 / 4.5 / 5 | 3 / 2 / 2 | 1.5x (1 ms clock) |
+| q2 | 3 / 3 | 15 / 9.5 / 10 | 3 / 2 / 2 | 1.5x (1 ms clock) |
+| q3 | 12 / 12 | 21 / 17 / 17 | 15.5 / 13 / 13 | 1.19x |
+| q5 | 10 / 10 | 10.5 / 10 / 10 | 16 / 14 / 14 | 1.14x |
+| filter qty > 50 | 7 / 7 | 17 / 10 / 10 | 7.5 / 4 / 4 | 1.88x |
+
+At one thread the pre-chunked compute now equals the reference within the clock (q2 3 vs 3, q1 3 vs 2);
+the conversions are unchanged (in 6 / 4 ms, q2's out 7 / 4 ms), so from flat env frames the chunked
+engine stays 3-5x slower than the reference on q1 / q2. Before T4.4 (the first table) the leaves ran the
+unfused evaluator.
+
+m2 harness, BEFORE the T4.4 merge (bench/m2/run.py, candidate binary, `--engine v01` vs `--engine chunked`, phases mode, 5 fresh
 processes per cell, the two engines alternated round by round, load 6.3-12.6; bench/m2/results/t53-v01.jsonl,
 t53-chunked.jsonl and their *_summary.md with raw samples; all 180 processes valid against the frozen
 expectations). compute_ms medians, chunked engine from the driver's flat frames (conversions inside):
@@ -2766,9 +2782,8 @@ expectations). compute_ms medians, chunked engine from the driver's flat frames 
   but it repeats 40 reps over the same inputs inside one process (a warm allocator: each lane reuses the
   blocks it freed); every leaf here writes FRESH output blocks (the evaluator allocates one per operation,
   plus a clone per column reference), first touched inside the parallel region. The 1-thread overhead of the
-  chunked runner over the reference is 0-1 ms on q1 / q2 (cut, leaf frames, per-leaf typing). W4's fused
-  kernels (T4.4, not merged yet) cut the per-leaf allocations 3-5x and land in the walks unchanged (the
-  walks call the evaluator); re-measure then.
+  chunked runner over the reference is 0-1 ms on q1 / q2 (cut, leaf frames, per-leaf typing). After the
+  T4.4 merge (fused kernels in the leaves, fewer allocations) see "after T4.4" below.
 - **Conversions dominate end to end for env-bound flat frames** (16.9 risk 2): of_frame of the 7-column
   sales frame 6 ms at 1 thread, 4 at 12; to_frame of q2's 8 columns 7 / 4. With them inside the window the
   chunked engine is slower than the reference on every query (q1 9.5 vs 5, q2 19 vs 6 at 1 thread). G2 is
@@ -2782,10 +2797,11 @@ expectations). compute_ms medians, chunked engine from the driver's flat frames 
 
 What the next agents need to know:
 
-- T4.4 merge: the walks call `V.Eval.full` / `V.Eval.pred` / `K.Kernel.popcount` (the predicate chain of
-  Eval.filter) and `Q.Exec.fc`; when Eval.filter's chain becomes pred_count, `CX.p1.leaf` / `CX.p1.c` should
-  call the new mask function (one call; the leaf frame must come back on failure: the borrow is what makes
-  the error rerun possible).
+- T4.4 (merged): the walks evaluate through `CX.efull` (= `Eval.mode.a(True, Eval.slot.mv(f, e, False, [], []))`,
+  the fused entry, nothing moved) and the filter leaf through `Eval.f5.plan` / `Eval.f5.go` (pred_count) or
+  `CX.efull` + `Eval.pred` + popcount: `Eval.filter.mask`'s steps, not the function itself, because it drops
+  the frame on a failure and the error rerun needs it. A change of Eval.filter.mask's chain must be mirrored
+  in `CX.p1.*` (the G1 differential catches a divergence).
 - W6: hand the reader's leaves to the runner as a pre-chunked source (`CX.run(g, p, env, pre)` with
   `PNF{name, CFrame}`) or through a scan; the facade does not take a CFrame yet.
 - W8: `Engine.chunked()` is grain 14; small frames (<= 2^14 rows) run the reference path exactly.

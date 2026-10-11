@@ -3157,11 +3157,14 @@ task text:
    row-dropping operator: a filter followed by a flatten boundary or by the result would copy its rows twice.
 6. **Dictionary columns**: set aside as their code trees for a walk; an expression that reads one gets a
    copy of its Dict per split point (D2 rule 4) when it has at most 4096 entries (a larger one: flat).
-7. **The leaf evaluator is v0.1's Eval** (+ Exec.fc's compact3 / compact4): T5.2's CK wrappers are used only
-   for the tree reductions of item 4; the fused per-leaf kernels arrive with T4.4 (Eval peepholes) through
-   the same call sites.
-8. **G2 not met (PROVISIONAL)**: on pre-chunked inputs the compute scales 1.6-1.7x (q1, q2, filter), 1.3x
-   (q3), 1.1x (q5) at 12 vs 1 thread, below 16.8's 3x / 2x / 1.5x; from flat env frames the conversions
+7. **The leaf evaluator is the reference's Eval** (since the T4.2 / T4.4 merge: the fused entry
+   `Eval.slot.mv` with `Eval.fuse` / `Eval.runz`, and the filter's F5 `Eval.f5.plan` / `Eval.f5.go` passes,
+   + Exec.fc's compact3 / compact4): T5.2's CK wrappers are used only for the tree reductions of item 4. The
+   leaves do not call `Eval.filter.mask` itself: it answers a bare `Fail` on a data error, and the error
+   rerun of item 2 needs the leaf frame back; the leaf calls the same steps that hand the frame back.
+8. **G2 not met (PROVISIONAL)**: on pre-chunked inputs the compute scales 1.5-1.9x (q1, q2, filter; q1 / q2
+   are 2-3 ms, at the 1 ms clock), 1.2x (q3), 1.1x (q5) at 12 vs 1 thread after the T4.4 merge, below 16.8's
+   3x / 2x / 1.5x (q4 and q6 do not use the engine: q4's Sort + Head and q6's eager describe run flat); from flat env frames the conversions
    make the chunked engine slower than the reference. bench/w5/t53x.bend shows the same ~2x ceiling for a
    plain list fork of the same per-leaf work and for a single flat kernel per leaf (fresh output blocks per
    leaf); the walk adds nothing to it. IMPLEMENTING.md "T5.3" has the samples and loads.
