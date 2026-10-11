@@ -134,54 +134,54 @@ def main() -> IO(Unit):
 #|q1 n=4: h=1 [same] walks=0 flat=1 cin=0 cout=0
 #|q2 n=4: h=4 [same] walks=0 flat=1 cin=0 cout=0
 #|chain n=4: h=3 [same] walks=0 flat=4 cin=0 cout=0
-#|q1 n=5: h=2 [same] walks=2 flat=0 cin=1 cout=1
+#|q1 n=5: h=2 [same] walks=1 flat=0 cin=1 cout=1
 #|q2 n=5: h=5 [same] walks=1 flat=0 cin=1 cout=1
-#|chain n=5: h=4 [same] walks=5 flat=0 cin=1 cout=1
-#|q1 n=7: h=3 [same] walks=2 flat=0 cin=1 cout=1
+#|chain n=5: h=4 [same] walks=3 flat=0 cin=1 cout=1
+#|q1 n=7: h=3 [same] walks=1 flat=0 cin=1 cout=1
 #|q2 n=7: h=7 [same] walks=1 flat=0 cin=1 cout=1
-#|chain n=7: h=5 [same] walks=5 flat=0 cin=1 cout=1
-#|q1 n=8: h=4 [same] walks=2 flat=0 cin=1 cout=1
+#|chain n=7: h=5 [same] walks=3 flat=0 cin=1 cout=1
+#|q1 n=8: h=4 [same] walks=1 flat=0 cin=1 cout=1
 #|q2 n=8: h=8 [same] walks=1 flat=0 cin=1 cout=1
-#|chain n=8: h=6 [same] walks=5 flat=0 cin=1 cout=1
-#|q1 n=9: h=4 [same] walks=2 flat=0 cin=1 cout=1
+#|chain n=8: h=6 [same] walks=3 flat=0 cin=1 cout=1
+#|q1 n=9: h=4 [same] walks=1 flat=0 cin=1 cout=1
 #|q2 n=9: h=9 [same] walks=1 flat=0 cin=1 cout=1
-#|chain n=9: h=6 [same] walks=5 flat=0 cin=1 cout=1
-#|q1 n=15: h=5 [same] walks=2 flat=0 cin=1 cout=1
+#|chain n=9: h=6 [same] walks=3 flat=0 cin=1 cout=1
+#|q1 n=15: h=5 [same] walks=1 flat=0 cin=1 cout=1
 #|q2 n=15: h=15 [same] walks=1 flat=0 cin=1 cout=1
-#|chain n=15: h=9 [same] walks=5 flat=0 cin=1 cout=1
-#|q1 n=16: h=5 [same] walks=2 flat=0 cin=1 cout=1
+#|chain n=15: h=9 [same] walks=3 flat=0 cin=1 cout=1
+#|q1 n=16: h=5 [same] walks=1 flat=0 cin=1 cout=1
 #|q2 n=16: h=16 [same] walks=1 flat=0 cin=1 cout=1
-#|chain n=16: h=10 [same] walks=5 flat=0 cin=1 cout=1
-#|q1 n=17: h=5 [same] walks=2 flat=0 cin=1 cout=1
+#|chain n=16: h=10 [same] walks=3 flat=0 cin=1 cout=1
+#|q1 n=17: h=5 [same] walks=1 flat=0 cin=1 cout=1
 #|q2 n=17: h=17 [same] walks=1 flat=0 cin=1 cout=1
-#|chain n=17: h=10 [same] walks=5 flat=0 cin=1 cout=1
-#|q1 n=33: h=10 [same] walks=2 flat=0 cin=1 cout=1
+#|chain n=17: h=10 [same] walks=3 flat=0 cin=1 cout=1
+#|q1 n=33: h=10 [same] walks=1 flat=0 cin=1 cout=1
 #|q2 n=33: h=33 [same] walks=1 flat=0 cin=1 cout=1
-#|chain n=33: h=18 [same] walks=5 flat=0 cin=1 cout=1
-#|sel 0%: h=0 [same] walks=5 flat=0 cin=1 cout=0
-#|sel 1%: h=1 [same] walks=5 flat=0 cin=1 cout=0
-#|sel 50%: h=45 [same] walks=5 flat=0 cin=1 cout=1
-#|sel 100%: h=90 [same] walks=5 flat=0 cin=1 cout=1
+#|chain n=33: h=18 [same] walks=3 flat=0 cin=1 cout=1
+#|sel 0%: h=0 [same] walks=3 flat=0 cin=1 cout=0
+#|sel 1%: h=1 [same] walks=3 flat=0 cin=1 cout=0
+#|sel 50%: h=45 [same] walks=3 flat=0 cin=1 cout=1
+#|sel 100%: h=90 [same] walks=3 flat=0 cin=1 cout=1
 #|tiny chunks: concat of 8 chunked frames: h=72 [same] walks=16 flat=0 cin=8 cout=1
-#|tiny chunks: + filter + filter: h=40 [same] walks=20 flat=0 cin=8 cout=1
+#|tiny chunks: + filter + filter: h=40 [same] walks=18 flat=0 cin=8 cout=1
 #|tiny chunks: + with_columns + head: h=30 [same] walks=17 flat=0 cin=8 cout=1
-#|1% filter then with_columns (empty leaves): h=1 [same] walks=3 flat=0 cin=1 cout=0
+#|1% filter then with_columns (empty leaves): h=1 [same] walks=2 flat=0 cin=1 cout=0
 #|empty: filter: h=0 [same] walks=0 flat=1 cin=0 cout=0
 #|empty: with_columns + select + head: h=0 [same] walks=0 flat=3 cin=0 cout=0
-#|filter to empty, then with_columns + head: h=0 [same] walks=3 flat=0 cin=1 cout=0
-#|zero columns: drop every column (chunked): h=26 [same] walks=2 flat=0 cin=1 cout=0
-#|zero columns: + with_columns lit (flat) + head: h=5 [same] walks=2 flat=2 cin=1 cout=0
-#|zero columns: select([]) after a filter: h=0 [same] walks=2 flat=0 cin=1 cout=0
-#|concat chunked + flat: h=52 [same] walks=2 flat=0 cin=2 cout=1
-#|concat flat + chunked: h=55 [same] walks=2 flat=0 cin=2 cout=1
-#|concat two ragged chunked (two dictionaries) + filter: h=22 [same] walks=6 flat=0 cin=2 cout=1
-#|concat chunked + one-leaf: h=25 [same] walks=2 flat=1 cin=1 cout=1
-#|concat schema error: error: InvalidOperation: concat_vertical: input 1 schema [id:u32, qty:u32, price:f32, ok:bool, disc:f32, s:str, d:str, num:str] differs from input 0's [id:u32, qty:u32, price:f32, ok:bool, disc:f32, s:str, d:str, num:str, n:i32] [same] walks=2 flat=2 cin=1 cout=1
-#|self join after filters: h=8 [same] walks=4 flat=1 cin=2 cout=2
-#|join of two chunked frames + filter: h=29 [same] walks=5 flat=1 cin=3 cout=3
-#|pre-chunked q1: h=11 [same] walks=2 flat=0 cin=0 cout=1
+#|filter to empty, then with_columns + head: h=0 [same] walks=2 flat=0 cin=1 cout=0
+#|zero columns: drop every column (chunked): h=26 [same] walks=1 flat=0 cin=1 cout=0
+#|zero columns: + with_columns lit (flat) + head: h=5 [same] walks=1 flat=2 cin=1 cout=0
+#|zero columns: select([]) after a filter: h=0 [same] walks=1 flat=0 cin=1 cout=0
+#|concat chunked + flat: h=52 [same] walks=1 flat=0 cin=2 cout=1
+#|concat flat + chunked: h=55 [same] walks=1 flat=0 cin=2 cout=1
+#|concat two ragged chunked (two dictionaries) + filter: h=22 [same] walks=3 flat=0 cin=2 cout=1
+#|concat chunked + one-leaf: h=25 [same] walks=1 flat=1 cin=1 cout=1
+#|concat schema error: error: InvalidOperation: concat_vertical: input 1 schema [id:u32, qty:u32, price:f32, ok:bool, disc:f32, s:str, d:str, num:str] differs from input 0's [id:u32, qty:u32, price:f32, ok:bool, disc:f32, s:str, d:str, num:str, n:i32] [same] walks=1 flat=2 cin=1 cout=1
+#|self join after filters: h=8 [same] walks=2 flat=1 cin=2 cout=2
+#|join of two chunked frames + filter: h=29 [same] walks=3 flat=1 cin=3 cout=3
+#|pre-chunked q1: h=11 [same] walks=1 flat=0 cin=0 cout=1
 #|pre-chunked sort (flat boundary): h=4 [same] walks=0 flat=1 cin=0 cout=1
-#|pre-chunked self join (clone): h=18 [same] walks=2 flat=1 cin=0 cout=2
+#|pre-chunked self join (clone): h=18 [same] walks=1 flat=1 cin=0 cout=2
 #|pre-chunked schema mismatch: error: InvalidOperation: source t: data schema [id:u32, qty:u32, price:f32, ok:bool, disc:f32, s:str, d:str, num:str, n:i32] differs from the plan's [id:u32] [same] walks=0 flat=0 cin=0 cout=0
 #|collect_with chain: [same]
 #|collect_raw_with static error: [same]

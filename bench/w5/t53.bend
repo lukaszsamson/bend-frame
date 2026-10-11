@@ -3,6 +3,9 @@
 #   mode 0  reference: DF.collect (Lazy.collect, the v0.1 executor)
 #   mode 1  chunked end to end from a flat env frame: DF.collect_with(engine_chunked()) (the conversions to
 #           and from chunks inside the compute window, as the m2 driver with BF_ENGINE=chunked measures it)
+#   mode 3  the pre-chunked compute batched (8 runs per window, us per run; bench/w5/scale/t53b.py)
+#   mode 4  the reference compute batched the same way (Exec.run_phys over 8 flat envs; T5.5)
+#   mode 30 + g  mode 3 at grain 2^g (T5.5: the per-leaf cost by a grain sweep)
 #   mode 2  (mode 10 + g: at grain 2^g instead of the default 2^14) chunked over a PRE-CHUNKED source (the W6 hand-off: G2 is defined on chunked inputs): the sales
 #           frame converted (in_ms: CH.CFrame.of_frame, forked across columns), the plan run (compute_ms:
 #           CX.run_x, the result left as it is), the result flattened (out_ms: CX.out)
@@ -19,6 +22,7 @@ import ./../../src/column.bend as C
 import ./../../src/plan.bend as P
 import ./../../src/chunks.bend as CH
 import ./../../src/cexec.bend as QC
+import ./../../src/exec.bend as QX
 import ./../m2/driver.bend as DR
 
 # probes beside the m2 workloads: wlit with_columns(lit 1), wadd with_columns(qty + id), wcast
@@ -179,6 +183,66 @@ def T.b.env(+g: Nat, +op: String, +par: U32, s: C.Frame, p: C.Frame, pp: C.Frame
 def T.batch(+g: Nat, +op: String, +par: U32, s: C.Frame, p: C.Frame) -> IO(R):
   T.b.env(g, op, par, s, C.Frame.empty(), DF.clone(p))
 
+# mode 4 (T5.5): the REFERENCE compute batched the same way: K = 8 flat env copies {sales, products} built
+# before the clock, the plan run over all K by the reference physical runner (Exec.run_phys: pure, no IO,
+# the same code DF.collect runs after its checks) inside ONE window, microseconds per run; the first result
+# hashed after the clock. The 1-thread chunked-vs-reference comparison of T5.5 reads mode 3 against mode 4.
+def T.r.env(r: P.Env & P.Plan) -> P.Env:
+  (env, pp) = r
+  env
+
+def T.r.one.k(f: C.Frame, r: P.Env & P.Plan) -> P.Env:
+  (env, pp) = r
+  T.r.env(DF.add_source(env, "products", f))
+
+def T.r.pre(k: Nat, acc: List<&1, P.Env>, ss: C.Frame & C.Frame, pp: C.Frame & C.Frame) -> List<&1, P.Env>:
+  match k:
+    case 0n:
+      acc
+    case 1n+j:
+      (s1, s2) = ss
+      (p1, p2) = pp
+      T.r.pre(j, T.r.one.k(p1, DF.source("sales", s1)) <> acc, DF.clone(s2), DF.clone(p2))
+
+def T.r.run(+p: P.Plan, es: List<&1, P.Env>, acc: List<&1, E.ResT(C.Frame)>) -> List<&1, E.ResT(C.Frame)>:
+  match es:
+    case Nil{}:
+      acc
+    case env <> rest:
+      T.r.run(p, rest, QX.Exec.run_phys(p, env) <> acc)
+
+def T.r.fin(+us: Nat, rs: List<&1, E.ResT(C.Frame)>) -> IO(R):
+  match rs:
+    case Nil{}:
+      do IO<R>:
+        return R{T.ms(0n, us, 0n, 0n), 0, "no result"}
+    case x <> rest:
+      do IO<R>:
+        +t2 : Nat <- IO.now()
+        +h : U32 <- IO.pure(U32, T.chk(x))
+        +t3 : Nat <- IO.now()
+        return R{T.ms(0n, us, 0n, Nat.sub(t3, t2)), h, ""}
+
+def T.r.go(+p: P.Plan, es: List<&1, P.Env>) -> IO(R):
+  do IO<R>:
+    +t0 : Nat <- IO.now()
+    rs : List<&1, E.ResT(C.Frame)> <- IO.pure(List<&1, E.ResT(C.Frame)>, T.r.run(p, es, Nil{}))
+    +t1 : Nat <- IO.now()
+    T.r.fin(Nat.div(Nat.mul(Nat.sub(t1, t0), 1000n), T.b.k()), rs)
+
+def T.r.k2(+op: String, +par: U32, r: P.Env & P.Plan, ss: C.Frame & C.Frame, pp: C.Frame & C.Frame) -> IO(R):
+  (env, +pl) = r
+  (s1, s2) = ss
+  T.r.go(P.Optimize.release(T.plan(op, par, T.splan(s1), pl)), T.r.pre(T.b.k(), Nil{}, DF.clone(s2), pp))
+
+def T.r.env2(+op: String, +par: U32, s: C.Frame, pp: C.Frame & C.Frame) -> IO(R):
+  (p1, p2) = pp
+  T.r.k2(op, par, DF.source("products", p1), DF.clone(s), DF.clone(p2))
+
+# (the plan's products Source takes its schema from a clone of the products frame, as mode 3's)
+def T.rbatch(+op: String, +par: U32, s: C.Frame, p: C.Frame) -> IO(R):
+  T.r.env2(op, par, s, DF.clone(p))
+
 def T.pre.k2(+g: Nat, env: P.Env, +p: P.Plan, s: C.Frame) -> IO(R):
   T.pre(g, env, p, s)
 
@@ -199,6 +263,14 @@ def T.one.k(+mode: U32, +op: String, +par: U32, s: C.Frame, p: C.Frame, r: P.Env
 def T.grain(+mode: U32) -> Nat:
   Bool.pick(Nat, U32.is_lt(mode, 10), CH.Ch.grain(), U32.to_nat(U32.sub(mode, 10)))
 
+# mode 10 + g: mode 2 at grain 2^g; mode 30 + g: mode 3 (batched) at grain 2^g (T5.5's per-leaf cost sweep)
+def T.one.g(lo: Bool, +mode: U32, +op: String, +par: U32, s: C.Frame, p: C.Frame) -> IO(R):
+  match lo:
+    case True{}:
+      T.pre.env(T.grain(mode), op, par, s, p)
+    case False{}:
+      T.batch(U32.to_nat(U32.sub(mode, 30)), op, par, s, p)
+
 def T.one(+mode: U32, +op: String, +par: U32, s: C.Frame, p: C.Frame) -> IO(R):
   match mode:
     case 0:
@@ -207,8 +279,10 @@ def T.one(+mode: U32, +op: String, +par: U32, s: C.Frame, p: C.Frame) -> IO(R):
       T.one.k(mode, op, par, C.Frame.empty(), C.Frame.empty(), T.env(op, par, s, p))
     case 3:
       T.batch(CH.Ch.grain(), op, par, s, p)
+    case 4:
+      T.rbatch(op, par, s, p)
     case _:
-      T.pre.env(T.grain(mode), op, par, s, p)
+      T.one.g(U32.is_lt(mode, 30), mode, op, par, s, p)
 
 type L is Type:
   L{acc: String, h: U32, stats: String, s: C.Frame, p: C.Frame}

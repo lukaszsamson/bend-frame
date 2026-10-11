@@ -1,8 +1,9 @@
 # v0.2 T5.3: the chunked runner (src/cexec.bend, DESIGN.md 16.5) against the reference runner
 # (Exec.run_phys), operator by operator, at grain 2^2 (leaves of 4 rows: every frame here is many
 # leaves) unless a line says otherwise. Each line: the reference's height (or error), [same] when
-# DF.dump of the two answers is equal, and the chunked runner's counters: walks (per-leaf walks: 2 per
-# filter, 1 per with_columns / select of expressions), flat (operators run by today's flat code behind
+# DF.dump of the two answers is equal, and the chunked runner's counters: walks (per-leaf walks: 1 per
+# filter whose predicate has an F5 plan (T5.5: mask and compaction in one walk), 2 per other filter, 1 per
+# with_columns / select of expressions), flat (operators run by today's flat code behind
 # the flatten boundary), cin / cout (conversions to / from chunks of a frame above 2^g rows; one-leaf
 # frames move their buffers and are not counted). Frames: tests/lib/cxgen.bend t(n).
 #  - q1 (Filter + plain Select root, F8), q2 (with_columns revenue), q3 (q2, group_by, sort), q4 (sort,
@@ -134,16 +135,16 @@ def main() -> IO(Unit):
     IO.print(cg("q1 small frame (n <= 2^g)", 6n, 37, q1p(37)))
     IO.print(cg("q2 small frame (n <= 2^g)", 6n, 64, q2p(64)))
     IO.print(cg("chain small frame", 14n, 200, chain(200)))
-#|q1: h=11 [same] walks=2 flat=0 cin=1 cout=1
-#|q1 n=100: h=26 [same] walks=2 flat=0 cin=1 cout=1
+#|q1: h=11 [same] walks=1 flat=0 cin=1 cout=1
+#|q1 n=100: h=26 [same] walks=1 flat=0 cin=1 cout=1
 #|q2: h=37 [same] walks=1 flat=0 cin=1 cout=1
 #|q3: h=3 [same] walks=1 flat=2 cin=1 cout=1
 #|q4: h=5 [same] walks=0 flat=1 cin=0 cout=0
-#|q5 join: h=3 [same] walks=2 flat=3 cin=1 cout=1
-#|filter qty>40: h=22 [same] walks=2 flat=0 cin=1 cout=1
-#|filter ok (nulls drop): h=21 [same] walks=2 flat=0 cin=1 cout=1
-#|filter price>2 (NaN): h=28 [same] walks=2 flat=0 cin=1 cout=1
-#|filter n<0 (i32, nulls): h=16 [same] walks=2 flat=0 cin=1 cout=1
+#|q5 join: h=3 [same] walks=1 flat=3 cin=1 cout=1
+#|filter qty>40: h=22 [same] walks=1 flat=0 cin=1 cout=1
+#|filter ok (nulls drop): h=21 [same] walks=1 flat=0 cin=1 cout=1
+#|filter price>2 (NaN): h=28 [same] walks=1 flat=0 cin=1 cout=1
+#|filter n<0 (i32, nulls): h=16 [same] walks=1 flat=0 cin=1 cout=1
 #|filter s==r2 (Raw str): h=5 [same] walks=2 flat=0 cin=1 cout=1
 #|filter d==k1 (Dictionary: a Dict clone per lane): h=12 [same] walks=2 flat=0 cin=1 cout=1
 #|filter lit true: h=37 [same] walks=2 flat=0 cin=1 cout=1
@@ -155,13 +156,13 @@ def main() -> IO(Unit):
 #|wc two, one overwrite: h=37 [same] walks=1 flat=0 cin=1 cout=1
 #|wc literal only: h=37 [same] walks=1 flat=0 cin=1 cout=1
 #|wc agg inside (hoisted): h=37 [same] walks=1 flat=0 cin=1 cout=1
-#|wc aggs over chunks (after a filter): h=30 [same] walks=3 flat=0 cin=1 cout=2
+#|wc aggs over chunks (after a filter): h=30 [same] walks=2 flat=0 cin=1 cout=2
 #|wc null aggregation (max of all-null): h=7 [same] walks=3 flat=0 cin=1 cout=2
 #|sel column + aggregation (rows): h=37 [same] walks=1 flat=0 cin=1 cout=1
 #|wc Raw str output: h=37 [same] walks=1 flat=0 cin=1 cout=1
 #|wc Dictionary outputs (leaf Dicts merged): h=37 [same] walks=1 flat=0 cin=1 cout=1
 #|filter over a Dict of 5000 entries (flat): h=1 [same] walks=0 flat=1 cin=0 cout=0
-#|filter beside a Dict of 5000 entries (chunked): h=49 [same] walks=2 flat=0 cin=1 cout=1
+#|filter beside a Dict of 5000 entries (chunked): h=49 [same] walks=1 flat=0 cin=1 cout=1
 #|wc overwrite Dictionary col (flat): h=37 [same] walks=0 flat=1 cin=0 cout=0
 #|wc when / is_in / fill_null: h=37 [same] walks=1 flat=0 cin=1 cout=1
 #|wc reads Raw str: h=37 [same] walks=1 flat=0 cin=1 cout=1
@@ -170,22 +171,22 @@ def main() -> IO(Unit):
 #|sel plain over chunks (trees moved): h=37 [same] walks=1 flat=0 cin=1 cout=1
 #|sel literal only (flat): h=1 [same] walks=0 flat=1 cin=0 cout=0
 #|sel agg (flat): h=1 [same] walks=0 flat=1 cin=0 cout=0
-#|sel aggs over chunks (pruned, flat): h=1 [same] walks=2 flat=0 cin=1 cout=1
-#|sel tree reductions over chunks (sum / min / max / count / len): h=1 [same] walks=2 flat=0 cin=1 cout=0
-#|sel tree reductions over an empty chunked frame (min null): h=1 [same] walks=2 flat=0 cin=1 cout=0
-#|sel mean (flat hoist) + count: h=1 [same] walks=2 flat=0 cin=1 cout=1
-#|wc qty - min(qty) (tree reduction): h=30 [same] walks=3 flat=0 cin=1 cout=1
+#|sel aggs over chunks (pruned, flat): h=1 [same] walks=1 flat=0 cin=1 cout=1
+#|sel tree reductions over chunks (sum / min / max / count / len): h=1 [same] walks=1 flat=0 cin=1 cout=0
+#|sel tree reductions over an empty chunked frame (min null): h=1 [same] walks=1 flat=0 cin=1 cout=0
+#|sel mean (flat hoist) + count: h=1 [same] walks=1 flat=0 cin=1 cout=1
+#|wc qty - min(qty) (tree reduction): h=30 [same] walks=2 flat=0 cin=1 cout=1
 #|sel a u32 output named like a Dictionary input (no Dict put back; G1 d0080 seed 304): h=37 [same] walks=1 flat=0 cin=1 cout=1
 #|sel [] (flat): h=0 [same] walks=0 flat=1 cin=0 cout=0
-#|chain: h=20 [same] walks=5 flat=0 cin=1 cout=1
-#|chain n=200: h=24 [same] walks=5 flat=0 cin=1 cout=1
-#|chain + head 7: h=7 [same] walks=5 flat=0 cin=1 cout=1
-#|chain + slice 3 5: h=5 [same] walks=5 flat=0 cin=1 cout=1
-#|chain + tail 4: h=4 [same] walks=5 flat=0 cin=1 cout=1
-#|chain + drop + rename: h=20 [same] walks=5 flat=0 cin=1 cout=1
-#|filter + sort (flat boundary): h=22 [same] walks=2 flat=1 cin=1 cout=1
-#|filter + unique (flat boundary): h=9 [same] walks=2 flat=1 cin=1 cout=1
-#|q1 at grain 2^1: h=11 [same] walks=2 flat=0 cin=1 cout=1
+#|chain: h=20 [same] walks=3 flat=0 cin=1 cout=1
+#|chain n=200: h=24 [same] walks=3 flat=0 cin=1 cout=1
+#|chain + head 7: h=7 [same] walks=3 flat=0 cin=1 cout=1
+#|chain + slice 3 5: h=5 [same] walks=3 flat=0 cin=1 cout=1
+#|chain + tail 4: h=4 [same] walks=3 flat=0 cin=1 cout=1
+#|chain + drop + rename: h=20 [same] walks=3 flat=0 cin=1 cout=1
+#|filter + sort (flat boundary): h=22 [same] walks=1 flat=1 cin=1 cout=1
+#|filter + unique (flat boundary): h=9 [same] walks=1 flat=1 cin=1 cout=1
+#|q1 at grain 2^1: h=11 [same] walks=1 flat=0 cin=1 cout=1
 #|q2 at grain 2^3: h=37 [same] walks=1 flat=0 cin=1 cout=1
 #|q1 small frame (n <= 2^g): h=11 [same] walks=0 flat=1 cin=0 cout=0
 #|q2 small frame (n <= 2^g): h=64 [same] walks=0 flat=1 cin=0 cout=0

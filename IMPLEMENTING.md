@@ -3319,3 +3319,128 @@ What the next agents need to know:
   `make diff-smoke` and `make diff-chunked` 0 failing cases; `make csv-fuzz-smoke` ok (1500 cases x (7 pieces + 2 chunk
   reads), two seeds); `make fork-audit` ok; `make bench-check` identical / within tolerance; `make coverage` ok
   (docs/COVERAGE.md regenerated).
+## T5.5 (the chunked engine's fixed costs: compile once per walk, one walk per F5 filter; src/cexec.bend)
+
+What was done (src/cexec.bend only in src/; tests/cexec_leaf.bend new, tests/cexec_basic / _boundary / _errors
+updated on their `walks=` counters only; bench/w5/t53.bend modes 4 and 30 + g, bench/w5/scale/t53b.py `--exe` /
+`--modes` and the chunked-vs-reference table; bench/w5/t53x.bend on the new `CX.p1` signature; one allowlist entry
+per new leaf call task in bench/w5/scale/forkaudit.allow). No eval / exec term changed, no law touched (LAWS.bend /
+PROOF*.bend name no `CX.*` def); the walks call the same Eval / Exec pieces as before, assembled differently:
+
+- **Compile once per walk.** `CX.efull` (the per-leaf entry since T4.4) is `Eval.slot.mv`: the leaf's schema,
+  `A.Ana.type`, `Eval.compile`, `Eval.mark`, `Eval.fuse`, then `Eval.runz`. Everything before `Eval.runz` depends on
+  the schema only, which every leaf of a WFCFrame walk shares. `CX.pc` (a filter predicate: `PF5{plan}` / `PEv{code}`
+  / `PBad`) and `CX.cel` (a with_columns / select: `CEx{name, code}` per expression, or None) run it ONCE against the
+  walk input's schema (Dictionary columns as Str, before `CX.undict`), and the leaf runs `CX.erun(code, f)` =
+  `Eval.mode.a(True, Eval.fin(Eval.runz(code, h, ..)))`, which is `Eval.slot.mh`'s run: the leaf's answer is
+  `CX.efull`'s by definition (tests/cexec_leaf.bend compares the two on whole frames and on a leaf slice, for a
+  failing cast, fused fragments, a broadcast literal, a when and a Dictionary is_in). A failing type check sends
+  the operator to the flat path BEFORE the walk (it used to fail at every leaf, then the flat rerun: same answer).
+- **One walk for an F5 filter** (`CX.p3`, for filter and the Filter + plain Select root): per leaf the F5 passes,
+  then `Exec.fc` of the columns the operator keeps; one frame tree (`CX.ftn`), one fork tree, one join of the
+  OUTPUT columns only. Only for F5 predicates: their passes are total kernels whose only failures are schema
+  facts (a column's presence and dtype) that the ghost run of the reference operator already passed, so no leaf
+  fails on data and no flat rerun (which needs the input whole, and a compacting leaf consumes it) is needed; were
+  a leaf to report an error anyway, it is schema-determined, i.e. the reference's, and the operator answers it.
+  A general predicate (a cast, a column-column comparison, Kleene `|`) keeps the two walks of T5.3.
+- **The one walk's column layout** (`SP`, `CX.f5l.f` / `CX.f5l.s`, laid out once by `CX.xpick`): the predicate's
+  distinct columns P first, then the kept ones, then the rest (columns only a hoisted aggregation read: kept for
+  the flat path). A leaf splits its list after P (`CX.splitn`), runs the passes on P alone, and compacts the kept
+  columns of P then the next ns (`CX.kp`); the answer is put in the operator's order once (`CX.reord`). Exec.fc
+  compacts every column by the same mask whatever their order, so the columns are the two-walk path's.
+- **The single-pass F5 plans by position** (`LP`, `CX.lp`, `CX.lf5`): `qty > 50` (T5C), `ok` (T5B) and
+  `ok & (qty > 50)` in either order (T5BC) call `Eval.f5.c` / `Eval.f5.b` with the arguments `Eval.f5.s.c` /
+  `s.b` / `bc` pass and answer the `F5St` `Eval.f5.go` answers (the columns back in place, mask, count, first
+  error), without `Frame.lend` / `Frame.replace` (two list walks, `String.eq` per column and a hollow 1-slot array
+  per column read); any other plan runs `Eval.f5.go` on the P frame (`LG`).
+- **with_columns walks the columns it reads** (`CX.ws.q` / `CX.wk.*`): the frame is chunked and rebalanced whole,
+  `CX.wsplit` sets the unread columns aside on their trees (the first column is walked when no column is read: it
+  gives the outputs the frame's shape), and `CX.wjoin` puts them back in their places after the walk (q2 reads 3
+  of its 7 columns). select is unchanged (`CX.sel.c` pruned its input already).
+- **Smaller fixed costs**: `CX.fj` joins two leaves' frames as `CH.CCols.cat` does but without its two
+  `CW.skel` walks per column per join (`CX.ccat`: only a mixed AllValid / Mask pair or a string column goes to
+  `CColumn.cat`); `CX.wi` computes the first column's skeleton ONCE for the occupancy test (CFrame.rebalance's
+  rule), the WFCFrame check (`CX.wfc`: CFrame.check.k's test with the skeleton known) and the walk (three walks
+  of it before); a hoisted predicate loses the Alias `CX.subt` puts on it (`CX.unalias`), so `qty >= max(qty)` is
+  F5 once max is a literal (it took the general path before).
+
+Performance (PROVISIONAL: shared machine; bench/w5/scale/t53b.py, the pre-chunked compute batched 8 runs per
+window, 5 fresh processes per cell, 6 reps each (the first two dropped), base 6be63d5 / candidate / reference
+interleaved round by round; 1-minute load 4.9-14.8 over the run (uptime 9.09 before, 5.63 after); raw samples in
+bench/w5/scale/results/t55.jsonl, tables in t55_summary.md; every cell's result hash equal across binaries and
+modes; ms per run, medians (raw per process)):
+
+| op | base 1 / 4 / 12 thr | candidate 1 / 4 / 12 thr | 12-vs-1 base -> cand (16.8) | reference 1 thr | cand / ref 1 thr (base) |
+|---|---|---|---|---|---|
+| q1 | 3.31 / 1.31 / 1.25 | 2.81 (2.81, 2.81, 2.88, 2.62, 2.75) / 0.94 / 0.75 (0.69, 0.81, 0.81, 0.69, 0.75) | 2.65x -> **3.75x** (>= 3x) | 2.50 | **1.12** (1.32) |
+| q2 | 3.38 / 1.25 / 1.12 | 2.81 (2.75, 2.88, 2.75, 2.81, 2.88) / 0.94 / 0.69 (0.75, 0.75, 0.62, 0.69, 0.62) | 3.00x -> **4.09x** (>= 3x) | 2.56 | **1.10** (1.32) |
+| filter | 7.38 / 2.50 / 1.88 | 7.00 (7.12, 6.88, 7.19, 7.00, 7.00) / 2.00 / 1.25 (1.38, 1.56, 1.25, 1.19, 1.25) | 3.93x -> **5.60x** (>= 3x) | 7.12 | **0.98** (1.04) |
+| q3 | 14.75 / 10.62 / 10.56 | 14.25 / 10.44 / 10.12 | 1.40x -> 1.41x (>= 2x: not met) | 10.81 | 1.32 (1.36) |
+| q5 | 15.19 / 11.00 / 10.94 | 14.81 / 11.00 / 10.94 | 1.39x -> 1.35x (>= 1.5x: not met) | 8.94 | 1.66 (1.70) |
+
+q3 / q5 are their flat stages (group_by; q5's join and the 6 ms flatten of the pre-chunked columns before it), as
+in "Scaling diagnosis": nothing here touches them. The reference cells of q5 were rerun after a fix of mode 4
+(load 5.2-6.4; the first run built q5's products Source from an empty frame and answered an error, hash 0).
+
+Allocation counts (G6, exact; bench/w5/scale/results/t55_g6.md has every step): q1's compute 52,365 -> 12,212
+allocations (9.80 -> 8.93 MB; the reference 1,116 / 7.36 MB), q2 88,924 -> 28,366 (14.08 -> 12.84; reference
+1,626 / 12.61), filter 67,016 -> 19,322 (28.87 -> 27.77; reference 634 / 20.98). Per leaf (the slope between 245
+and 62 leaves): q1 922 -> 160, q2 1,505 -> 410, filter 1,251 -> 279.
+
+Lessons (performance; what the measurements showed):
+
+- **The allocation count stopped predicting the time.** From step c3 to c4 (t55_g6.md) q1 lost 6,000 allocations
+  (100 per leaf) and its 1-thread time did not move (2.75 ms both, interleaved). The remaining 1-thread gap to the
+  reference (~0.3 ms of q1's 2.8) is per leaf and inside the leaf: a grain sweep (t53 mode 30 + g, batched, 1
+  thread) gives q1 2.44 ms at 1 leaf (grain 2^20, the reference's 2.4), 2.5 at 4, 2.6 at 16, 2.9 at 62 and 3.5 at
+  245 leaves (3-6 us per leaf), while a build whose leaf does nothing but hand its frame back runs the whole
+  operator (ghost, hoist, compile, layout, prelude, fork tree, joins) in <= 0.125 ms per run (one tick of the
+  8-run window), and a leaf with the F5 passes but no compaction in 1.5 ms. So the prelude, the fork tree and the
+  joins are no longer the cost; what is left is the leaf's own call chain around its two kernels (F5 pass
+  plumbing, Exec.fc's grouping, lframe: on the order of a hundred small Bend calls), a few microseconds that no
+  allocation trim removes.
+- **Measure a per-leaf cost with a grain sweep and a no-op leaf**, not with one cell: the slope between grains is
+  the per-leaf cost, the no-op leaf bounds everything outside the leaf. Both need the batched mode (the 1 ms clock
+  hides 0.1 ms effects).
+- **`+` Data parameters of a walk are unboxed.** The emitted C of `CX.p3` takes the leaf plan `LP` and the layout
+  `SP` as their constructor fields in registers (`_lp_0`..`_lp_4`, `_sp_0`..`_sp_2` in `WL_CASE(FID_..CX_P3)`): a
+  compiled plan handed to every leaf costs no allocation per call, only reads of shared terms.
+- **Order a leaf's columns for its first consumer.** `Frame.lend` / `Frame.replace` walk the whole column list
+  (and allocate a 1-slot hollow array per lend): with the predicate's columns first and split off, the passes see
+  one or two columns whatever the frame's width.
+- **A compacting walk cannot keep its input for an error rerun**: use one walk only where the leaves cannot fail
+  on data (F5: total kernels, schema-only failures that the ghost checked) and keep borrow-then-rerun elsewhere.
+
+Bend lessons:
+
+- **A def cannot match a parameter after matching a later one, nor after a statement**: `CX.ftk(cols, n)` matching
+  `n cols` failed ("'cols' can't be matched in this position"), `CX.ftk(n, cols)` works; a helper that
+  destructures a pair and then matches a frame needs the match in a helper of its own (`CX.w2.d` / `CX.w2.e`).
+- **Mutual recursion through a 2-arm helper is refused** ("an unfilled law is a dead claim"): `CX.dedup` is a tail
+  fold with a non-recursive step (`CX.dedup.go` / `CX.dedup.step`), as T5.3's lessons say.
+- A pair component used twice needs `+` in the destructuring pattern (`(+seen, out) = st`), not only in the
+  parameter list.
+- `match sp: case SP{+np, keep, ns}:` consumes `sp`; pass `SP{np, keep, ns}` on, not `sp`.
+
+C findings: no new kernel (the leaves call `Kernel.pred_count` and `Kernel.compact3` / `compact4` as before;
+`spin_1822` = pred_count and `spin_1310` = compact3 in the emitted C of step c3, nothing allocated per row). The
+new forking def `CX.p3` matches the frame tree and forks; its leaf arm makes the one call task `CX.p3 -> CX.splitn`
+(leaf position, allowlisted), and `CX.p1` (the general predicate's walk 1) shows the leaf-arm tasks `-> CX.lframe`
+and `-> Eval.f5.go` of its compiled-plan arms (allowlisted). `make fork-audit`: 67 parallel lets, 0 source
+findings, 33 forking defs, 13 call tasks, all reviewed.
+
+Gates (this worktree): `make test` PASS 201 / 201; `make check`; `make proofs` and `make verdict` ALL PROOFS CHECK;
+`make mutation-check` 92 of 92 rejected; `make diff-smoke` clean; `make diff-chunked` seeds 1-4 and the G1 seeds
+601-604 (`SEED=601`) 0 failing cases; `make fork-audit` ok; `make bench-check` ok; `make coverage` ok (0 missing).
+
+What the next agents need to know:
+
+- `CX.efull` has no caller left; it is the specification of `CX.code` + `CX.erun` (tests/cexec_leaf.bend). A change
+  of `Eval.slot.mh` / `Eval.slot.mv` must be mirrored in `CX.code` / `CX.erun`, and a change of the F5 pass
+  functions or of `Eval.f5.s.c` / `s.b` / `bc` in `CX.lf5` (the G1 differential and tests/cexec_leaf.bend catch a
+  divergence).
+- The general-predicate filter still makes two walks; a one-walk version needs a leaf that keeps the predicate's
+  columns (borrowed) for the rerun while it compacts the others: possible when the kept and the predicate columns
+  are disjoint (the Filter + Select root), not for a plain filter.
+- The 1-thread gap left (q1 1.12x, q2 1.10x of the reference at 62 leaves) is the leaf's call chain; a bigger walk
+  grain (2^15: q1 2.6 ms at 1 thread) would halve it at the cost of fewer leaves for 12 threads.

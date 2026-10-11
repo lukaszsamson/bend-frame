@@ -3345,6 +3345,41 @@ read_csv* builds flat (`CMFlat`), the chunk build is reached only through the ch
    hand-off removes 4-6 ms of of_frame at one thread and up to ~50 MB of peak RSS (q1 at 12 threads 198 vs 248 MB), it
    does not move the ceiling. CStats (bench/m2/results/w66-cstats.txt, grain 2^14): conv_in / bytes_in 0 for every scan
    plan (eager env frames: q1 20 MB, q2 / q3 / filter 32 MB); conv_out unchanged (the result flatten, and q3's group_by).
+### v0.2 T5.5 (the chunked engine's fixed costs: compile once per walk, one walk per F5 filter; section 16.10)
+
+No change of the data contract: the chunked engine answers the reference's frame or error (G1: `make diff-chunked`
+seeds 1-4 and 601-604, 0 failing cases; `make diff-smoke`; tests/cexec_*.bend with the new tests/cexec_leaf.bend:
+competing strict casts across leaves at grains 2^0 / 2^1, the compiled entry against `Eval.slot.mv`). No eval /
+exec term and no law changed (LAWS.bend / PROOF*.bend name no `CX.*` def). Decisions and deviations:
+
+1. **Compile once per walk** (`CX.pc`, `CX.cel`, `CX.code`, `CX.erun`): the type check, `Eval.compile`, `Eval.mark`
+   and `Eval.fuse` of the walk's (hoisted) expressions run once against the input's schema (Dictionary columns as
+   Str), the leaf runs `Eval.runz` + `Eval.mode`; a failing type check sends the operator to the flat path before
+   the walk (before: every leaf failed it, then the flat rerun; the same answer). Static errors still come from
+   the ghost, data errors from the flat rerun.
+2. **One walk only for an F5 predicate** (filter and the Filter + plain Select root, `CX.p3`): mask and compaction
+   per leaf. A general predicate keeps T5.3's two walks: its leaves can fail on data and the rerun needs the
+   input whole, which a compacting leaf consumes. The F5 passes are total; their only failures are schema facts
+   the ghost already passed, and were a leaf to report one the operator answers it (schema-determined, so the
+   reference's). The `walks` counter counts 1 for such a filter (tests updated on that counter only).
+3. **The one walk reorders its columns** (the predicate's first, then the kept ones, then the rest) and puts the
+   answer in the operator's order once after the walk (`CX.reord`); the one-pass F5 plans (T5C, T5B, T5BC) run by
+   position (`CX.lf5`, calling `Eval.f5.c` / `Eval.f5.b` as `Eval.f5.s.c` / `s.b` / `bc` do); other plans run
+   `Eval.f5.go` on the predicate's columns.
+4. **with_columns walks only the columns its expressions read** (the first column when none): the rest stays on
+   its trees and is put back in place; the frame is rebalanced whole before. The WFCFrame check then covers the
+   walked columns; a set-aside column is checked by the next walk that reads it.
+5. **Smaller fixed costs**: joins without `CColumn.cat`'s skeleton walks (`CX.ccat`, the same frame), one skeleton
+   per walk input for the occupancy test, the WFCFrame check and the walk; a hoisted predicate's Alias stripped
+   (`CX.unalias`: `qty >= max(qty)` is F5 once hoisted).
+6. **Not done**: the WFCFrame check fused into the cut (estimated ~8% of q1's allocations and ~1.5% of its time);
+   a one-walk general predicate (above); the walks' grain (a bigger grain would halve the remaining per-leaf
+   cost at 1 thread and halve the leaves for 12).
+7. **Measured (PROVISIONAL, load 4.9-14.8; bench/w5/scale/results/t55*.{jsonl,md})**: q1 12-vs-1 2.65x -> 3.75x,
+   q2 3.00x -> 4.09x, filter 3.93x -> 5.60x (16.8's 3x met for all three); 1-thread chunked / reference q1 1.32 ->
+   1.12, q2 1.32 -> 1.10, filter 1.04 -> 0.98 (within 20%); q3 / q5 unchanged (1.4x; flat group_by / join). G6
+   (exact): q1's compute 52,365 -> 12,212 allocations (reference 1,116), q2 88,924 -> 28,366 (1,626), filter
+   67,016 -> 19,322 (634); per leaf q1 922 -> 160, q2 1,505 -> 410, filter 1,251 -> 279.
 
 ## 15. v0.1 contract (frozen)
 
@@ -4480,10 +4515,32 @@ build), the sequential stages of each query (16.8's `s`: the preludes, the resul
 operators), the per-leaf evaluator entry (parallel, but 1-thread cost), the E cores (the drain is dynamic,
 so a slow lane only costs its last unit) and the load of a shared machine (the 12-thread samples spread
 2x at load 9-27).
+
+**After T5.5 (the fixed costs; section 14 "v0.2 T5.5").** q1's 1.25 ms floor was two fork trees, two preludes,
+the mask tree's assembly and a per-leaf typing and compile; now the walk's expressions are compiled once
+(`CX.pc` / `CX.cel`, the leaf runs `CX.erun`), an F5 filter is ONE walk (`CX.p3`: F5 passes and compaction per
+leaf, the predicate's columns first and alone in the passes, the one-pass plans by position), with_columns walks
+only the columns it reads, the joins skip the skeleton walks and a walk input's skeleton is computed once. The
+operator outside its leaves (ghost, hoist, compile, layout, prelude, fork tree, joins) now costs <= 0.125 ms per
+run at 1 thread (a no-op-leaf build of q1); the rest is the leaves. Measured (PROVISIONAL, bench/w5/scale/t53b.py
+with the reference batched the same way, 5 interleaved processes per cell, load 4.9-14.8; t55.jsonl /
+t55_summary.md):
+
+| query | 1 / 4 / 12 thr (ms, T5.5) | 12-vs-1 before -> after | 16.8 G2 | 1-thread / reference before -> after |
+|---|---|---|---|---|
+| q1 | 2.81 / 0.94 / 0.75 | 2.65x -> 3.75x | >= 3x: met | 1.32 -> 1.12 |
+| q2 | 2.81 / 0.94 / 0.69 | 3.00x -> 4.09x | >= 3x: met | 1.32 -> 1.10 |
+| filter | 7.00 / 2.00 / 1.25 | 3.93x -> 5.60x | >= 3x: met | 1.04 -> 0.98 |
+| q3 | 14.25 / 10.44 / 10.12 | 1.40x -> 1.41x | >= 2x: not met (flat group_by) | 1.36 -> 1.32 |
+| q5 | 14.81 / 11.00 / 10.94 | 1.39x -> 1.35x | >= 1.5x: not met (flat join, flatten) | 1.70 -> 1.66 |
+
+The 1-thread gap left on q1 / q2 is per leaf and inside the leaf (a grain sweep: 2.44 ms at one leaf, the
+reference's 2.4, 2.9 at 62 leaves, 3.5 at 245), the leaf's call chain around its two kernels; the allocation
+count is no longer its measure (q1's per-leaf allocations 922 -> 160 by G6; the last 100 of them bought no time).
 **Fork audit of src/ (every parallel let; `make fork-audit`).** After the fix above, every parallel let of the
 library was audited against the shape rule (a def with a parallel let does nothing but match and call FLAT
 helpers before it; helpers go in leaves, joins or a sequential prelude). Two views, both static: the SOURCE
-(66 parallel lets in 28 files: no branch argument and no statement before the fork calls anything but the inlined
+(66 parallel lets in 28 files, 67 since T5.5's `CX.p3`: no branch argument and no statement before the fork calls anything but the inlined
 `U32.* / Bool.* / Nat.*` primitives) and the EMITTED C of bench/m2/driver.bend (v0.2 reader, chunked engine,
 describe) and tests/ckernels_sizes.bend (bench/w5/scale/forkaudit.py: every `forking def -> fork-free callee`
 call task). "Prelude" is the sequential caller that builds the tree the forking def matches. Verdicts: OK = the
@@ -4492,7 +4549,8 @@ unit of work, a task of its own by design), each an entry with its reason in ben
 
 | file | forking def(s) | forks over | prelude (sequential) | call tasks inside the def | verdict |
 |---|---|---|---|---|---|
-| src/cexec.bend | `CX.p1`, `CX.p2`, `CX.w2` (the filter mask walk, the compaction walk, the with_columns / select walk) | frame tree `FT` | `CX.ft` (cuts, Dict copies) in `CX.filter` / `CX.fsel` / `CX.ws` | `-> CX.wrapf`, `-> CX.lframe` (leaf arms) | OK (fixed by the scaling diagnosis) |
+| src/cexec.bend | `CX.p1`, `CX.p2`, `CX.w2` (the filter mask walk, the compaction walk, the with_columns / select walk) | frame tree `FT` | `CX.ft` (cuts, Dict copies) in `CX.filter` / `CX.fsel` / `CX.ws` | `-> CX.wrapf`, `-> CX.lframe`, `-> Eval.f5.go` (leaf arms) | OK (fixed by the scaling diagnosis) |
+| src/cexec.bend (T5.5) | `CX.p3` (the one-walk F5 filter: passes and compaction per leaf) | frame tree `FT` | `CX.ftn` (cuts, no Dict copies) in `CX.f1.wi` | `-> CX.splitn` (leaf arm) | OK |
 | src/chunks.bend | `Lst.pmap.t` (3 instances: `CFrame.of_frame`, `to_frame`, `op` over the columns) | `LT` tree of the list | `Lst.lt` in `Lst.pmap` | `-> CNamed.to` (leaf f) | OK (fixed by the scaling diagnosis) |
 | src/chunks.bend | `CW.rechunk.go`, `CF.rechunk.go`, `CS.rechunk.go` | the chunk tree itself | none: args are U32 primitives (inlined) | `-> flatten` (the `fits` arm builds one leaf; no fork follows) | OK |
 | src/chunks.bend | `CW.map` (the T5.2 template; LAWS 21) | the chunk tree itself | none | none | OK (no program reaches it: source lint) |

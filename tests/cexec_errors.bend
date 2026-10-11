@@ -67,9 +67,9 @@ def main() -> IO(Unit):
 #|filter predicate cast: error: InvalidOperation: cast str to u32: row 13 holds "bad" [same] walks=1 flat=1 cin=1 cout=1
 #|select: expr 1 row 13 vs expr 2 row 0: error: InvalidOperation: cast str to u32: row 13 holds "bad" [same] walks=1 flat=1 cin=1 cout=1
 #|when branch cast: error: InvalidOperation: cast str to u32: row 13 holds "bad" [same] walks=1 flat=1 cin=1 cout=1
-#|after filter id>10: row 2: error: InvalidOperation: cast str to u32: row 2 holds "bad" [same] walks=3 flat=1 cin=1 cout=1
-#|after filter id>13: row 8: error: InvalidOperation: cast str to u32: row 8 holds "worse" [same] walks=3 flat=1 cin=1 cout=1
-#|after concat + filter id>20: row 1: error: InvalidOperation: cast str to u32: row 1 holds "worse" [same] walks=3 flat=2 cin=1 cout=1
+#|after filter id>10: row 2: error: InvalidOperation: cast str to u32: row 2 holds "bad" [same] walks=2 flat=1 cin=1 cout=1
+#|after filter id>13: row 8: error: InvalidOperation: cast str to u32: row 8 holds "worse" [same] walks=2 flat=1 cin=1 cout=1
+#|after concat + filter id>20: row 1: error: InvalidOperation: cast str to u32: row 1 holds "worse" [same] walks=2 flat=2 cin=1 cout=1
 #|static: unknown column after a failing cast: error: ColumnNotFound: nope [same] walks=0 flat=1 cin=0 cout=0
 #|static: duplicate output after a failing cast: error: DuplicateColumn: x [same] walks=0 flat=1 cin=0 cout=0
 #|static: type mismatch after a failing cast: error: TypeMismatch in add: expected u32, got f32 [same] walks=0 flat=1 cin=0 cout=0
