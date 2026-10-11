@@ -1998,6 +1998,101 @@ cons-list `Eval.nuniq`; the v0.1 text is kept byte-identical as the test referen
   `Eval.nu.str`, so n_unique counts only valid rows. tests/strwire.bend pins this, real FNV-1a
   collisions (k32004 / k261338) and empty / all-null frames, and passes on the pre-W2.3 build too.
 
+## T4.2 (W4 peepholes F1-F5 in the evaluator: src/eval.bend Eval.fuse / Eval.fz.* / Eval.f5.*; LAWS section 19)
+
+What was done: a post-pass `Eval.fuse` over the MARKED postfix code (after `Eval.mark`, so ICol /
+IMove already say borrow / move) rewrites the windows of DESIGN 16.3 into `IFz{fz, orig}`
+instructions: `Z1` F1 (`F IConst IBin` literal right, `IConst F IBin` literal left, `IConst IBin` on
+the stack), `Z2` F2 / F3 (`F1 F2 IBin` two frame columns with distinct names, `F IBin` stack + column,
+`IBin` stack + stack), `Z0` F4 (a fill nothing consumed). A fragment F is a frame column with an
+optional pre-operation (`R ICast{t}`, `R IConst{v} IFill`). A new runner `Eval.runz` (used by
+`Eval.slot.mh`: select / with_columns / group_by's `_mv` entries, and filter's non-F5 predicates) runs
+`Eval.fz.exec` for an IFz and `Eval.exec` otherwise. `Eval.fz.exec` lends the frame columns
+(`Frame.lend`), runs the column-level operation (`Eval.fz.z1 / z2 / z0`: dispatch on the runtime
+constructors, validity, literal dtype and the pre-op; the borrowing kernels of T4.1), and puts each
+borrowed column back (`Frame.replace.c`) or drops a moved one. When the shape has no kernel (Str,
+bool ops, a fallible cast, a 1-row operand, a null literal, a non-default fill) the operands go back
+where they were and `orig` runs with `Eval.run`: the unfused code from the same state, so every
+fallible fragment keeps its own pass, row index and error (tests/eval_fused part 3). F5 is static:
+`Eval.f5.plan(pred, schema)` (a Bin{And} tree of bool columns and `col op lit` of u32 / i32 / f32
+with a literal of the column's dtype on the right) makes `Kernel.pred_count` passes over borrowed
+columns, a leading bool column and comparison in ONE pass (q1); else the predicate runs through the
+fused evaluator with no moves (it no longer copies via `Eval.full`). F9 skipped: with flat columns
+there is one walk per expression already; fusing the k walks of a with_columns only matters over
+W5's chunk trees.
+
+Performance (PROVISIONAL; 1M rows, 1 thread, interleaved fresh processes; copy bytes by T3.1's C
+counter, compute phase): copy bytes q1 8,388,608 -> **0**, q2 16,777,216 -> **0**, q3 20,971,712 ->
+4,194,496 (group_by's remainder); checksums identical. Against the pre-T4.2 master (42da6ba), 7
+processes, load 8.5-17.9: q1 16 -> **8 ms** (raw cand [8,7,9,10,8,8,8], pre [16,16,14,18,16,14,16]),
+q2 13 -> **4 ms** ([6,17,4,4,4,5,4] / [15,9,19,12,13,11,13]), q3 24 -> 15 ms. An earlier run (load
+13-32): q1 10 -> 8, q2 8 -> 4, q3 18 -> 15. bench/m2 run.py vs the pinned baseline 3612482 (7
+processes, load 6.3-35.5): q1 13 -> 9, q2 11 -> 5, q3 24 -> 17 (stages: filter_q1 13 -> 10, withcols_q2
+7 -> 6). q2's 4 ms is three loops (zipb with the cast, map_pb `1 - x` over the filled discount, the
+product zipb) plus the frame plumbing; T4.1's kernel-only probe was 1.8 ms. q1 still compacts all
+seven columns (two of them strings) after the one-pass mask: F8 (T4.3) is the rest of q1.
+
+Emitted C (`bend bench/m2/driver.bend -o`, the real driver; `python3 -I bench/w2/spins.py`): every
+fused instance is one `spin_N` with only `blk_read` / `blk_write` (no `heap_alloc`, `rfc_seal`,
+`term_keep`, `ctr_take`, `blk_copy`, `blk_half`, `blk_node`): 39 zipv-shaped spins (6 reads, 2 writes),
+17 pred_count spins (5 / 1), 72 one-input map spins (map_pb, map_p), 134 two-input zip spins (zipb and
+the old zip). The template instances cost C size: the driver's C grew from 208k to 252k lines (2,243
+spins); compile time of the tests did not visibly change.
+
+Bend / proof lessons:
+
+- **No mutual recursion for a fallback that re-runs code**: the fused executor cannot call back into
+  the machine that called it. A second runner (`Eval.runz` -> `Eval.stepz` -> {`Eval.fz.exec` ->
+  `Eval.run`, `Eval.exec`}) keeps the call graph acyclic, leaves `Eval.compile` / `Eval.run` /
+  `Eval.full` / `Eval.expr` untouched (the P2 typing proofs checked unchanged) and makes the
+  fallback trivially the unfused semantics (`orig` IS the replaced code).
+- **Adding an Instr constructor**: two proofs split exhaustively on `V.Instr` (`mark_reads`,
+  `mark_moves_ok` in PROOF_moves) and needed one `IFz` case each (same as `IStr`'s).
+- **Law shape over production terms**: a Sigma witness `&c: C.Column -> {..}` in a law needs a LIVE
+  column in the proof, which consumes the arrays twice. State `{fused == Z2R{Some{res_col(unfused)},
+  ..}}` or `{ccell(z2_col(fused), k) == ccell(res_col(unfused), k)}` with projection defs instead: the
+  statement's array occurrences are erased, only the lemma arguments are live.
+- **Each lemma that takes an array consumes it**: one clone per lemma (`PC.clone_eq`, `PF.clone3`, a
+  `clone4` built from two clone_eq) and a transport per clone (`%e1 : {stmt with a1 -> _}`) in a small
+  wrapper that states the lemma over the originals (`pf1_sim`, `pf2m_back`, `pf5_pcc`).
+- **Rewrite direction** (again: every first-try failure): with `e : {L == R}`, `%e : P` needs the goal
+  to be `P[R]` and leaves `P[L]`. To turn a stuck kernel call in the goal into its value, rewrite with
+  `Equal.sym(.., lemma)`; to turn the goal toward a hypothesis' form, use the equation as is.
+- **Order the Bool conjunctions for symbolic reduction**: `Bool.and` matches its first argument, so a
+  production test `Bool.and(eq, ok)` with `eq = U32.is_eq(n, n2)` symbolic is stuck in a proof where
+  `ok` is False; putting the constant-folding conjuncts first (`Bool.and(Bool.and(oka, okb), ..)`,
+  `Bool.and(Bool.not(String.eq(..)), op_ok(op))`) let the non-firing laws reduce by computation.
+- **In-place kernels' pairs**: `(x, m) = Kernel.mask_data(..)` / `Kernel.choose(..)` inside Eval.fix /
+  Eval.fill is stuck; PROOF_inplace's witnesses `MDW` / `CHW` (`{kernel(..) == (o, mb)}`, `mb == m`, WF,
+  the cell) give the pair to rewrite with. `MDW` needs the zip output well formed: `PC.zip_go(..)(PC.zhyp0
+  (..))` answers it (with the output as a witness `o`).
+- **`--verdict` and composed templates**: a template built inside a template def (`~(q => x => f(x,
+  q))`, `~(p => x => y => U32.and(x, g(y, p)))`) is beta-reduced by both checkers, but the BINDER
+  NAMES must be the law's: `q => ..` vs T4.1's `p => ..` passed `bend` and failed `--verdict`
+  ("mismatch between the TypeScript implementation and the formalized BendTT kernel", no location).
+  Renaming the production binder to the law's fixed it.
+- **Constructor dispatch is defense in depth**: a fallible cast cannot reach a kernel even if the
+  side test were wrong, because each kernel arm matches the operand constructors (a CStr / CF32-as-u32
+  pair has no arm). Mutations of the cast test are therefore harmless and not useful controls; the
+  controls target what the laws pin (side flags, templates, the default test, the Z0 / F5 selectors).
+- **Mutation catches must be semantic**: `U32.add(x, x)` is an affine error in the zipb instance (x
+  used twice), caught at `Kernel.zipb.go~0` by the checker, not by a law; `U32.add(x, U32.inc(y))` is
+  caught by `peep_f2_dense`.
+- Instance count: templates compose (`Eval.fz.zw(~T, ~U, ~f, ..)` dispatches zipb vs zipv, `Eval.fz.lw`
+  map_pb vs zipv for each side), so each op is written once per dtype family; 17 F5 instances, ~23 per
+  kernel family for F1/F2, 16 for F3.
+
+What T4.3 / W5 need:
+
+- `Eval.f5.run` answers the filtered frame (all columns compacted by `Frame.filter_mask`); for F8 take
+  the mask and count from the passes (`F5St{f, m, k, err}` after `Eval.f5.go`) and compact only the
+  selected columns.
+- The fused executor's contract: lend / replace with `C.Frame.replace.c(f, name, c, h)` (no failure
+  path); a moved operand (`ORef{n, True}`) is dropped after the kernel, its stand-in stays.
+- Not proven (DESIGN 8): the stack-machine level equivalence of `Eval.runz(Eval.fuse(code))` with
+  `Eval.run(code)` (lend / replace, stack plumbing, kinds): covered by tests/eval_fused's 473-expression
+  x 2-operator differential and 32-predicate filter differential.
+
 ## W6.4 (CSV fuzz harness: bench/diff/csvgen.py, csvfuzz.py, csvfuzz.bend)
 
 The v0.2 reader against the v0.1 reader on random files. `make csv-fuzz SEED=.. N=..` (bench/diff/README.md "W6.4"). One
