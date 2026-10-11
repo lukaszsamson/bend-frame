@@ -952,6 +952,13 @@ def CX.fj(a: CH.CFrame, b: CH.CFrame) -> CH.CFrame:
         case CH.CFrame{+hb, cb}:
           CH.CFrame{U32.add(ha, hb), CH.CCols.cat(U32.add(ha, hb), ha, ca, cb)}
 
+# an expression over a leaf frame as the reference operators evaluate it since W4 (Eval.slot.mv: the type
+# check, Eval.mark with nothing movable, the peephole post-pass Eval.fuse and Eval.runz: the fused kernels),
+# every 1-row result broadcast to the leaf's rows; the leaf frame comes back whole, error or not (no
+# column is moved: all = False, dead = [])
+def CX.efull(f: C.Frame, +e: X.Expr) -> C.Frame & E.ResT(C.Column):
+  V.Eval.mode.a(True{}, V.Eval.slot.mv(f, e, False{}, Nil{}, Nil{}))
+
 # ==== walk 1 of a filter: the predicate's mask per leaf (the input borrowed) ====
 
 # the per-leaf masks and kept counts, in the frame's shape
@@ -1002,7 +1009,7 @@ def CX.p1.h(+pred: X.Expr, f: C.Frame, plan: Maybe<&2, List<&2, V.P5>>) -> W1:
     case Some{ps}:
       CX.p1.f5h(ps, C.Frame.height(f))
     case None{}:
-      CX.p1.a(V.Eval.full(f, pred))
+      CX.p1.a(CX.efull(f, pred))
 
 def CX.p1.s(+pred: X.Expr, r: C.Frame & List<&2, S.Field>) -> W1:
   (f, +s) = r
@@ -1073,7 +1080,7 @@ def CX.ev.step(+e: X.Expr, st: WS) -> WS:
     case WS{f, outs, ok}:
       match ok:
         case True{}:
-          CX.ev.add(X.Expr.name(e), outs, V.Eval.full(f, e))
+          CX.ev.add(X.Expr.name(e), outs, CX.efull(f, e))
         case False{}:
           WS{f, outs, False{}}
 
