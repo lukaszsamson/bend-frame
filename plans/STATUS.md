@@ -316,3 +316,10 @@ Baseline: 3612482 (v0.1 RC). The v0.1 data contract (DESIGN §15) does not chang
   strings/reader spikes and DESIGN §17 (coder, ranks, probe ownership, piece reader; opus).
 - Measurement policy: agents' numbers are provisional (shared machine); gate numbers
   are taken by the orchestrator with bench/m2/ on a quiet machine.
+- 2026-10-11: merged W0 engine spikes + DESIGN §16, W0 strings/reader spikes + DESIGN §17,
+  W1a/c (join copies only at splits; describe fused), W1b/e (n_unique radix; when.valid),
+  W1d/f (R{v,ok} map_r/zip_r; range-copy slice + range_cell law, 150 laws, 17 mutations).
+  Merged master: proofs + verdict ALL PROOFS CHECK, make test 161/161.
+  Still running at pause: W0 harness agent (bench/m2/). Open decisions: freeze G2/G3
+  thresholds (§16.8, §17.8 propose revisions: q4 >=1.3x, parse >=2x end to end) on a quiet machine.
+  Next: W1g (Sort+Head, now T3.4), W2 (§17.7), W3/W4 (§16.7).
