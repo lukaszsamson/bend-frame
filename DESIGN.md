@@ -2823,10 +2823,8 @@ the pre-W2.3 build's; tests/strwire.bend passes on both builds).
    (peak RSS of lp_group_300k 585 vs 477 MB with `Hc.code.h`, one process each; v0.1 803 MB).
 2. **Sort words of a Raw column** (`Sort.str_words`, a Raw sort key): `Rk.words` = `Hc.code.fnv` +
    the rank stage (17.3.2), unchanged from W2.2; the key is now BORROWED (`Rk.words` hands the rows
-   back), which removes T3.2's item 5 exception (no `Column.clone` of a Raw key). Not moved to the
-   packed coder: the rank stage reads entries through their first rows (`fr`) and UTF-8 byte lengths
-   (`bl`), which `Hc.code.pk` does not answer; on repeated keys read from a CSV the hits still walk
-   the representative string (open, IMPLEMENTING W2.3).
+   back), which removes T3.2's item 5 exception (no `Column.clone` of a Raw key). W2.3 left it on
+   `Hc.code.fnv`; **superseded by "W2 pk ranks" (item 7 below)**.
 3. **`Dict.ranks` callers** (`Sort.kd`, `Sort.dict_words`, `Eval.zd.ord.m`, `Eval.ds.ext`) use
    `Rk.dict`. `ST.Dict.ranks` (Base Map) is DELETED from src/strs.bend; with `Sort.str_codes`,
    `Sort.codes.*`, `Sort.code.*`, `CS`, `Sort.pcodes`, `Sort.pmerge*`, `Sort.kbc*`, `Sort.str_fork`,
@@ -2843,6 +2841,22 @@ the pre-W2.3 build's; tests/strwire.bend passes on both builds).
    are about `ST.Ix.seek`, untouched; `make proofs`, `make verdict`, `make mutation-check` green. The
    coder, the packed coder and the rank stage are tested-only, as the v0.1 code they replace (8.1,
    "Not proven" items 4 and 7 updated).
+7. **W2 pk ranks (amends item 2; 17.3.1 / 17.3.2 integration)**: `Rk.words` (Sort.str_words, a Raw sort
+   key) codes with `Hc.code.pk` (identity mix, ids from 0: the same codes as `Hc.code.fnv`) and the rank
+   stage reads the DISTINCT entries from pk's flat code point array (`po`, `pl`, `pk`): pass A (one spin
+   loop per entry over its code points) answers the UTF-8 byte lengths and the largest code point, then
+   `Rw.go` (word offsets, unchanged) and pass B packs each entry into the exact-size big-endian word
+   array; the rounds, the scatter and the gather are unchanged (`Rk.ranks.pk`, same ranks as
+   `Rk.ranks`). No cons string is walked after the coder's single hashing walk, so a hash hit of the
+   coder no longer touches the scattered representative string. The entries' first rows `fr` are NOT
+   derived: they existed only to find the strings again, and the rows go back to the caller untouched
+   (the stage's `fr` slot is a pass-through). **Fallback kept**: a code point above U+10FFFF (largest
+   code point of pass A) makes the rounds run over pk as it is (it already is one code point per
+   word; offsets = the prefix sums of `pl`, 2 words per round). `Rk.ranks` / `Rk.dict` (strings) are
+   unchanged. Sort words are identical to v0.1's (ranks_diff, w2-diff 396 checks incl. the wide shape,
+   wire.sh). Cost: pk holds 4 bytes per code point of the distinct keys until the stage packs them
+   (peak RSS of a 1M-row sort over 1M distinct keys of 22 / 37 chars: +16 % / +26 % vs the fnv path,
+   the pk doubling's peak; unchanged for 20k repeated keys). Measured in IMPLEMENTING "W2 pk ranks".
 
 ## 15. v0.1 contract (frozen)
 

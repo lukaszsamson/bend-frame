@@ -8,8 +8,10 @@
 # Rk.words is `Sort.str_words`: words[i] = rank(a[i]) xor flip for i < n, 0 beyond, where rank is
 # the position of the row's string among the column's DISTINCT strings in code-point order, a
 # prefix first (Base Map.to_list order = String.is_lt); the rows come back untouched (v0.1 dropped
-# them). It runs the flat coder (src/hcode.bend, first-appearance codes from 0) and then the stage
-# on the k entries: ranks are computed per ENTRY and mapped to the rows by one gather
+# them). It runs the PACKED coder (src/hcode.bend Hc.code.pk, W2 pk ranks: first-appearance codes from
+# 0; its one hashing walk copies each distinct key's code points into a flat array) and then the
+# stage on the k entries, read from that flat array (no cons string is walked again; a hash hit of the
+# coder compares flat words): ranks are computed per ENTRY and mapped to the rows by one gather
 # (`word[row] = rank[code[row]]`; flip is folded into the k ranks, not the n words).
 # Rk.dict is v0.1's `ST.Dict.ranks` (deleted by W2.3; tests/lib/v01str.bend): the same ranks of a Dictionary's k entries (rank[code]; slots >= k
 # hold 0), the dictionary handed back.
@@ -39,6 +41,9 @@
 #
 # Memory: pk = the entries' bytes / 4 words, wo, bl, gid, perm and the radix scratch: O(k) words,
 # transient. No rank cache (no invalidation story); the stage is O(k x rounds) per request.
+#
+# Rk.ranks.pk (below) is the same stage over a packed coder's entries; Rk.ranks over strings stays
+# for Rk.dict.
 #
 # Callers (W2.3): Sort.str_words / a Raw sort key (src/sort.bend: Rk.words, the key borrowed), a
 # Dictionary sort key and Sort.dict_words, Dictionary min / max and comparisons between dictionaries
@@ -427,6 +432,137 @@ def Rk.ranks(+k: U32, +kd: Nat, +flip: U32, a: Array<String>, fr: Array<U32>, bl
 
 # ---- the entry points ---------------------------------------------------------------------------------
 
+# ---- the entries of the packed coder (W2 pk ranks) -------------------------------------------------------
+# Hc.code.pk (src/hcode.bend) leaves each DISTINCT key's code points in one flat array, entries in id
+# order: entry e = pk[po[e] .. po[e] + pl[e]). The stage needs the UTF-8 byte lengths and the big-endian
+# packing of the entries, and takes both from that array: no cons string is walked after the coder's
+# single hashing walk (the coder's hash hit compares flat words, never a representative row). The
+# entries' first rows (fr) are not needed: the stage never looks at the rows again, so they are not
+# derived (the coder's rows go straight back to the caller; Rk.run's `fr` slot is a pass-through).
+#  pass A (Pa.*): per entry the byte length (a new array) and, over all entries, the largest code point;
+#  then Rw.go (word offsets, as before) and, unless a code point exceeds U+10FFFF, pass B (Pq.*): the
+#  entry's code points packed into the exact-size big-endian word array (Pb.*, as before);
+#  FALLBACK (a code point above U+10FFFF): the code points already ARE the one-per-word form: the
+#  offsets are Rw.go's prefix sums of the code point counts pl, pk is handed to the rounds as it is.
+
+# the answer of an entry's code point loop: the array back, the byte count, the largest code point
+type PI is Type:
+  PI{pk: Array<U32>, b: U32, cm: U32}
+
+# pass A, the spin loop over one entry's code points (n = its count, o = the index of the code point
+# in r): bytes += UTF-8 length, cm = the running maximum; nothing is allocated per code point
+def Pa.in(n: Nat, +o: U32, +b: U32, +cm: U32, r: Array<U32> & U32) -> PI:
+  match n:
+    case 0n:
+      (pk, x) = r
+      PI{pk, b, cm}
+    case 1n+p:
+      (pk, +c) = r
+      +o2 = U32.inc(o)
+      Pa.in(p, o2, U32.add(b, H.Hc.u8(c)), U32.max(cm, c), Array.get(U32, pk, o2))
+
+type PA is Type:
+  PA{po: Array<U32>, pl: Array<U32>, bl: Array<U32>, pk: Array<U32>, cm: U32}
+
+def Pa.c(+e: U32, po: Array<U32>, pl: Array<U32>, bl: Array<U32>, pi: PI) -> PA:
+  match pi:
+    case PI{pk, +b, +cm}:
+      PA{po, pl, Array.set(U32, bl, e, b), pk, cm}
+
+def Pa.b(+e: U32, +o: U32, +cm: U32, po: Array<U32>, bl: Array<U32>, pk: Array<U32>, r: Array<U32> & U32) -> PA:
+  (pl, +m) = r
+  Pa.c(e, po, pl, bl, Pa.in(U32.to_nat(m), o, 0, cm, Array.get(U32, pk, o)))
+
+def Pa.a(+e: U32, +cm: U32, pl: Array<U32>, bl: Array<U32>, pk: Array<U32>, r: Array<U32> & U32) -> PA:
+  (po, +o) = r
+  Pa.b(e, o, cm, po, bl, pk, Array.get(U32, pl, e))
+
+# pass A's loop over the k entries (a spin loop over entries; one record per entry, none per code point)
+def Pa.go(n: Nat, +e: U32, st: PA) -> PA:
+  match n st:
+    case 0n other:
+      other
+    case 1n+p PA{po, pl, bl, pk, +cm}:
+      Pa.go(p, U32.inc(e), Pa.a(e, cm, pl, bl, pk, Array.get(U32, po, e)))
+
+# pass B, the spin loop over one entry's code points: pack each (Pb.cp: 1 to 4 bytes) into the word
+# buffer in the PB state; the source array rides along as the read-ahead pair
+def Pq.in(n: Nat, +o: U32, st: PB, r: Array<U32> & U32) -> PB & Array<U32>:
+  match n:
+    case 0n:
+      (pk, x) = r
+      (st, pk)
+    case 1n+p:
+      (pk, +c) = r
+      +o2 = U32.inc(o)
+      Pq.in(p, o2, Pb.cp(c, st), Array.get(U32, pk, o2))
+
+type PQ is Type:
+  PQ{po: Array<U32>, pl: Array<U32>, wo: Array<U32>, pk: Array<U32>, out: Array<U32>}
+
+def Pq.f(po: Array<U32>, pl: Array<U32>, wo: Array<U32>, r: PB & Array<U32>) -> PQ:
+  (pb, pk) = r
+  match pb:
+    case PB{out, w, acc, m, mx}:
+      PQ{po, pl, wo, pk, out}
+
+def Pq.c(+o: U32, +m: U32, po: Array<U32>, pl: Array<U32>, pk: Array<U32>, out: Array<U32>, r: Array<U32> & U32) -> PQ:
+  (wo, +w) = r
+  Pq.f(po, pl, wo, Pq.in(U32.to_nat(m), o, PB{out, w, 0, 16777216, 0}, Array.get(U32, pk, o)))
+
+def Pq.b(+e: U32, +o: U32, po: Array<U32>, wo: Array<U32>, pk: Array<U32>, out: Array<U32>, r: Array<U32> & U32) -> PQ:
+  (pl, +m) = r
+  Pq.c(o, m, po, pl, pk, out, Array.get(U32, wo, e))
+
+def Pq.a(+e: U32, pl: Array<U32>, wo: Array<U32>, pk: Array<U32>, out: Array<U32>, r: Array<U32> & U32) -> PQ:
+  (po, +o) = r
+  Pq.b(e, o, po, wo, pk, out, Array.get(U32, pl, e))
+
+# pass B's loop over the k entries: entry e goes to out[wo[e] ..] (a spin loop over entries)
+def Pq.go(n: Nat, +e: U32, st: PQ) -> PQ:
+  match n st:
+    case 0n other:
+      other
+    case 1n+p PQ{po, pl, wo, pk, out}:
+      Pq.go(p, U32.inc(e), Pq.a(e, pl, wo, pk, out, Array.get(U32, po, e)))
+
+# the packed words of the entries (RW: offsets, byte lengths) and the rounds over them
+def Rk.pq.r(+k: U32, +kd: Nat, +flip: U32, +mx: U32, a: Array<String>, fr: Array<U32>, bl: Array<U32>, pq: PQ) -> RK:
+  match pq:
+    case PQ{po, pl, wo, pk, out}:
+      Rk.run(k, kd, flip, 8, mx, a, fr, wo, bl, out)
+
+def Rk.pq.b(+k: U32, +kd: Nat, +flip: U32, a: Array<String>, fr: Array<U32>, po: Array<U32>, pl: Array<U32>, pk: Array<U32>, rw: RW) -> RK:
+  match rw:
+    case RW{+tot, +mx, bl, wo}:
+      Rk.pq.r(k, kd, flip, mx, a, fr, bl, Pq.go(U32.to_nat(k), 0, PQ{po, pl, wo, pk, Array.new(U32, K.Kernel.depth_for(U32.inc(tot)), 0)}))
+
+# the fallback: the offsets are the prefix sums of the code point counts, the rounds take 2 words
+def Rk.pw.b(+k: U32, +kd: Nat, +flip: U32, a: Array<String>, fr: Array<U32>, pk: Array<U32>, rw: RW) -> RK:
+  match rw:
+    case RW{+tot, +mx, pl, wo}:
+      Rk.run(k, kd, flip, 2, mx, a, fr, wo, pl, pk)
+
+def Rk.pw(+wide: Bool, +k: U32, +kd: Nat, +flip: U32, +kd1: Nat, a: Array<String>, fr: Array<U32>, po: Array<U32>, pl: Array<U32>, bl: Array<U32>, pk: Array<U32>) -> RK:
+  match wide:
+    case True{}:
+      Rk.pw.b(k, kd, flip, a, fr, pk, Rw.go(U32.to_nat(k), 0, 0, 0, 0, 0n, Array.new(U32, kd1, 0), Array.get(U32, pl, 0)))
+    case False{}:
+      Rk.pq.b(k, kd, flip, a, fr, po, pl, pk, Rw.go(U32.to_nat(k), 0, 0, 0, 3, 2n, Array.new(U32, kd1, 0), Array.get(U32, bl, 0)))
+
+def Rk.pa.r(+k: U32, +kd: Nat, +flip: U32, +kd1: Nat, a: Array<String>, fr: Array<U32>, pa: PA) -> RK:
+  match pa:
+    case PA{po, pl, bl, pk, +cm}:
+      Rk.pw(U32.is_gt(cm, 1114111), k, kd, flip, kd1, a, fr, po, pl, bl, pk)
+
+# The ranks of the k entries of a packed coder's table (k = next; po, pl, pk as Hc.code.pk answers;
+# a, fr pass through): the same ranks as Rk.ranks over the entries' strings.
+def Rk.ranks.pk(+k: U32, +kd: Nat, +flip: U32, a: Array<String>, fr: Array<U32>, po: Array<U32>, pl: Array<U32>, pk: Array<U32>) -> RK:
+  +kd1 = K.Kernel.depth_for(U32.inc(k))
+  Rk.pa.r(k, kd, flip, kd1, a, fr, Pa.go(U32.to_nat(k), 0, PA{po, pl, Array.new(U32, kd, 0), pk, 0}))
+
+# ---- the entry points ---------------------------------------------------------------------------------
+
 # the words of the n rows: words[c] = rank[codes[c]] (the gather), the rows back
 def Rk.words.g(a: Array<String>, r: Array<U32> & Array<U32>) -> Array<String> & Array<U32>:
   (w, codes) = r
@@ -437,14 +573,16 @@ def Rk.words.r(+n: U32, +d: Nat, codes: Array<U32>, rk: RK) -> Array<String> & A
     case RK{a, fr, rank}:
       Rk.words.g(a, K.Kernel.gather(~U32, n, d, rank, codes, 0))
 
-def Rk.words.c(+n: U32, +d: Nat, +flip: U32, hc: H.HC) -> Array<String> & Array<U32>:
-  match hc:
-    case H.HC{+k, a, hs, rp, ids, codes, fr, bl}:
-      Rk.words.r(n, d, codes, Rk.ranks(k, K.Kernel.depth_for(U32.max(k, 1)), flip, a, fr, bl))
+# the coder's table (hs, ix) is dropped; ix rides along as the stage's `fr` slot (unused)
+def Rk.words.c(+n: U32, +d: Nat, +flip: U32, hj: H.HJ) -> Array<String> & Array<U32>:
+  match hj:
+    case H.HJ{+k, a, hs, ix, codes, po, pl, pk, cur, pd}:
+      Rk.words.r(n, d, codes, Rk.ranks.pk(k, K.Kernel.depth_for(U32.max(k, 1)), flip, a, ix, po, pl, pk))
 
-# Sort.str_words(n, d, flip, a) with the rows handed back: (a, words)
+# Sort.str_words(n, d, flip, a) with the rows handed back: (a, words). The packed coder (Hc.code.pk:
+# first-appearance ids from 0, the identity hash) and the rank stage over its flat entries.
 def Rk.words(+n: U32, +d: Nat, +flip: U32, a: Array<String>) -> Array<String> & Array<U32>:
-  Rk.words.c(n, d, flip, H.Hc.code.fnv(n, d, 0, a))
+  Rk.words.c(n, d, flip, H.Hc.code.pk(~(h => h), n, d, a))
 
 # v0.1's ST.Dict.ranks(dict) with the flat stage: (dict, rank by code), 2^dd slots
 def Rk.dict.r(+k: U32, +dd: Nat, +b: Nat, slots: Array<ST.SSlot>, +tag: U32, rk: RK) -> ST.Dict & Array<U32>:

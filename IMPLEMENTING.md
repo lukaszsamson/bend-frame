@@ -1988,7 +1988,7 @@ cons-list `Eval.nuniq`; the v0.1 text is kept byte-identical as the test referen
   are unchanged. No new kernel loop: the wiring calls `Hc.jgo` (W2.4's spin), `Sort.xmap.go`,
   `Kernel.mask_data`, `Sort.wm.go` / `wgm.go` (T3.2's). `blk_copy` sites in the driver 61 -> 57 (the Raw
   sort key clone among them).
-- **Open**: `Rk.words` still codes with `Hc.code.fnv` (the rank stage needs `fr` and UTF-8 byte
+- **Open (closed by "W2 pk ranks" below)**: `Rk.words` still codes with `Hc.code.fnv` (the rank stage needs `fr` and UTF-8 byte
   lengths, which `Hc.code.pk` does not answer). Sorting 1M rows of 20k repeated 22-char keys read
   from a CSV takes 2.3 s vs 1.6 s for 1M distinct keys (scratch probe, load ~12, includes the gather):
   the hits walk scattered representative strings. A pk-based `Rk.words` (fr from the codes in one
@@ -2040,3 +2040,59 @@ Harness lessons:
   (`python3 -I script.py` ignores the script directory).
 - A shrink needs no oracle: the predicate is "the runner still prints DIFF"; candidates of a round run as one parallel
   batch and the smallest failing one wins (lines, then bytes, then the spec to defaults, to a fixed point).
+## W2 pk ranks (Rk.words over Hc.code.pk; src/ranks.bend)
+
+`Rk.words` (Sort.str_words, a Raw sort key) now codes with `H.Hc.code.pk(~(h => h), ..)` and the rank
+stage reads the distinct entries from pk's flat code point array. Why: a hash hit of `Hc.code` (the
+fnv path) walks the representative cons String, a hot type whose cells sit wherever the CSV parser
+allocated them (dependent misses per code point); pk copies each distinct key's code points into one
+flat array during the single hashing walk and a hit compares flat-vs-flat.
+
+- **Passes** (all over the k DISTINCT entries, never the rows): `Rk.ranks.pk` -> pass A `Pa.go` (per
+  entry, the spin loop `Pa.in` over its code points: bytes += `Hc.u8(c)`, cm = max) -> `Rw.go`
+  (offsets from the byte lengths, unchanged) -> pass B `Pq.go` (per entry, the spin loop `Pq.in`
+  over its code points: `Pb.cp` into the exact-size word array, the existing packer) -> `Rk.run`
+  (the rounds, unchanged). The source array rides through the loops as the read-ahead pair
+  `(pk, x)` (the `Rw.go` idiom) and the output is a separate array (an in-place pack is possible:
+  writes stay at or below the read index; not done, +25 % of pk is transient and the code stays plain).
+- **fr is not derived.** `fr` (an entry's first row) only served to find the strings again; the stage
+  never needs the rows once the entries are flat, and the rows go straight back to the caller. The
+  stage's `fr` slot carries the coder's `ix` array unused. (Deriving it would cost an n-row pass for
+  nothing.) Entries sit contiguous in id order in pk (`po[e+1] = po[e] + pl[e]`).
+- **Fallback** (a code point > U+10FFFF, seen by pass A's max): pk is already one code point per word,
+  so `Rk.pw` calls `Rk.run(.., upr = 2, ..)` over it with offsets = prefix sums of `pl`
+  (`Rw.go`, wadd 0, wsh 0): cheaper than the old fallback, which re-walked the strings. Bytes are never
+  packed in that case. Tested natively (bench/w2/w2diff.bend `wide`, mutants W5-W7).
+- **Emitted C** (bench/strbench.bend, `bench/w2/spins.py`): the spin loops and what each allocates per
+  code point / entry. `Pa.in` = spin_625 (blk_read only), `Pa.go` = spin_622 (one `PA` record per
+  entry, none per code point), `Pq.in` = spin_635 (blk_read; it calls spin_169 = `Pb.cp`, which has no count / copy /
+  alloc ops: the PB state rides the registers), `Pq.go` = spin_631.
+  No `blk_copy`, `blk_half` or `blk_node` in any of them. Nothing is allocated per row anywhere in
+  the stage: the row-sized work is the coder (`Hc.jgo`) and the gather.
+- **Measured** (bench/strbench.bend `sort raw`, columns id,s,v,x read from CSV, 1M rows, sort of all
+  columns by s, `--threads 1`, 7 fresh processes per cell interleaved baseline (HEAD 42da6ba, fnv) /
+  candidate, PROVISIONAL: load 8-59 at the process starts, median 13-20, 1 ms clock;
+  bench/w2/results/pkranks_provisional.jsonl has every sample). ms median [min..max], samples in
+  run order; RSS = max resident set from /usr/bin/time -l:
+  - 20k distinct 22-char keys repeated (rep): 1,052 [831..1,209] -> 241 [213..247] ms (4.4x); RSS
+    1,154 -> 1,141 MB. Candidate samples 241, 229, 213, 235, 247, 245, 242; baseline 1,133, 1,052, 831,
+    1,209, 993, 1,000, 1,074.
+  - 1M distinct 22-char keys: 634 [557..677] -> 567 [496..1,719] ms; RSS 1,166 -> 1,353 MB (+16 %).
+    Candidate 496, 567, 647, 518, 526, 752, 1,719 (loaded); baseline 614, 566, 677, 557, 634, 638, 650.
+  - 1M distinct 37-char keys, 31-char shared prefix, shuffled (lp): 884 [847..3,061] -> 875 [799..2,666]
+    ms; RSS 1,539 -> 1,942 MB (+26 %). Candidate 975, 861, 872, 875, 881, 799, 2,666; baseline 884, 892,
+    877, 884, 871, 847, 3,061.
+  Repeated keys are now no slower than distinct ones per row (the hits are flat); distinct keys are a
+  wash in time (pk's copy per code point against the fnv path's second walk of nothing) and cost memory.
+- **Price: RSS.** pk is presized at 8 words per row and doubles; the doubling's peak (old + new arrays,
+  e.g. 128 + 256 MB for 37 M code points) is what the table shows. The packed words (1 byte per ASCII
+  code point) are freed with pk after the stage. Cutting it needs a coder that packs UTF-8 bytes
+  during the walk instead of copying code points (4x less, no pass A / B, the fallback re-walks), a
+  new coder variant in src/hcode.bend; not done here (the task keeps Hc.code.pk as it is).
+- **Gotchas**: a record holding `wo` cannot also be passed with it to the next call (affine: "consumed
+  more than once"): the packed state `PQ` carries `wo` out and `Rk.pq.r` takes it from there. Array.get
+  past the last code point (the read-ahead of the loop's last step) is masked, harmless.
+- Differentials: tests/ranks_diff.bend (every shape, flip 0 / 2^32 - 1, Dictionary), tests/ranks_unit.bend
+  (+ a table that doubles and 4-byte characters across word boundaries), `make w2-diff` (396 checks incl.
+  `wide`), bench/w2/wire.sh. Mutants P1-P4 (interpreter tests) and W5-W7 (native fallback) in
+  bench/w2/mutation.py.
