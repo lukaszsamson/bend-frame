@@ -3466,3 +3466,18 @@ What the next agents need to know:
 - **Measurement under load.** The pre-run 1-minute load was above 2 for every W8 timing run (M_02 section 5), so the
   gate report labels every timing PROVISIONAL and leaves G2-G4 unevaluated; the counts of G6 and the validity of every
   result (each process's result hashed against expected.json after the clock) do not depend on load.
+
+## Post-W8: the 1k control regression (radix fixed costs)
+
+- A fixed-size scratch structure is a per-call cost, not a per-row one: T3.2's radix sort allocated a 2^17-slot
+  histogram (512 KB) and prefix-summed 65,536 slots per pass on EVERY sort, so an 8-row sort cost 50+ us, and the
+  string sort of the 8 groups of q3 ran several of them (rank rounds + key). Size scratch by the input (here: 8-bit
+  digits and a 1-slot placeholder for depth <= 14). Measure small inputs too: the 1M cells never showed it.
+- Diagnose per stage, not per query: `bench/m2/ctlprobe.bend` runs one eager stage N times over fresh clones and
+  subtracts a clone-only loop; built against `git archive 3612482` and the candidate, it located the regression in
+  one run (group_by and join had got FASTER; the tiny sort had got 3x slower).
+- The JS interpreter does not finish building 2^15-slot arrays in reasonable time (at any commit): tests that need a
+  big-path depth must run natively (`make radix-check`), not under tests/.
+- Bend idioms hit while writing the probe: IO.args includes the program name first; a `do` block cannot destructure
+  (bind into a helper's parameter); `+x` on the last component of a Sigma destructuring cannot be inferred (pack
+  flags into a word instead); helpers above callers and no mutual recursion (fold the step into one def).

@@ -9,7 +9,7 @@ EXAMPLES := frame.bend $(wildcard examples/*.bend) $(wildcard bench/*.bend)
 # differential smoke (Raw and Dictionary strings, then the F32 reduction check), the proof mutation
 # check and the clean-consumer check (needs the work committed: it clones HEAD). Larger differential
 # runs (make diff N=..., make diff-reduce REDUCE_N=...) are the scheduled/release gate.
-ci: toolchain-check check runner-check diff-driver-check test proofs verdict mutation-check bench-check diff-smoke csv-fuzz-smoke fork-audit consumer-check
+ci: toolchain-check check runner-check diff-driver-check test proofs verdict mutation-check bench-check diff-smoke csv-fuzz-smoke fork-audit radix-check consumer-check
 	@echo "ci: all gates passed"
 
 test:
@@ -259,3 +259,12 @@ fork-audit:
 	@mkdir -p build/fork-audit
 	@for p in $(FORK_AUDIT_PROGS); do $(BEND) $$p -o build/fork-audit/$$(basename $$p .bend).c > /dev/null || exit 1; done
 	@python3 -I bench/w5/scale/forkaudit.py --check bench/w5/scale/forkaudit.allow $(foreach p,$(FORK_AUDIT_PROGS),build/fork-audit/$(basename $(notdir $(p))).c)
+
+# Radix.sort's 8-bit (depth <= 14) and 16-bit paths give the same stable order (native: the JS
+# interpreter cannot build the 2^15-slot arrays the 16-bit side needs in reasonable time)
+radix-check:
+	@mkdir -p build
+	@$(BEND) bench/checks/radix_paths.bend -o build/radix_paths > /dev/null
+	@./build/radix_paths > build/radix_paths.out
+	@n=$$(grep -c 'eq=1 sorted=1 stable=1$$' build/radix_paths.out); t=$$(wc -l < build/radix_paths.out | tr -d ' '); \
+	  if [ "$$n" = 40 ] && [ "$$t" = 40 ]; then echo "radix-check: ok, 40 cases"; else echo "radix-check: FAIL ($$n of $$t ok)"; cat build/radix_paths.out; exit 1; fi

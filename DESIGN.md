@@ -3456,6 +3456,23 @@ period, two independently reproduced full gate runs with the new default, a repr
    token `v01` selects the v0.1 reader (bench/m2/engine.bend); `run.py run --engine` defaults to `reference`; `make m2-g6`
    runs the candidate as `v01` / `reference` / `v02,chunked`. The baseline binary (3612482) ignores `BF_ENGINE` as before.
 
+### v0.2 post-W8: the 1k q3 / q5 control regression (src/radix.bend)
+
+Diagnosed with `bench/m2/ctlprobe.bend` (each eager stage of q3 / q5 run 2000 times on the 1k-row fixture, baseline
+3612482 vs candidate): the whole regression was the sort of the 8-row group_by output by its string key (64 us at v0.1,
+185 us at W8). T3.2's radix sort allocates one 2^17-slot histogram per sort or sort key (both 16-bit digits counted in
+the one read pass) and prefix-sums 65,536 slots per varying digit, a fixed ~50 us whatever n is; a string sort key runs
+several (the rank stage's rounds and the key). Fix: when the depth is <= 14 (`Radix.small`), `WS.new` / `Radix.sort`
+allocate a 1-slot placeholder histogram (indices wrap; its counts are never read) and `Radix.core` sorts with 8-bit
+digits (`Radix.s8`: a 256-bucket count, prefix and scatter per byte that varies, ping-ponging with one scratch pair).
+The path is chosen by the depth, not by n, so a small n in a big array keeps the 16-bit path (no regression there).
+Results are identical by construction (any stable sort by the same words answers the same order) and by test;
+`make radix-check` (native, in make ci) compares the two paths on 40 inputs (8 shapes x 5 sizes, the 16-bit side forced
+by a 2^15-slot copy) and fails on a dropped byte pass (checked). The interpreter cannot run that comparison (it does not
+finish building 2^15-slot arrays in 10 minutes, at either commit), hence native. Measured (PROVISIONAL, load ~5): the
+8-row sort 185 -> 4.5 us; 1k controls q3 0.175 (v0.1) -> 0.100 ms, q4 0.325 -> 0.050, q5 0.200 -> 0.100; 1M q3 / q4 /
+q5 12 / 14 / 11 ms (unchanged). No law names `Radix.*`.
+
 ## 15. v0.1 contract (frozen)
 
 The exact semantics every M1-M6 agent codes and tests against. Tables over prose;

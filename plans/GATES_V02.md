@@ -12,7 +12,7 @@ seen). Each timing row still carries the provisional observation and whether it 
 included. The gates that do not depend on load are evaluated: **G1 met** (0 failing cases), **G4 met** for the frozen 1M
 sales workload (RSS is a high-water mark, identical across repetitions), **G5 met**, **G6 met** (exact counts). Provisionally
 NOT met even on a loaded machine: G2 for q3, q4, q5 and the parse (the 16.8 / 17.8 revised targets included), and the 1k
-controls of q3 and q5 (G3 "within 10%"). No geometric mean is used anywhere.
+controls of q3 and q5 (G3 "within 10%"; fixed after W8, see the 1k-control paragraph). No geometric mean is used anywhere.
 
 ## How it was measured
 
@@ -90,15 +90,25 @@ Candidate = default reader + reference executor (run A) unless noted; 1 thread.
 | 41 MB parse, 12 threads | <= 0.6 s | keep (17.8) | 1,814 [1,805..1,818] | 334 [333..336] | meets | unevaluated |
 | 1k control q1 (500 per window) | within 10% | - | 0.042 ms | 0.036 (0.86x) | meets | unevaluated |
 | 1k control q2 (500 per window) | within 10% | - | 0.042 | 0.038 (0.90x) | meets | unevaluated |
-| 1k control q3 (40 per window) | within 10% | - | 0.175 [0.150..0.175] | **0.275 [0.275..0.275] (1.57x)** | **NOT met**: a fixed per-query cost, not the reader (E: 0.300 with the v0.1 reader on the candidate vs 0.175) | unevaluated |
-| 1k control q4 | within 10% | - | 0.275 | 0.300 (1.09x) | meets (at 9%) | unevaluated |
-| 1k control q5 | within 10% | - | 0.200 [0.175..0.200] | **0.250 [0.250..0.250] (1.25x)** | **NOT met** (same: E 0.275 vs 0.200 with the v0.1 reader) | unevaluated |
+| 1k control q3 (40 per window) | within 10% | - | 0.175 [0.150..0.175] | 0.100 [0.100..0.100] (0.57x) after the radix fix (`ctlfix-prov`; was 0.275, 1.57x, at W8) | meets (was NOT met at W8; fixed, see below) | unevaluated |
+| 1k control q4 | within 10% | - | 0.275 | 0.050 [0.050..0.050] (0.15x vs 0.325 in `ctlfix-prov`) after the radix fix (was 0.300 at W8) | meets | unevaluated |
+| 1k control q5 | within 10% | - | 0.200 [0.175..0.200] | 0.100 [0.100..0.125] (0.50x) after the radix fix (`ctlfix-prov`; was 0.250, 1.25x, at W8) | meets (was NOT met at W8; fixed) | unevaluated |
 | 1k control q6 | within 10% | - | 0.525 | 0.200 (0.38x) | meets | unevaluated |
 | growth 100k / 300k / 1M, time per row and per input byte | report | per-row time at 1M <= 2x that at 100k (17.8, coder) | - | str group: 120 / 137 / 125 ns per row, 4.70 / 5.29 / 4.82 ns per byte; str unique: 120 / 137 / 126 ns, 4.70 / 5.29 / 4.86 ns/B; str join (bytes of both files): 230 / 293 / 356 ns per row, 4.91 / 6.18 / 7.46 ns/B (1M / 100k per row 1.55x); long-prefix keys 100k / 300k: group 300 / 277 ns per row (5.36 / 4.94 ns/B), unique 300 / 273, join 590 / 607 ns per row (5.47 / 5.62 ns/B) | meets the 2x rule; no superlinear step at these sizes (not a worst-case claim) | report only |
 
-The q3 / q5 1k regression: the controls of q1 / q2 / q4 / q6 are at or below v0.1, q3 and q5 (both with a group_by and a
-small string sort) cost ~0.1 ms more per query with EITHER reader (run E), so it is a fixed cost of the v0.2 compute path
-at small sizes (group_by / its key coding most likely; not diagnosed at W8). 100k-row q3 / q5 are equal to v0.1 (2 vs 2 ms).
+The q3 / q5 1k regression (found at W8, diagnosed and fixed after it): a per-stage probe (`bench/m2/ctlprobe.bend`,
+2000 eager runs per process over fresh clones, baseline vs candidate) put the whole difference in the SORT of the 8-row
+group_by output by its string key: 64 us per query at v0.1, 185 us after T3.2 / W2.3 (group_by and the join themselves
+had become faster: 34 -> 24 us, 55 -> 27 us). Since T3.2 every `Radix.sort` / sort key allocated a 2^17-slot histogram
+(512 KB), zeroed it and prefix-summed 65,536 slots per varying digit regardless of n, and a string sort runs several
+(the rank stage's rounds plus the key). Fix: inputs of depth <= 14 (<= 16,384 slots) sort with 8-bit digits (at most
+four 256-bucket passes, only over the bytes that vary) and get a 1-slot histogram placeholder (`Radix.small`, `Radix.s8`
+in src/radix.bend); the 16-bit path is unchanged above that. Any stable sort answers the same order, so results are
+identical (make test, bench-check, diff-smoke, diff-chunked, w2-diff). The 8-row sort went 185 -> 4.5 us, q3 at 1k
+0.225 -> 0.044 ms and q5 0.194 -> 0.041 ms in the probe; `make radix-check` (in `make ci`, native) checks that both
+paths give the same stable order on 40 inputs and catches a dropped byte pass. Harness re-run `ctlfix-prov` (130
+processes, all valid, load 4.7-6.8, PROVISIONAL): the 1k controls of q3 / q4 / q5 are now 0.57x / 0.15x / 0.50x of
+v0.1, and the 100k / 1M cells are unchanged or faster (q3 / q4 / q5 at 1M: 12 / 14 / 11 ms).
 
 ## G4 memory (evaluated for the frozen workload: MET)
 
@@ -157,5 +167,5 @@ parse the 41 MB file against v0.1's 4,036 MB in 352 M (the remaining allocations
    them (group_by, the radix sort, the join, the serial CSV producer) do not fork. Either accept these as the v0.2 limits
    (the README and CHANGELOG state them) or schedule a chunked group_by / partitioned sort.
 3. The 16.8 / 17.8 thresholds were never formally frozen; this report uses them as proposed.
-4. The 1k-row q3 / q5 controls regress 1.25-1.57x (G3 "within 10%"), independent of the reader.
+4. ~~The 1k-row q3 / q5 controls regress 1.25-1.57x~~ Fixed after W8 (the radix sort's fixed 2^17-slot histogram; see the 1k-control paragraph): now 0.50-0.57x of v0.1, provisionally.
 5. The reader default flip precedes G2-G4 evaluation (D7 deviation above); the orchestrator decides whether that stands.

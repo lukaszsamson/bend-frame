@@ -13,7 +13,7 @@ import Base
 
 # ---- LSD radix sort over (word, row) pairs (v0.2 T3.2) -------------------------------------
 #
-# Two 16-bit digits. ONE read pass computes everything the passes need: the bits that vary
+# Two 16-bit digits (inputs of depth <= 14 use 8-bit digits instead: Radix.s8 below). ONE read pass computes everything the passes need: the bits that vary
 # (OR of the words xor AND of the words), whether the words are already non-decreasing, and
 # BOTH digit histograms (one 2^17-slot array: the low digit's counts at [0, 2^16), the high
 # digit's at [2^16, 2^17)). Sorted words need no permutation change (a stable sort of a
@@ -51,8 +51,19 @@ def Radix.pre.go(n: Nat, +i: U32, +s: U32, r: Array<U32> & U32) -> Array<U32>:
 type WS is Type:
   WS{ws: Array<U32>, h: Array<U32>, prev: U32, vor: U32, vand: U32, ok: Bool}
 
+# inputs of at most 2^RADIX_SMALL_D rows sort with 8-bit digits (Radix.s8.*) and never read the
+# 2^17-slot histogram, so it is not allocated for them: a 1-slot array (indices wrap; Radix.inc2's
+# counts land in slot 0 and are never read). Allocating, zeroing and prefix-summing 2^17 slots
+# per key cost ~50 us on every sort, which made sorting the 8 groups of a 1k-row q3 / q5 2-3x
+# slower than v0.1 (GATES_V02.md G3 1k controls).
+def Radix.small(+d: Nat) -> Bool:
+  Nat.is_le(d, 14n)
+
+def Radix.hd(+d: Nat) -> Nat:
+  Bool.pick(Nat, Radix.small(d), 0n, 17n)
+
 def WS.new(+d: Nat) -> WS:
-  WS{Array.new(U32, d, 0), Array.new(U32, 17n, 0), 0, 0, 4294967295, True{}}
+  WS{Array.new(U32, d, 0), Array.new(U32, Radix.hd(d), 0), 0, 0, 4294967295, True{}}
 
 # word w is row j of the words: written, counted, folded into vary / sortedness
 def WS.put(+j: U32, +w: U32, st: WS) -> WS:
@@ -96,6 +107,61 @@ def Radix.sc.go(n: Nat, +i: U32, +sh: Nat, +base: U32, st: Array<U32> & Array<U3
       +j = U32.inc(i)
       Radix.sc.go(q, j, sh, base, Radix.sc.put(x, p, g, dw, dp, Array.get(U32, h, g)), Array.get(U32, sw, j), Array.get(U32, sp, j))
 
+# ---- small inputs: 8-bit LSD (up to four 256-bucket passes, one per byte that varies) ---------
+
+# h[byte sh of ws[i]]++ for i < n; answers (ws, h)
+def Radix.h8.go(n: Nat, +i: U32, +sh: Nat, h: Array<U32>, r: Array<U32> & U32) -> Array<U32> & Array<U32>:
+  match n:
+    case 0n:
+      (ws, x) = r
+      (ws, h)
+    case 1n+p:
+      (ws, +x) = r
+      +g = Radix.digit(x, sh, 255)
+      +j = U32.inc(i)
+      Radix.h8.go(p, j, sh, Radix.inc(g, Array.get(U32, h, g)), Array.get(U32, ws, j))
+
+# stable scatter of (sw[i], sp[i]) to slot h[byte sh]++ (h holds exclusive prefix sums)
+def Radix.sc8.go(n: Nat, +i: U32, +sh: Nat, st: Array<U32> & Array<U32> & Array<U32>, rw: Array<U32> & U32, rp: Array<U32> & U32) -> RSc:
+  match n:
+    case 0n:
+      (h, dw, dp) = st
+      (sw, x) = rw
+      (sp, p) = rp
+      RSc{h, sw, sp, dw, dp}
+    case 1n+q:
+      (h, dw, dp) = st
+      (sw, +x) = rw
+      (sp, +p) = rp
+      +g = Radix.digit(x, sh, 255)
+      +j = U32.inc(i)
+      Radix.sc8.go(q, j, sh, Radix.sc.put(x, p, g, dw, dp, Array.get(U32, h, g)), Array.get(U32, sw, j), Array.get(U32, sp, j))
+
+def Radix.p8.c(+n: U32, +sh: Nat, sp: Array<U32>, dw: Array<U32>, dp: Array<U32>, r: Array<U32> & Array<U32>) -> RSc:
+  (sw, h) = r
+  Radix.sc8.go(U32.to_nat(n), 0, sh, (Radix.pre.go(256n, 0, 0, Array.get(U32, h, 0)), dw, dp), Array.get(U32, sw, 0), Array.get(U32, sp, 0))
+
+# one 8-bit pass on byte sh: (sw, sp) -> (dw, dp)
+def Radix.p8(+n: U32, +sh: Nat, sw: Array<U32>, sp: Array<U32>, dw: Array<U32>, dp: Array<U32>) -> RSc:
+  Radix.p8.c(n, sh, sp, dw, dp, Radix.h8.go(U32.to_nat(n), 0, sh, Array.new(U32, 8n, 0), Array.get(U32, sw, 0)))
+
+# the passes over bytes sh, sh+8, ..; st's (dw, dp) is the current order, (sw, sp) the scratch;
+# b: byte sh varies
+def Radix.s8.go(k: Nat, b: Bool, +sh: Nat, +n: U32, +vary: U32, st: RSc) -> Array<U32> & Array<U32>:
+  match k b st:
+    case 0n _ RSc{h, sw, sp, dw, dp}:
+      (dw, dp)
+    case 1n+p True{} RSc{h, sw, sp, dw, dp}:
+      +nx = Nat.add(sh, 8n)
+      Radix.s8.go(p, U32.is_ne(Radix.digit(vary, nx, 255), 0), nx, n, vary, Radix.p8(n, sh, dw, dp, sw, sp))
+    case 1n+p False{} st:
+      +nx = Nat.add(sh, 8n)
+      Radix.s8.go(p, U32.is_ne(Radix.digit(vary, nx, 255), 0), nx, n, vary, st)
+
+# stable sort of (ws[i], perm[i]), i < n <= 2^d, by ws, with 8-bit digits (only bytes that vary)
+def Radix.s8(+n: U32, +d: Nat, +vary: U32, ws: Array<U32>, perm: Array<U32>) -> Array<U32> & Array<U32>:
+  Radix.s8.go(4n, U32.is_ne(Radix.digit(vary, 0n, 255), 0), 0n, n, vary, RSc{Array.new(U32, 0n, 0), Array.new(U32, d, 0), Array.new(U32, d, 0), ws, perm})
+
 # one counting pass on the digit at bit sh (histogram region base): (sw, sp) -> (dw, dp)
 def Radix.pass2(+n: U32, +sh: Nat, +base: U32, h: Array<U32>, sw: Array<U32>, sp: Array<U32>, dw: Array<U32>, dp: Array<U32>) -> RSc:
   Radix.sc.go(U32.to_nat(n), 0, sh, base, (Radix.pre.go(65536n, base, 0, Array.get(U32, h, base)), dw, dp), Array.get(U32, sw, 0), Array.get(U32, sp, 0))
@@ -123,12 +189,19 @@ def Radix.run(lo: Bool, hi: Bool, +n: U32, +d: Nat, h: Array<U32>, ws: Array<U32
     case False{} False{}:
       (ws, perm)
 
+def Radix.core.c(sm: Bool, +n: U32, +d: Nat, +vary: U32, h: Array<U32>, ws: Array<U32>, perm: Array<U32>) -> Array<U32> & Array<U32>:
+  match sm:
+    case True{}:
+      Radix.s8(n, d, vary, ws, perm)
+    case False{}:
+      Radix.run(U32.is_ne(U32.and(vary, 65535), 0), U32.is_ne(U32.shrn(vary, 16n), 0), n, d, h, ws, perm)
+
 def Radix.core.b(ok: Bool, +n: U32, +d: Nat, +vary: U32, h: Array<U32>, ws: Array<U32>, perm: Array<U32>) -> Array<U32> & Array<U32>:
   match ok:
     case True{}:
       (ws, perm)
     case False{}:
-      Radix.run(U32.is_ne(U32.and(vary, 65535), 0), U32.is_ne(U32.shrn(vary, 16n), 0), n, d, h, ws, perm)
+      Radix.core.c(Radix.small(d), n, d, vary, h, ws, perm)
 
 # stable sort of (ws[i], perm[i]), i < n, by ws, given the read pass's state over ws
 def Radix.core(+n: U32, +d: Nat, perm: Array<U32>, st: WS) -> Array<U32> & Array<U32>:
@@ -141,4 +214,4 @@ def Radix.core(+n: U32, +d: Nat, perm: Array<U32>, st: WS) -> Array<U32> & Array
 # are; otherwise one pass per 16-bit digit that varies.
 def Radix.sort(+n: U32, +d: Nat, st: Array<U32> & Array<U32>) -> Array<U32> & Array<U32>:
   (ws, perm) = st
-  Radix.core(n, d, perm, Radix.scan.go(U32.to_nat(n), 0, Array.new(U32, 17n, 0), 0, 0, 4294967295, True{}, Array.get(U32, ws, 0)))
+  Radix.core(n, d, perm, Radix.scan.go(U32.to_nat(n), 0, Array.new(U32, Radix.hd(d), 0), 0, 0, 4294967295, True{}, Array.get(U32, ws, 0)))

@@ -413,4 +413,4 @@ Baseline: 3612482 (v0.1 RC). The v0.1 data contract (DESIGN §15) does not chang
 2. G2 for q3 / q4 / q5 / parse: accept as documented limits (README, CHANGELOG) or schedule a chunked group_by / partitioned
    sort; the parse needs a File API that reads into a flat buffer (DESIGN 17.10 item 1).
 3. Freeze (or restate) the 16.8 / 17.8 thresholds formally.
-4. The 1k q3 / q5 control regression (~0.1 ms per query in the compute path, independent of the reader): diagnose.
+4. ~~The 1k q3 / q5 control regression~~ FIXED after W8: the radix sort's fixed 2^17-slot histogram per sort (512 KB zeroed + 65,536-slot prefix sums, several times per string sort of the 8 groups); inputs of depth <= 14 now sort with 8-bit digits (src/radix.bend Radix.s8). 1k controls now q3 0.100 / q4 0.050 / q5 0.100 ms vs v0.1 0.175 / 0.325 / 0.200 (bench/m2/results/ctlfix-prov.jsonl, provisional). New gate `make radix-check` in make ci.

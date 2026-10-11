@@ -25,7 +25,7 @@ Against the pinned v0.1 baseline (3612482), same driver, Apple M2 Pro, medians o
 - n_unique over 2^20 distinct U32 1,803 -> 16 ms; group_by / unique over 1M distinct strings 12.5 s -> 0.13 s; the 1M distinct-key join 4.2 s -> 0.36 s.
 - Thread scaling (12 vs 1): parse 1.89x; describe 3.1x; with the opt-in chunked engine on already-chunked inputs q1 4.0x, q2 3.8x, a 50% filter 5.9x, q3 / q5 1.4x; sort, join, group_by and unique do not scale.
 - Copies: the compute phase of q1-q6 copies no array block (q3 and q5: under 5 kB; v0.1: 8-105 MB per query), exact counts from the instrumented build (`make m2-g6`).
-- Regressions: the 1k-row q3 and q5 controls are 1.57x and 1.25x slower than v0.1 (~0.1 ms per query, with either reader); every other cell is equal or faster.
+- Small inputs: the 1k-row q3 / q4 / q5 controls take 0.100 / 0.050 / 0.100 ms per query against v0.1's 0.175 / 0.325 / 0.200 (`bench/m2/results/ctlfix-prov.jsonl`). At W8 q3 and q5 had regressed 1.57x / 1.25x: every radix sort allocated and prefix-summed a 2^17-slot histogram regardless of n; inputs of up to 2^14 slots now sort with 8-bit digits (`Radix.s8`; `make radix-check`). Every other cell is equal or faster.
 
 ### Verified scope
 
