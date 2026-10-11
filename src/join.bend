@@ -443,8 +443,21 @@ def Probe.join(l: Array<String> & Array<U32>, r: Array<String> & Array<U32>) -> 
   (a2, c2) = r
   (ANode{a1, a2}, ANode{c1, c2})
 
+# W1a: a table and, only when the node still splits, ONE deep copy of it (a leaf probes the
+# table it owns and the pair's second member is a stand-in, so a no-fork probe copies nothing).
+def Probe.dd(+k: Nat, d: Dict) -> DD:
+  match k:
+    case 0n:
+      DD{d, Dict.stub(0)}
+    case 1n+p:
+      Dict.clone(d)
+
 # k fork levels over a (2^bd slots, the first slot is row `off`), then a flat
-# probe per block; answers (a, codes) with codes of the same shape
+# probe per block; answers (a, codes) with codes of the same shape. A node owns dd.a for its
+# left half and dd.b for its right half; it hands each child a table of its own plus a copy
+# for the child's own split, made only when the child splits again (Probe.dd). 4 levels copy 15
+# tables in all, 0 levels none; every block still ends with a private table, so lanes never
+# share a string reference count.
 def Probe.fork(k: Nat, +bd: Nat, +n: U32, +off: U32, dd: DD, a: Array<String>) -> Array<String> & Array<U32>:
   match k dd a:
     case _ DD{d1, d2} ALeaf{+x}:
@@ -454,7 +467,7 @@ def Probe.fork(k: Nat, +bd: Nat, +n: U32, +off: U32, dd: DD, a: Array<String>) -
     case 1n++p DD{d1, d2} ANode{xs, ys}:
       +cd = Nat.sub(bd, 1n)
       +off2 = U32.add(off, U32.shln(1, cd))
-      l r = Probe.fork(p, cd, n, off, Dict.clone(d1), xs) Probe.fork(p, cd, n, off2, Dict.clone(d2), ys)
+      l r = Probe.fork(p, cd, n, off, Probe.dd(p, d1), xs) Probe.fork(p, cd, n, off2, Probe.dd(p, d2), ys)
       Probe.join(l, r)
 
 # fork levels: none for small inputs or big tables (every block copies the
@@ -589,7 +602,7 @@ def Key.enc.sb(+len: U32, +depth: Nat, valid: C.Valid, data: Array<String>) -> C
 def Key.enc.sp(+len: U32, +depth: Nat, valid: C.Valid, data: Array<String>, d: Dict) -> C.Column & Enc:
   match d:
     case Dict{+fuel, +mask, +pw, +g, slots}:
-      Key.enc.s3(len, depth, C.Valid.clone(valid), Dict.stub(g), Probe.fork(Probe.levels(len, depth, fuel), depth, len, 0, Dict.clone(Dict{fuel, mask, pw, g, slots}), data))
+      Key.enc.s3(len, depth, C.Valid.clone(valid), Dict.stub(g), Probe.fork(Probe.levels(len, depth, fuel), depth, len, 0, Probe.dd(Probe.levels(len, depth, fuel), Dict{fuel, mask, pw, g, slots}), data))
 
 def Key.enc.s(+build: Bool, +len: U32, +depth: Nat, valid: C.Valid, data: Array<String>, d: Dict) -> C.Column & Enc:
   match build:
@@ -632,7 +645,7 @@ def Key.ids(+build: Bool, +k: U32, +dd: Nat, strs: Array<String>, d: Dict) -> Ar
     case True{} _:
       Key.ids.b(Dict.go(U32.to_nat(k), 0, True{}, DC{Array.new(U32, dd, 0), Dict.new(k)}, Array.get(String, strs, 0)))
     case False{} Dict{+fuel, +mask, +pw, +g, slots}:
-      Key.ids.p(g, Probe.fork(Probe.levels(k, dd, fuel), dd, k, 0, Dict.clone(Dict{fuel, mask, pw, g, slots}), strs))
+      Key.ids.p(g, Probe.fork(Probe.levels(k, dd, fuel), dd, k, 0, Probe.dd(Probe.levels(k, dd, fuel), Dict{fuel, mask, pw, g, slots}), strs))
 
 def Key.enc.de(+build: Bool, +len: U32, +depth: Nat, valid: C.Valid, codes: Array<U32>, d: Dict, r: ST.Dict & ST.Ents) -> C.Column & Enc:
   (dict, en) = r
