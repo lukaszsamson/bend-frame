@@ -1064,11 +1064,12 @@ def agg_count_w(+n: U32, -c: C.Column, +t: D.DType, e: {D.TU32{} == t : D.DType}
   %Equal.sym(C.Column & U32, C.Column.null_count(c), (c2, k), eq) : Laws.ResW(True{}, t, 1, Done{V.Eval.agg.count.b(n, _)})
   (Done{V.Eval.agg.count.b(n, (c2, k))}, {==}, (e, {==}))
 
-# M4: n_unique over either Str storage (Raw: the strings; Dictionary: Eval.ds.nu over the codes)
+# M4: n_unique over either Str storage (Raw: the flat coder's entry count, Eval.nu.str (v0.2 W2.3);
+# Dictionary: Eval.ds.nu over the codes)
 def aggdense_nu_s(+k: U32, x: ST.Strs) -> &w: U32 -> {V.Eval.agg.s(X.NUnique{}, k, x) == Done{V.Eval.unit(D.SU32{w}, D.TU32{})} : E.ResT(C.Column)}:
   match x:
     case ST.SRaw{xs}:
-      (V.Eval.nuniq(~String, ~(a => b => String.is_le(a, b)), ~(a => b => String.eq(a, b)), k, xs), {==})
+      (V.Eval.nu.str(k, xs), {==})
     case ST.SDict{codes, dict}:
       (V.Eval.ds.nu(k, codes, dict), {==})
 
