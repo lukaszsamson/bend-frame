@@ -353,3 +353,9 @@ Baseline: 3612482 (v0.1 RC). The v0.1 data contract (DESIGN §15) does not chang
 - Remaining after these: W6.5/W8 quiet-machine gate runs (load has not dropped below ~5 so far),
   default flips (reader v02; chunked engine only if G2 is met), README/CHANGELOG/DESIGN closing docs.
   Optional/deferred: W2.5 owned-partition coder, W2.6 Dict index, W7 SFlat (§17.11: defer).
+- Merged: G6 instrumentation (bench/m2 --instrument, make m2-g6); scaling diagnosis: the ~2x
+  ceiling was the Bend 2.0.36 scheduler's shape rule (a non-flat call before a parallel let makes
+  the subtree run on one thread), fixed in Lst.pmap / Sort.pm / cexec walks: pre-chunked compute
+  12-vs-1 filter 4.0x, q2 3.0x, q1 2.6x (1.25 ms floor), q3/q5 1.3x (flat group_by/join bound).
+  Rule added to the agent brief. Running: fork audit of every parallel let; d1588 (NaN join
+  key: engines 1 row, Polars oracle 0) investigation.

@@ -56,6 +56,14 @@ them needs a measurement in your report that justifies it.
      chunks once and keep them through compatible operators.
    - F32 sums stay one sequential Neumaier pass in row order (D4). Only U32
      modular sum/count/popcount and proven min/max combines may tree-reduce.
+   - THE SCHEDULER SHAPE RULE (DESIGN §16.10, measured): in a def with a
+     parallel let, run nothing before the fork but matches and FLAT helpers.
+     A call to a fork-free but non-flat def (list split/append, clone walks,
+     cut helpers) in the branch arguments becomes a task that stops the grow
+     pass; the subtree then runs on one thread and the whole tree tops out at
+     ~2x. Build the work tree in a sequential prelude, fork by match only,
+     join in the continuation. Nested forks inside an already-drained task do
+     not add parallelism. Check with bench/w5/scale/forkaudit.py.
 4. Write flat loops the compiler can make flat: a def with no parallel let, no
    closure apply, no non-flat call and no non-tail self call compiles to one
    native tail loop (`spin_N` in the C). No per-row allocation in a leaf loop
