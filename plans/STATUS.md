@@ -377,7 +377,11 @@ Baseline: 3612482 (v0.1 RC). The v0.1 data contract (DESIGN §15) does not chang
   diff-reduce SEED=8051 REDUCE_N=2000` (no finding).
 - **make ci on the flip commit 3b57c14**: exit 0, "ci: all gates passed", 13 min 29 s wall (load 4-8): test 203/203, 92/92
   mutations, csv-fuzz-smoke 2 x 1500, fork-audit (68 parallel lets, 0 findings), consumer-check, coverage 762/54/0.
-  On the final tree (docs and results only after 4cf2e52): see the line below.
+  On the final tree (docs and results only after 4cf2e52): **make ci at 3a2c3da: exit 0, "ci: all gates passed", 13 min 56 s
+  wall** (load 4.7 before, 7-10 during): test 203/203 (0 XFAIL), proofs + verdict ALL PROOFS CHECK, mutation-check 92/92,
+  bench-check, diff-smoke (Raw + Dict with --chunked, reduce), csv-fuzz-smoke 2 x 1500 (13,488 / 13,492 reads), fork-audit
+  (68 parallel lets, 0 findings; 14 call tasks, 0 new, 0 stale), consumer-check (clone 3a2c3da), coverage 762/54/0. This
+  STATUS line is the only change after it.
 
 ### v0.2 definition of done (M_02 sections 0 and 3), checked against the repo
 - [x] **G1 correctness**: make ci green; reference vs chunked executor on Raw, Dictionary, deep, joinstress (11,000 fresh cases
