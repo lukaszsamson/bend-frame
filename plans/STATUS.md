@@ -344,3 +344,12 @@ Baseline: 3612482 (v0.1 RC). The v0.1 data contract (DESIGN §15) does not chang
   Master 9bfb9a8: 206 laws, 75 mutations, 190 tests, verdict green.
 - T4.2 (peepholes, branch worktree-agent-ab4e15f1c2ea65971) conflicts with T4.3's proof; T4.4 is
   integrating them (shared Eval.filter.mask). T5.3 chunked executor running.
+- Merged (2026-10-12): T4.2 + T4.4 (peepholes; one shared Eval.filter.mask; q1 3 ms at 1M/1 thr,
+  0 copy bytes; 231 laws, 92 mutations), T5.3 chunked executor behind Engine (exact on 13k+
+  differential cases; G2 NOT met: 1.1-1.9x at 12 vs 1 thread on pre-chunked compute; conversions
+  from flat env frames cost 3-5x on q1/q2). bench/data untracked (1b79623) and regenerated.
+- Running: scaling diagnosis (fable: why chunk forks stop at ~2x; fix or document as a runtime
+  limit in DESIGN 16.10), G6 copy/alloc instrumentation mode in bench/m2, group_by fused scatter.
+- Remaining after these: W6.5/W8 quiet-machine gate runs (load has not dropped below ~5 so far),
+  default flips (reader v02; chunked engine only if G2 is met), README/CHANGELOG/DESIGN closing docs.
+  Optional/deferred: W2.5 owned-partition coder, W2.6 Dict index, W7 SFlat (§17.11: defer).
