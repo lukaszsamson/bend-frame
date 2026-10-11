@@ -1,0 +1,146 @@
+rep 0 load   18.5 ms     316 real   0.55 user 0.44 rss 287.1 exit 0 :: ./build/probe --threads 1 distinct 1000000 seq
+rep 0 load   18.5 ms     307 real   0.51 user 0.44 rss 307.5 exit 0 :: ./build/probe --threads 1 distinct 1000000 part 0
+rep 0 load   18.5 ms     252 real   0.45 user 0.39 rss 306.3 exit 0 :: ./build/probe --threads 1 distinct 1000000 part 4
+rep 0 load   18.5 ms     292 real   0.46 user 0.39 rss 326.9 exit 0 :: ./build/probe --threads 4 distinct 1000000 part 4
+rep 0 load   18.2 ms     361 real   0.56 user 0.44 rss 347.7 exit 0 :: ./build/probe --threads 12 distinct 1000000 part 4
+rep 0 load   18.2 ms     282 real   0.56 user 0.48 rss 347.2 exit 0 :: ./build/probe --threads 12 distinct 1000000 part 6
+rep 0 load   18.2 ms     992 real   2.55 user 1.58 rss 973.5 exit 0 :: ./build/probe --threads 1 prefix 1000000 seq
+rep 0 load   18.2 ms     948 real   2.11 user 1.5 rss 993.8 exit 0 :: ./build/probe --threads 1 prefix 1000000 part 0
+rep 0 load   17.8 ms     803 real   1.50 user 1.38 rss 993.0 exit 0 :: ./build/probe --threads 1 prefix 1000000 part 4
+rep 0 load   17.8 ms     758 real   1.52 user 1.43 rss 1013.3 exit 0 :: ./build/probe --threads 4 prefix 1000000 part 4
+rep 0 load   17.8 ms     686 real   1.41 user 1.43 rss 1032.0 exit 0 :: ./build/probe --threads 12 prefix 1000000 part 4
+rep 0 load   16.8 ms     693 real   1.46 user 1.46 rss 1032.3 exit 0 :: ./build/probe --threads 12 prefix 1000000 part 6
+rep 0 load   16.8 ms     222 real   0.33 user 0.31 rss 209.4 exit 0 :: ./build/probe --threads 1 skew 1000000 seq
+rep 0 load   16.8 ms     238 real   0.35 user 0.32 rss 227.4 exit 0 :: ./build/probe --threads 1 skew 1000000 part 0
+rep 0 load   16.8 ms     318 real   0.43 user 0.4 rss 233.5 exit 0 :: ./build/probe --threads 1 skew 1000000 part 4
+rep 0 load   16.8 ms     217 real   0.33 user 0.44 rss 253.4 exit 0 :: ./build/probe --threads 4 skew 1000000 part 4
+rep 0 load   16.8 ms     231 real   0.36 user 0.53 rss 276.2 exit 0 :: ./build/probe --threads 12 skew 1000000 part 4
+rep 0 load   16.8 ms     229 real   0.36 user 0.55 rss 291.0 exit 0 :: ./build/probe --threads 12 skew 1000000 part 6
+rep 0 load   16.8 ms     119 real   0.15 user 0.14 rss 41.7 exit 0 :: ./build/probe --threads 1 equal 1000000 seq
+rep 0 load   16.8 ms     125 real   0.15 user 0.14 rss 57.7 exit 0 :: ./build/probe --threads 1 equal 1000000 part 0
+rep 0 load   16.8 ms     134 real   0.16 user 0.15 rss 68.8 exit 0 :: ./build/probe --threads 1 equal 1000000 part 4
+rep 0 load   16.8 ms     106 real   0.13 user 0.15 rss 84.1 exit 0 :: ./build/probe --threads 4 equal 1000000 part 4
+rep 0 load   16.8 ms     114 real   0.17 user 0.18 rss 91.5 exit 0 :: ./build/probe --threads 12 equal 1000000 part 4
+rep 0 load   16.8 ms     114 real   0.16 user 0.17 rss 105.1 exit 0 :: ./build/probe --threads 12 equal 1000000 part 6
+rep 1 load   16.1 ms     281 real   0.45 user 0.41 rss 307.5 exit 0 :: ./build/probe --threads 1 distinct 1000000 part 0
+rep 1 load   16.1 ms     249 real   0.44 user 0.38 rss 306.3 exit 0 :: ./build/probe --threads 1 distinct 1000000 part 4
+rep 1 load   16.1 ms     215 real   0.39 user 0.38 rss 318.9 exit 0 :: ./build/probe --threads 4 distinct 1000000 part 4
+rep 1 load   16.1 ms     275 real   0.45 user 0.39 rss 348.9 exit 0 :: ./build/probe --threads 12 distinct 1000000 part 4
+rep 1 load   16.1 ms     255 real   0.44 user 0.46 rss 349.8 exit 0 :: ./build/probe --threads 12 distinct 1000000 part 6
+rep 1 load   16.1 ms     851 real   1.68 user 1.44 rss 973.8 exit 0 :: ./build/probe --threads 1 prefix 1000000 seq
+rep 1 load   16.1 ms     946 real   2.06 user 1.47 rss 993.5 exit 0 :: ./build/probe --threads 1 prefix 1000000 part 0
+rep 1 load   15.4 ms     991 real   1.65 user 1.39 rss 992.9 exit 0 :: ./build/probe --threads 1 prefix 1000000 part 4
+rep 1 load   15.4 ms     737 real   1.57 user 1.45 rss 1013.3 exit 0 :: ./build/probe --threads 4 prefix 1000000 part 4
+rep 1 load   15.4 ms     787 real   1.46 user 1.44 rss 1034.0 exit 0 :: ./build/probe --threads 12 prefix 1000000 part 4
+rep 1 load   14.5 ms     771 real   1.66 user 1.52 rss 1032.3 exit 0 :: ./build/probe --threads 12 prefix 1000000 part 6
+rep 1 load   14.5 ms     227 real   0.33 user 0.31 rss 209.4 exit 0 :: ./build/probe --threads 1 skew 1000000 seq
+rep 1 load   14.5 ms     233 real   0.34 user 0.32 rss 227.4 exit 0 :: ./build/probe --threads 1 skew 1000000 part 0
+rep 1 load   14.5 ms     343 real   0.45 user 0.42 rss 233.5 exit 0 :: ./build/probe --threads 1 skew 1000000 part 4
+rep 1 load   14.5 ms     223 real   0.33 user 0.43 rss 247.1 exit 0 :: ./build/probe --threads 4 skew 1000000 part 4
+rep 1 load   14.5 ms     221 real   0.34 user 0.47 rss 275.2 exit 0 :: ./build/probe --threads 12 skew 1000000 part 4
+rep 1 load   14.5 ms     196 real   0.32 user 0.5 rss 285.6 exit 0 :: ./build/probe --threads 12 skew 1000000 part 6
+rep 1 load   14.5 ms     120 real   0.15 user 0.14 rss 41.7 exit 0 :: ./build/probe --threads 1 equal 1000000 seq
+rep 1 load   14.5 ms     130 real   0.16 user 0.15 rss 57.7 exit 0 :: ./build/probe --threads 1 equal 1000000 part 0
+rep 1 load   14.5 ms     131 real   0.16 user 0.15 rss 68.8 exit 0 :: ./build/probe --threads 1 equal 1000000 part 4
+rep 1 load   13.8 ms     104 real   0.13 user 0.15 rss 83.8 exit 0 :: ./build/probe --threads 4 equal 1000000 part 4
+rep 1 load   13.8 ms     101 real   0.13 user 0.16 rss 88.3 exit 0 :: ./build/probe --threads 12 equal 1000000 part 4
+rep 1 load   13.8 ms      99 real   0.13 user 0.16 rss 106.6 exit 0 :: ./build/probe --threads 12 equal 1000000 part 6
+rep 1 load   13.8 ms     289 real   0.45 user 0.41 rss 287.5 exit 0 :: ./build/probe --threads 1 distinct 1000000 seq
+rep 2 load   13.8 ms     247 real   0.41 user 0.37 rss 306.3 exit 0 :: ./build/probe --threads 1 distinct 1000000 part 4
+rep 2 load   13.8 ms     234 real   0.42 user 0.39 rss 330.9 exit 0 :: ./build/probe --threads 4 distinct 1000000 part 4
+rep 2 load   13.8 ms     260 real   0.47 user 0.42 rss 345.3 exit 0 :: ./build/probe --threads 12 distinct 1000000 part 4
+rep 2 load   13.8 ms     213 real   0.37 user 0.44 rss 345.8 exit 0 :: ./build/probe --threads 12 distinct 1000000 part 6
+rep 2 load   13.8 ms     893 real   1.84 user 1.46 rss 973.2 exit 0 :: ./build/probe --threads 1 prefix 1000000 seq
+rep 2 load   13.8 ms     879 real   1.65 user 1.46 rss 994.2 exit 0 :: ./build/probe --threads 1 prefix 1000000 part 0
+rep 2 load   14.3 ms     812 real   1.51 user 1.38 rss 993.0 exit 0 :: ./build/probe --threads 1 prefix 1000000 part 4
+rep 2 load   14.3 ms     743 real   1.49 user 1.42 rss 1002.7 exit 0 :: ./build/probe --threads 4 prefix 1000000 part 4
+rep 2 load   14.3 ms     678 real   1.40 user 1.41 rss 1031.0 exit 0 :: ./build/probe --threads 12 prefix 1000000 part 4
+rep 2 load   13.8 ms     674 real   1.62 user 1.46 rss 1034.6 exit 0 :: ./build/probe --threads 12 prefix 1000000 part 6
+rep 2 load   13.8 ms     220 real   0.32 user 0.3 rss 209.4 exit 0 :: ./build/probe --threads 1 skew 1000000 seq
+rep 2 load   13.8 ms     236 real   0.34 user 0.32 rss 227.4 exit 0 :: ./build/probe --threads 1 skew 1000000 part 0
+rep 2 load   13.8 ms     370 real   0.49 user 0.45 rss 233.5 exit 0 :: ./build/probe --threads 1 skew 1000000 part 4
+rep 2 load   13.8 ms     218 real   0.33 user 0.44 rss 252.0 exit 0 :: ./build/probe --threads 4 skew 1000000 part 4
+rep 2 load   13.8 ms     215 real   0.32 user 0.48 rss 281.4 exit 0 :: ./build/probe --threads 12 skew 1000000 part 4
+rep 2 load   13.8 ms     203 real   0.31 user 0.53 rss 284.5 exit 0 :: ./build/probe --threads 12 skew 1000000 part 6
+rep 2 load   13.8 ms     119 real   0.14 user 0.14 rss 41.7 exit 0 :: ./build/probe --threads 1 equal 1000000 seq
+rep 2 load   13.8 ms     126 real   0.15 user 0.14 rss 57.7 exit 0 :: ./build/probe --threads 1 equal 1000000 part 0
+rep 2 load   13.8 ms     135 real   0.16 user 0.15 rss 68.8 exit 0 :: ./build/probe --threads 1 equal 1000000 part 4
+rep 2 load   13.8 ms     108 real   0.14 user 0.15 rss 88.1 exit 0 :: ./build/probe --threads 4 equal 1000000 part 4
+rep 2 load   13.9 ms     168 real   0.20 user 0.17 rss 94.1 exit 0 :: ./build/probe --threads 12 equal 1000000 part 4
+rep 2 load   13.9 ms     154 real   0.20 user 0.2 rss 111.1 exit 0 :: ./build/probe --threads 12 equal 1000000 part 6
+rep 2 load   13.9 ms     306 real   0.54 user 0.43 rss 287.4 exit 0 :: ./build/probe --threads 1 distinct 1000000 seq
+rep 2 load   13.9 ms     315 real   0.51 user 0.42 rss 307.5 exit 0 :: ./build/probe --threads 1 distinct 1000000 part 0
+rep 3 load   13.9 ms     221 real   0.41 user 0.39 rss 327.0 exit 0 :: ./build/probe --threads 4 distinct 1000000 part 4
+rep 3 load   13.9 ms     230 real   0.41 user 0.4 rss 346.8 exit 0 :: ./build/probe --threads 12 distinct 1000000 part 4
+rep 3 load   13.9 ms     224 real   0.41 user 0.45 rss 349.8 exit 0 :: ./build/probe --threads 12 distinct 1000000 part 6
+rep 3 load   13.9 ms     896 real   1.72 user 1.48 rss 973.2 exit 0 :: ./build/probe --threads 1 prefix 1000000 seq
+rep 3 load   13.9 ms     885 real   1.58 user 1.42 rss 994.2 exit 0 :: ./build/probe --threads 1 prefix 1000000 part 0
+rep 3 load   16.7 ms     987 real   1.90 user 1.43 rss 992.4 exit 0 :: ./build/probe --threads 1 prefix 1000000 part 4
+rep 3 load   16.7 ms     807 real   2.18 user 1.45 rss 1005.0 exit 0 :: ./build/probe --threads 4 prefix 1000000 part 4
+rep 3 load   16.6 ms     779 real   1.61 user 1.48 rss 1031.7 exit 0 :: ./build/probe --threads 12 prefix 1000000 part 4
+rep 3 load   16.6 ms     759 real   1.43 user 1.47 rss 1032.1 exit 0 :: ./build/probe --threads 12 prefix 1000000 part 6
+rep 3 load   16.6 ms     207 real   0.31 user 0.29 rss 209.4 exit 0 :: ./build/probe --threads 1 skew 1000000 seq
+rep 3 load   16.6 ms     241 real   0.34 user 0.32 rss 227.4 exit 0 :: ./build/probe --threads 1 skew 1000000 part 0
+rep 3 load   16.6 ms     332 real   0.44 user 0.41 rss 233.5 exit 0 :: ./build/probe --threads 1 skew 1000000 part 4
+rep 3 load   16.6 ms     215 real   0.33 user 0.42 rss 253.4 exit 0 :: ./build/probe --threads 4 skew 1000000 part 4
+rep 3 load   16.6 ms     218 real   0.34 user 0.47 rss 276.3 exit 0 :: ./build/probe --threads 12 skew 1000000 part 4
+rep 3 load   15.6 ms     193 real   0.31 user 0.49 rss 292.1 exit 0 :: ./build/probe --threads 12 skew 1000000 part 6
+rep 3 load   15.6 ms     119 real   0.15 user 0.14 rss 41.7 exit 0 :: ./build/probe --threads 1 equal 1000000 seq
+rep 3 load   15.6 ms     126 real   0.15 user 0.14 rss 57.7 exit 0 :: ./build/probe --threads 1 equal 1000000 part 0
+rep 3 load   15.6 ms     135 real   0.16 user 0.15 rss 68.8 exit 0 :: ./build/probe --threads 1 equal 1000000 part 4
+rep 3 load   15.6 ms     109 real   0.14 user 0.15 rss 84.0 exit 0 :: ./build/probe --threads 4 equal 1000000 part 4
+rep 3 load   15.6 ms     105 real   0.13 user 0.16 rss 90.4 exit 0 :: ./build/probe --threads 12 equal 1000000 part 4
+rep 3 load   15.6 ms     104 real   0.13 user 0.16 rss 107.8 exit 0 :: ./build/probe --threads 12 equal 1000000 part 6
+rep 3 load   15.6 ms     277 real   0.53 user 0.41 rss 287.5 exit 0 :: ./build/probe --threads 1 distinct 1000000 seq
+rep 3 load   15.6 ms     292 real   0.48 user 0.42 rss 307.5 exit 0 :: ./build/probe --threads 1 distinct 1000000 part 0
+rep 3 load   15.6 ms     254 real   0.43 user 0.38 rss 306.3 exit 0 :: ./build/probe --threads 1 distinct 1000000 part 4
+rep 4 load   15.6 ms     267 real   0.44 user 0.41 rss 349.4 exit 0 :: ./build/probe --threads 12 distinct 1000000 part 4
+rep 4 load   15.6 ms     220 real   0.38 user 0.44 rss 347.7 exit 0 :: ./build/probe --threads 12 distinct 1000000 part 6
+rep 4 load   15.6 ms     992 real   2.23 user 1.49 rss 973.7 exit 0 :: ./build/probe --threads 1 prefix 1000000 seq
+rep 4 load   15.9 ms     931 real   1.63 user 1.44 rss 993.9 exit 0 :: ./build/probe --threads 1 prefix 1000000 part 0
+rep 4 load   15.9 ms     812 real   1.60 user 1.42 rss 992.7 exit 0 :: ./build/probe --threads 1 prefix 1000000 part 4
+rep 4 load   15.9 ms     781 real   1.53 user 1.4 rss 1013.6 exit 0 :: ./build/probe --threads 4 prefix 1000000 part 4
+rep 4 load   15.0 ms     908 real   1.67 user 1.44 rss 1028.2 exit 0 :: ./build/probe --threads 12 prefix 1000000 part 4
+rep 4 load   15.0 ms     674 real   1.37 user 1.47 rss 1032.1 exit 0 :: ./build/probe --threads 12 prefix 1000000 part 6
+rep 4 load   15.0 ms     221 real   0.34 user 0.31 rss 209.4 exit 0 :: ./build/probe --threads 1 skew 1000000 seq
+rep 4 load   15.0 ms     232 real   0.34 user 0.31 rss 227.4 exit 0 :: ./build/probe --threads 1 skew 1000000 part 0
+rep 4 load   15.0 ms     329 real   0.45 user 0.41 rss 233.5 exit 0 :: ./build/probe --threads 1 skew 1000000 part 4
+rep 4 load   15.0 ms     264 real   0.40 user 0.48 rss 255.8 exit 0 :: ./build/probe --threads 4 skew 1000000 part 4
+rep 4 load   15.5 ms     210 real   0.33 user 0.46 rss 271.4 exit 0 :: ./build/probe --threads 12 skew 1000000 part 4
+rep 4 load   15.5 ms     218 real   0.33 user 0.5 rss 290.7 exit 0 :: ./build/probe --threads 12 skew 1000000 part 6
+rep 4 load   15.5 ms     117 real   0.14 user 0.14 rss 41.7 exit 0 :: ./build/probe --threads 1 equal 1000000 seq
+rep 4 load   15.5 ms     124 real   0.15 user 0.14 rss 57.7 exit 0 :: ./build/probe --threads 1 equal 1000000 part 0
+rep 4 load   15.5 ms     130 real   0.16 user 0.15 rss 68.8 exit 0 :: ./build/probe --threads 1 equal 1000000 part 4
+rep 4 load   15.5 ms     104 real   0.13 user 0.15 rss 84.1 exit 0 :: ./build/probe --threads 4 equal 1000000 part 4
+rep 4 load   15.5 ms     105 real   0.13 user 0.16 rss 90.5 exit 0 :: ./build/probe --threads 12 equal 1000000 part 4
+rep 4 load   15.5 ms      99 real   0.13 user 0.16 rss 106.3 exit 0 :: ./build/probe --threads 12 equal 1000000 part 6
+rep 4 load   15.5 ms     286 real   0.45 user 0.41 rss 287.5 exit 0 :: ./build/probe --threads 1 distinct 1000000 seq
+rep 4 load   15.5 ms     329 real   0.53 user 0.44 rss 307.5 exit 0 :: ./build/probe --threads 1 distinct 1000000 part 0
+rep 4 load   15.5 ms     260 real   0.43 user 0.38 rss 306.3 exit 0 :: ./build/probe --threads 1 distinct 1000000 part 4
+rep 4 load   15.5 ms     215 real   0.38 user 0.37 rss 326.9 exit 0 :: ./build/probe --threads 4 distinct 1000000 part 4
+
+summary (median [min..max]); ms = the program's own timer
+ms         289 [277..316]  user_s 0.41  rss_mb     288 [287..288]  load    15 [14..19]  chk 3150042885  :: ./build/probe --threads 1 distinct 1000000 seq
+ms         307 [281..329]  user_s 0.42  rss_mb     308 [308..308]  load    16 [14..19]  chk 3150042885  :: ./build/probe --threads 1 distinct 1000000 part 0
+ms         252 [247..260]  user_s 0.38  rss_mb     306 [306..306]  load    16 [14..19]  chk 3150042885  :: ./build/probe --threads 1 distinct 1000000 part 4
+ms         221 [215..292]  user_s 0.39  rss_mb     327 [319..331]  load    15 [14..19]  chk 3150042885  :: ./build/probe --threads 4 distinct 1000000 part 4
+ms         267 [230..361]  user_s 0.41  rss_mb     348 [345..349]  load    16 [14..18]  chk 3150042885  :: ./build/probe --threads 12 distinct 1000000 part 4
+ms         224 [213..282]  user_s 0.45  rss_mb     348 [346..350]  load    16 [14..18]  chk 3150042885  :: ./build/probe --threads 12 distinct 1000000 part 6
+ms         896 [851..992]  user_s 1.48  rss_mb     974 [973..974]  load    16 [14..18]  chk 3150042885  :: ./build/probe --threads 1 prefix 1000000 seq
+ms         931 [879..948]  user_s 1.46  rss_mb     994 [994..994]  load    16 [14..18]  chk 3150042885  :: ./build/probe --threads 1 prefix 1000000 part 0
+ms         812 [803..991]  user_s 1.39  rss_mb     993 [992..993]  load    16 [14..18]  chk 3150042885  :: ./build/probe --threads 1 prefix 1000000 part 4
+ms         758 [737..807]  user_s 1.43  rss_mb  1013 [1003..1014]  load    16 [14..18]  chk 3150042885  :: ./build/probe --threads 4 prefix 1000000 part 4
+ms         779 [678..908]  user_s 1.44  rss_mb  1032 [1028..1034]  load    15 [14..18]  chk 3150042885  :: ./build/probe --threads 12 prefix 1000000 part 4
+ms         693 [674..771]  user_s 1.47  rss_mb  1032 [1032..1035]  load    15 [14..17]  chk 3150042885  :: ./build/probe --threads 12 prefix 1000000 part 6
+ms         221 [207..227]  user_s 0.31  rss_mb     209 [209..209]  load    15 [14..17]  chk 3845751865  :: ./build/probe --threads 1 skew 1000000 seq
+ms         236 [232..241]  user_s 0.32  rss_mb     227 [227..227]  load    15 [14..17]  chk 3845751865  :: ./build/probe --threads 1 skew 1000000 part 0
+ms         332 [318..370]  user_s 0.41  rss_mb     234 [234..234]  load    15 [14..17]  chk 3845751865  :: ./build/probe --threads 1 skew 1000000 part 4
+ms         218 [215..264]  user_s 0.44  rss_mb     253 [247..256]  load    15 [14..17]  chk 3845751865  :: ./build/probe --threads 4 skew 1000000 part 4
+ms         218 [210..231]  user_s 0.47  rss_mb     276 [271..281]  load    15 [14..17]  chk 3845751865  :: ./build/probe --threads 12 skew 1000000 part 4
+ms         203 [193..229]  user_s 0.5  rss_mb     291 [284..292]  load    15 [14..17]  chk 3845751865  :: ./build/probe --threads 12 skew 1000000 part 6
+ms         119 [117..120]  user_s 0.14  rss_mb        42 [42..42]  load    15 [14..17]  chk 1463407301  :: ./build/probe --threads 1 equal 1000000 seq
+ms         126 [124..130]  user_s 0.14  rss_mb        58 [58..58]  load    15 [14..17]  chk 1463407301  :: ./build/probe --threads 1 equal 1000000 part 0
+ms         134 [130..135]  user_s 0.15  rss_mb        69 [69..69]  load    15 [14..17]  chk 1463407301  :: ./build/probe --threads 1 equal 1000000 part 4
+ms         106 [104..109]  user_s 0.15  rss_mb        84 [84..88]  load    15 [14..17]  chk 1463407301  :: ./build/probe --threads 4 equal 1000000 part 4
+ms         105 [101..168]  user_s 0.16  rss_mb        90 [88..94]  load    15 [14..17]  chk 1463407301  :: ./build/probe --threads 12 equal 1000000 part 4
+ms          104 [99..154]  user_s 0.16  rss_mb     107 [105..111]  load    15 [14..17]  chk 1463407301  :: ./build/probe --threads 12 equal 1000000 part 6

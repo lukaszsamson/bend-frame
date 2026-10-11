@@ -1239,3 +1239,54 @@ Proof lessons:
   `map_maybe` -> `map_r` and the template lambdas (`~(r => V.Eval.kl.r(r))`,
   `~(s => K.Kernel.r_of(~U32, U32.read(s), 0))`) is a text replacement; the witnesses (`kl_fin_w`,
   `cast_pw_w`) take the pair as a parameter and did not change.
+## W0 strings/reader spikes (D5 coder and ranks, D6 reader; bench/spikes/w0_strings/)
+
+Performance lessons from the W0 spikes (DESIGN.md section 17 has the design and the numbers;
+all numbers provisional, shared machine, load recorded in results/*.jsonl).
+
+- **Hotness is decided over the reachable code of the whole program, per constructor.** Read it
+  in the emitted C: `CID_T[][2]` is `{arity, hot}` per constructor id (`tools/hot.py x.c NAME`).
+  In any program importing frame.bend, String (SCon, Chr), List (Con), Some, CsvCell, CsvRec
+  and ~200 more are hot; private single-constructor loop records (a 17-field tokenizer state)
+  stay cold and travel unboxed in registers (spin arguments, no allocation per step). A type
+  becomes hot from ONE owned second use anywhere (`(xs, xs)`); two borrowing reads do not.
+- **The File API only returns cons lists**, built cell by cell on the IO thread (`io_list` /
+  `io_str`), and with List hot every cell is rfc-sealed: building and walking 41 MB of
+  `File.read_at` bytes costs ~113 ms cold, ~257 ms hot. Read pieces, walk each piece's list
+  exactly once into a packed `Array<U32>` (4 bytes per word) and do every sequential scan in
+  that same walk; never hold more than one piece as a list.
+- **IO.fork / IO.spawn are green threads on the one IO loop**: no parallel IO-side work.
+  Parallel work is only a pure parallel let (fork the parse AFTER the producer).
+- **Freeing is timed where the last owner drops.** A `match` that binds a field it never uses
+  drops it AT the match, i.e. before a following `IO.now()`: 1M short strings cost ~0.2 s to
+  free, 1M 41-char strings ~0.7 s. Keep measured inputs alive past the clock (use them after it:
+  the spikes' `keep` field); in kernels, hand string arrays back instead of dropping a copy.
+- **Cons string walks**: hashing 1M strings laid out in allocation order costs 2-4 ns per code
+  point (a flat UTF-8 buffer 0.2-0.6), a whole coder probe 80-130 ns per short key; `term_peek`
+  on a hot cell is one more dependent load. Hash once, compare only on a hash hit, and touch each
+  distinct string O(1) times (ranks pack the ENTRIES once, not the rows).
+- **Checker idioms that cost time**: the termination check reads arguments left to right, so put
+  the structurally shrinking argument first (`Hc.eq(x, y, ok)`, `Ms.sort(fuel, go, ...)`); no
+  mutual recursion, so an early-exit loop carries a record with a `more`/`go` Bool and a
+  NON-recursive step helper (`Hc.seek` + `Hc.look`, `Tr.l` + `Tr.l.chk`); a destructured tuple
+  with `+` fields must put the Data scalars first (`(+qe, +qf, st) = r`, not `(st, +qe, +qf)`:
+  "an annotated term (cannot infer)"); a `match` on a parameter must precede every local
+  statement (`+d = ..; match t` is refused: compute `d` in the caller's argument);
+  `case 1n++p ANode{..}` when the fuel is used twice; a name used as a constructor in two types
+  is refused (`EQ` collides with Base `Cmp`'s `EQ`); `Bool.pick` evaluates both arms (choose
+  between IO actions by matching a Bool parameter).
+- **Exact f32 parsing in a flat loop**: for `[+-]digits[.digits]` with mantissa M <= 2^24 and at
+  most 10 fraction digits, `F32.div(U32.to_f32(M), 10^fd)` is one correctly rounded division of
+  exact values (Clinger), equal to `F32.read` (strtof) bit for bit (20,000 random cases); every
+  other text goes through `F32.read` of the decoded field. `F32` is C `float` in the emitted C.
+- **UTF-8 bytes keep code point order**: packed big-endian into U32 words they sort strings with
+  U32 radix passes; a final key `min(bytes left, 8)` keeps a string before its extensions even
+  when they continue with U+0000. Byte-level CSV tokenizing is exact because `"`, `,`, CR and LF
+  are ASCII and the runtime decoder never turns a non-ASCII byte into them.
+- **Per-region byte-keyed string tables may split one string** (two invalid byte sequences both
+  decode to U+FFFD); never expose region codes: merge decoded entries into one ST.Dict in region
+  order, which also reproduces v0.1's first-appearance codes exactly.
+- **Where the 41 MB parse goes** (spike, 1 thread, in a frame.bend program): producer 0.32 s
+  (serial: list build + pack + scan), tokenizer 0.40 s, each typed column 0.01-0.07 s, merge
+  0.02 s; the fork phase scales 5.5x at 12 threads, the producer not at all (0.99 s -> 0.47 s;
+  v0.1: 5.5 s -> 2.3 s, RSS 266-306 MB vs 1.23 GB).

@@ -1,0 +1,38 @@
+rep 0 load   12.8 ms     555 real   1.13 user 0.8 rss 804.8 exit 0 :: bench/spikes/w0_strings/build/hs_solo --threads 1
+rep 0 load   12.4 ms     943 real   1.78 user 1.48 rss 1188.4 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 0 hstep
+rep 0 load   12.4 ms     190 real   0.20 user 0.16 rss 179.7 exit 0 :: bench/spikes/w0_strings/build/pk_cold --threads 1
+rep 0 load   12.4 ms     333 real   0.34 user 0.3 rss 187.9 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 pack
+rep 0 load   12.4 ms     117 real   0.12 user 0.1 rss 19.7 exit 0 :: bench/spikes/w0_strings/build/cnt_cold
+rep 0 load   12.4 ms     270 real   0.27 user 0.25 rss 27.7 exit 0 :: bench/spikes/w0_strings/build/cnt_hot
+rep 1 load   12.4 ms     889 real   1.72 user 1.47 rss 1188.4 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 0 hstep
+rep 1 load   11.9 ms     194 real   0.20 user 0.16 rss 180.8 exit 0 :: bench/spikes/w0_strings/build/pk_cold --threads 1
+rep 1 load   11.9 ms     335 real   0.34 user 0.3 rss 187.9 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 pack
+rep 1 load   11.9 ms     110 real   0.11 user 0.1 rss 19.6 exit 0 :: bench/spikes/w0_strings/build/cnt_cold
+rep 1 load   11.9 ms     277 real   0.28 user 0.25 rss 27.7 exit 0 :: bench/spikes/w0_strings/build/cnt_hot
+rep 1 load   11.9 ms     361 real   0.91 user 0.77 rss 805.3 exit 0 :: bench/spikes/w0_strings/build/hs_solo --threads 1
+rep 2 load   11.9 ms     200 real   0.21 user 0.16 rss 180.8 exit 0 :: bench/spikes/w0_strings/build/pk_cold --threads 1
+rep 2 load   11.9 ms     333 real   0.34 user 0.3 rss 187.9 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 pack
+rep 2 load   11.9 ms     119 real   0.12 user 0.1 rss 20.7 exit 0 :: bench/spikes/w0_strings/build/cnt_cold
+rep 2 load   11.9 ms     268 real   0.27 user 0.25 rss 28.7 exit 0 :: bench/spikes/w0_strings/build/cnt_hot
+rep 2 load   11.9 ms     471 real   1.03 user 0.78 rss 805.2 exit 0 :: bench/spikes/w0_strings/build/hs_solo --threads 1
+rep 2 load   11.9 ms     934 real   1.93 user 1.5 rss 1188.3 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 0 hstep
+rep 3 load   11.9 ms     346 real   0.35 user 0.31 rss 187.9 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 pack
+rep 3 load   11.9 ms     118 real   0.12 user 0.1 rss 19.6 exit 0 :: bench/spikes/w0_strings/build/cnt_cold
+rep 3 load   11.9 ms     279 real   0.28 user 0.25 rss 28.7 exit 0 :: bench/spikes/w0_strings/build/cnt_hot
+rep 3 load   11.9 ms     313 real   0.83 user 0.75 rss 805.3 exit 0 :: bench/spikes/w0_strings/build/hs_solo --threads 1
+rep 3 load   11.9 ms     824 real   1.68 user 1.46 rss 1188.4 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 0 hstep
+rep 3 load   11.9 ms     197 real   0.20 user 0.17 rss 180.8 exit 0 :: bench/spikes/w0_strings/build/pk_cold --threads 1
+rep 4 load   11.9 ms     117 real   0.12 user 0.1 rss 19.7 exit 0 :: bench/spikes/w0_strings/build/cnt_cold
+rep 4 load   11.9 ms     273 real   0.27 user 0.25 rss 28.7 exit 0 :: bench/spikes/w0_strings/build/cnt_hot
+rep 4 load   11.9 ms     345 real   0.90 user 0.77 rss 805.3 exit 0 :: bench/spikes/w0_strings/build/hs_solo --threads 1
+rep 4 load   11.9 ms     856 real   1.72 user 1.48 rss 1188.4 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 0 hstep
+rep 4 load   11.9 ms     204 real   0.21 user 0.17 rss 179.7 exit 0 :: bench/spikes/w0_strings/build/pk_cold --threads 1
+rep 4 load   11.9 ms     334 real   0.34 user 0.3 rss 187.9 exit 0 :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 pack
+
+summary (median [min..max]); ms = the program's own timer
+ms         361 [313..555]  user_s 0.77  rss_mb     805 [805..805]  load    12 [12..13]  chk 1000001  :: bench/spikes/w0_strings/build/hs_solo --threads 1
+ms         889 [824..943]  user_s 1.48  rss_mb  1188 [1188..1188]  load    12 [12..12]  chk 1000001  :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 0 hstep
+ms         197 [190..204]  user_s 0.16  rss_mb     181 [180..181]  load    12 [12..12]  chk 41193278  :: bench/spikes/w0_strings/build/pk_cold --threads 1
+ms         334 [333..346]  user_s 0.3  rss_mb     188 [188..188]  load    12 [12..12]  chk 42193279  :: bench/spikes/w0_strings/build/rd_frame --threads 1 bench/data/sales_1000000.csv 1048576 pack
+ms         117 [110..119]  user_s 0.1  rss_mb        20 [20..21]  load    12 [12..12]  chk 41193278  :: bench/spikes/w0_strings/build/cnt_cold
+ms         273 [268..279]  user_s 0.25  rss_mb        29 [28..29]  load    12 [12..12]  chk 41193278  :: bench/spikes/w0_strings/build/cnt_hot
