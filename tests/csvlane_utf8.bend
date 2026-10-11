@@ -258,3 +258,8 @@ def main() -> IO(Unit):
     IO.print("bytes " ++ U32.show(Ut.lens(bs)))
     X.Hx.write_bytes("/tmp/bend_frame_csvlane_utf8.csv", bs)
     Ut.text("/tmp/bend_frame_csvlane_utf8.csv", 0)
+#|bytes 54688
+#|raw rows at 997: same as File.read
+#|dictionary at 997: same as File.read
+#|raw rows at 1048576: same as File.read
+#|dictionary at 1048576: same as File.read

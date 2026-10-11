@@ -165,7 +165,7 @@ def Rd.split.k(cut0: Bool, f: File, +off: U32, +size: U32, +piece: U32, +ro: U32
     case False{}:
       match pk:
         case PK{a, +n, acc, sh, q, lf, +cut, +lfc, +nt, cap}:
-          Rd.cut.k(f, off, size, piece, ro, line0, nr, regs, n, cut, lfc, nt, Pk.replay(U32.to_nat(U32.sub(n, cut)), cut, Pk.new(Pk.depth(U32.add(U32.sub(n, cut), U32.add(piece, piece)))), Pr.at(a, cut)))
+          Rd.cut.k(f, off, size, piece, ro, line0, nr, regs, n, cut, lfc, nt, Pk.replay(U32.to_nat(U32.sub(n, cut)), cut, Pk.new(Pk.depth(U32.add(U32.sub(n, cut), piece))), Pr.at(a, cut)))
 
 # the piece was walked: pk is the state after it
 def Rd.split(+off: U32, +size: U32, +piece: U32, +ro: U32, +line0: U32, +nr: U32, f: File, regs: List<&1, Rg>, pk: PK) -> RS:
@@ -239,7 +239,7 @@ def Rd.loop(fuel: Nat, st: RS) -> IO(RS):
 def Rd.sized(+off0: U32, +line0: U32, +piece: U32, f: File, res: Result<&1, &1, U32 & String, U32>) -> IO(RS):
   match res:
     case Done{+size}:
-      Rd.loop(Nat.add(U32.to_nat(U32.div(U32.sub(size, U32.min(off0, size)), piece)), 3n), RRun{f, off0, size, piece, off0, line0, 0, 0, Pk.new(Pk.depth(U32.add(piece, piece))), Nil{}})
+      Rd.loop(Nat.add(U32.to_nat(U32.div(U32.sub(size, U32.min(off0, size)), piece)), 3n), RRun{f, off0, size, piece, off0, line0, 0, 0, Pk.new(Pk.depth(piece)), Nil{}})
     case Fail{(code, msg)}:
       do IO<RS>:
         File.close(f)
@@ -274,16 +274,19 @@ def Pr.out(st: RS) -> PrOut:
       PrErr{0, "csv producer: the read did not finish"}
 
 # The regions of the file from byte `off0` (physical line `line0`, 1-based) to its end, read in
-# pieces of `piece` bytes (256 KiB - 1 MiB; a piece of 2^k - 2^(k - 6) bytes fills its array
-# without a wasted half: arrays have 2^d words). `piece` 0 reads one byte at a time.
+# pieces of `piece` bytes (`Pr.piece()`; 64 KiB .. 1 MiB all work, W6 probe: 12 threads, 41 MB file,
+# the same time within noise; a region's array has 2^d words, so a piece that is a power of two plus the
+# carry rounds the array up to twice the size, see Pr.piece). `piece` 0 reads one byte at a time.
 def Pr.regions(path: String, +off0: U32, +line0: U32, +piece: U32) -> IO(PrOut):
   do IO<PrOut>:
     o : Result<&1, &1, U32 & String, File> <- File.open(path, "r")
     st : RS <- Rd.opened(off0, line0, U32.max(piece, 1), o)
     return Pr.out(st)
 
-# the default piece: 240 KiB. With the carry (< 16 KiB of a typical record's tail) a region's
-# array holds exactly 2^16 words
+# the default piece: 240 KiB. A region holds one piece plus the carried tail of the record the previous
+# piece ended in (< 16 KiB for ordinary records), so its array is exactly 2^16 words = 256 KiB: the
+# packed regions of a 41 MB file take 43 MB, where 256 KiB pieces would round every array up to 512 KiB
+# (peak RSS of the probe: 141 MB against 174 MB)
 def Pr.piece() -> U32:
   245760
 

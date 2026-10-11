@@ -1327,3 +1327,84 @@ all numbers provisional, shared machine, load recorded in results/*.jsonl).
   input-preservation clone adds ~30 MB). n_unique over a CSV-parsed, shuffled 2^20 distinct U32 column takes 4.4 s,
   not the 0.2 s of the in-memory sorted iota probe. A harness that bills `check` (the hash) apart from `compute`
   showed q2's 14 ms hash cost; keep it out of compute figures.
+
+## W6.1 / W6.2 (CSV piece producer and lane: src/csvprod.bend, src/csvlane.bend, bench/w6/)
+
+New modules, NOT yet wired into `Csv.read` / `Csv.scan` (W6.3). APIs: `Pr.regions(path, off0, line0, piece) -> IO(PrOut)`
+(`PrOk{nr, odd, regs: List<&1, Rg>}` regions in file order, `odd` = final quote parity, or `PrErr{code, msg}`),
+`Pr.piece()` (245760), `Rt.of(regs) -> Rt` (balanced tree, file order), `Ln.lane(ts: List<&2, Ty>, w, sep, rg) -> LO`
+(`LO{n, rej, rag, rgn, lines, cols: List<&1, CO>}`, `CO` = `OW` / `OF` / `OS` / `OR`, `Ty` = TyU TyI TyF TyB TyS TyR TyN).
+The header comments of both files are the contract; bench/w6/README.md lists the files. bench/w6/rd.bend is a complete
+test-side reader (header step, producer, balanced fork, combine, Dictionary merge) in the shape W6.3 integrates.
+Tests: tests/csvprod.bend, tests/csvlane*.bend (102 adversarial files, 15 piece sizes, differential against the v0.1
+reader at DF.dump level; F32 bits and UTF-8 against `F32.read` / `File.read`). Mutating the production code (the
+scan's parity test, carry replay, array growth, i32 bound, bool spelling, f32 fast-path limits, UTF-8 ranges, trim,
+CR drop, blank skipping, ragged first, coder equality on a hash hit) makes the tests fail. The first draft of the
+tests had no `#|` lines at all (a program that exits 0 passes with "no expect"): every test ends with its block.
+
+Performance lessons (provisional: M2 Pro shared with other agents, load 12-24; `instructions retired` is far less
+sensitive to load than wall time, bench/w6/run_probe.py records it):
+
+- **A flat tokenizer is ONE def.** The spike's tokenizer (a helper def per transition, each rebuilding a 16-field
+  record, 4 bytes per word through nested calls) cost ~160 instructions per byte (8.7 ns). One def, one `match` on
+  (fuel, mode, class of the byte), every arm a tail call with the bookkeeping inline as `+x = ..` lets, is one native
+  loop (`spin_310`, WL_AGAIN, only blk_read / blk_write, no term_keep / ctr_take / rfc_seal / alloc) at ~45 instructions
+  per byte (whole 1-thread tokenizer-only probe 11.98G -> 7.43G instructions, fork phase 363 -> 128 ms at the same
+  load); two tiny loops that skip runs of text bytes (`Tk.skipb`, `Tk.skipq`) take another ~13 %
+  (bench/w6/results/tokenizer-v1-v2-v3.jsonl). A flat def cannot share code between its arms, so the end-of-field
+  (3 arms) and end-of-record (4 arms) code is repeated: bench/w6/gen_tk.py writes it between markers in
+  src/csvlane.bend.
+- **The class of the NEXT byte is computed in the recursive call's argument list**: `Tk.nx(sep, n, i1, Array.get(U32,
+  a, i1 / 4))` destructures the read pair as ITS parameter and answers a record `NX{a, class, i}`; the loop matches
+  `NX{a, KLf{}, +i}` in its patterns (`match` cannot scrutinise a computed value: the read-ahead idiom).
+- **No early exit from a fuel loop**: the termination checker wants the first argument to shrink, so `Tk.go2(0n, ..)`
+  is refused. End of input is a CLASS (`KEnd`, fuel n + 1) and a rejecting byte sets a flag; the loop goes on.
+- **Single-constructor loop records are cold and unboxed in a program importing frame.bend** (checked in the emitted C
+  of bench/w6/probe.bend: `PK`, `TK`, `NX`, `LW`, `LS`, ... hot=0, passed as spin arguments). `Rg`, `LO`, `CO` (list
+  elements, returned) are hot, which costs once per region. `Pk.go` (the producer's walk, `spin_287`) has exactly one
+  `ctr_take` + `spare_free` per cons cell (the File API's list, inherent) and one blk_read / blk_write per byte; the
+  tokenizer, the skip loops, Lw.go, the fast path of Lf.go, the Dictionary coder `Sc.go`, the trim and digit loops have
+  no counts at all; allocation is only the slow paths (`F32.read` text, string decoding, `Rw.go` per row).
+  bench/w6/cops.py finds the loops by the names of their locals (the C keeps `_name_N`) and sums ops through callees.
+- **Region arrays are 2^d words**: a 256 KiB piece plus the carry rounds the array up to 512 KiB (peak RSS of the
+  41 MB file 174 MB, 227 MB with 1 MiB pieces); `Pr.piece()` = 240 KiB fits 2^16 words (141 MB at 12 threads). Piece
+  size 64 KiB .. 1 MiB makes no difference to the time within noise (results/piece-sizes.jsonl). A record longer than a
+  piece keeps filling the same region (no replay; the array doubles when full), unlike the spike's quadratic re-replay.
+- **Capacity bound for the tokenizer's arrays**: a kept record needs at least w - 1 separators and a terminator, so a
+  region of n bytes keeps at most min(nt + 1, n / w + 1) rows (nt = the producer's terminator count), plus one slot
+  because a dropped record (blank, ragged) writes at the next free row; the field arrays are `rows * w` words, bounded
+  by the bytes, not by the terminators (a file of blank lines with w = 1000 would otherwise ask for gigabytes).
+- **Costs per cell at 1 thread** (instructions per row, sales file, NOT tuned yet; results/per-column-cost.jsonl): u32
+  ~320, bool ~350, f32 ~440, Dictionary str ~1,100, raw str ~2,200 (decoding); tokenizer ~1,800 per row; the producer
+  5.1G in all (a floor of the File API: count-only is 273 ms in a frame.bend program). Whole file, 41 MB, 7 columns,
+  piece 240 KiB:
+
+  | threads | v0.1 `Csv.read_with` | producer (read_ms) | lanes (fork_ms) | total |
+  |---|---|---|---|---|
+  | 1 | 4,374 ms (RSS 1,261 MB) | 280 | 340 | 620 ms (RSS 131 MB) |
+  | 4 | | 280 | 97 | 376 |
+  | 12 | 2,274 ms | 281 | 58 | 337 ms (RSS 141 MB) |
+
+  medians of 5 fresh interleaved processes, load 12-14, raw samples bench/w6/results/provisional-final.jsonl; the
+  checksums of all 7 columns (values, validity, F32 bits, string contents) equal v0.1's (`probe ... ref`). The producer
+  is 83 % of the 12-thread time: nothing left to gain in the lane at 12 threads.
+
+Test and Bend lessons:
+
+- **String compare and dump recursion**: `String.eq`, `String.lines` and `DF.dump`'s `Dump.esc` are non-tail walks; two
+  live dumps of an ~18K-char string overflowed the stack of `bend file.bend` ("machine stack overflow") while the
+  compiled binary ran it. The tests compare dumps by hash + length (bench/w6/cmp.bend) and keep the long record at
+  ~7 KB (the producer test reads a 58 KB record fine).
+- **Tests that read files**: write with `File.open(path, "w")` + `File.write` / `File.write_bytes` (the UTF-8 test needs
+  bytes), read with `File.read_bytes` and `File.read`; a case name as the first program argument (`IO.args`) runs
+  one case.
+- **Mutual recursion keeps sneaking in** when a loop calls a `.k` helper that calls the loop back: put the recursive
+  call and the decision in ONE def (evaluate the recursion eagerly in the argument list and let a non-recursive helper
+  pick: `Rs.diff.k(same, x, y, Rs.diff(xt, yt))`) or carry a record with a `go` Bool. Defs must be written callee-first
+  (a forward call is "an unfilled law").
+- `Bool.pick` evaluates both arms: a value used in both needs `+`; never feed it a recursive call you want lazily.
+- A triple `(+a, +b, c) = r` of an `A & B & C` result fails with "an annotated term (cannot infer)": return a record.
+- **Open for W6.3**: classification for `infer_rows = 0` (a lane variant, e.g. a TyC column ANDing the four "every
+  cell fits" flags), EncAuto per region (derive Raw rows from a Dictionary part with `Kernel.gather(entries, codes)`:
+  the entries are decoded once either way), the row cap (sum of `n`), non-ASCII separators (the lane compares bytes:
+  route them to the v0.1 reader), `length(ts) = w` (the dtype-count check is the header step's).

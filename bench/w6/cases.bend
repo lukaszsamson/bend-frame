@@ -105,4 +105,6 @@ def Cases.all() -> List<&2, Mf>:
    Mf{"wide", "UIFBSSSUIFBS", True{}, 44},
    Mf{"tab_sep", "USF", True{}, 9},
    Mf{"semicolon", "US", True{}, 59},
+   Mf{"sep_dot", "FS", True{}, 46},
+   Mf{"sep_minus", "IS", True{}, 45},
    Mf{"sep_pipe", "SS", True{}, 124}]

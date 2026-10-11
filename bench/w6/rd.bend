@@ -26,8 +26,9 @@ import ./hx.bend as X
 # ---- schema letters -------------------------------------------------------------------------------
 
 # U u32, I i32, F f32, B bool, S str (R: a raw string column, TyR)
+# (N: the column is skipped, an empty part: the bench probe's tokenizer-only phase)
 def Hr.ty(+c: U32, +raw: Bool) -> L.Ty:
-  Bool.pick(L.Ty, U32.is_eq(c, 85), L.TyU{}, Bool.pick(L.Ty, U32.is_eq(c, 73), L.TyI{}, Bool.pick(L.Ty, U32.is_eq(c, 70), L.TyF{}, Bool.pick(L.Ty, U32.is_eq(c, 66), L.TyB{}, Bool.pick(L.Ty, raw, L.TyR{}, L.TyS{})))))
+  Bool.pick(L.Ty, U32.is_eq(c, 85), L.TyU{}, Bool.pick(L.Ty, U32.is_eq(c, 73), L.TyI{}, Bool.pick(L.Ty, U32.is_eq(c, 70), L.TyF{}, Bool.pick(L.Ty, U32.is_eq(c, 66), L.TyB{}, Bool.pick(L.Ty, U32.is_eq(c, 78), L.TyN{}, Bool.pick(L.Ty, raw, L.TyR{}, L.TyS{}))))))
 
 def Hr.tys(s: String, +raw: Bool) -> List<&2, L.Ty>:
   match s:
@@ -138,14 +139,37 @@ def Hr.header(hdr: Bool, ans: H.Ans, lf: List<&2, U32>, +size: U32, +k: U32) -> 
     case H.Parsed{rs}:
       Hr.header.k(hdr, rs, lf, size)
 
-# ---- the lanes, in file order -----------------------------------------------------------------------
+# ---- the lanes, in file order ---------------------------------------------------------------------------
+# ONE balanced fork over the regions (`a b = lane(l) lane(r)` over Pr's region tree, never 1-vs-rest): the
+# shape the integration step uses, so every test runs the lanes concurrently, as the real reader does
+
+type FT is Type:
+  FE{}
+  FL{o: L.LO}
+  FN{l: FT, r: FT}
+
+def Hr.ftree(+ts: List<&2, L.Ty>, +w: U32, +sep: U32, t: P.Rt) -> FT:
+  match t:
+    case P.RE{}:
+      FE{}
+    case P.RL{rg}:
+      FL{L.Ln.lane(ts, w, sep, rg)}
+    case P.RN{l, r}:
+      a b = Hr.ftree(ts, w, sep, l) Hr.ftree(ts, w, sep, r)
+      FN{a, b}
+
+# the lanes of the tree, in file order
+def Hr.flist(t: FT, acc: List<&1, L.LO>) -> List<&1, L.LO>:
+  match t:
+    case FE{}:
+      acc
+    case FL{o}:
+      o <> acc
+    case FN{l, r}:
+      Hr.flist(l, Hr.flist(r, acc))
 
 def Hr.lanes(regs: List<&1, P.Rg>, +ts: List<&2, L.Ty>, +w: U32, +sep: U32) -> List<&1, L.LO>:
-  match regs:
-    case Nil{}:
-      Nil{}
-    case rg <> t:
-      L.Ln.lane(ts, w, sep, rg) <> Hr.lanes(t, ts, w, sep)
+  Hr.flist(Hr.ftree(ts, w, sep, P.Rt.of(regs)), Nil{})
 
 # ---- the summary: rows, rejected, the first ragged record in lane order ------------------------------
 

@@ -109,3 +109,105 @@ def main() -> IO(Unit):
     args : List<String> <- IO.args()
     +as : List<&2, String> = promote(args)
     Case.loop(Maybe.default(&2, String, List.get(&2, String, as, 1n), ""), CS.Cases.all())
+#|quoted_nl: frame| height 120| width 3
+#|quoted_nl_crlf: frame| height 120| width 3
+#|quoted_nl_nofinal: frame| height 120| width 3
+#|cr_soup: frame| height 4| width 2
+#|cr_only_data: frame| height 1| width 2
+#|crlf_plain: frame| height 150| width 3
+#|utf8_typed: frame| height 120| width 4
+#|utf8_bare: frame| height 150| width 2
+#|long_records: frame| height 12| width 2
+#|huge_record: frame| height 3| width 2
+#|blanks_w2: frame| height 2| width 2
+#|blanks_w1: frame| height 5| width 1
+#|blanks_w1_str: frame| height 7| width 1
+#|blanks_only: error InvalidOperation: csv schema: 1 dtypes for 0 columns
+#|lead_blank: frame| height 1| width 2
+#|lead_blank_nohdr: frame| height 2| width 2
+#|empty: error InvalidOperation: csv schema: 2 dtypes for 0 columns
+#|header_only: frame| height 0| width 2
+#|header_only_nonl: frame| height 0| width 2
+#|no_final_nl: frame| height 2| width 2
+#|final_sep: frame| height 2| width 2
+#|headerless: frame| height 3| width 2
+#|bad_utf8: frame| height 6| width 2
+#|mal_bare_quote_late: error ParseError at line 0: malformed csv
+#|mal_after_close: error ParseError at line 0: malformed csv
+#|mal_unclosed: error ParseError at line 0: malformed csv
+#|mal_unclosed_eof_q: error ParseError at line 0: malformed csv
+#|mal_cr_quote: error ParseError at line 0: malformed csv
+#|mal_closing_cr_text: error ParseError at line 0: malformed csv
+#|mal_and_ragged: error ParseError at line 0: malformed csv
+#|mal_in_second_half: error ParseError at line 0: malformed csv
+#|ragged_short: error ParseError at line 122: expected 3 fields, got 2
+#|ragged_long_first: error ParseError at line 42: expected 3 fields, got 4
+#|ragged_after_bad: error ParseError at line 153: expected 2 fields, got 3
+#|ragged_w1: error ParseError at line 3: expected 1 fields, got 2
+#|ragged_blank_ok: error ParseError at line 4: expected 2 fields, got 1
+#|bad_cols: error ParseError at line 163: column a: cannot parse "q" as u32
+#|bad_cols_later_row: error ParseError at line 202: column a: cannot parse "x" as u32
+#|bad_cols_earlier_other: error ParseError at line 203: column a: cannot parse "x" as u32
+#|bad_quoted_text: error ParseError at line 3: column a: cannot parse "1"2" as u32
+#|bad_i32_text: error ParseError at line 3: column a: cannot parse "-" as i32
+#|f32_edges: frame| height 49| width 1
+#|f32_one0: error ParseError at line 3: column x: cannot parse "." as f32
+#|f32_one1: error ParseError at line 3: column x: cannot parse "+" as f32
+#|f32_one2: error ParseError at line 3: column x: cannot parse "-" as f32
+#|f32_one3: error ParseError at line 3: column x: cannot parse "1.5e" as f32
+#|f32_one4: error ParseError at line 3: column x: cannot parse "e5" as f32
+#|f32_one5: error ParseError at line 3: column x: cannot parse "0x10" as f32
+#|f32_one6: error ParseError at line 3: column x: cannot parse "1_0" as f32
+#|f32_one7: error ParseError at line 3: column x: cannot parse "٣" as f32
+#|f32_one8: error ParseError at line 3: column x: cannot parse "1 2" as f32
+#|f32_one9: error ParseError at line 3: column x: cannot parse "1.2.3" as f32
+#|f32_one10: error ParseError at line 3: column x: cannot parse "--1" as f32
+#|f32_one11: error ParseError at line 3: column x: cannot parse "+-1" as f32
+#|f32_one12: error ParseError at line 3: column x: cannot parse "1e" as f32
+#|f32_one13: error ParseError at line 3: column x: cannot parse "nan(0x1)" as f32
+#|f32_one14: error ParseError at line 3: column x: cannot parse "infinity1" as f32
+#|f32_one15: error ParseError at line 3: column x: cannot parse "- 1" as f32
+#|f32_one16: frame| height 2| width 1
+#|f32_one17: error ParseError at line 3: column x: cannot parse ".e3" as f32
+#|f32_random_fast: frame| height 1500| width 1
+#|u32_ok: frame| height 8| width 1
+#|u32_bad0: error ParseError at line 3: column x: cannot parse "4294967296" as u32
+#|u32_bad1: error ParseError at line 3: column x: cannot parse "5-" as u32
+#|u32_bad2: error ParseError at line 3: column x: cannot parse "1 2" as u32
+#|u32_bad3: error ParseError at line 3: column x: cannot parse "9999999999" as u32
+#|u32_bad4: error ParseError at line 3: column x: cannot parse "1.0" as u32
+#|u32_bad5: error ParseError at line 3: column x: cannot parse "0x1" as u32
+#|u32_bad6: error ParseError at line 3: column x: cannot parse "-5" as u32
+#|u32_bad7: error ParseError at line 3: column x: cannot parse "+5" as u32
+#|i32_ok: frame| height 12| width 1
+#|u32_overflow: error ParseError at line 3: column x: cannot parse "4294967296" as u32
+#|u32_plus: error ParseError at line 3: column x: cannot parse "+5" as u32
+#|u32_sign: error ParseError at line 3: column x: cannot parse "-5" as u32
+#|u32_unicode_digit: error ParseError at line 3: column x: cannot parse "٣" as u32
+#|i32_edges: error ParseError at line 4: column x: cannot parse "2147483648" as i32
+#|i32_bad0: error ParseError at line 3: column x: cannot parse "-" as i32
+#|i32_bad1: error ParseError at line 3: column x: cannot parse "+5" as i32
+#|i32_bad2: error ParseError at line 3: column x: cannot parse "--5" as i32
+#|i32_bad3: error ParseError at line 3: column x: cannot parse "- 5" as i32
+#|i32_bad4: error ParseError at line 3: column x: cannot parse "-5x" as i32
+#|i32_bad5: error ParseError at line 3: column x: cannot parse "5-" as i32
+#|i32_bad6: error ParseError at line 3: column x: cannot parse "- " as i32
+#|i32_bad7: error ParseError at line 3: column x: cannot parse "1 2" as i32
+#|i32_bad8: error ParseError at line 3: column x: cannot parse "-4294967296" as i32
+#|i32_bad9: error ParseError at line 3: column x: cannot parse "٣" as i32
+#|bool_edges: frame| height 8| width 1
+#|bool_bad: error ParseError at line 3: column x: cannot parse "TRUE" as bool
+#|bool_bad2: error ParseError at line 3: column x: cannot parse "true1" as bool
+#|bool_bad3: error ParseError at line 3: column x: cannot parse "1" as bool
+#|escaped_numeric: frame| height 1| width 2
+#|escaped_f32_bad: error ParseError at line 2: column y: cannot parse "1"2" as f32
+#|nulls_all_types: frame| height 4| width 5
+#|quote_edges: frame| height 120| width 2
+#|fnv_collide: frame| height 160| width 2
+#|fnv_collide_q: frame| height 120| width 2
+#|wide: frame| height 60| width 12
+#|tab_sep: frame| height 80| width 3
+#|semicolon: frame| height 80| width 2
+#|sep_dot: frame| height 60| width 2
+#|sep_minus: frame| height 60| width 2
+#|sep_pipe: frame| height 2| width 2

@@ -224,3 +224,6 @@ def main() -> IO(Unit):
     Fc.run("/tmp/bend_frame_csvlane_f32.csv", 8192)
     Fc.run("/tmp/bend_frame_csvlane_f32.csv", 1048576)
     Fc.run("/tmp/bend_frame_csvlane_f32.csv", 100003)
+#|piece 8192: rows 20000, differing 0
+#|piece 1048576: rows 20000, differing 0
+#|piece 100003: rows 20000, differing 0

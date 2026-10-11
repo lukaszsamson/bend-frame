@@ -193,6 +193,11 @@ def cases():
     add("tab_sep", "\n".join(rows) + "\n", "USF", 1, 9)
     rows = ["a;b"] + [f"{i};{q(plain(r, 3) + ';' + plain(r, 2))}" for i in range(80)]
     add("semicolon", "\n".join(rows) + "\n", "US", 1, 59)
+    # separators that also occur in numbers: the cells that hold them are quoted (15.6.5 round trip)
+    rows = ["a.b"] + ['"%d.5".%s' % (i, plain(r, 3)) for i in range(60)]
+    add("sep_dot", "\n".join(rows) + "\n", "FS", 1, 46)
+    rows = ["a-b"] + ['"-%d"-"%s"' % (i, plain(r, 3)) for i in range(60)]
+    add("sep_minus", "\n".join(rows) + "\n", "IS", 1, 45)
     # a bare comma is content under another separator, a quote is not
     add("sep_pipe", "a|b\n1,5|x,y\n2|\"q|r\"\n", "SS", 1, 124)
     return c

@@ -97,4 +97,6 @@ fnv_collide_q SU 1 44
 wide UIFBSSSUIFBS 1 44
 tab_sep USF 1 9
 semicolon US 1 59
+sep_dot FS 1 46
+sep_minus IS 1 45
 sep_pipe SS 1 124

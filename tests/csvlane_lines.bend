@@ -78,3 +78,105 @@ def main() -> IO(Unit):
     args : List<String> <- IO.args()
     +as : List<&2, String> = promote(args)
     Case.loop(Maybe.default(&2, String, List.get(&2, String, as, 1n), ""), CS.Cases.all())
+#|quoted_nl: ok 120
+#|quoted_nl_crlf: ok 120
+#|quoted_nl_nofinal: ok 120
+#|cr_soup: ok 4
+#|cr_only_data: ok 1
+#|crlf_plain: ok 150
+#|utf8_typed: ok 120
+#|utf8_bare: ok 150
+#|long_records: ok 12
+#|huge_record: ok 3
+#|blanks_w2: ok 2
+#|blanks_w1: ok 5
+#|blanks_w1_str: ok 7
+#|blanks_only: n/a
+#|lead_blank: ok 1
+#|lead_blank_nohdr: ok 2
+#|empty: n/a
+#|header_only: ok 0
+#|header_only_nonl: ok 0
+#|no_final_nl: ok 2
+#|final_sep: ok 2
+#|headerless: ok 3
+#|bad_utf8: ok 6
+#|mal_bare_quote_late: n/a
+#|mal_after_close: n/a
+#|mal_unclosed: n/a
+#|mal_unclosed_eof_q: n/a
+#|mal_cr_quote: n/a
+#|mal_closing_cr_text: n/a
+#|mal_and_ragged: n/a
+#|mal_in_second_half: n/a
+#|ragged_short: n/a
+#|ragged_long_first: n/a
+#|ragged_after_bad: n/a
+#|ragged_w1: n/a
+#|ragged_blank_ok: n/a
+#|bad_cols: ok 163
+#|bad_cols_later_row: ok 202
+#|bad_cols_earlier_other: ok 202
+#|bad_quoted_text: ok 2
+#|bad_i32_text: ok 2
+#|f32_edges: ok 49
+#|f32_one0: ok 2
+#|f32_one1: ok 2
+#|f32_one2: ok 2
+#|f32_one3: ok 2
+#|f32_one4: ok 2
+#|f32_one5: ok 2
+#|f32_one6: ok 2
+#|f32_one7: ok 2
+#|f32_one8: ok 2
+#|f32_one9: ok 2
+#|f32_one10: ok 2
+#|f32_one11: ok 2
+#|f32_one12: ok 2
+#|f32_one13: ok 2
+#|f32_one14: ok 2
+#|f32_one15: ok 2
+#|f32_one16: ok 2
+#|f32_one17: ok 2
+#|f32_random_fast: ok 1500
+#|u32_ok: ok 8
+#|u32_bad0: ok 2
+#|u32_bad1: ok 2
+#|u32_bad2: ok 2
+#|u32_bad3: ok 2
+#|u32_bad4: ok 2
+#|u32_bad5: ok 2
+#|u32_bad6: ok 2
+#|u32_bad7: ok 2
+#|i32_ok: ok 12
+#|u32_overflow: ok 2
+#|u32_plus: ok 2
+#|u32_sign: ok 2
+#|u32_unicode_digit: ok 2
+#|i32_edges: ok 14
+#|i32_bad0: ok 2
+#|i32_bad1: ok 2
+#|i32_bad2: ok 2
+#|i32_bad3: ok 2
+#|i32_bad4: ok 2
+#|i32_bad5: ok 2
+#|i32_bad6: ok 2
+#|i32_bad7: ok 2
+#|i32_bad8: ok 2
+#|i32_bad9: ok 2
+#|bool_edges: ok 8
+#|bool_bad: ok 2
+#|bool_bad2: ok 2
+#|bool_bad3: ok 2
+#|escaped_numeric: ok 1
+#|escaped_f32_bad: ok 1
+#|nulls_all_types: ok 4
+#|quote_edges: ok 120
+#|fnv_collide: ok 160
+#|fnv_collide_q: ok 120
+#|wide: ok 60
+#|tab_sep: ok 80
+#|semicolon: ok 80
+#|sep_dot: ok 60
+#|sep_minus: ok 60
+#|sep_pipe: ok 2
