@@ -34,3 +34,4 @@ import ./PROOF_evalrun.bend as PR
 import ./PROOF_strs.bend as PST
 import ./PROOF_append.bend as PA
 import ./PROOF_inplace.bend as PI
+import ./PROOF_sorthead.bend as PSH

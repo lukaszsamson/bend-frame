@@ -744,7 +744,7 @@ def Sort.frame(f: C.Frame, keys: List<&2, SortKey>) -> E.ResT(C.Frame):
 # the height under which every gather's rows fit their slots (Kernel.depth_for is exact for
 # n <= 2^31); a frame never exceeds the 2^23 row cap, so the bounded path is the one taken
 def Sort.head_cap() -> U32:
-  2147483648
+  U32.shln(1, 31n)
 
 def Sort.gh.k(ok: Bool, +h: U32, cols: List<&1, C.Named>, perm: Array<U32>, +n: U32) -> C.Frame:
   match ok:
