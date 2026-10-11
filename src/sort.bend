@@ -444,6 +444,67 @@ def Sort.gather(f: C.Frame, perm: Array<U32>) -> C.Frame:
     case C.Frame{+h, cols}:
       Sort.gather.k(h, Sort.gcols(cols, h, (perm, Nil{})))
 
+# ---- coarse forks over a list (v0.2 T5.4, DESIGN.md 16.4 D4) -------------------------------------------
+# One balanced binary parallel let per level over the HALVES of a list (never 1-vs-rest), the leaves
+# running their few elements one after the other in order. Mirror of Lst.pmap (src/chunks.bend; this
+# file may not import chunks.bend: it would put the chunk layer under the operators). Used by
+# Fmt.describe (the columns). The forks over the group_by aggregates and over the column gathers were
+# built on this shape, measured and REMOVED (they did not pay; DESIGN.md 14 T5.4, bench/w5/t54_*).
+# Forks go only 5 levels deep (32 leaves) and stop at a single element.
+
+# the length of a list, as a tail call; the list comes back
+def Sort.pm.len(-A: Type, xs: List<&1, A>, +k: U32, acc: List<&1, A>) -> List<&1, A> & U32:
+  match xs:
+    case Nil{}:
+      (List.reverse(&1, A, acc), k)
+    case x <> rest:
+      Sort.pm.len(A, rest, U32.inc(k), x <> acc)
+
+def Sort.pm.split.k(-A: Type, x: A, r: List<&1, A> & List<&1, A>) -> List<&1, A> & List<&1, A>:
+  (a, b) = r
+  (x <> a, b)
+
+# the first k elements and the rest (z: k == 0, computed by the caller)
+def Sort.pm.split(-A: Type, xs: List<&1, A>, +k: U32, z: Bool) -> List<&1, A> & List<&1, A>:
+  match xs z:
+    case Nil{} _:
+      (Nil{}, Nil{})
+    case x <> rest True{}:
+      (Nil{}, x <> rest)
+    case x <> rest False{}:
+      Sort.pm.split.k(A, x, Sort.pm.split(A, rest, U32.sub(k, 1), U32.is_zero(U32.sub(k, 1))))
+
+def Sort.pm.seq(~A: Type, ~B: Type, ~P: Data, ~f: P -> A -> B, +p: P, xs: List<&1, A>) -> List<&1, B>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case x <> rest:
+      f(p, x) <> Sort.pm.seq(~A, ~B, ~P, ~f, p, rest)
+
+# r: a list of k elements split at k / 2; the halves go to the two sides of a parallel let
+def Sort.pm.go(~A: Type, ~B: Type, ~P: Data, ~f: P -> A -> B, fl: Nat, small: Bool, +p: P, +k: U32, r: List<&1, A> & List<&1, A>) -> List<&1, B>:
+  match fl small:
+    case _ True{}:
+      (a, b) = r
+      List.append(&1, B, Sort.pm.seq(~A, ~B, ~P, ~f, p, a), Sort.pm.seq(~A, ~B, ~P, ~f, p, b))
+    case 0n False{}:
+      (a, b) = r
+      List.append(&1, B, Sort.pm.seq(~A, ~B, ~P, ~f, p, a), Sort.pm.seq(~A, ~B, ~P, ~f, p, b))
+    case 1n++q False{}:
+      (a, b) = r
+      +h1 = U32.shr(k)
+      +h2 = U32.sub(k, h1)
+      x y = Sort.pm.go(~A, ~B, ~P, ~f, q, U32.is_le(h1, 1), p, h1, Sort.pm.split(A, a, U32.shr(h1), U32.is_zero(U32.shr(h1)))) Sort.pm.go(~A, ~B, ~P, ~f, q, U32.is_le(h2, 1), p, h2, Sort.pm.split(A, b, U32.shr(h2), U32.is_zero(U32.shr(h2))))
+      List.append(&1, B, x, y)
+
+def Sort.pm.k(~A: Type, ~B: Type, ~P: Data, ~f: P -> A -> B, +p: P, r: List<&1, A> & U32) -> List<&1, B>:
+  (xs, +k) = r
+  Sort.pm.go(~A, ~B, ~P, ~f, 32n, U32.is_le(k, 1), p, k, Sort.pm.split(A, xs, U32.shr(k), U32.is_zero(U32.shr(k))))
+
+# f(p, x) for every element, in order, the elements forked in a balanced tree
+def Sort.pm(~A: Type, ~B: Type, ~P: Data, ~f: P -> A -> B, +p: P, xs: List<&1, A>) -> List<&1, B>:
+  Sort.pm.k(~A, ~B, ~P, ~f, p, Sort.pm.len(A, xs, 0, Nil{}))
+
 def Sort.frame.a(r: C.Frame & E.ResT(Array<U32>)) -> E.ResT(C.Frame):
   (f, rp) = r
   match rp:

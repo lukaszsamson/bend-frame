@@ -2327,3 +2327,50 @@ What the next agents need to know:
   case split on that result and needs no update when the predicate changes again.
 - Masked columns could join a group as two buffers (data + validity mask, both flat); not done (the
   group shape would be per buffer, not per column).
+
+## T5.4 (coarse forks: describe columns; group_by aggregates and column gathers measured and removed)
+
+Performance lessons (numbers PROVISIONAL, load 9-45; details in DESIGN.md 14 T5.4, bench/w5/results/t54_*):
+
+- **A coarse fork pays only where a lane owns its data outright and holds >= ~0.5 ms.** `Fmt.describe` over
+  the four q6 columns (a column moved out of the list, its passes sequential, handed back): 12 threads 56 ->
+  32 ms, one thread unchanged, nothing copied. The same shape over the group_by aggregates (a `Groups`
+  clone per split: 4 MiB per gids array) and over the column gathers (a permutation clone per split) was
+  +10..26% at one thread and -5..10% at 12: the clone is paid at one thread too (the pool is the same
+  code), and the lanes are 1-2 ms. Count the clone bytes before building the fork: (lanes - 1) x 4 B x
+  slots.
+- **A 1 ms clock needs a loop.** bench/w5/t54.bend times one eager stage `reps` times in one process over
+  fresh clones (the m2 `stages` mode gives one sample per process, and 4-10 ms stages jitter by +-2 ms
+  under load); 4-6 processes x 10-12 reps and the median of all, load noted per process. At load > 40 a
+  12-thread cell says nothing (a 12-lane fork needs free cores); the load 9-15 runs agreed with each other.
+- **The describe lanes are uneven**: id / qty / discount cost 12-22 ms, price 16-45 ms at one thread, so
+  12-vs-1 scaling is 1.7-1.9x, not 4x. A better split needs a cost estimate (rows x passes) or forking inside
+  a column (not allowed for F32 sums); not done.
+- **The row threshold is 2^16, not 2^14, for describe** (the 4 columns total 4 ms at 64k rows: 1 ms per
+  lane): a lane under ~0.5 ms loses its wake-up. Measure the threshold, do not copy it from the plan.
+
+Bend lessons:
+
+- **No forward references, no mutual recursion**: `bend --check-only` says "expected a filled definition"
+  for a def used above its definition. A recursive walk that must open a pair result recurses through its OWN
+  argument list (`go(t, step(j, st))`, step defined first), and a node of a fork tree that needs two clones
+  of its state takes the pair as a PARAMETER of the same recursive def (the caller passes
+  `pair(small, g)`, the child clones again for its own halves), because a pair cannot be destructured from
+  a computed value inside a def ("a match cannot scrutinize a computed value").
+- **`match` before destructuring**: `(a, b) = r` then `match big:` fails ("can't be matched in this
+  position"); match first, destructure in the branches.
+- **A `~` template lambda must be closed**: `~(i => f(i, bad))` with `bad` a parameter is refused
+  ("bad is a variable here, not comptime"); make one def per constant.
+- **do-blocks do not destructure** (`(a, b) = res` after a `<-` is parsed as the tuple expression): pass the
+  bound value to a def's parameter, or carry the state in the recursive call's argument.
+- **A leaf type used twice needs `+`** (`op: X.AggOp` read by two calls: "consumed more than once"),
+  and `+` Strings / Exprs in lane records are fine.
+- **A fork over `Type`-kinded elements**: `Sort.pm(~A, ~B, ~P, ~f, +p, xs)` with a lambda of
+  (p, element); the lane result type may be a record (`DJ{kept, nm, res}`) holding the column back and the
+  result; the fold afterwards is sequential and in order (first failure wins). Nothing allocates per row:
+  there is no new spin loop in this task, every leaf is the existing per-column code.
+
+What the next agent needs: join.bend's `Gat.*` result gathers are the remaining candidate for a column
+fork (a permutation clone per split; measure first); a fused single-pass group_by scatter (one read of the
+gids for every aggregate) would remove the per-aggregate gids pass without any fork or clone; the removed
+forks' code is in bench/w5/t54_groupby_fork.patch and bench/w5/t54_gather_fork.bend.txt.

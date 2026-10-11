@@ -1,0 +1,257 @@
+diff --git a/src/groupby.bend b/src/groupby.bend
+index 88e734c..af6c60f 100644
+--- a/src/groupby.bend
++++ b/src/groupby.bend
+@@ -1079,6 +1079,216 @@ def Grp.aout(ags: List<&2, X.Expr>, st: ASt) -> ASt:
+     case +a <> +t:
+       Grp.aout(t, Grp.aout.step(a, t, st))
+ 
++# ---- the aggregations in a balanced fork (v0.2 T5.4, DESIGN.md 16.4 D4) ------------------------------------
++#
++# Phase 1 (sequential, in list order, exactly the evaluation order and the moves of Grp.aout): every
++# aggregate's INPUT is evaluated and the work is recorded as a job; the first failing input ends the
++# walk with its error, so error precedence is the v0.1 one. A scatter itself cannot fail once Grp.static
++# has passed (std / var / median over a str column, the one data-dependent failure of an aggregation, is
++# a static TypeMismatch; the remaining Grp.bug results are unreachable), so no failure can come from
++# phase 2 ahead of a phase-1 input error. Phase 2: the jobs run in a balanced fork over the job list. Each lane owns its Groups: the gids and the first-row array are
++# cloned once per split (Grp.groups.clone; the bytes: Grp.pj.bytes) and a lane runs its few jobs one
++# after the other; a single job runs on the Groups it was handed with no further clone. Every F32 sum /
++# mean is still ONE in-order Neumaier pass over its own column (forking is across aggregates, never
++# within one). The results are folded in aggregate order, the first failure wins.
++
++type AJ is Type:
++  AJC{name: String, op: X.AggOp, c: C.Column}
++  AJL{name: String, c: C.Column}
++  AJN{name: String, h: U32}
++
++type PSt is Type:
++  PSt{f: C.Frame, g: Groups, r: E.ResT(List<&1, AJ>)}
++
++def Grp.pre.lit(+name: String, g: Groups, acc: List<&1, AJ>, r: C.Frame & E.ResT(C.Column)) -> PSt:
++  (f, rc) = r
++  match rc:
++    case Fail{e}:
++      PSt{f, g, Fail{e}}
++    case Done{c}:
++      PSt{f, g, Done{AJL{name, c} <> acc}}
++
++def Grp.pre.lenh(+name: String, g: Groups, acc: List<&1, AJ>, r: C.Frame & U32) -> PSt:
++  (f, +h) = r
++  PSt{f, g, Done{AJN{name, h} <> acc}}
++
++def Grp.pre.full(op: X.AggOp, name: String, g: Groups, acc: List<&1, AJ>, r: C.Frame & E.ResT(C.Column)) -> PSt:
++  (f, rc) = r
++  match rc:
++    case Fail{e}:
++      PSt{f, g, Fail{e}}
++    case Done{c}:
++      PSt{f, g, Done{AJC{name, op, c} <> acc}}
++
++def Grp.pre.kind(lit: Bool, lenfree: Bool, +op: X.AggOp, +inner: X.Expr, +name: String, +rest: List<&2, X.Expr>, f: C.Frame, g: Groups, acc: List<&1, AJ>) -> PSt:
++  match lit lenfree:
++    case True{} _:
++      Grp.pre.lit(name, g, acc, V.Eval.expr(f, X.Agg{op, inner}))
++    case False{} True{}:
++      Grp.pre.lenh(name, g, acc, C.Frame.height(f))
++    case False{} False{}:
++      Grp.pre.full(op, name, g, acc, Grp.eval(Grp.mv(inner, rest, Nil{}), f, inner))
++
++def Grp.pre.split(+name: String, +rest: List<&2, X.Expr>, s: Maybe<&2, X.AggSplit>, f: C.Frame, g: Groups, acc: List<&1, AJ>) -> PSt:
++  match s:
++    case None{}:
++      PSt{f, g, Fail{Grp.bug("non-aggregation")}}
++    case Some{X.AggSplit{+op, +inner}}:
++      Grp.pre.kind(Bool.and(Grp.is_klit(V.Eval.kind(inner)), Bool.not(Grp.is_len(op))), Bool.and(Grp.is_len(op), Grp.simple(inner)), op, inner, name, rest, f, g, acc)
++
++def Grp.pre.step(+e: X.Expr, +rest: List<&2, X.Expr>, st: PSt) -> PSt:
++  match st:
++    case PSt{f, g, Fail{err}}:
++      PSt{f, g, Fail{err}}
++    case PSt{f, g, Done{acc}}:
++      Grp.pre.split(X.Expr.name(e), rest, X.Expr.split_agg(e), f, g, acc)
++
++# the jobs, newest first
++def Grp.pre(ags: List<&2, X.Expr>, st: PSt) -> PSt:
++  match ags:
++    case Nil{}:
++      st
++    case +a <> +t:
++      Grp.pre(t, Grp.pre.step(a, t, st))
++
++def Grp.groups.clone.k(+ng: U32, gg: Array<U32> & Array<U32>, ff: Array<U32> & Array<U32>) -> Groups & Groups:
++  (g1, g2) = gg
++  (f1, f2) = ff
++  (Groups{ng, g1, f1}, Groups{ng, g2, f2})
++
++# one lane's Groups: the gids and the first rows cloned (the bytes: Grp.pj.bytes)
++def Grp.groups.clone(g: Groups) -> Groups & Groups:
++  match g:
++    case Groups{+ng, gids, first}:
++      Grp.groups.clone.k(ng, Array.clone(U32, gids), Array.clone(U32, first))
++
++# the bytes the clones of a fork of k jobs copy: k - 1 splits (Grp.pj.pair), each one copy of the gids
++# (2^depth_for(n) slots, n the input height) and of the first rows (2^depth_for(ng) slots), 4 bytes a slot;
++# reported by tests/groupby_fork.bend (q3: n = 10^6, 8 groups, 4 aggregates: 12583008 bytes)
++def Grp.pj.bytes(+n: U32, +ng: U32, +k: U32) -> U32:
++  U32.mul(U32.sub(k, 1), U32.mul(4, U32.add(U32.shln(1, K.Kernel.depth_for(n)), U32.shln(1, K.Kernel.depth_for(ng)))))
++
++def Grp.pj.nm(+name: String, r: Groups & E.ResT(C.Column)) -> Groups & E.ResT(C.Named):
++  (g, rc) = r
++  match rc:
++    case Fail{e}:
++      (g, Fail{e})
++    case Done{c}:
++      (g, Done{C.Named{name, c}})
++
++def Grp.pj.lit(+name: String, c: C.Column, g: Groups) -> Groups & E.ResT(C.Named):
++  match g:
++    case Groups{+ng, gids, first}:
++      (Groups{ng, gids, first}, Done{C.Named{name, V.Eval.bcast(c, ng)}})
++
++def Grp.pj.run(j: AJ, g: Groups) -> Groups & E.ResT(C.Named):
++  match j:
++    case AJC{+name, op, c}:
++      Grp.pj.nm(name, Grp.agg(op, g, c))
++    case AJL{name, c}:
++      Grp.pj.lit(name, c, g)
++    case AJN{+name, +h}:
++      Grp.pj.nm(name, Grp.agg.len.g(h, g))
++
++def Grp.pj.step.k(acc: List<&1, E.ResT(C.Named)>, r: Groups & E.ResT(C.Named)) -> Groups & List<&1, E.ResT(C.Named)>:
++  (g, res) = r
++  (g, res <> acc)
++
++def Grp.pj.step(j: AJ, st: Groups & List<&1, E.ResT(C.Named)>) -> Groups & List<&1, E.ResT(C.Named)>:
++  (g, acc) = st
++  Grp.pj.step.k(acc, Grp.pj.run(j, g))
++
++def Grp.pj.seq.go(jobs: List<&1, AJ>, st: Groups & List<&1, E.ResT(C.Named)>) -> Groups & List<&1, E.ResT(C.Named)>:
++  match jobs:
++    case Nil{}:
++      st
++    case j <> t:
++      Grp.pj.seq.go(t, Grp.pj.step(j, st))
++
++def Grp.pj.seq.fin(r: Groups & List<&1, E.ResT(C.Named)>) -> List<&1, E.ResT(C.Named)>:
++  (g, acc) = r
++  List.reverse(&1, E.ResT(C.Named), acc)
++
++# the jobs one after the other on one owned Groups
++def Grp.pj.seq(jobs: List<&1, AJ>, g: Groups) -> List<&1, E.ResT(C.Named)>:
++  Grp.pj.seq.fin(Grp.pj.seq.go(jobs, (g, Nil{})))
++
++# the two Groups of a node's halves, cloned from the node's own Groups; a half that is a leaf needs
++# only its one Groups (the second is an empty stand-in, nothing is copied)
++def Grp.pj.pair(small: Bool, g: Groups) -> Groups & Groups:
++  match small:
++    case True{}:
++      (g, Groups{0, Array.new(U32, 0n, 0), Array.new(U32, 0n, 0)})
++    case False{}:
++      Grp.groups.clone(g)
++
++# r: k jobs split at k / 2, gg: one Groups per half (a leaf half runs on its own)
++def Grp.pj.go(fl: Nat, small: Bool, +k: U32, r: List<&1, AJ> & List<&1, AJ>, gg: Groups & Groups) -> List<&1, E.ResT(C.Named)>:
++  match fl small:
++    case _ True{}:
++      (a, b) = r
++      (g1, g2) = gg
++      Grp.pj.seq(List.append(&1, AJ, a, b), g1)
++    case 0n False{}:
++      (a, b) = r
++      (g1, g2) = gg
++      Grp.pj.seq(List.append(&1, AJ, a, b), g1)
++    case 1n++q False{}:
++      (a, b) = r
++      (g1, g2) = gg
++      +h1 = U32.shr(k)
++      +h2 = U32.sub(k, h1)
++      x y = Grp.pj.go(q, U32.is_le(h1, 1), h1, SO.Sort.pm.split(AJ, a, U32.shr(h1), U32.is_zero(U32.shr(h1))), Grp.pj.pair(U32.is_le(h1, 1), g1)) Grp.pj.go(q, U32.is_le(h2, 1), h2, SO.Sort.pm.split(AJ, b, U32.shr(h2), U32.is_zero(U32.shr(h2))), Grp.pj.pair(U32.is_le(h2, 1), g2))
++      List.append(&1, E.ResT(C.Named), x, y)
++
++def Grp.pj.k(g: Groups, r: List<&1, AJ> & U32) -> List<&1, E.ResT(C.Named)>:
++  (jobs, +k) = r
++  Grp.pj.go(32n, U32.is_le(k, 1), k, SO.Sort.pm.split(AJ, jobs, U32.shr(k), U32.is_zero(U32.shr(k))), Grp.pj.pair(U32.is_le(k, 1), g))
++
++# every job's result in job order, the jobs forked in a balanced tree over Groups clones
++def Grp.pj(jobs: List<&1, AJ>, g: Groups) -> List<&1, E.ResT(C.Named)>:
++  Grp.pj.k(g, SO.Sort.pm.len(AJ, jobs, 0, Nil{}))
++
++def Grp.pj.fold.k(nc: C.Named, acc: E.ResT(List<&1, C.Named>)) -> E.ResT(List<&1, C.Named>):
++  match acc:
++    case Fail{e}:
++      Fail{e}
++    case Done{xs}:
++      Done{nc <> xs}
++
++# the results folded onto acc (newest first); the first failure in aggregate order wins
++def Grp.pj.fold(rs: List<&1, E.ResT(C.Named)>, acc: E.ResT(List<&1, C.Named>)) -> E.ResT(List<&1, C.Named>):
++  match rs:
++    case Nil{}:
++      acc
++    case Fail{e} <> t:
++      Fail{e}
++    case Done{nc} <> t:
++      Grp.pj.fold(t, Grp.pj.fold.k(nc, acc))
++
++def Grp.pj.fin.k(r: E.ResT(List<&1, C.Named>)) -> E.ResT(C.Frame):
++  match r:
++    case Fail{e}:
++      Fail{e}
++    case Done{acc}:
++      C.Frame.from_columns(List.reverse(&1, C.Named, acc))
++
++# phase 2 over the jobs phase 1 recorded (newest first); kc: the key columns (newest first)
++def Grp.pj.fin(kc: List<&1, C.Named>, st: PSt) -> E.ResT(C.Frame):
++  match st:
++    case PSt{f, g, Fail{e}}:
++      Fail{e}
++    case PSt{f, g, Done{jobs}}:
++      Grp.pj.fin.k(Grp.pj.fold(Grp.pj(List.reverse(&1, AJ, jobs), g), Done{kc}))
++
++# at least two aggregates
++def Grp.two(ags: List<&2, X.Expr>) -> Bool:
++  match ags:
++    case _ <> _ <> _:
++      True{}
++    case _:
++      False{}
++
+ # ---- entry point -----------------------------------------------------------------------------------------
+ 
+ def GroupBy.fin(st: ASt) -> E.ResT(C.Frame):
+@@ -1088,18 +1298,31 @@ def GroupBy.fin(st: ASt) -> E.ResT(C.Frame):
+     case ASt{f, g, Done{acc}}:
+       C.Frame.from_columns(List.reverse(&1, C.Named, acc))
+ 
+-def GroupBy.out.b(aggs: List<&2, X.Expr>, f: C.Frame, r: Groups & List<&1, C.Named>) -> E.ResT(C.Frame):
++def Grp.out.seq(aggs: List<&2, X.Expr>, f: C.Frame, r: Groups & List<&1, C.Named>) -> E.ResT(C.Frame):
+   (g, acc) = r
+   GroupBy.fin(Grp.aout(aggs, ASt{f, g, Done{acc}}))
+ 
+-def GroupBy.out(aggs: List<&2, X.Expr>, f: C.Frame, kc: List<&1, C.Named>, g: Groups) -> E.ResT(C.Frame):
+-  GroupBy.out.b(aggs, f, Grp.kout(kc, (g, Nil{})))
++def Grp.out.par(aggs: List<&2, X.Expr>, f: C.Frame, r: Groups & List<&1, C.Named>) -> E.ResT(C.Frame):
++  (g, acc) = r
++  Grp.pj.fin(acc, Grp.pre(aggs, PSt{f, g, Done{Nil{}}}))
++
++# n = the input height: under Sort.fork_rows() rows, or with fewer than two aggregates, the
++# sequential walk (Grp.aout) runs; otherwise the aggregates are evaluated in order and forked
++def GroupBy.out.b(big: Bool, aggs: List<&2, X.Expr>, f: C.Frame, r: Groups & List<&1, C.Named>) -> E.ResT(C.Frame):
++  match big:
++    case False{}:
++      Grp.out.seq(aggs, f, r)
++    case True{}:
++      Grp.out.par(aggs, f, r)
++
++def GroupBy.out(+n: U32, +aggs: List<&2, X.Expr>, f: C.Frame, kc: List<&1, C.Named>, g: Groups) -> E.ResT(C.Frame):
++  GroupBy.out.b(Bool.and(U32.is_le(SO.Sort.fork_rows(), n), Grp.two(aggs)), aggs, f, Grp.kout(kc, (g, Nil{})))
+ 
+ def GroupBy.group(+n: U32, +d: Nat, aggs: List<&2, X.Expr>, f: C.Frame, r: List<&1, C.Named> & Codes) -> E.ResT(C.Frame):
+   (kc, cd) = r
+   match cd:
+     case Codes{+k, c}:
+-      GroupBy.out(aggs, f, kc, Grp.densify(n, d, k, c))
++      GroupBy.out(n, aggs, f, kc, Grp.densify(n, d, k, c))
+ 
+ # the first key's codes. A single key goes straight to GroupBy.group's densify: combining with the
+ # constant code 1 (g * k + c with g = 0) is the identity and its densify numbers the groups by first

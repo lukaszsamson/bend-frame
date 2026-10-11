@@ -1,0 +1,93 @@
+# T5.4 spike, REMOVED (did not pay; DESIGN.md 14, IMPLEMENTING.md T5.4): the balanced column-tree gather.
+# Paste after Sort.pm (src/sort.bend) and call Sort.gather.par instead of Sort.gather in Sort.frame.a.
+# Needs PROOF_sorthead.bend re-proved (gcols / gather are named there) before it could ship.
+
+# ---- the column gathers in a balanced fork (v0.2 T5.4, DESIGN.md 16.4 D4) ---------------------------------
+# Sort.gather / Sort.gcols above (proven, LAWS section 17) thread ONE permutation through the columns in
+# order. Here the columns are forked in a balanced tree over the HALVES of the column list; every lane
+# gathers its few columns one after the other on its own permutation, which is cloned once per split
+# (Sort.gp.pair; the bytes: Sort.gp.bytes), a single column gathers on the permutation it was handed with
+# no copy. The columns come out in column order, each exactly Column.gather(col, perm, h)'s column
+# (Column.gather hands the permutation back unchanged, so a clone is the permutation).
+
+def Sort.gp.run.k(+nm: String, r: C.Column & Array<U32>) -> Array<U32> & C.Named:
+  (c, perm) = r
+  (perm, C.Named{nm, c})
+
+def Sort.gp.run(+h: U32, nc: C.Named, perm: Array<U32>) -> Array<U32> & C.Named:
+  match nc:
+    case C.Named{nm, col}:
+      Sort.gp.run.k(nm, C.Column.gather(col, perm, h))
+
+def Sort.gp.step.k(acc: List<&1, C.Named>, r: Array<U32> & C.Named) -> Array<U32> & List<&1, C.Named>:
+  (perm, nc) = r
+  (perm, nc <> acc)
+
+def Sort.gp.step(+h: U32, nc: C.Named, st: Array<U32> & List<&1, C.Named>) -> Array<U32> & List<&1, C.Named>:
+  (perm, acc) = st
+  Sort.gp.step.k(acc, Sort.gp.run(h, nc, perm))
+
+def Sort.gp.seq.go(+h: U32, cols: List<&1, C.Named>, st: Array<U32> & List<&1, C.Named>) -> Array<U32> & List<&1, C.Named>:
+  match cols:
+    case Nil{}:
+      st
+    case nc <> t:
+      Sort.gp.seq.go(h, t, Sort.gp.step(h, nc, st))
+
+def Sort.gp.seq.fin(r: Array<U32> & List<&1, C.Named>) -> List<&1, C.Named>:
+  (perm, acc) = r
+  List.reverse(&1, C.Named, acc)
+
+# the columns one after the other on one owned permutation
+def Sort.gp.seq(+h: U32, cols: List<&1, C.Named>, perm: Array<U32>) -> List<&1, C.Named>:
+  Sort.gp.seq.fin(Sort.gp.seq.go(h, cols, (perm, Nil{})))
+
+# the two permutations of a node's halves, cloned from the node's own; a half that is a leaf needs only
+# its one (the second is a 1-slot stand-in, nothing is copied)
+def Sort.gp.pair(small: Bool, perm: Array<U32>) -> Array<U32> & Array<U32>:
+  match small:
+    case True{}:
+      (perm, Array.new(U32, 0n, 0))
+    case False{}:
+      Array.clone(U32, perm)
+
+# the bytes the clones of a fork of k columns copy: k - 1 splits of the 2^depth_for(h)-slot permutation
+def Sort.gp.bytes(+h: U32, +k: U32) -> U32:
+  U32.mul(U32.sub(k, 1), U32.shln(4, K.Kernel.depth_for(h)))
+
+# r: k columns split at k / 2, pp: one permutation per half (a leaf half runs on its own)
+def Sort.gp.go(fl: Nat, small: Bool, +h: U32, +k: U32, r: List<&1, C.Named> & List<&1, C.Named>, pp: Array<U32> & Array<U32>) -> List<&1, C.Named>:
+  match fl small:
+    case _ True{}:
+      (a, b) = r
+      (p1, p2) = pp
+      Sort.gp.seq(h, List.append(&1, C.Named, a, b), p1)
+    case 0n False{}:
+      (a, b) = r
+      (p1, p2) = pp
+      Sort.gp.seq(h, List.append(&1, C.Named, a, b), p1)
+    case 1n++q False{}:
+      (a, b) = r
+      (p1, p2) = pp
+      +h1 = U32.shr(k)
+      +h2 = U32.sub(k, h1)
+      x y = Sort.gp.go(q, U32.is_le(h1, 1), h, h1, Sort.pm.split(C.Named, a, U32.shr(h1), U32.is_zero(U32.shr(h1))), Sort.gp.pair(U32.is_le(h1, 1), p1)) Sort.gp.go(q, U32.is_le(h2, 1), h, h2, Sort.pm.split(C.Named, b, U32.shr(h2), U32.is_zero(U32.shr(h2))), Sort.gp.pair(U32.is_le(h2, 1), p2))
+      List.append(&1, C.Named, x, y)
+
+def Sort.gp.k(+h: U32, perm: Array<U32>, r: List<&1, C.Named> & U32) -> List<&1, C.Named>:
+  (cols, +k) = r
+  Sort.gp.go(32n, U32.is_le(k, 1), h, k, Sort.pm.split(C.Named, cols, U32.shr(k), U32.is_zero(U32.shr(k))), Sort.gp.pair(U32.is_le(k, 1), perm))
+
+# every column gathered by perm (rows perm[0..h)), the columns forked in a balanced tree; perm is consumed
+def Sort.gp(+h: U32, cols: List<&1, C.Named>, perm: Array<U32>) -> List<&1, C.Named>:
+  Sort.gp.k(h, perm, Sort.pm.len(C.Named, cols, 0, Nil{}))
+
+def Sort.gather.par.k(+h: U32, cols: List<&1, C.Named>, perm: Array<U32>) -> C.Frame:
+  C.Frame{h, Sort.gp(h, cols, perm)}
+
+# SPIKE: Sort.gather with the columns forked
+def Sort.gather.par(f: C.Frame, perm: Array<U32>) -> C.Frame:
+  match f:
+    case C.Frame{+h, cols}:
+      Sort.gather.par.k(h, cols, perm)
+

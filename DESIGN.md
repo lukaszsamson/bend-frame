@@ -2933,6 +2933,49 @@ F32 bits and errors with their precedence). Deviations from the plan's F8 row (1
    2.16 -> 2.46 MB).
 5. **Coupled to Eval.filter's internals**: `Exec.fs.a` .. `q` replicate `Eval.filter.a` .. `q` (eval.bend
    was not to be edited during T4.2); the T4.2 merge must re-align them (IMPLEMENTING T4.3).
+### v0.2 T5.4 (coarse forks: describe kept; group_by aggregates and column gathers removed; section 16.4 D4)
+
+1. **`Fmt.describe` forks its columns** in a balanced binary tree over the column list
+   (`Sort.pm`, a mirror of `Lst.pmap`: halves, never 1-vs-rest; in src/sort.bend because chunks.bend may
+   not sit under the operators, and sort.bend is already imported by fmt.bend). Each lane takes its column
+   out of the list, runs the unchanged per-column passes sequentially (the F32 sums stay one in-order
+   pass) and hands the column back with its result; the results are folded in column order, the first
+   failing column wins as before. Results are bit-identical (tests/fmt_describe_fork.bend: 1, 2, 3, 4, 7
+   columns, nulls, NaN / -0.0 / inf, str, bool, 65535 / 65536 / 70000 rows). No copy is made (the columns
+   are moved; nothing is read by two lanes): 0 cloned bytes. PROVISIONAL numbers (load 9-13, medians of 5
+   fresh processes, bench/w5/results/t54_final_summary.md): q6 at 1M rows 12 threads 56 -> 32 ms (4 threads
+   55 -> 33), one thread 55 -> 54 ms; describe alone 55 -> 29 ms at 12 threads. Scaling 12 vs 1 thread
+   1.7-1.9x (the four columns are not equal: price and discount cost 1.3-3x id): below the 2x proposed
+   in 16.8, bounded by the heaviest column since a column's own passes stay sequential.
+2. **The fork threshold is 2^16 rows (`Fmt.fork_rows`), not 2^14**: measured (t54 k = 41..44, 10): 16k rows
+   1 -> 1 ms, 32k 2 -> 2, 64k 4 -> 2, 128k 7 -> 4, 1M 55 -> 29 at 12 threads; a lane under ~0.5 ms does
+   not repay the wake-up. One thread is unchanged at every size.
+3. **The group_by aggregate fork (2x2, a gids clone per lane) was built, measured and REMOVED.** Shape:
+   aggregate inputs evaluated in order first (errors unchanged; std / var / median over a str column is
+   a static TypeMismatch, so no scatter can fail ahead of an input error), then a balanced fork over the
+   job list with one `Groups` clone per split. On q3's own group_by (4 aggregates, 1M rows; load 14-27):
+   one thread 10 -> 11 ms (+10%, the clones: 3 x 4 MiB = 12,583,008 bytes and four columns alive at once),
+   12 threads 10 -> 9; with 8 aggregates 19 -> 24 ms (+26%, 7 clones = 29,360,352 bytes) at one thread,
+   18 -> 17 at 12. The scatters are 1-2 ms each and the stage is dominated by key coding, densify and
+   the aggregate inputs, so the critical path barely moves while the clones are pure cost at one thread
+   (G3 allows 5%). The exact patch is bench/w5/t54_groupby_fork.patch (applies to the T5.4 base), the raw
+   samples bench/w5/results/t54_groupby_fork.txt. A fused single-pass scatter (one read of the gids for all
+   aggregates) is the better next step; it needs no fork and no clone.
+4. **The column-gather fork after a sort was built, measured and REMOVED.** Shape: the proven
+   `Sort.gcols` threaded one permutation through the columns; the fork was a balanced tree over the
+   columns with the permutation cloned per split (6 x 4 MiB = 25,165,824 bytes for 7 columns at 1M rows).
+   The eager 1M-row 7-column sort stage (q4's sort, not a gate query: q4 gathers 10 rows through
+   `Sort.gather_head`, q3 sorts 8 rows) went 28 -> 29 ms at one thread and 31 -> 28 at 12 (result walked
+   inside the clock), 25.5 -> 24 unwalked; 6 more processes 26 -> 22.5 at 12 threads: 6-13% at best, and
+   it would have required re-proving PROOF_sorthead (`gcols` / `gather` are unfolded there). Join
+   gathers are `Gat.*` in src/join.bend (not the same helper; not touched). The code is kept as
+   bench/w5/t54_gather_fork.bend.txt. This confirms the W0 spike (16.9 risk 5): forks across gathers and
+   across aggregates are not worth their clones on this machine; coarse forks pay where a lane owns its
+   column outright (describe) and holds >= ~0.5 ms of work.
+5. **Measurement tools**: bench/w5/t54.bend (one eager stage timed `reps` times in one process over fresh
+   clones: the 1 ms clock on a 4-10 ms stage needs many samples) and bench/w5/t54.py (interleaved
+   baseline / candidate, load recorded per process). q3 / q4 / q5 in the m2 harness are unchanged code
+   paths (group_by, sort, join untouched): their baseline / candidate differences (0.90-1.29) are noise.
 
 ## 15. v0.1 contract (frozen)
 
