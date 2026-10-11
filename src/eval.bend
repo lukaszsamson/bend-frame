@@ -2205,7 +2205,7 @@ def Eval.fz.p1.go(go: Bool, out: List<&2, Instr>, +o1: Opd, +p1: Pre, +f1: List<
 def Eval.fz.p1(out: List<&2, Instr>, +o1: Opd, +p1: Pre, +f1: List<&2, Instr>, +o2: Opd, +p2: Pre, +f2: List<&2, Instr>, t: List<&2, Instr>) -> FzS:
   match t:
     case IBin{+op} <> t2:
-      Eval.fz.p1.go(Bool.and(Eval.fz.op_ok(op), Bool.not(String.eq(Eval.fz.opname(o1), Eval.fz.opname(o2)))), out, o1, p1, f1, o2, p2, f2, op, t2)
+      Eval.fz.p1.go(Bool.and(Bool.not(String.eq(Eval.fz.opname(o1), Eval.fz.opname(o2))), Eval.fz.op_ok(op)), out, o1, p1, f1, o2, p2, f2, op, t2)
     case other:
       Eval.fz.solo(out, o1, p1, f1, List.append(&2, Instr, f2, other))
 
@@ -2642,7 +2642,7 @@ def Eval.fz.k2.g(go: Bool, t: D.DType, +op: X.BinOp, ca: Bool, cb: Bool) -> K2:
 def Eval.fz.k2(eq: Bool, +op: X.BinOp, sa: Side, sb: Side) -> K2:
   match sa sb:
     case Side{oka, fa, +ta, ca} Side{okb, fb, tb, cb}:
-      Eval.fz.k2.g(Bool.and(Bool.and(eq, Bool.and(oka, okb)), Bool.and(Eval.fz.op_ok(op), D.DType.eq(ta, tb))), ta, op, ca, cb)
+      Eval.fz.k2.g(Bool.and(Bool.and(oka, okb), Bool.and(eq, Bool.and(Eval.fz.op_ok(op), D.DType.eq(ta, tb)))), ta, op, ca, cb)
 
 type Z2R is Type:
   Z2R{r: Maybe<&1, C.Column>, a: C.Column, b: C.Column}
