@@ -3046,6 +3046,51 @@ F32 bits and errors with their precedence). Deviations from the plan's F8 row (1
     compact3 +0.3 ms at equal output allocation; leaf allocation itself is cheap (Array.new of 2^20 slots:
     0.08 ms). Not isolated further. The 12-thread chunked cells beat the flat ones 1.5-2.6x on this machine.
 
+### v0.2 T5.3 (the chunked runner, src/cexec.bend; section 16.5 D7, G1)
+
+No change of the data contract: the chunked engine answers the reference's frame or error (G1: every
+generated case compared exactly at grains 2^0 / 2^2 / 2^4 / 2^14, 0 failures over 8,000 cases after the fix
+in item 9; tests/cexec_*.bend). Opt-in; `Exec.run` / `collect` are unchanged. Deviations from 16.5 and the
+task text:
+
+1. **Lazy conversion, not at ISource / IScan.** The stack holds flat or chunked frames; a frame is converted
+   where an operator needs the other representation (a row-wise operator over more than 2^g rows: of_frame;
+   sort / group_by / join / unique / the result: to_frame), still ONE conversion per boundary, forked across
+   columns, counted (`CStats`: conversions and bytes). Converting every Source up front would convert and
+   flatten back around a plan whose first operator is flat (q4, q5). A consuming operator (Filter + plain
+   Select, select, group_by) converts only the columns it reads.
+2. **Errors: a flat rerun instead of combining (expression, instruction, row) at the nodes.** A leaf's
+   strict-cast text names a local row and the evaluator does not report the failing instruction, so the
+   walks borrow their input and, if any leaf failed, the reference operator runs on the flattened input:
+   the error (text, row, precedence) is the reference's by construction. Static errors come from the
+   reference operator over a 0-row GHOST frame of the input's schema. Counterexample tests: competing casts
+   in different expressions, operands, rows and leaves at grains 2^1 / 2^2 / 2^3, rows renumbered by a filter
+   or a concat, static-before-data, failing aggregations (tests/cexec_errors.bend).
+3. **group_by runs flat** over the columns it reads (no chunked codes / count / max): its stage is
+   dominated by key coding and densify, and T5.4 measured the aggregate fork as a loss; q3's compute stays the
+   reference's plus the with_columns walk.
+4. **Aggregations inside row-wise expressions are hoisted** (`x - mean(x)`, `qty > max(qty)`, a one-row
+   select): evaluated once, then the per-leaf walk sees a literal. U32 / I32 sum, U32 min / max of an
+   AllValid column, count and len of a plain column are tree reductions on the borrowed trees (CK.sum.w /
+   min.w / max.w / popcount.w, the proven combines of LAWS section 22); anything else (F32, I32 min / max,
+   mean, n_unique, first / last, std / var / median, an expression argument) runs the flat evaluator over a
+   flattened copy of the columns it reads (cloned, counted), D4's in-order rule kept by construction.
+5. **The rechunk policy runs lazily**, when the next walk reads a frame (CX.wi), not after every
+   row-dropping operator: a filter followed by a flatten boundary or by the result would copy its rows twice.
+6. **Dictionary columns**: set aside as their code trees for a walk; an expression that reads one gets a
+   copy of its Dict per split point (D2 rule 4) when it has at most 4096 entries (a larger one: flat).
+7. **The leaf evaluator is v0.1's Eval** (+ Exec.fc's compact3 / compact4): T5.2's CK wrappers are used only
+   for the tree reductions of item 4; the fused per-leaf kernels arrive with T4.4 (Eval peepholes) through
+   the same call sites.
+8. **G2 not met (PROVISIONAL)**: on pre-chunked inputs the compute scales 1.6-1.7x (q1, q2, filter), 1.3x
+   (q3), 1.1x (q5) at 12 vs 1 thread, below 16.8's 3x / 2x / 1.5x; from flat env frames the conversions
+   make the chunked engine slower than the reference. bench/w5/t53x.bend shows the same ~2x ceiling for a
+   plain list fork of the same per-leaf work and for a single flat kernel per leaf (fresh output blocks per
+   leaf); the walk adds nothing to it. IMPLEMENTING.md "T5.3" has the samples and loads.
+9. **Bug found by G1 and fixed**: a select output named like a Dictionary input (`cast(d, u32)` is named
+   d) got that column's Dict put back; select outputs are fresh columns now (seed 304, d0080; regression in
+   tests/cexec_basic.bend).
+
 ## 15. v0.1 contract (frozen)
 
 The exact semantics every M1-M6 agent codes and tests against. Tables over prose;
@@ -3985,6 +4030,14 @@ is verified in the C (S1/S4: single-constructor records ride in registers, `spin
   differential evidence, not a proof, in v0.2).
 - Sort, join, unique, n_unique run today's flat code behind the boundary note of 16.1; group_by runs
   chunked for codes/count/max and flat (serial) for the F32 scatters.
+- **As built (T5.3; deviations in section 14 "v0.2 T5.3")**: `Engine`, `Exec.run_with` / `Exec.run_with_rd`,
+  `Lazy.collect_with(_rd)` and `Engine.chunked()` live in src/cexec.bend (it imports exec.bend; the hook in
+  exec.bend is the additive `Exec.prep`: schema, bindings and scan reads, then the chunked runner instead of
+  `Exec.run_phys`); the facade adds `engine_reference` / `engine_chunked` / `engine_chunked_at` /
+  `collect_with` / `collect_raw_with`. The stack holds flat or chunked frames and converts LAZILY, where an
+  operator needs the other representation (not at every ISource), converting only the columns a consuming
+  operator reads. group_by runs flat over the columns it reads (no chunked codes / count / max). The
+  m2 driver reads `BF_ENGINE=chunked` (a token list: `v02,chunked`) through bench/m2/engine.bend.
 
 ### 16.6 Proof obligations (G5) and leaf-lemma reuse
 

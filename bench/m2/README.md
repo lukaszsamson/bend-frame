@@ -66,6 +66,15 @@ The driver reads CSV through `bench/m2/engine.bend` (`Eng.read_csv`: `DF.read_cs
 `DF.read_csv`). The pinned baseline facade has no v0.2 reader, so `baseline.sh` copies
 `bench/m2/engine_v01.bend` in as the baseline's `engine.bend` (v0.1 whatever `BF_ENGINE` says): a run
 with `--engine v02` therefore compares the v0.2 reader (candidate) against the v0.1 reader (baseline).
+
+T5.3: `BF_ENGINE` is a comma-separated token list (`--engine` passes it through): `v02` selects the v0.2
+reader, `chunked` the chunked executor (`DF.collect_with(DF.engine_chunked(), ..)`, src/cexec.bend, leaves
+of 2^14 rows) for every collect the driver makes (`Eng.collect`); e.g. `--engine chunked` or
+`--engine v02,chunked`. Unknown tokens are ignored; unset / `v01` is the v0.1 reader and the reference
+executor. The baseline's `engine_v01.bend` has both entries and ignores the variable. q6 (eager describe),
+`stages` and `selfcheck` do not collect, so `chunked` does not change them. The chunked engine converts the
+env's flat frames to chunks INSIDE the compute window (`phases` compute_ms is end to end); the compute on
+already-chunked inputs and the conversions apart (G6) are measured by bench/w5/t53.bend + t53.py.
 The driver hash in `BUILD.json` (and `run.py`'s staleness check) covers `driver.bend` followed by
 `engine.bend`. `selfcheck` reads with v0.1 only.
 

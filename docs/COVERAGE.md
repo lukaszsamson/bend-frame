@@ -63,7 +63,7 @@ themselves are real tests (`make test` runs them and compares every dump with it
 | `lit_i32*` (lit_i32, lit_i32_neg) | [expr_cmp](../tests/coverage/expr_cmp.bend), [expr_lit](../tests/coverage/expr_lit.bend) | [expr_cmp](../tests/coverage/expr_cmp.bend), [expr_lit](../tests/coverage/expr_lit.bend) | [expr_lit](../tests/coverage/expr_lit.bend) | [expr_lit](../tests/coverage/expr_lit.bend) | [expr_cmp](../tests/coverage/expr_cmp.bend), [expr_lit](../tests/coverage/expr_lit.bend) | [expr_cmp](../tests/coverage/expr_cmp.bend), [expr_lit](../tests/coverage/expr_lit.bend) | yes | 7 |
 | `lit_null` | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) |  | 5 |
 | `alias` | [agg](../tests/coverage/agg.bend), [expr_arith](../tests/coverage/expr_arith.bend), +5 | [agg](../tests/coverage/agg.bend), [expr_arith](../tests/coverage/expr_arith.bend), +5 | [agg](../tests/coverage/agg.bend), [expr_arith](../tests/coverage/expr_arith.bend), +5 | [agg](../tests/coverage/agg.bend), [expr_cmp](../tests/coverage/expr_cmp.bend), +3 | [agg](../tests/coverage/agg.bend), [expr_arith](../tests/coverage/expr_arith.bend), +5 | [agg](../tests/coverage/agg.bend), [expr_arith](../tests/coverage/expr_arith.bend), +5 |  | 57 |
-| `cast` | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | n/a | 15 |
+| `cast` | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | n/a | 16 |
 | `cast_*` (cast_f32, cast_u32) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | n/a | 6 |
 | `try_cast` | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | n/a | 7 |
 | `t_*` (t_bool, t_u32, t_i32, t_f32, t_str) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | n/a [1] | n/a [2] | [expr_str_cast](../tests/coverage/expr_str_cast.bend) | [expr_str_cast](../tests/coverage/expr_str_cast.bend) |  | 3 |
@@ -120,7 +120,7 @@ themselves are real tests (`make test` runs them and compares every dump with it
 | `mean` | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | n/a | 13 |
 | `min` | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | n/a | 7 |
 | `max` | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | n/a | 8 |
-| `count` | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | n/a | 5 |
+| `count` | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | n/a | 6 |
 | `len` | [agg](../tests/coverage/agg.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | [agg](../tests/coverage/agg.bend), [verbs_basic](../tests/coverage/verbs_basic.bend) | n/a | 13 |
 | `first` | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | n/a | 4 |
 | `last` | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | [agg](../tests/coverage/agg.bend) | n/a | 3 |
@@ -269,9 +269,9 @@ reach these", not as line coverage. Reported, not gated.
 |---|---|---|---|---|---|
 | `frame.bend` | 185 | 172 | 184 | 184 | 1 |
 | `src/analysis.bend` | 44 | 0 | 44 | 44 | 0 |
-| `src/cexec.bend` | 329 | 1 | 320 | 320 | 9 |
+| `src/cexec.bend` | 330 | 1 | 321 | 321 | 9 |
 | `src/chunks.bend` | 217 | 31 | 190 | 198 | 19 |
-| `src/ckernels.bend` | 206 | 48 | 0 | 147 | 59 |
+| `src/ckernels.bend` | 206 | 48 | 7 | 147 | 59 |
 | `src/column.bend` | 160 | 29 | 158 | 158 | 2 |
 | `src/csv.bend` | 412 | 15 | 403 | 411 | 1 |
 | `src/csvlane.bend` | 152 | 1 | 152 | 152 | 0 |
@@ -295,9 +295,9 @@ reach these", not as line coverage. Reported, not gated.
 | `src/sort.bend` | 83 | 3 | 81 | 81 | 2 |
 | `src/strs.bend` | 92 | 10 | 90 | 90 | 2 |
 | `src/table.bend` | 72 | 1 | 72 | 72 | 0 |
-| **total** | **3349** | **460** | **3024** | **3246** | **103** |
+| **total** | **3350** | **460** | **3032** | **3247** | **103** |
 
-96.9 % of the 3349 defs are reachable from the tests (90.3 % through the facade alone).
+96.9 % of the 3350 defs are reachable from the tests (90.5 % through the facade alone).
 
 Unreached defs:
 
