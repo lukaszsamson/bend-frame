@@ -346,6 +346,51 @@ def Exec.run_code(code: List<&2, Instr>, env: P.Env) -> E.ResT(C.Frame):
 def Exec.run_pure(+p: P.Plan, env: P.Env) -> E.ResT(C.Frame):
   Exec.run_code(Exec.mark(Exec.compile(p, Nil{})), env)
 
+# ---- the physical Sort + Head step (v0.2 T3.4) -------------------------------------------------
+#
+# Exec.run_phys is what Exec.run executes: Exec.run_pure, except that a plan whose ROOT is
+# Head{n, Sort{ks, x}} runs x's code and then ONE step, Sort.frame_head (the full stable argsort,
+# then only min(n, height) rows gathered), in place of ISort{ks} then IHead{n}. A physical
+# pattern of the runner, not a plan rewrite: Exec.compile / Exec.mark / Exec.loop / run_pure (the
+# runner the proofs quantify over) and Optimize.release are unchanged. LAWS.bend section 16
+# (sort_head_run, run_phys_obs, collect_obs): the same error, height, names, dtypes, lengths and
+# cells as run_pure, for every plan and env.
+
+def Exec.sorthead.s(ks: List<&2, O.SortKey>, +n: U32, stack: List<&1, C.Frame>) -> E.ResT(List<&1, C.Frame>):
+  match stack:
+    case Nil{}:
+      Fail{Exec.underflow()}
+    case f <> t:
+      Exec.push(O.Sort.frame_head(f, ks, n), t)
+
+def Exec.sorthead.r(ks: List<&2, O.SortKey>, +n: U32, env: P.Env, r: E.ResT(List<&1, C.Frame>)) -> St:
+  match r:
+    case Fail{e}:
+      St{env, Fail{e}}
+    case Done{stack}:
+      St{env, Exec.sorthead.s(ks, n, stack)}
+
+# ISort{ks} then IHead{n}, as one step over the runner's state
+def Exec.sorthead(ks: List<&2, O.SortKey>, +n: U32, st: St) -> St:
+  match st:
+    case St{env, r}:
+      Exec.sorthead.r(ks, n, env, r)
+
+def Exec.run_phys.h(+n: U32, x: P.Plan, env: P.Env) -> E.ResT(C.Frame):
+  match x:
+    case P.Sort{ks, y}:
+      Exec.fin(Exec.sorthead(ks, n, Exec.loop(Exec.mark(Exec.compile(y, Nil{})), St{env, Done{Nil{}}})))
+    case other:
+      Exec.run_pure(P.Head{n, other}, env)
+
+# the runner Exec.run executes: run_pure with the Sort + Head step at the root
+def Exec.run_phys(+p: P.Plan, env: P.Env) -> E.ResT(C.Frame):
+  match p:
+    case P.Head{+n, x}:
+      Exec.run_phys.h(n, x, env)
+    case other:
+      Exec.run_pure(other, env)
+
 # ---- scan materialisation (the IO boundary) --------------------------------------------------
 #
 # Every ScanCsv of a plan is read before anything runs: scan k (postfix order, the
@@ -468,7 +513,7 @@ def Exec.run.m(+p: P.Plan, env: P.Env, m: Mat) -> E.ResT(C.Frame):
     case Mat{acc, Some{e}}:
       Fail{e}
     case Mat{acc, None{}}:
-      Exec.run_pure(p, P.Env.set_scans(env, List.reverse(&1, C.Frame, acc)))
+      Exec.run_phys(p, P.Env.set_scans(env, List.reverse(&1, C.Frame, acc)))
 
 def Exec.run.v(+p: P.Plan, r: P.Env & E.Res(Unit)) -> IO(E.ResT(C.Frame)):
   (env, v) = r
@@ -490,8 +535,9 @@ def Exec.run.k(r: E.Res(List<&2, S.Field>), +p: P.Plan, env: P.Env) -> IO(E.ResT
 # run a plan as written (no optimisation) over the frames of env: the plan's
 # schema is resolved first and its error, if any, is the result; then the
 # bindings (Exec.validate); then every scan is read (Exec.mat, the IO
-# boundary) into env's scan namespace; then the pure runner (Exec.run_pure) on
-# the plan as it is. env is consumed (frames the plan does not name are dropped).
+# boundary) into env's scan namespace; then the physical runner (Exec.run_phys:
+# Exec.run_pure with the Sort + Head step at the root) on the plan as it is. env is
+# consumed (frames the plan does not name are dropped).
 def Exec.run(+p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
   Exec.run.k(P.Plan.schema(p), p, env)
 
