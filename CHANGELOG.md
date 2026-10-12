@@ -32,19 +32,18 @@ Against the pinned v0.1 baseline (3612482), same driver, Apple M2 Pro, medians o
 
 ### Verified scope
 
-231 laws in `LAWS.bend` (149 in 0.1.0; 82 added), all proven in `PROOF*.bend` over production functions, checked by `bend PROOF.bend` and `--verdict`; no axiom, no `@unsafe`, no open law. They fall in three groups of different weight, and the original gate G5 ("every changed proved production path keeps its theorem chain") is recorded as PARTIAL in `plans/GATES_V02.md`:
+241 laws in `LAWS.bend` (149 in 0.1.0; 82 added by the W8 close, 10 more by the B1 fix), all proven in `PROOF*.bend` over production functions, checked by `bend PROOF.bend` and `--verdict`; no axiom, no `@unsafe`, no open law. They fall in three groups of different weight, and the original gate G5 ("every changed proved production path keeps its theorem chain") is recorded as PARTIAL in `plans/GATES_V02.md`:
 
 1. **Preserved theorems about existing functions** (the 149 v0.1 laws): none weakened, dropped or turned into a hypothesis; the Dictionary probe hypotheses stay conditional; `release_run` is unchanged. The evaluator typing theorems (`run_typed`, `eval_full_typed`, `eval_expr_typed`) are about `Eval.full` / `Eval.expr` / `Eval.run`, which since 0.2.0 the default `select` / `with_columns` / `filter` path no longer executes: those verbs run `Eval.runz(Eval.fuse(Eval.mark(compile)))`, and the equivalence of `runz` to `run` is not stated (`LAWS.bend` section 19 header).
 2. **New local kernel and peephole theorems, each at stated instances and premises** (82 laws: `range_cell`, and sections 16-22): section 18's fused-kernel laws are each at ONE template instance while production instantiates the kernels for u32 / i32 / f32; section 19's peephole laws are one instance per peephole (`peep_f4_cell` is a U32 instance under a zero-payload premise that no theorem establishes for every producer); section 22 is 14 laws over 53 generated chunked wrappers, 4 of them (sum, min, max, popcount) on the chunked runner's path. New facts that matter beyond their kernels: `croom_of_cap` derives v0.1's `CRoom` hypothesis for per-leaf compaction; `sort_head_run` / `collect_obs` relate the physical runner `collect` executes to `Exec.run_pure`; `filter_select_run` proves the Filter + Select step.
 3. **Unproven integration**: the fused runner `Eval.runz` as a whole, the chunked runner's `CX.*` walks and the `Eval.runz` call in each leaf, the v0.2 reader, the string coder, the rank stage, the radix sort, n_unique, describe's fused pass, the balanced list forks, and native execution.
 
-- `make mutation-check`: 92 in-place mutations of production functions (14 in 0.1.0), all caught, the unmutated copy accepted.
-- `make mutation-check`: 92 in-place mutations of production functions (14 in 0.1.0), all caught, the unmutated copy accepted.
+- `make mutation-check`: 104 in-place mutations of production functions (14 in 0.1.0; 92 at the W8 close, 12 added by the B1 fix), all caught, the unmutated copy accepted.
 - Tested only (`DESIGN.md` 8.2): the fused runner `Eval.runz` (tests/eval_fused: 473 expressions against the unfused evaluator, and every differential), the chunked executor (no theorem relates it to `Exec.run_pure`), the v0.2 reader, the string coder, the rank stage, the radix sort pipeline, n_unique, describe's fused pass, the balanced list forks, and the native scheduler.
 
 ### Testing
 
-- 205 test programs (files) in `make test` (158 in 0.1.0; 203 at the W8 close, two added after the reviews: `tests/csv_bom.bend`, `tests/agg_median_zero_sign.bend`), 0 XFAIL. `docs/COVERAGE.md`: 816 operation x kind cells, 762 covered, 54 n/a with a reason, 0 missing.
+- 209 test programs (files) in `make test` (158 in 0.1.0; 203 at the W8 close; six added after the reviews: `tests/csv_bom.bend`, `tests/agg_median_zero_sign.bend` and four B1 regressions under `tests/regress/V02_B1_*`), 0 XFAIL. `docs/COVERAGE.md`: 816 operation x kind cells, 762 covered, 54 n/a with a reason, 0 missing.
 - G1 differential counts are in `plans/GATES_V02.md` (generated cases through the reference and the chunked engine at four grains, Raw and Dictionary, deep plans, join stress, interpreter vs native; the CSV fuzz of the v0.2 reader against v0.1 at seven piece sizes).
 - `make ci` green on the 0.2.0 tree (time and result in `plans/STATUS.md` "W8").
 

@@ -773,9 +773,10 @@ after it; v0.2 W1f added `range_cell`, the range copy behind `Column.slice`; v0.
 the moves of the liveness pass; v0.2 T3.4 added section 17, the Sort + Head bounded gather and the
 runner's physical step `Exec.run_phys`; v0.2 T4.1 added section 18, the fused kernels; T4.2 section 19,
 the fusion peepholes; T4.3 section 20, the Filter + Select step; T5.1 section 21, the chunk trees; T5.2
-section 22, the chunked kernel wrappers; recounted at T4.4, after the T4.2 / T4.3 / T5.2 merges):
-`LAWS.bend` states 231 laws over `src/` in 22 sections (5 and 5b counted as one; per section 5, 20, 9,
-9, 5, 2, 5, 11, 6, 5, 16, 4, 22, 22, 9, 5, 4, 17, 25, 5, 11, 14); `PROOF.bend` imports
+section 22, the chunked kernel wrappers; recounted at T4.4, after the T4.2 / T4.3 / T5.2 merges, and after
+the post-review B1 fix, which added 10 laws to section 19):
+`LAWS.bend` states 241 laws over `src/` in 22 sections (5 and 5b counted as one; per section 5, 20, 9,
+9, 5, 2, 5, 11, 6, 5, 16, 4, 22, 22, 9, 5, 4, 17, 35, 5, 11, 14); `PROOF.bend` imports
 `PROOF_lib`, `PROOF_schema`, `PROOF_expr`, `PROOF_plan`, `PROOF_kernels`, `PROOF_exec`,
 `PROOF_bits`, `PROOF_contents`, `PROOF_eval`, `PROOF_evalops`, `PROOF_evalrun`,
 `PROOF_strs`, `PROOF_append`, `PROOF_inplace`, `PROOF_moves`, `PROOF_sorthead`, `PROOF_fused`,
@@ -848,7 +849,7 @@ on aliases / on every select), T5.1 12 over the chunk trees and T5.2 12 over the
 `Eval.filter.mask`, which `Eval.filter` and `Exec.fs` share, so a wrong count there changes both sides
 of `filter_select_step` and is not a control any more (no law pins Eval.filter's count against an
 independent model; before T4.4 it was Exec.fs's private copy that was mutated); the control mutates
-the step's own use of the count (`Exec.fs.q`, kept + 1) instead. `make mutation-check` runs 92 mutations
+the step's own use of the count (`Exec.fs.q`, kept + 1) instead. `make mutation-check` runs 104 mutations (92 at W8; 12 added by the post-review B1 fix)
 in all, all caught, the unmutated copy accepted.
 
 Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
