@@ -64,8 +64,8 @@ MUTATIONS = [
     ("Dict.rc.put: map entry written at the wrong slot", "src/strs.bend",
      "(dst, Array.set(U32, out, c, x))", "(dst, Array.set(U32, out, U32.inc(c), x))"),
     ("Eval.un: Neg over i32 answers a u32 column", "src/eval.bend",
-     "Done{C.CI32{n, d, v, K.Kernel.map(~U32, ~U32, ~(w => U32.sub(0, w)), n, d, x, 0)}}",
-     "Done{C.CU32{n, d, v, K.Kernel.map(~U32, ~U32, ~(w => U32.sub(0, w)), n, d, x, 0)}}"),
+     "C.CI32{n, d, C.AllValid{}, K.Kernel.map(~U32, ~U32, ~(w => U32.sub(0, w)), n, d, x, 0)}",
+     "C.CU32{n, d, C.AllValid{}, K.Kernel.map(~U32, ~U32, ~(w => U32.sub(0, w)), n, d, x, 0)}"),
     ("Sort.gh.k: the bounded gather keeps one row too many", "src/sort.bend",
      "Sort.gather.k(U32.min(n, h), Sort.gcols(cols, U32.min(n, h), (perm, Nil{})))",
      "Sort.gather.k(U32.min(U32.inc(n), h), Sort.gcols(cols, U32.min(U32.inc(n), h), (perm, Nil{})))"),
@@ -201,7 +201,36 @@ MUTATIONS = [
     ("T4.2 F4 Eval.fz.isdef: any u32 literal counts as the default", "src/eval.bend",
      "    case D.SU32{w} D.TU32{}:\n      U32.is_zero(w)", "    case D.SU32{w} D.TU32{}:\n      True{}"),
     ("T4.2 F4 Eval.fz.z0: the fill is a no-op (validity kept)", "src/eval.bend",
-     "Z0R{True{}, C.Column.set_valid(c, C.AllValid{})}", "Z0R{True{}, c}"),
+     "Z0R{True{}, C.Column.set_valid(Eval.fix(c), C.AllValid{})}", "Z0R{True{}, Eval.fix(c)}"),
+    # post-review B1 (LAWS section 19: peep_f4, peep_f4_not_noop, peep_f4_cell, peep_f4_borrow,
+    # peep_f4_borrow_cell, un_neg_f32*, un_abs_f32_null, un_sqrt_f32_null, un_neg_i32_null,
+    # un_abs_i32_null): F4 resets the null slots itself, and every masked unary loop writes the default
+    # under a null; each reset removed, inverted or misplaced must be rejected
+    ("B1 F4 Eval.fz.z0: the null slots not reset (v0.2's free path)", "src/eval.bend",
+     "Z0R{True{}, C.Column.set_valid(Eval.fix(c), C.AllValid{})}", "Z0R{True{}, C.Column.set_valid(c, C.AllValid{})}"),
+    ("B1 F4 Eval.fz.dc.wv: the borrowed copy keeps the null slots", "src/eval.bend",
+     "~(w => k => Bool.pick(U32, U32.is_ne(k, 0), w, 0))", "~(w => k => w)"),
+    ("B1 F4 Eval.fz.dc.wv: the borrowed copy zeroes the valid rows", "src/eval.bend",
+     "~(w => k => Bool.pick(U32, U32.is_ne(k, 0), w, 0))", "~(w => k => Bool.pick(U32, U32.is_eq(k, 0), w, 0))"),
+    ("B1 F4 Eval.fz.dm.w: the frame's column handed back without its mask", "src/eval.bend",
+     "Z1R{Some{C.Column.mk_w(t, n, d, C.AllValid{}, o)}, C.Column.mk_w(t, n, d, C.Mask{m}, x)}",
+     "Z1R{Some{C.Column.mk_w(t, n, d, C.AllValid{}, o)}, C.Column.mk_w(t, n, d, C.AllValid{}, x)}"),
+    ("B1 Eval.un.fneg: the null slot not reset (v0.2's -0.0)", "src/eval.bend",
+     "~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.neg(w), 0.0))", "~(w => k => F32.neg(w))", [("PROOF_evalops.bend", "~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.neg(w), 0.0))", "~(w => k => F32.neg(w))")]),
+    ("B1 Eval.un.fneg: the reset applied to the valid rows (inverted mask)", "src/eval.bend",
+     "~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.neg(w), 0.0))", "~(w => k => Bool.pick(F32, U32.is_eq(k, 0), F32.neg(w), 0.0))", [("PROOF_evalops.bend", "~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.neg(w), 0.0))", "~(w => k => Bool.pick(F32, U32.is_eq(k, 0), F32.neg(w), 0.0))")]),
+    ("B1 Eval.un.fneg: a null slot written as -0.0", "src/eval.bend",
+     "~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.neg(w), 0.0))", "~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.neg(w), F32.neg(0.0)))", [("PROOF_evalops.bend", "~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.neg(w), 0.0))", "~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.neg(w), F32.neg(0.0)))")]),
+    ("B1 Eval.un.mf: the masked f32 result loses its mask", "src/eval.bend",
+     "    case K.ZB{o, x, m}:\n      C.CF32{n, d, C.Mask{m}, o}", "    case K.ZB{o, x, m}:\n      C.CF32{n, d, C.AllValid{}, o}", [("PROOF_evalops.bend", "(C.CF32{n, d, C.Mask{m}, o}, {==}, ({==}, {==}))", "(C.CF32{n, d, C.AllValid{}, o}, {==}, ({==}, {==}))")]),
+    ("B1 Eval.un.fabs: the null slot not reset", "src/eval.bend",
+     "~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.abs(w), 0.0))", "~(w => k => F32.abs(w))", [("PROOF_evalops.bend", "~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.abs(w), 0.0))", "~(w => k => F32.abs(w))")]),
+    ("B1 Eval.un.fsqrt: the null slot not reset", "src/eval.bend",
+     "~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.sqrt(w), 0.0))", "~(w => k => F32.sqrt(w))", [("PROOF_evalops.bend", "~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.sqrt(w), 0.0))", "~(w => k => F32.sqrt(w))")]),
+    ("B1 Eval.un.ineg: the null slot not reset", "src/eval.bend",
+     "~(w => k => Bool.pick(U32, U32.is_ne(k, 0), U32.sub(0, w), 0))", "~(w => k => U32.sub(0, w))", [("PROOF_evalops.bend", "~(w => k => Bool.pick(U32, U32.is_ne(k, 0), U32.sub(0, w), 0))", "~(w => k => U32.sub(0, w))")]),
+    ("B1 Eval.un.iabs: the null slot not reset", "src/eval.bend",
+     "~(w => k => Bool.pick(U32, U32.is_ne(k, 0), D.I32.mag(D.I32{w}), 0))", "~(w => k => D.I32.mag(D.I32{w}))", [("PROOF_evalops.bend", "~(w => k => Bool.pick(U32, U32.is_ne(k, 0), D.I32.mag(D.I32{w}), 0))", "~(w => k => D.I32.mag(D.I32{w}))")]),
     ("T4.2 F5 Eval.f5.pk: the conjunct ORed into the mask", "src/eval.bend",
      "~(p => x => y => U32.and(x, g(y, p)))", "~(p => x => y => U32.or(x, g(y, p)))"),
     ("T4.2 F5 Eval.f5.plan: Kleene or planned as a conjunction", "src/eval.bend",
@@ -297,16 +326,23 @@ def failing_laws(out: str):
 
 
 def run_mutation(args):
-    tmp, (name, rel, old, new) = args
+    tmp, mut = args
+    name, rel, old, new = mut[:4]
+    # optional 5th element: companion patches of PROOF files that restate the mutated production text
+    # verbatim inside a typing witness (post-review B1: PROOF_evalops' ineg_w / fneg_w ... name the masked
+    # template). They are applied too, so the witness keeps checking and the mutation must be rejected
+    # by a CONTENT law (the location printed below), not by a textual mismatch.
+    extra = mut[4] if len(mut) > 4 else []
     d = Path(tmp)
     make_copy(d)
-    p = d / rel
-    text = p.read_text()
-    n = text.count(old)
-    if n != 1:
-        return name, "BROKEN", f"the patch matched {n} times in {rel} (want exactly 1): the mutation table is stale", 0.0
-    p.write_text(text.replace(old, new))
-    assert p.read_text() != text
+    for frel, fold, fnew in [(rel, old, new)] + list(extra):
+        p = d / frel
+        text = p.read_text()
+        n = text.count(fold)
+        if n != 1:
+            return name, "BROKEN", f"the patch matched {n} times in {frel} (want exactly 1): the mutation table is stale", 0.0
+        p.write_text(text.replace(fold, fnew))
+        assert p.read_text() != text
     rc, out, secs = prove(d)
     if rc == "timeout":
         return name, "BROKEN", f"timeout after {TIMEOUT:.0f} s", secs

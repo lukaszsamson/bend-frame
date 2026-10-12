@@ -22,8 +22,10 @@
 # Nulls (DESIGN.md section 5): validity masks are ANDed by every op (bool and/or
 # are Kleene; first/last keep a null row; n_unique counts null as a value); the
 # result of an op over a Mask column has its null slots reset to the dtype
-# default (`Eval.fix`), so the column invariant "an invalid slot holds
-# DType.default" is kept by every result.
+# default (`Eval.fix`, or written as the default by the op's own masked loop:
+# the unary maps, zipv, F4), so the column invariant "an invalid slot holds
+# DType.default" is kept by every result. Post-review B1 (DESIGN.md 14): f32 neg
+# broke it (+0.0 -> -0.0) and F4 read the slot; src/p0.bend checks it.
 #
 # Idioms (DESIGN.md section 9): helpers above callers; match only on params;
 # pairs taken apart in the next helper's parameter; ~T templates.
@@ -58,7 +60,10 @@ type Opd is Data:
 
 # the pre-operation of a frame operand folded into the fused loop: none, a cast (F3: fires only
 # for the total pairs u32 / i32 / bool -> f32 and the identity), fill_null with a literal (F4:
-# fires only for the dtype default, which a null slot already holds)
+# fires only for the dtype default; as a pre-operation of a frame column inside Z1 / Z2 it reads the
+# null slots as they are, so it relies on the frame column holding the default there: the P0
+# invariant every stored column keeps, DESIGN.md 14 "v0.2 post-review: the null-slot invariant";
+# Z0 alone resets the slots, so it relies on nothing)
 type Pre is Data:
   PNone{}
   PCast{to: D.DType}
@@ -371,23 +376,76 @@ def Eval.un.b(op: X.UnOp, +n: U32, +d: Nat, v: C.Valid, x: Array<U32>) -> E.ResT
     case _:
       Fail{Eval.bug("unary op on bool")}
 
+# ---- the numeric unary maps (post-review B1: the null-slot invariant) ----------------------------
+# Over an AllValid column the plain map. Over a Mask, ONE masked loop: Kernel.zipb over the data and
+# the mask (both borrowed) writes m[i] != 0 ? f(x[i]) : default, so a null slot of the result holds
+# the dtype default whatever f does to the default (f32 neg maps +0.0 to -0.0: before the fix the
+# null slot of neg(x) held -0.0, and F4's fill_null(.., 0.0), which only flips the validity, exposed
+# it). A valid row is f(x[i]) exactly (a valid -0.0 stays -0.0). The mask comes back as the result's
+# validity. Laws: LAWS.bend section 19, un_neg_f32 / un_neg_f32_null / un_neg_f32_valid.
+
+def Eval.un.mi(+n: U32, d: Nat, r: K.ZB<U32, U32, U32>) -> C.Column:
+  match r:
+    case K.ZB{o, x, m}:
+      C.CI32{n, d, C.Mask{m}, o}
+
+def Eval.un.mf(+n: U32, d: Nat, r: K.ZB<F32, U32, F32>) -> C.Column:
+  match r:
+    case K.ZB{o, x, m}:
+      C.CF32{n, d, C.Mask{m}, o}
+
+def Eval.un.ineg(+n: U32, +d: Nat, v: C.Valid, x: Array<U32>) -> C.Column:
+  match v:
+    case C.AllValid{}:
+      C.CI32{n, d, C.AllValid{}, K.Kernel.map(~U32, ~U32, ~(w => U32.sub(0, w)), n, d, x, 0)}
+    case C.Mask{m}:
+      Eval.un.mi(n, d, K.Kernel.zipb(~U32, ~U32, ~U32, ~(w => k => Bool.pick(U32, U32.is_ne(k, 0), U32.sub(0, w), 0)), n, d, x, m, 0))
+
+def Eval.un.iabs(+n: U32, +d: Nat, v: C.Valid, x: Array<U32>) -> C.Column:
+  match v:
+    case C.AllValid{}:
+      C.CI32{n, d, C.AllValid{}, K.Kernel.map(~U32, ~U32, ~(w => D.I32.mag(D.I32{w})), n, d, x, 0)}
+    case C.Mask{m}:
+      Eval.un.mi(n, d, K.Kernel.zipb(~U32, ~U32, ~U32, ~(w => k => Bool.pick(U32, U32.is_ne(k, 0), D.I32.mag(D.I32{w}), 0)), n, d, x, m, 0))
+
+def Eval.un.fneg(+n: U32, +d: Nat, v: C.Valid, x: Array<F32>) -> C.Column:
+  match v:
+    case C.AllValid{}:
+      C.CF32{n, d, C.AllValid{}, K.Kernel.map(~F32, ~F32, ~(w => F32.neg(w)), n, d, x, 0.0)}
+    case C.Mask{m}:
+      Eval.un.mf(n, d, K.Kernel.zipb(~F32, ~U32, ~F32, ~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.neg(w), 0.0)), n, d, x, m, 0.0))
+
+def Eval.un.fabs(+n: U32, +d: Nat, v: C.Valid, x: Array<F32>) -> C.Column:
+  match v:
+    case C.AllValid{}:
+      C.CF32{n, d, C.AllValid{}, K.Kernel.map(~F32, ~F32, ~(w => F32.abs(w)), n, d, x, 0.0)}
+    case C.Mask{m}:
+      Eval.un.mf(n, d, K.Kernel.zipb(~F32, ~U32, ~F32, ~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.abs(w), 0.0)), n, d, x, m, 0.0))
+
+def Eval.un.fsqrt(+n: U32, +d: Nat, v: C.Valid, x: Array<F32>) -> C.Column:
+  match v:
+    case C.AllValid{}:
+      C.CF32{n, d, C.AllValid{}, K.Kernel.map(~F32, ~F32, ~(w => F32.sqrt(w)), n, d, x, 0.0)}
+    case C.Mask{m}:
+      Eval.un.mf(n, d, K.Kernel.zipb(~F32, ~U32, ~F32, ~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.sqrt(w), 0.0)), n, d, x, m, 0.0))
+
 def Eval.un.i(op: X.UnOp, +n: U32, +d: Nat, v: C.Valid, x: Array<U32>) -> E.ResT(C.Column):
   match op:
     case X.Neg{}:
-      Done{C.CI32{n, d, v, K.Kernel.map(~U32, ~U32, ~(w => U32.sub(0, w)), n, d, x, 0)}}
+      Done{Eval.un.ineg(n, d, v, x)}
     case X.Abs{}:
-      Done{C.CI32{n, d, v, K.Kernel.map(~U32, ~U32, ~(w => D.I32.mag(D.I32{w})), n, d, x, 0)}}
+      Done{Eval.un.iabs(n, d, v, x)}
     case _:
       Fail{Eval.bug("unary op on i32")}
 
 def Eval.un.f(op: X.UnOp, +n: U32, +d: Nat, v: C.Valid, x: Array<F32>) -> E.ResT(C.Column):
   match op:
     case X.Neg{}:
-      Done{C.CF32{n, d, v, K.Kernel.map(~F32, ~F32, ~(w => F32.neg(w)), n, d, x, 0.0)}}
+      Done{Eval.un.fneg(n, d, v, x)}
     case X.Abs{}:
-      Done{C.CF32{n, d, v, K.Kernel.map(~F32, ~F32, ~(w => F32.abs(w)), n, d, x, 0.0)}}
+      Done{Eval.un.fabs(n, d, v, x)}
     case X.Sqrt{}:
-      Done{C.CF32{n, d, v, K.Kernel.map(~F32, ~F32, ~(w => F32.sqrt(w)), n, d, x, 0.0)}}
+      Done{Eval.un.fsqrt(n, d, v, x)}
     case _:
       Fail{Eval.bug("unary op on f32")}
 
@@ -413,8 +471,9 @@ def Eval.un.v(op: X.UnOp, c: C.Column) -> E.ResT(C.Column):
     case _:
       Fail{Eval.bug("unary op")}
 
-# Neg/Abs (i32, f32), Not (bool), Sqrt (f32): null in, null out (the mask is
-# kept as is; neg/abs/sqrt of a default slot is the default again, Not is fixed)
+# Neg/Abs (i32, f32), Not (bool), Sqrt (f32): null in, null out (the mask is kept as is). Every
+# result's null slots hold the dtype default: neg/abs/sqrt write it in their masked loop (f32 neg of
+# the default +0.0 is -0.0, so "the default again" does NOT hold: post-review B1), Not is fixed
 def Eval.un(op: X.UnOp, c: C.Column) -> E.ResT(C.Column):
   match op:
     case X.IsNull{}:
@@ -2537,8 +2596,9 @@ def Eval.fz.ic(op: X.BinOp, +n: U32, +d: Nat, va: C.Valid, a: Array<F32>, vb: C.
 
 # ---- the operand's side: what the pre-operation makes of it --------------------------------------
 
-# fill_null's literal is the dtype default of a word / f32 column (+0.0 by its bits): the null
-# slots already hold it (P0), so F4 fires
+# fill_null's literal is the dtype default of a word / f32 column (+0.0 by its bits, never -0.0), so
+# F4 fires: Z0 resets the null slots to it (Eval.fz.z0 / dc); a fill side of Z1 / Z2 (a frame column
+# only) reads the slots as stored, which hold it by the P0 invariant of every stored column
 def Eval.fz.isdef(v: D.Scalar, t: D.DType) -> Bool:
   match v t:
     case D.SU32{w} D.TU32{}:
@@ -2585,7 +2645,11 @@ def Eval.fz.side(pre: Pre, +t: D.DType) -> Side:
     case PCast{to}:
       Eval.fz.cside(t, to)
 
-# a fired fill reads the column with validity AllValid; the mask is kept aside and put back after
+# a fired fill reads the column with validity AllValid; the mask is kept aside and put back after.
+# Only frame columns get here (the selector folds a fill only after ICol / IMove), and the null slots
+# are read as stored: correct because a stored column holds the default under its nulls (P0; the
+# producer audit in DESIGN.md 14 "v0.2 post-review: the null-slot invariant", checked on every
+# differential result by src/p0.bend)
 def Eval.fz.view(fill: Bool, c: C.Column) -> C.Column & C.Valid:
   match fill:
     case True{}:
@@ -2915,10 +2979,16 @@ def Eval.fz.f4(pre: Pre, +t: D.DType) -> Bool:
     case _:
       False{}
 
+# F4 fires on an owned column: the null slots reset to the default IN PLACE (Eval.fix: one
+# Kernel.mask_data pass, nothing allocated; nothing at all when AllValid), then validity AllValid.
+# Post-review B1: v0.2 skipped the reset on the premise that every null slot already holds the
+# default (P0), which F32 neg broke; the reset makes F4 equal Eval.fill whatever the operand's slots
+# hold (LAWS peep_f4_cell has no slot hypothesis), so a producer that breaks P0 can no longer make a
+# null row of fill_null(e, default) answer anything but the default.
 def Eval.fz.z0.b(go: Bool, c: C.Column) -> Z0R:
   match go:
     case True{}:
-      Z0R{True{}, C.Column.set_valid(c, C.AllValid{})}
+      Z0R{True{}, C.Column.set_valid(Eval.fix(c), C.AllValid{})}
     case False{}:
       Z0R{False{}, c}
 
@@ -2926,32 +2996,59 @@ def Eval.fz.z0.a(pre: Pre, r: C.Column & D.DType) -> Z0R:
   (c, +t) = r
   Eval.fz.z0.b(Eval.fz.f4(pre, t), c)
 
-# F4 on an owned column: fill_null with the dtype default is the column itself with validity
-# AllValid (the null slots already hold the default: P0). NOT a no-op: the validity changes
+# F4 on an owned column: fill_null with the dtype default is the column with its null slots reset to
+# the default (in place) and validity AllValid. NOT a no-op: the validity changes
 def Eval.fz.z0(pre: Pre, c: C.Column) -> Z0R:
   Eval.fz.z0.a(pre, C.Column.dtype(c))
 
-def Eval.fz.dc.w(+t: D.DType, +n: U32, +d: Nat, v: C.Valid, r: Array<U32> & Array<U32>) -> Z1R:
+def Eval.fz.dc.w(+t: D.DType, +n: U32, +d: Nat, r: Array<U32> & Array<U32>) -> Z1R:
   (x1, x2) = r
-  Z1R{Some{C.Column.mk_w(t, n, d, C.AllValid{}, x1)}, C.Column.mk_w(t, n, d, v, x2)}
+  Z1R{Some{C.Column.mk_w(t, n, d, C.AllValid{}, x1)}, C.Column.mk_w(t, n, d, C.AllValid{}, x2)}
 
-def Eval.fz.dc.f(+n: U32, +d: Nat, v: C.Valid, r: Array<F32> & Array<F32>) -> Z1R:
+def Eval.fz.dc.f(+n: U32, +d: Nat, r: Array<F32> & Array<F32>) -> Z1R:
   (x1, x2) = r
-  Z1R{Some{C.CF32{n, d, C.AllValid{}, x1}}, C.CF32{n, d, v, x2}}
+  Z1R{Some{C.CF32{n, d, C.AllValid{}, x1}}, C.CF32{n, d, C.AllValid{}, x2}}
+
+def Eval.fz.dm.w(+t: D.DType, +n: U32, +d: Nat, r: K.ZB<U32, U32, U32>) -> Z1R:
+  match r:
+    case K.ZB{o, x, m}:
+      Z1R{Some{C.Column.mk_w(t, n, d, C.AllValid{}, o)}, C.Column.mk_w(t, n, d, C.Mask{m}, x)}
+
+def Eval.fz.dm.f(+n: U32, +d: Nat, r: K.ZB<F32, U32, F32>) -> Z1R:
+  match r:
+    case K.ZB{o, x, m}:
+      Z1R{Some{C.CF32{n, d, C.AllValid{}, o}}, C.CF32{n, d, C.Mask{m}, x}}
+
+# a borrowed word column's fill: an AllValid one is copied as is; a masked one gets a masked copy
+# (Kernel.zipb over the data and the mask, both handed back: m[i] != 0 ? x[i] : 0, one loop)
+def Eval.fz.dc.wv(+t: D.DType, +n: U32, +d: Nat, v: C.Valid, x: Array<U32>) -> Z1R:
+  match v:
+    case C.AllValid{}:
+      Eval.fz.dc.w(t, n, d, Array.clone(U32, x))
+    case C.Mask{m}:
+      Eval.fz.dm.w(t, n, d, K.Kernel.zipb(~U32, ~U32, ~U32, ~(w => k => Bool.pick(U32, U32.is_ne(k, 0), w, 0)), n, d, x, m, 0))
+
+def Eval.fz.dc.fv(+n: U32, +d: Nat, v: C.Valid, x: Array<F32>) -> Z1R:
+  match v:
+    case C.AllValid{}:
+      Eval.fz.dc.f(n, d, Array.clone(F32, x))
+    case C.Mask{m}:
+      Eval.fz.dm.f(n, d, K.Kernel.zipb(~F32, ~U32, ~F32, ~(w => k => Bool.pick(F32, U32.is_ne(k, 0), w, 0.0)), n, d, x, m, 0.0))
 
 # F4 on a BORROWED column: the result needs its own payload because the frame keeps the column
-# (a move cannot work: the reference is not the column's last); one copy of the data buffer (v0.1
-# copied data and mask, then ran Kernel.choose over the copy)
+# (a move cannot work: the reference is not the column's last); one masked copy of the data buffer
+# (the null slots written as the default, post-review B1: the frame's column is not trusted to hold
+# it), the column handed back unchanged (v0.1 copied data and mask, then ran Kernel.choose over the copy)
 def Eval.fz.dc(c: C.Column) -> Z1R:
   match c:
     case C.CBool{+n, +d, v, x}:
-      Eval.fz.dc.w(D.TBool{}, n, d, v, Array.clone(U32, x))
+      Eval.fz.dc.wv(D.TBool{}, n, d, v, x)
     case C.CU32{+n, +d, v, x}:
-      Eval.fz.dc.w(D.TU32{}, n, d, v, Array.clone(U32, x))
+      Eval.fz.dc.wv(D.TU32{}, n, d, v, x)
     case C.CI32{+n, +d, v, x}:
-      Eval.fz.dc.w(D.TI32{}, n, d, v, Array.clone(U32, x))
+      Eval.fz.dc.wv(D.TI32{}, n, d, v, x)
     case C.CF32{+n, +d, v, x}:
-      Eval.fz.dc.f(n, d, v, Array.clone(F32, x))
+      Eval.fz.dc.fv(n, d, v, x)
     case C.CStr{n, d, v, x}:
       Z1R{None{}, C.CStr{n, d, v, x}}
 

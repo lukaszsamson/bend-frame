@@ -3295,26 +3295,190 @@ law peep_f3_strict:
 
 # ---- F4: fill_null with the dtype default (Eval.fz.z0) ------------------------------------------------
 
-# LAW (F4 fires on the default): fill_null(c, 0) over a masked u32 column is the column's own payload
-# with validity AllValid (no pass over the data)
+# Post-review B1: F4 used to be "validity := AllValid, payload untouched", correct only when every
+# null slot of the operand holds the default (P0); F32 neg broke that premise (its null slot held
+# -0.0). F4 now resets the null slots itself (Eval.fix, in place, on an owned column; one masked copy
+# on a borrowed one), so the laws below carry no slot hypothesis.
+
+# LAW (F4 fires on the default): fill_null(c, 0) over a masked u32 column owned by the evaluator is
+# the column with its null slots reset in place (Eval.fix: Kernel.mask_data) and validity AllValid
 law peep_f4:
   for +n: U32
   for +d: Nat
   for m: Array<U32>
   for a: Array<U32>
-  {V.Eval.fz.z0(V.PFill{D.SU32{0}}, C.CU32{n, d, C.Mask{m}, a}) == V.Z0R{True{}, C.CU32{n, d, C.AllValid{}, a}} : V.Z0R}
+  {V.Eval.fz.z0(V.PFill{D.SU32{0}}, C.CU32{n, d, C.Mask{m}, a}) == V.Z0R{True{}, C.Column.set_valid(V.Eval.fix(C.CU32{n, d, C.Mask{m}, a}), C.AllValid{})} : V.Z0R}
 
-# LAW (F4 is NOT a no-op): at a null row (mask word 0, whose slot holds the default 0: P0) the input
-# cell is null and the fused fill's cell is the value 0
+# LAW (F4 is NOT a no-op): at a null row (mask word 0) the input cell is null and the fused fill's cell
+# is the value 0, whatever the row's slot held (no P0 hypothesis: the reset writes the 0)
 law peep_f4_not_noop:
   for +n: U32
   for +d: Nat
   for m: Array<U32>
   for a: Array<U32>
   for +k: U32
+  for wf: WFArray(U32, d, a)
+  for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for +hk: {U32.is_lt(k, n) == True{} : Bool}
   for +hm: {rd_at(U32, m, k) == 0 : U32}
-  for +ha: {rd_at(U32, a, k) == 0 : U32}
   {ccell(C.CU32{n, d, C.Mask{m}, a}, k) == D.SNull{} : D.Scalar} & {ccell(z0_col(V.Eval.fz.z0(V.PFill{D.SU32{0}}, C.CU32{n, d, C.Mask{m}, a})), k) == D.SU32{0} : D.Scalar}
+
+# the column a borrowed F4 fill answers (a dummy when it does not fire)
+def z1_back(r: V.Z1R) -> C.Column:
+  match r:
+    case V.Z1R{res, a}:
+      a
+
+# LAW (F4 on a BORROWED column, Eval.fz.z0b): the result is one masked copy of the data (Kernel.zipb's
+# loop: the slot where the mask word is set, 0 where it is 0) with validity AllValid, and the frame's
+# column comes back unchanged (Frame.replace puts it back as it was)
+law peep_f4_borrow:
+  for +n: U32
+  for +d: Nat
+  for m: Array<U32>
+  for a: Array<U32>
+  {V.Eval.fz.z0b(V.PFill{D.SU32{0}}, C.CU32{n, d, C.Mask{m}, a}) == V.Z1R{Some{C.CU32{n, d, C.AllValid{}, K.Kernel.zip(~U32, ~U32, ~U32, ~(w => k => Bool.pick(U32, U32.is_ne(k, 0), w, 0)), n, d, a, m, 0)}}, C.CU32{n, d, C.Mask{m}, a}} : V.Z1R}
+
+# LAW (F4 borrowed against v0.1's fill_null): the borrowed fill's cell is Eval.fill's against the
+# literal 0's broadcast column at every row below n, whatever the null slots hold
+law peep_f4_borrow_cell:
+  for +n: U32
+  for +d: Nat
+  for m: Array<U32>
+  for a: Array<U32>
+  for +k: U32
+  for wf: WFArray(U32, d, a)
+  for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for +hk: {U32.is_lt(k, n) == True{} : Bool}
+  {ccell(z1_col(V.Eval.fz.z0b(V.PFill{D.SU32{0}}, C.CU32{n, d, C.Mask{m}, a})), k) == ccell(res_col(V.Eval.fill(C.CU32{n, d, C.Mask{m}, a}, V.Eval.const_col(D.SU32{0}, D.TU32{}, n))), k) : D.Scalar}
+
+# ---- post-review B1: the producer whose null slot broke F4's premise (Eval.un, F32 Neg) ---------------
+# Over a masked column the unary maps run ONE masked loop (Kernel.zipb over the data and the mask):
+# the null slots of the result hold the dtype default, the valid rows f(x) exactly. Stated in full at
+# f32 Neg (the instance that broke P0: neg(+0.0) = -0.0: structure, cell, null slot, valid control);
+# for f32 abs / sqrt and i32 neg / abs the null-slot law (each op's own production template, through
+# the generic cell lemmas ucf_k / uci_k of PROOF_peep.bend). Tested as well:
+# tests/regress/V02_B1_null_slot.bend, src/p0.bend on every differential result.
+
+# the f32 data buffer of a column (a dummy for another constructor)
+def fdata(c: C.Column) -> Array<F32>:
+  match c:
+    case C.CF32{len, depth, valid, data}:
+      data
+    case C.CBool{len, depth, valid, data}:
+      Array.new(F32, 0n, 0.0)
+    case C.CU32{len, depth, valid, data}:
+      Array.new(F32, 0n, 0.0)
+    case C.CI32{len, depth, valid, data}:
+      Array.new(F32, 0n, 0.0)
+    case C.CStr{len, depth, valid, data}:
+      Array.new(F32, 0n, 0.0)
+
+# LAW: neg over a masked f32 column is one masked loop: the mask kept as the result's validity, the data
+# Kernel.zip's (Kernel.zipb hands both operands back) of `m[i] != 0 ? -x[i] : +0.0`
+law un_neg_f32:
+  for +n: U32
+  for +d: Nat
+  for m: Array<U32>
+  for x: Array<F32>
+  {V.Eval.un(X.Neg{}, C.CF32{n, d, C.Mask{m}, x}) == Done{C.CF32{n, d, C.Mask{m}, K.Kernel.zip(~F32, ~U32, ~F32, ~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.neg(w), 0.0)), n, d, x, m, 0.0)}} : E.ResT(C.Column)}
+
+# LAW: the slot at every row k below n of neg's result is -x[k] where the mask word is set, +0.0 where it
+# is 0 (by the bits: the literal 0.0, never F32.neg(0.0))
+law un_neg_f32_cell:
+  for +n: U32
+  for +d: Nat
+  for m: Array<U32>
+  for x: Array<F32>
+  for +k: U32
+  for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for +hk: {U32.is_lt(k, n) == True{} : Bool}
+  {rd_at(F32, fdata(res_col(V.Eval.un(X.Neg{}, C.CF32{n, d, C.Mask{m}, x}))), k) == Bool.pick(F32, U32.is_ne(rd_at(U32, m, k), 0), F32.neg(rd_at(F32, x, k)), 0.0) : F32}
+
+# LAW (P0 for neg's result, the premise F4's fill side relies on): a null row's slot is +0.0
+law un_neg_f32_null:
+  for +n: U32
+  for +d: Nat
+  for m: Array<U32>
+  for x: Array<F32>
+  for +k: U32
+  for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for +hk: {U32.is_lt(k, n) == True{} : Bool}
+  for +hm: {rd_at(U32, m, k) == 0 : U32}
+  {rd_at(F32, fdata(res_col(V.Eval.un(X.Neg{}, C.CF32{n, d, C.Mask{m}, x}))), k) == 0.0 : F32}
+
+# LAW (the control: the reset touches no valid row): a valid row's slot is -x[k] exactly (a valid
+# +0.0 becomes -0.0, a valid -0.0 becomes +0.0)
+law un_neg_f32_valid:
+  for +n: U32
+  for +d: Nat
+  for m: Array<U32>
+  for x: Array<F32>
+  for +k: U32
+  for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for +hk: {U32.is_lt(k, n) == True{} : Bool}
+  for +hm: {U32.is_ne(rd_at(U32, m, k), 0) == True{} : Bool}
+  {rd_at(F32, fdata(res_col(V.Eval.un(X.Neg{}, C.CF32{n, d, C.Mask{m}, x}))), k) == F32.neg(rd_at(F32, x, k)) : F32}
+
+# the word data buffer of a column (Bool / U32 / I32; a dummy for another constructor)
+def wdata(c: C.Column) -> Array<U32>:
+  match c:
+    case C.CF32{len, depth, valid, data}:
+      Array.new(U32, 0n, 0)
+    case C.CBool{len, depth, valid, data}:
+      data
+    case C.CU32{len, depth, valid, data}:
+      data
+    case C.CI32{len, depth, valid, data}:
+      data
+    case C.CStr{len, depth, valid, data}:
+      Array.new(U32, 0n, 0)
+
+# LAW (P0 for the other masked unary maps): a null row's slot of f32 abs / sqrt is +0.0 and of i32
+# neg / abs is 0, whatever the input's slot held (each op's own masked loop writes the default)
+law un_abs_f32_null:
+  for +n: U32
+  for +d: Nat
+  for m: Array<U32>
+  for x: Array<F32>
+  for +k: U32
+  for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for +hk: {U32.is_lt(k, n) == True{} : Bool}
+  for +hm: {rd_at(U32, m, k) == 0 : U32}
+  {rd_at(F32, fdata(res_col(V.Eval.un(X.Abs{}, C.CF32{n, d, C.Mask{m}, x}))), k) == 0.0 : F32}
+
+law un_sqrt_f32_null:
+  for +n: U32
+  for +d: Nat
+  for m: Array<U32>
+  for x: Array<F32>
+  for +k: U32
+  for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for +hk: {U32.is_lt(k, n) == True{} : Bool}
+  for +hm: {rd_at(U32, m, k) == 0 : U32}
+  {rd_at(F32, fdata(res_col(V.Eval.un(X.Sqrt{}, C.CF32{n, d, C.Mask{m}, x}))), k) == 0.0 : F32}
+
+law un_neg_i32_null:
+  for +n: U32
+  for +d: Nat
+  for m: Array<U32>
+  for x: Array<U32>
+  for +k: U32
+  for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for +hk: {U32.is_lt(k, n) == True{} : Bool}
+  for +hm: {rd_at(U32, m, k) == 0 : U32}
+  {rd_at(U32, wdata(res_col(V.Eval.un(X.Neg{}, C.CI32{n, d, C.Mask{m}, x}))), k) == 0 : U32}
+
+law un_abs_i32_null:
+  for +n: U32
+  for +d: Nat
+  for m: Array<U32>
+  for x: Array<U32>
+  for +k: U32
+  for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
+  for +hk: {U32.is_lt(k, n) == True{} : Bool}
+  for +hm: {rd_at(U32, m, k) == 0 : U32}
+  {rd_at(U32, wdata(res_col(V.Eval.un(X.Abs{}, C.CI32{n, d, C.Mask{m}, x}))), k) == 0 : U32}
 
 # LAW (F4 fires only on the default): any other literal leaves the column untouched (the unfused
 # fill_null, Kernel.choose with the literal, runs)
@@ -3460,9 +3624,10 @@ law peep_f5_count:
   for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
   {f5r_k(V.Eval.f5.c(X.Gt{}, ok, V.Eval.fz.ones(), C.CU32{n, d, C.AllValid{}, q}, D.SU32{lit})) == Pair.snd(Array<U32>, U32, K.Kernel.popcount(n, f5r_m(V.Eval.f5.c(X.Gt{}, ok, V.Eval.fz.ones(), C.CU32{n, d, C.AllValid{}, q}, D.SU32{lit})))) : U32}
 
-# LAW (F4 against v0.1's fill_null): over a masked u32 column whose null slot at row k holds the
-# default (P0: the pick below is the slot itself), the fused fill's cell at k is Eval.fill's against the
-# literal 0's broadcast column (Kernel.choose into the column's buffer, which must be well formed)
+# LAW (F4 against v0.1's fill_null): over a masked u32 column, the fused fill's cell at every row k
+# below n is Eval.fill's against the literal 0's broadcast column (Kernel.choose into the column's
+# buffer, which must be well formed). Post-review B1: v0.2 stated this under the hypothesis that the
+# null slot at k holds the default (P0), which F32 neg's result violated; F4's own reset discharges it
 law peep_f4_cell:
   for +n: U32
   for +d: Nat
@@ -3472,7 +3637,6 @@ law peep_f4_cell:
   for wf: WFArray(U32, d, a)
   for +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}
   for +hk: {U32.is_lt(k, n) == True{} : Bool}
-  for +p0: {Bool.pick(U32, U32.is_ne(rd_at(U32, m, k), 0), rd_at(U32, a, k), 0) == rd_at(U32, a, k) : U32}
   {ccell(z0_col(V.Eval.fz.z0(V.PFill{D.SU32{0}}, C.CU32{n, d, C.Mask{m}, a})), k) == ccell(res_col(V.Eval.fill(C.CU32{n, d, C.Mask{m}, a}, V.Eval.const_col(D.SU32{0}, D.TU32{}, n))), k) : D.Scalar}
 
 # LAW (F2, both operands masked, against v0.1's three passes): the fused cell of a + b (one zipv loop:

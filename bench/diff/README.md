@@ -32,6 +32,13 @@ uv run python diff/gen.py --lib                          # regenerate tests/diff
 | T2.1 | eager vs raw lazy (`DF.collect_raw`); raw vs `DF.collect`; raw vs `DF.collect_full` | none: `bench/check.py` `compare_dumps`; only the contract's NaN-payload rule (15.1 rule 3). Errors and row order count. |
 | T2.2 | eager dump vs `oracle.py` | same |
 | T2.4 | interpreter vs natively compiled program (`--backend both`) | same |
+| P0 | every result of every run (eager, raw, opt, full, the chunked grains): `src/p0.bend`'s report, printed after the dump by `DX.show`, must be `ok` (every null slot holds the dtype default, F32 by its bits; validity and bool words 0/1). Post-review B1: the dumps of all engines agreed on a result whose null slots held -0.0 | none: any other report fails the case |
+
+**Directed null-slot cases** (post-review B1, `gen.py` `gen_null_slot`): about 15 % of the cases (every case with
+`--features nullslot`, none with `nonullslot`) build a null producer (neg, sqrt(neg ..), abs, casts, `x op lit` with
+negative / positive / zero literals, floor_div / mod by zero, when/then with a null condition, Kleene, a staged
+with_columns intermediate) feeding `fill_null` with the dtype default, -0.0 or another literal, then a sign-sensitive
+consumer (1 / F, F * -1, cast to str, sort, group_by), over inputs with nulls, +0.0 and valid -0.0.
 | T2.3 | F32 reductions vs an exact reference, see "T2.3" below | derived bound, not bit equality |
 
 A symptom is reported once: a lazy result equal to the eager one is not reported against the

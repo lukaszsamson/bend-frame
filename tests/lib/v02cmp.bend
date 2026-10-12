@@ -10,6 +10,7 @@ import ./../../src/column.bend as C
 import ./../../src/strs.bend as ST
 import ./../../src/csv.bend as V
 import ./../../bench/w6/cmp.bend as M
+import ./../../src/p0.bend as Z
 
 # ---- schema letters (bench/w6 cases): U u32, I i32, F f32, B bool, anything else str -------------------
 
@@ -83,9 +84,11 @@ def Sg.frame(r: E.ResT(C.Frame)) -> E.ResT(C.Frame) & String:
 
 def Sg.text.k(r: E.ResT(C.Frame) & String) -> String:
   (f, s) = r
-  DF.dump(f) ++ "storage " ++ s
+  Z.P0.dump(f) ++ "storage " ++ s
 
-# the dump and the storage line of a read
+# the dump, the P0 report line ("p0 ok": every null slot holds the dtype default, src/p0.bend; post-review
+# B1) and the storage line of a read. Every comparison below compares the whole text, so a reader whose
+# null slots differ from the reference's is a difference; Run.line.p0 also fails a reference that is dirty
 def Sg.text(r: E.ResT(C.Frame)) -> String:
   Sg.text.k(Sg.frame(r))
 
@@ -160,13 +163,18 @@ def Run.line(+name: String, +outcome: String, r: RP) -> String:
     case RP{ps, +v, go, +n}:
       Bool.pick(String, go, name ++ ": ok " ++ U32.show(n) ++ " | " ++ outcome, name ++ ": DIFF " ++ v)
 
+# Run.line, unless the reference read itself breaks the null-slot invariant (its text's P0 line is not
+# "p0 ok"): then a DIFF naming it, since two readers that agree on a dirty slot would compare equal
+def Run.line.p0(+name: String, +ref: String, +outcome: String, r: RP) -> String:
+  Bool.pick(String, String.contains(ref, "\np0 ok\n"), Run.line(name, outcome, r), name ++ ": DIFF p0: the v0.1 reference's null slots do not hold the dtype default")
+
 # every configuration of a file: "<name>: ok <runs> | <the first configuration's v0.1 outcome>", or the
 # first run whose dump or storage differs from v0.1's
 def Run.file(+name: String, +path: String, +first: Cf, cs: List<&2, CP>) -> IO(String):
   do IO<String>:
     +r0 : String <- Cf.ref(first, path)
     r : RP <- Run.all(cs, path, RP{Nil{}, "", True{}, 0})
-    return Run.line(name, M.Cmp.outcome(r0), r)
+    return Run.line.p0(name, r0, M.Cmp.outcome(r0), r)
 
 def Run.print(+s: String) -> IO(Unit):
   Bool.pick(IO(Unit), String.is_empty(s), IO.pure(Unit, Unit{}), IO.print(s))

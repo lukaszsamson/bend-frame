@@ -49,3 +49,4 @@ def main() -> IO(Unit):
 #|row	"50%"	0x80000000
 #|row	"75%"	0x80000000
 #|row	"max"	0x00000000
+#|p0 ok

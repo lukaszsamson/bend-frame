@@ -47,6 +47,7 @@ def main() -> IO(Unit):
 #|col	f32	"s"
 #|col	f32	"m"
 #|row	0x3e800000	0x3d124925
+#|p0 ok
 #|
 #|-- c00000 sel_r
 #|frame
@@ -55,6 +56,7 @@ def main() -> IO(Unit):
 #|col	f32	"s"
 #|col	f32	"m"
 #|row	0x3e800000	0x3d124925
+#|p0 ok
 #|
 #|-- c00000 sel_f
 #|frame
@@ -63,6 +65,7 @@ def main() -> IO(Unit):
 #|col	f32	"s"
 #|col	f32	"m"
 #|row	0x3e800000	0x3d124925
+#|p0 ok
 #|
 #|-- c00000 grp_e
 #|frame
@@ -73,6 +76,7 @@ def main() -> IO(Unit):
 #|col	f32	"m"
 #|row	0	0x3fa00000	0x3ea00000
 #|row	1	0x3f000000	0x3e2aaaab
+#|p0 ok
 #|
 #|-- c00000 grp_r
 #|frame
@@ -83,6 +87,7 @@ def main() -> IO(Unit):
 #|col	f32	"m"
 #|row	0	0x3fa00000	0x3ea00000
 #|row	1	0x3f000000	0x3e2aaaab
+#|p0 ok
 #|
 #|-- c00000 grp_f
 #|frame
@@ -93,3 +98,4 @@ def main() -> IO(Unit):
 #|col	f32	"m"
 #|row	0	0x3fa00000	0x3ea00000
 #|row	1	0x3f000000	0x3e2aaaab
+#|p0 ok

@@ -42,6 +42,7 @@ def main() -> IO(Unit):
 #|col	f32	"s"
 #|col	f32	"m"
 #|row	0x3f800000	0x3dcccccd
+#|p0 ok
 #|
 #|-- c00000 grp_e
 #|frame
@@ -52,6 +53,7 @@ def main() -> IO(Unit):
 #|col	f32	"m"
 #|row	0	0x3e99999a	0x3dcccccd
 #|row	1	0x3f333333	0x3dcccccd
+#|p0 ok
 #|
 #|-- c00000 grp_f
 #|frame
@@ -62,3 +64,4 @@ def main() -> IO(Unit):
 #|col	f32	"m"
 #|row	0	0x3e99999a	0x3dcccccd
 #|row	1	0x3f333333	0x3dcccccd
+#|p0 ok

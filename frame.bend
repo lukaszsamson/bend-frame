@@ -386,8 +386,20 @@ def desc(name: String) -> O.SortKey:
 def named(name: String, c: C.Column) -> C.Named:
   C.Named{name, c}
 
+# the columns with their null slots reset to the dtype default (V.Eval.fix: one in-place pass per
+# column that has a mask, nothing for an AllValid one). The facade exports the Column type, so a
+# caller can build a column from raw buffers whose null slots hold anything; every stored column must
+# hold the default there (the P0 invariant F4's fill side and the chunked u32 / i32 sum rely on:
+# DESIGN.md 14 "v0.2 post-review: the null-slot invariant"). The cells are unchanged (LAWS fix_cell).
+def from_columns.p0(cols: List<&1, C.Named>) -> List<&1, C.Named>:
+  match cols:
+    case Nil{}:
+      Nil{}
+    case C.Named{name, c} <> rest:
+      C.Named{name, V.Eval.fix(c)} <> from_columns.p0(rest)
+
 def from_columns(cols: List<&1, C.Named>) -> E.ResT(C.Frame):
-  C.Frame.from_columns(cols)
+  C.Frame.from_columns(from_columns.p0(cols))
 
 # a checked nullable column of dtype t: an SNull is a null row; the first scalar of another dtype
 # is TypeMismatch{"from_scalars", <t>, <scalar dtype or "null">}; more than 2^23 scalars is an

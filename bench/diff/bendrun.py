@@ -30,16 +30,33 @@ def batch_text(cases, scratch: Path) -> str:
     return text.replace(emit_hdr, header_for(scratch), 1)
 
 
+# post-review B1: every printed result is its dump followed by the line "p0 <report>" (src/p0.bend via
+# DX.show): "ok", or "BAD [col ...]" naming the columns whose null slots do not hold the dtype default.
+# The line is split off the dump (so dumps compare as before) and kept under P0_KEY: {how: report}.
+P0_KEY = "_p0"
+P0_LINE = re.compile(r"^p0 (.*)$", re.M)
+
+
 def parse_output(out: str) -> dict:
-    """{case id: {'eager': dump, 'raw': dump, 'opt': dump}} from the printed headers + dumps."""
+    """{case id: {'eager': dump, 'raw': dump, 'opt': dump, ..., '_p0': {how: report}}} from the printed
+    headers + dumps (+ each dump's P0 report line)."""
     res: dict = {}
     pos = [(m.start(), m.end(), m.group(1), m.group(2)) for m in HDR.finditer(out)]
     for i, (s, e, cid, how) in enumerate(pos):
         end = pos[i + 1][0] if i + 1 < len(pos) else len(out)
         body = out[e + 1:end]
+        reps = P0_LINE.findall(body)
+        if reps:
+            res.setdefault(cid, {}).setdefault(P0_KEY, {})[how] = reps[-1]
+            body = "\n".join(ln for ln in body.split("\n") if not ln.startswith("p0 "))
         body = body.rstrip("\n") + "\n" if body.strip() else body
         res.setdefault(cid, {})[how] = body
     return res
+
+
+def n_runs(got: dict) -> int:
+    """the number of runs printed for one case (the P0 reports are not a run)"""
+    return len([k for k in got if k != P0_KEY])
 
 
 def run_file(path: Path, mode: str, timeout: float, threads: int | None = None):
@@ -70,7 +87,7 @@ def run_cases(cases, scratch: Path, mode="interp", timeout=300.0, tag="b", depth
     path.write_text(batch_text(cases, scratch))
     out, rc, secs = run_file(path, mode, timeout)
     got = parse_output(out)
-    done = {c.id for c in cases if len(got.get(c.id, {})) == len(emit.runs())}
+    done = {c.id for c in cases if n_runs(got.get(c.id, {})) == len(emit.runs())}
     if rc != 0 and got:
         # a crash: the last printed case may be cut off (stderr text glued to its dump); rerun it
         done.discard(list(got)[-1])

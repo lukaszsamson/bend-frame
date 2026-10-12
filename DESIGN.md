@@ -873,7 +873,7 @@ Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 | 16 Moves (`PROOF_moves`; v0.2 T3.1, DESIGN 16.2 rule 1, plan M_02 section 4 "projection/moves") | models `lastm` / `fcol` (the column a frame holds under a name), `hollowm` / `holed` / `holedf` (the frame with a hollow stand-in in the column's place), `nomove`, `moves_ok`; `lend_observes` (over a frame with unique names whose column named n is c: `Frame.lend(f, n) == (holedf(f, n), Done{c})`, `Frame.get_cloned(f, n) == (f, Done{c})` and `Frame.replace(holedf(f, n), n, c) == Done{f}`: the moved column IS the column the copy reproduces, and a borrow puts the frame back as it was); `mark_reads` (`Eval.mark` changes no read: the same names in the same order), `mark_moves_ok` (every `IMove{n}` it makes in move-free code is allowed, n in `dead` or `all`, and is the last read of n: no later instruction of the code and no name in `later` reads it), `compile_nomove` (`Eval.compile` emits no move), `compile_reads` (the code of e reads exactly `X.Expr.refs(e)`, in order: the list the operators pass as `later` through `Eval.refs`) |
 | 17 Sort + Head (`PROOF_sorthead`; v0.2 T3.4) | the observation `robs(r, k)` (the error, or the height and per column in order its name, dtype, length and `ccell` at row k when k is a row, `SNull` past the length; `cobs` / `lobs`), `hres` (Sort then Head); `sort_head_frame` (`Sort.frame_head(f, ks, n)`, the exact full argsort then only min(n, height) rows gathered, shows at every row k what `Frame.head(Sort.frame(f, ks), n)` shows: every frame, key list, n including 0 and n past the height, errors included), `sort_head_run` (the production equivalence: `Exec.run_phys(Head{n, Sort{ks, x}}, env)`, what collect runs, shows what `Exec.run_pure` of the same plan shows (x's code, then `ISort`, then `IHead`), every plan x and env), `run_phys_obs` (the same for every plan), `collect_obs` (`run_phys(Optimize.release(p))` shows what `run_pure(p)` shows: G6 with the physical step). Inside the proof (not laws): `Column.gather` at every column kind and both Str storages as a witness (`cg_w`: the permutation back, the dtype, the length, row k the source row perm[k], from the section 11 / 14 gather theorems at U32, F32 and String) |
 | 18 Fused kernels (`PROOF_fused`; v0.2 T4.1, DESIGN 16.3 F1-F6, plan M_02 section 4 "fused kernels") | projections `zb_o`, `zv_o`, `zv_vo`, `pc_m`, `pc_k`, `c3_o1..3`, `c4_o1..4`; F1: `map_p_cell` (the existing consuming `Kernel.map_p`: `f(p, a[k])`), `map_pb_unfused` (`Kernel.map_pb` IS `(Kernel.map_p(..), a)`), `map_pb_bcast` / `map_pb_bcast_f32` (cell by cell equal to v0.1's zip against the broadcast literal column, `x > lit` and `lit - x`); F3: `zipb_unfused` (`Kernel.zipb` IS `ZB{Kernel.zip(..), a, b}`), `zipb_cast_cell` (`f32(a) * b` fused equals the cast map then the Mul zip, cell by cell); F2: `zipv_cell` (value `(va & vb) != 0 ? f(a, b) : z`), `zipv_valid` (the validity output IS `Kernel.mask_and(va, vb)` and the four operands come back), `zipv_unfused` / `zipv_unfused_f32` (the value equals `Kernel.mask_data(Kernel.zip(..), Kernel.mask_and(va, vb), z)`, v0.1's vand + zip + fix, cell by cell, u32 add and f32 mul); F5: `pred_count_cell` (the mask word: the predicate where both operands are valid, else 0), `pred_count_count` (the kept count IS `Kernel.popcount` of the mask), `pred_count_keeps` (operands back); F6: `compact3_unfused` / `compact4_unfused` (the record IS one `Kernel.compact_keep` per buffer with the same mask, the mask and inputs back, the cursor `Kernel.popcount(n, m)`), `compact3_contents` / `compact4_contents` (`CSpec` per column under `compact_contents`' `CRoom`) |
-| 19 Fusion peepholes (`PROOF_peep`; v0.2 T4.2, DESIGN 16.3 F1-F5) | projections `z1_col`, `z2_col`, `z0_col`, `res_col`, `f5r_m`, `f5r_k`; F1: `peep_f1` (u32 `x > lit`: the fused cell is `Eval.bin`'s over `Eval.const_col`, the literal's broadcast), `peep_f1_left` (f32 `lit - x`, the literal on the left), `peep_f1_back` (fires, the operand back, the column `Kernel.map_p`'s); F2: `peep_f2_dense` (dense u32 add: the fused column IS `Eval.bin`'s, operands back), `peep_f2_mask_back` (masked: `Kernel.mask_and` validity, zipv's value, operands back), `peep_f2_mask` (masked: the cell of `Eval.bin`'s vand + zip + fix); F3: `peep_f3_back` (`f32(a) * b` one zipb, operands back), `peep_f3` (the cell of `Eval.bin` over `Eval.cast`'s column), `peep_f3_strict` (a fallible cast does not fire); F4: `peep_f4` (fill with 0 = the payload with AllValid), `peep_f4_cell` (the cell of `Eval.fill` under P0 at the row), `peep_f4_not_noop` (a null row becomes the value 0), `peep_f4_other` (another literal does not fire); F5: `peep_f5_back` (q1's pass is one pred_count, operands back), `peep_f5_cell` (the mask cell of v0.1's `Eval.pred(Eval.bin(And, ok, Eval.bin(Gt, qty, broadcast)))`), `peep_f5_count` (the count is popcount of the mask), `peep_f5_plan` / `peep_f5_or` / `peep_f5_dtype` (the plan of q1's predicate is one merged pass; Kleene `|` and a literal of another dtype have none); the selector (`Eval.fz.step`): `fuse_lit_right`, `fuse_lit_left`, `fuse_two` (distinct names), `fuse_same` (one column on both sides stays a copy), `fuse_fill`, `fuse_kleene`. Not stated: the stack-machine equivalence `Eval.runz(Eval.fuse(code))` vs `Eval.run(code)` (lend / replace and the stack plumbing; the fallback IS `code`; tests/eval_fused's differential), the other template instances, and the equality of the two kept counts as filter computes them |
+| 19 Fusion peepholes (`PROOF_peep`; v0.2 T4.2, DESIGN 16.3 F1-F5) | projections `z1_col`, `z2_col`, `z0_col`, `res_col`, `f5r_m`, `f5r_k`; F1: `peep_f1` (u32 `x > lit`: the fused cell is `Eval.bin`'s over `Eval.const_col`, the literal's broadcast), `peep_f1_left` (f32 `lit - x`, the literal on the left), `peep_f1_back` (fires, the operand back, the column `Kernel.map_p`'s); F2: `peep_f2_dense` (dense u32 add: the fused column IS `Eval.bin`'s, operands back), `peep_f2_mask_back` (masked: `Kernel.mask_and` validity, zipv's value, operands back), `peep_f2_mask` (masked: the cell of `Eval.bin`'s vand + zip + fix); F3: `peep_f3_back` (`f32(a) * b` one zipb, operands back), `peep_f3` (the cell of `Eval.bin` over `Eval.cast`'s column), `peep_f3_strict` (a fallible cast does not fire); F4: `peep_f4` (fill with 0 = `Eval.fix`, i.e. the null slots reset in place, then AllValid; post-review B1), `peep_f4_cell` (the cell of `Eval.fill`, with NO slot hypothesis since B1: v0.2 stated it under P0 at the row), `peep_f4_not_noop` (a null row becomes the value 0, whatever its slot held), `peep_f4_other` (another literal does not fire), `peep_f4_borrow` / `peep_f4_borrow_cell` (a borrowed column: one masked copy, the column handed back, `Eval.fill`'s cell); the masked unary maps (B1): `un_neg_f32` / `un_neg_f32_cell` / `un_neg_f32_null` / `un_neg_f32_valid`, `un_abs_f32_null`, `un_sqrt_f32_null`, `un_neg_i32_null`, `un_abs_i32_null` (a null row's slot is the default, a valid row is f(x) exactly); F5: `peep_f5_back` (q1's pass is one pred_count, operands back), `peep_f5_cell` (the mask cell of v0.1's `Eval.pred(Eval.bin(And, ok, Eval.bin(Gt, qty, broadcast)))`), `peep_f5_count` (the count is popcount of the mask), `peep_f5_plan` / `peep_f5_or` / `peep_f5_dtype` (the plan of q1's predicate is one merged pass; Kleene `|` and a literal of another dtype have none); the selector (`Eval.fz.step`): `fuse_lit_right`, `fuse_lit_left`, `fuse_two` (distinct names), `fuse_same` (one column on both sides stays a copy), `fuse_fill`, `fuse_kleene`. Not stated: the stack-machine equivalence `Eval.runz(Eval.fuse(code))` vs `Eval.run(code)` (lend / replace and the stack plumbing; the fallback IS `code`; tests/eval_fused's differential), the other template instances, and the equality of the two kept counts as filter computes them |
 | 20 Filter + Select (`PROOF_filtsel`; v0.2 T4.3, DESIGN 16.3 F8, plan M_02 D3) | `fmres` / `fsres` (a filter's result, then Frame.filter_mask / Exec.select); `fc_filter_mask` (`Exec.fc`, the selective compaction: AllValid columns of one length four or three at a time in one `Kernel.compact4` / `compact3` loop at the template instance their buffers pick, anything else by `Column.compact`, IS `Frame.filter_mask`, every frame, mask and count: a term equality); `select_filter_mask` (`Frame.select_names(Frame.filter_mask(f, m, kept), ns)` IS `fmres(Frame.select_names(f, ns), m, kept)`: the select commutes with the row filter, errors included); `filter_select_step` (`Exec.fs(f, pred, es)` IS `fsres(Eval.filter(f, pred), es)` for a list `Exec.plain` accepts; since T4.4 both call `Eval.filter.mask`, the F5 passes or the general predicate, and the proof splits once on its result, for every predicate); `filter_select_run_eq` / `filter_select_run` (the production equivalence: `Exec.run_phys(Select{es, Filter{pred, x}}, env)` IS `Exec.run_pure` of the same plan, every column list, predicate, plan x and env; the robs form); `run_phys_obs` / `collect_obs` (section 17) re-proven over the new root. Inside the proof (not laws): `ckw` / `colw` (Kernel.compact_keep and Column.compact answer the mask itself, every column kind, validity, storage), `cm` (the compaction as a function of the column list), `pcl` (a column rebuilt from its compacted buffer IS Column.compact's), `fzw` (Exec.fz / Exec.unfz round trip), `tkc` (Cols.take over cm), the compact3 / compact4 dispatch over `PF.c3_sim` / `c4_sim` at all 27 + 81 instances |
 
 ### 8.1 Assurance matrix (plan M_01 section 6: theorem -> production function -> assumptions -> checker)
@@ -1130,6 +1130,8 @@ pushdown it is 4-5 ms on q1 and q5 at 1M rows and nothing elsewhere (bench/READM
 
 The v0.1 chain above is unchanged: no law was weakened, dropped or turned into a hypothesis, `release_run` still speaks
 about `Exec.run_pure`, and the dictionary hypotheses (`Probe`, `EncProbe`, `MergeProbe`, `FindProbe`) stay conditional.
+(Post-review B1, section 14 "v0.2 post-review: the null-slot invariant": 10 more laws in section 19, 231 -> 241, and 12
+more controls, 92 -> 104; `peep_f4_cell` lost its P0 hypothesis. The counts below are the W8 ones.)
 v0.2 added 82 laws (149 -> 231: `range_cell` at W1f, then 81 in sections 16-22) and 78
 in-place mutation controls (14 -> 92, every one caught by `bend PROOF.bend`, the unmutated copy accepted). `make proofs`
 and `make verdict` print ALL PROOFS CHECK on the W8 tree (plans/STATUS.md "W8"). Per v0.2 law section:
@@ -1140,7 +1142,7 @@ and `make verdict` print ALL PROOFS CHECK on the W8 tree (plans/STATUS.md "W8").
 | 16 Moves (`PROOF_moves`; T3.1) | 5 | `Frame.lend` / `Frame.replace` observe as `Frame.get_cloned`; `Eval.mark` / the compile's moves never move a column a later expression reads | unique names; the moves of the liveness pass only, not every borrow helper of later tasks | 4 |
 | 17 Sort + Head (`PROOF_sorthead`; T3.4) | 4 | `Sort.frame_head` (the bounded gather) = `Sort.frame` then `Frame.head`; `Exec.run_phys` (`run_phys_obs`) and `collect_obs`: the physical runner `collect` executes observes as `Exec.run_pure` | the argsort itself is tested only (item 7 above): the law is "same permutation, fewer rows gathered" | 4 |
 | 18 Fused kernels (`PROOF_fused`; T4.1) | 17 | `Kernel.map_pb`, `zipb`, `zipv`, `pred_count`, `compact3` / `compact4` (each equal to the unfused kernels or cell by cell) | `n <= 2^d`; `CRoom` for the compactions (derived per leaf by `croom_of_cap`, section 21) | 20 |
-| 19 Fusion peepholes (`PROOF_peep`; T4.2) | 25 | `Eval.fuse` / `Eval.fz.*` / `Eval.f5.*` (F1-F5): each fused evaluation equals `Eval.bin` / `Eval.fill` / the filter mask of the unfused evaluator; F4 is proven NOT a no-op on validity | the peephole selectors as written; Kleene and / or and fallible casts are not fused (F7) | 17 |
+| 19 Fusion peepholes (`PROOF_peep`; T4.2) | 25 (+10 post-review B1: F4 borrowed, the masked unary maps) | `Eval.fuse` / `Eval.fz.*` / `Eval.f5.*` (F1-F5): each fused evaluation equals `Eval.bin` / `Eval.fill` / the filter mask of the unfused evaluator; F4 is proven NOT a no-op on validity, and since B1 equal to `Eval.fill` with no slot hypothesis | the peephole selectors as written; Kleene and / or and fallible casts are not fused (F7) | 17 (+12 B1) |
 | 20 Filter + Select (`PROOF_filtsel`; T4.3 / T4.4) | 5 | `Exec.fc` / `Exec.fs` (the physical Filter + plain Select step) against `Frame.filter_mask` then `Exec.select`, and `filter_select_run` over `Exec.run_pure` | the predicate's own mask and count are `Eval.filter.mask`'s (shared by both sides, so not an independent control) | 6 |
 | 21 Chunk trees (`PROOF_chunks`; T5.1) | 11 | `src/chunks.bend`: `CW.of` / `flatten` round trip, `concat`, `rechunk`, `head`, the lockstep `fits` walk, `Ch.rng`, `cmap` congruence; `croom_of_cap` DISCHARGES section 11's `CRoom` at a leaf | stated on the word tree `CW` (Bool / U32 / I32 / masks / codes); `CW.drop` / `CW.slice` and the F32 (`CF`) / Raw-string (`CS`) trees tested only | 12 |
 | 22 Chunked wrappers (`PROOF_ckernels`; T5.2) | 14 | `src/ckernels.bend` (generated): map / map_p / zip / zipb / zipv / pred_count / compact3 / fold / min / max wrappers are leafwise the flat kernels; `ck_sum` (U32 tree sum) | the instances stated (BendTT refuses a quantified cell type); the F32 in-order walk is tested only. 14 laws over 53 generated wrappers, 4 of them (sum, min, max, popcount) on the chunked runner's path; the runner's real work (the `CX.*` walks, `Eval.runz` per leaf) is unproven | 12 |
@@ -1501,6 +1503,8 @@ conventions later modules must follow:
    all-null = 1, empty = 0). `Count` = valid rows, `Len` = rows. Empty or
    all-null input: `Sum 0`, `Count 0`, `Len` rows, `Mean/Min/Max` null.
    Every op result over a `Mask` column has its null slots reset to
+   (post-review B1, section 14: this was FALSE for f32 `neg`, whose map turned the +0.0 slot into -0.0;
+   the numeric unary maps now write the default under a null in their own masked loop)
    `DType.default` (`Eval.fix`, a pass only when a mask exists), so the 4.4
    slot invariant holds for every eval result.
 5. **Numerics.** U32 `+ - *` and `Sum` wrap mod 2^32; I32 wraps two's
@@ -3510,6 +3514,95 @@ finish building 2^15-slot arrays in 10 minutes, at either commit), hence native.
 8-row sort 185 -> 4.5 us; 1k controls q3 0.175 (v0.1) -> 0.100 ms, q4 0.325 -> 0.050, q5 0.200 -> 0.100; 1M q3 / q4 /
 q5 12 / 14 / 11 ms (unchanged). No law names `Radix.*`.
 
+### v0.2 post-review: the null-slot invariant (B1; plans/REVIEW_V02_FABLE.txt B1, REVIEW_V02_ASTRA.txt section 1)
+
+**The defect.** The P0 invariant (section 4.4: "the slot of an invalid row holds `DType.default`", LAWS section 9
+`WFMaskedW` / `WFMaskedT`) was a design invariant that no law preserved and no test observed: a dump prints `null` and
+never the slot. F32 `neg` mapped every slot, so the +0.0 under a null became -0.0, and v0.2's F4 implemented
+`fill_null(e, 0.0)` as "validity := AllValid, payload untouched" on the strength of P0. `fill_null(neg(x), 0.0)`
+answered -0.0 on the null rows and `1 / that` -inf, in every engine (they share `Eval.runz`); v0.1 and Polars answer
++0.0. The v0.1 evaluator had the same dirty slot but its `fill_null` (`Kernel.choose`) never read it; the comment at
+`Eval.un` ("neg/abs/sqrt of a default slot is the default again") was false for f32 neg only. The F4 law
+`peep_f4_cell` was proven under a P0 hypothesis at the row that the operand did not satisfy.
+
+**The audit** (every producer reachable from the evaluator, unfused `Eval.full` / `Eval.run` and fused `Eval.runz` /
+F1-F5, eager and chunked, every dtype; the non-evaluator producers in the second table). "Establishes" = the null slots
+of the result hold the default whatever the inputs hold; "preserves" = they do when the inputs' do (P0 in, P0 out).
+
+| producer (src/eval.bend unless named) | dtypes | before the fix | now |
+|---|---|---|---|
+| `Eval.un` Neg, f32 (`Eval.un.f`) | f32 | **VIOLATES**: `F32.neg` over every slot, +0.0 -> -0.0 under a null | establishes: one masked loop `m ? -x : +0.0` (`Eval.un.fneg`, `Kernel.zipb` over data and mask); laws `un_neg_f32*` |
+| `Eval.un` Abs / Sqrt f32, Neg / Abs i32 | f32, i32 | preserves (abs/sqrt(+0.0) = +0.0, 0 -> 0), not establishing | establishes: the same masked loop (`un.fabs` / `fsqrt` / `ineg` / `iabs`); laws `un_*_null` |
+| `Eval.un` Not | bool | establishes (map, then `Eval.fix`) | unchanged |
+| `Eval.un` IsNull / IsNotNull | bool | AllValid | unchanged |
+| `Eval.un` LenChars (`Strs.map`, a Dictionary per entry) | str -> u32 | preserves (`len("")` = 0; a null code 0 is the entry "") | unchanged |
+| `Eval.bin`: arithmetic / comparisons / Str comparisons (`Eval.bin.w`, `bin.f`) | all | establishes (`Eval.fix` after the zip) | unchanged |
+| `Eval.bin` Kleene and / or (`Eval.kleene`, `map_r`) | bool | establishes (a null row is `(0, 0)`) | unchanged |
+| `Eval.bin` floor_div / mod (`bin.idiv`) | u32, i32 | establishes (`Eval.fix` over the zero-divisor nulls) | unchanged |
+| `x op lit` unfused (`Eval.bcast` + `Eval.bin`) | num | establishes (`Eval.fix`); `lit` null -> `const_null` (zeros) | unchanged |
+| F1 `x op lit` / `lit op x` (`Eval.fz.z1`: `map_pb` when AllValid, `zipv` when masked) | num | establishes (`zipv` writes the default under a null; `map_pb` only runs on an AllValid operand, whose every row is valid). E.g. a null 0.0 - 5.0 is never stored: the slot is +0.0 | unchanged |
+| F2 / F3 (`Eval.fz.z2`: `zipb` dense, `zipv` masked, a total cast in the template) | num | establishes | unchanged |
+| F4 alone (`Eval.fz.z0` owned, `Eval.fz.z0b` / `dc` borrowed) | bool, u32, i32, f32 | **read the slot as the fill value** (correct only under P0: the B1 symptom) | establishes: owned, `Eval.fix` in place (one `mask_data` pass, no allocation) then AllValid; borrowed, ONE masked copy (`zipb`: `m ? x : default`); laws `peep_f4*` without a slot hypothesis |
+| F4 as the fill side of Z1 / Z2 (`Eval.fz.view`: a FRAME column read as AllValid) | num | reads the stored slot (relies on P0 of the frame column) | unchanged, premise now established for every stored column (below); tested only |
+| F5 filter mask (`Eval.f5.*`, `pred_count`) | bool mask | establishes (a null row is 0) | unchanged |
+| `Eval.fill` (`Kernel.choose`, unfused fill_null) | all | preserves (a row null on both sides takes the fill's slot) | unchanged |
+| `Eval.when` (`Kernel.choose` of the chosen side; a null condition picks otherwise) | all | preserves (each row's slot and validity come from one side) | unchanged |
+| `Eval.isin`, `Eval.strpred`, `Eval.clip` | bool, num | establishes (`Eval.bin.w` / `Eval.fix`) | unchanged |
+| casts: identity, bool / u32 / i32 -> f32 (map), bool -> u32 / i32 (retag) | num | preserves (0 -> +0.0, 0 -> 0) | unchanged |
+| casts -> str (`Eval.fix`), fallible casts and try_cast (`cast.pw` / `pf`: `Eval.fix`) | all | establishes | unchanged |
+| aggregations (`Eval.agg`, `Eval.unit`, `nz`, `pick`), broadcast (`Eval.bcast`, `bcast_dict`), literals (`const_col`, `const_null`, `bcd.null`) | all | establishes (a null scalar is rebuilt by `const_null`: zeros, "", code 0) | unchanged |
+| hoisted aggregates of the chunked engine (`cexec CX.lit.s`: `Cast{Lit SNull, t}`) | all | establishes (`const_null`) | unchanged |
+| with_columns / select staged intermediates (a result stored as a frame column) | all | as their producer (neg(x) stored -0.0 under its nulls, then read by a Z1 / Z2 fill side) | as their producer: establishes |
+| `DF.from_columns` (frame.bend; the facade exports `Column`, so a caller can build one from raw buffers) | all | **took the slots as given**; a u32 null slot 5 made the chunked engine's tree sum (`cexec CX.tsum.k`, which adds every slot) answer 17 instead of 3 (tests/regress/V02_B1_raw_constructor.bend) | establishes: `Eval.fix` per column (one in-place pass per masked column; the cells are unchanged, `fix_cell`) |
+
+Non-evaluator producers (audited; none needed a change): `Column.from_scalars` (zeros, "" padding), both CSV readers
+(v0.1 `Ws.e` / `Fs.e` / `Ss.cell` / `Ds.cell` skip the write on a null, so the slot keeps `Array.new`'s 0 / +0.0 / "";
+v0.2 `Lw.put` / `Lf.put` write 0 / +0.0 for a null state, `Rw.cell` "", the Dictionary null is the empty content's code;
+a VALID "-0" stays -0.0), `Join.fix` (left join misses: validity ANDed, slots reset), group_by aggregates (an all-null
+group keeps the accumulator's 0 / +0.0 / "" init; var / std / median 0.0), `Strs.fix`, and every structural verb
+(gather, compact, slice, head / tail, concat, unique, sort, chunk build / flatten / rechunk, the chunked compactions):
+preserving. The consumers that READ a null slot (and so rely on P0) are exactly two: F4's fill side in Z1 / Z2 and the
+chunked u32 / i32 tree sum (`CX.tsum.k`, `CK.sum.w`). Sort / group_by / join / unique / n_unique keys force null words
+to 0 or mark the row dead, and `Kernel.fword` / `Key.fbits` map +-0.0 to one word, so a dirty slot cannot change them.
+
+**The fix** (bit-exact with v0.1 on every valid cell; a valid -0.0 stays -0.0): (1) the five numeric unary maps run one
+masked loop over a Mask column (the AllValid path is the old map); (2) F4 alone resets the slots itself, owned in place
+and borrowed by one masked copy (v0.2's "no pass" claim for F4 is withdrawn: one `mask_data` pass over the operand,
+none when it is AllValid; `fill_null` with the default is in no gated workload as a standalone operation, and q2's
+`1.0 - fill_null(discount, 0.0)` is a Z1 fill side, unchanged); (3) `DF.from_columns` normalises the slots. F4's fill
+side inside Z1 / Z2 keeps its free read: its operand is always a frame column, and every stored column now satisfies
+P0 by the audit above.
+
+**Proofs** (LAWS section 19, PROOF_peep.bend; 231 -> 241 laws). F4: `peep_f4` (F4 = `Eval.fix` then AllValid),
+`peep_f4_not_noop` (a null row becomes 0 whatever its slot held), `peep_f4_cell` (the fused cell equals `Eval.fill`'s:
+the v0.2 P0 hypothesis REMOVED, discharged by F4's own reset), `peep_f4_borrow` / `peep_f4_borrow_cell` (the borrowed
+masked copy, the frame's column handed back, the cell equal to `Eval.fill`'s). Producers: `un_neg_f32` (the masked
+loop), `un_neg_f32_cell`, `un_neg_f32_null` ("the masked neg leaves invalid slots at +0.0"), `un_neg_f32_valid` (a
+valid row is -x exactly: the reset touches no valid row), `un_abs_f32_null`, `un_sqrt_f32_null`, `un_neg_i32_null`,
+`un_abs_i32_null`. Mutation controls (scripts/mutation_check.sh, 92 -> 104): F4 without the reset, the borrowed copy
+without its reset / zeroing valid rows / handing the column back without its mask, and for each masked unary loop the
+reset removed (plus, for f32 neg, the mask inverted and a -0.0 default); the unary ones also patch the typing witness
+of PROOF_evalops.bend that restates the template, so the CONTENT law is what rejects them (`un_neg_f32`,
+`un_*_null`). Still tested only: P0 of the frame columns the Z1 / Z2 fill side and the chunked tree sum read (P0 is
+not a preserved-by-every-verb theorem: the producer audit above, the readers' tests, and the checker below), and the
+abs / sqrt / i32 cells at valid rows (stated for neg only).
+
+**Detection** (the class, not the instance). `src/p0.bend` (`P0.frame_k` / `P0.dump`): walks every column of a frame
+and reports each null slot that is not the dtype default (F32 by its bits: -0.0 is a violation), each validity word and
+each bool word that is not 0/1. The differential driver prints it after every dump (`DX.show`) and fails the case on
+any report other than `ok` (class `P0`: eager, raw, opt, full and the chunked runs c0 / c2 / c4 / c14); the CSV fuzz and
+tests/lib/v02cmp.bend compare it as part of every read's text and fail a dirty reference (`Run.line.p0`). The generator
+draws a directed null-slot case ~15 % of the time (`--features nullslot`: always): a null producer (neg, sqrt(neg ..),
+abs, casts, `x op lit` with negative / positive / zero literals on either side, floor_div / mod by a zero literal,
+when/then with a null condition, Kleene, a staged with_columns intermediate) feeding `fill_null` with +0.0 / -0.0 /
+another literal and a sign-sensitive consumer (1 / F, F * -1, cast to str, sort by F, group_by F), over inputs with
+nulls, +0.0 and valid -0.0 controls. On the pre-fix evaluator (HEAD 6b55792's src/eval.bend and frame.bend under the
+new harness): `--seed 31 --n 400 --features nullslot --chunked` fails 54 cases (class `T2.2 eager` 41, class `P0` 14),
+and the default `--seed 32 --n 1000` fails 17 (`T2.2 eager` 9, `P0` 8); on the fixed tree both pass. Regression matrix:
+tests/regress/V02_B1_null_slot.bend (owned / borrowed, select / with_columns, staged intermediates, eager / collect /
+collect_raw / collect_full / chunked at 2^0 and 2^2, against the UNFUSED `Eval.full`, F32 bits by `DF.dump`, every
+result's P0 report), V02_B1_raw_constructor.bend, and the two review reproductions (V02_B1_astra_null_zero*.bend).
+
 ## 15. v0.1 contract (frozen)
 
 The exact semantics every M1-M6 agent codes and tests against. Tables over prose;
@@ -4279,6 +4372,7 @@ rule already exempts such multi-verb programs from eager-vs-lazy error agreement
 | NEW-2 | the interpreter (`bend file.bend`) overflowed the host stack on results of ~2^15 rows or more: `DF.dump` and `Column.from_scalars` recursed once per row (the native binary is fine) | 15.1, 15.8 | M1 (fixed for dump / from_scalars and CSV read / write, DESIGN.md 14) |
 | V01-a | a user `Source` named `"#scan<k>"` validated and then read scan k's CSV frame (`concat([source "#scan0" x=[1], scan x=[2]])` gave `x=[2, 2]`), plans/REVIEW_V01_ASTRA.txt P1; `tests/regress/V01_a_scan_source_identity.bend` | 15.7 scans row, 15.9 scan order note | v0.1 review (fixed: scans in a separate Env namespace, section 14) |
 | V01-b | no lazy-over-`scan_csv` coverage per verb (the IO / materialisation boundary), plans/REVIEW_V01_ASTRA.txt "Tests"; `tests/regress/V01_b_scan_verbs.bend` | 15.2 (every verb eager and lazy), 15.6.4 | v0.1 review (test added) |
+| V02-B1 | `fill_null(neg(x), 0.0)` answered -0.0 on the null rows of an f32 column (1 / that: -inf), every engine: f32 `neg` wrote -0.0 under its nulls and v0.2's F4 read the slot as the fill value (plans/REVIEW_V02_FABLE.txt B1, REVIEW_V02_ASTRA.txt section 1); fixed at the producers and in F4, section 14 "v0.2 post-review: the null-slot invariant"; `tests/regress/V02_B1_*.bend` | 4.4 invariants, 15.1 (F32 bits), 16.3 F4 | v0.2 post-review |
 
 Rows marked M0 are fixed in M0 itself (harness and tests); every other row gets an
 `#! xfail <ID>` regression in M0 (eager, raw-lazy and optimised-lazy where
@@ -4412,7 +4506,7 @@ per query). The F32 reduction path has its own boundary note in 16.4.
 | F1 | `Bin{op, e, Lit}` / `Bin{op, Lit, e}`: the literal as a scalar parameter, no broadcast array | `Kernel.map_p` instance | map_p cell = f(lit, a[k]) (template proof `map_cell`'s shape) |
 | F2 | null-propagating arithmetic/comparison zip with validity: `out = both valid ? f(a, b) : default`, `vout = va & vb`, one loop (replaces vand + zip + fix) | new `Kernel.zipv` (4 inputs, 2 outputs; AllValid sides as a 1-slot ones array) | `zipv_cell`: value and validity slot by slot (`mask_and_cell` + zip cell + `fix_cell`) |
 | F3 | a TOTAL cast feeding arithmetic (u32/i32/bool -> f32, bool -> u32/i32): the cast inside the zip template | the F2 kernel with a composed template | the cast's total-pair law composed (15.5.5) |
-| F4 | `fill_null(e, lit)`: lit == dtype default: validity := AllValid, payload untouched (the null-slot invariant); other lit: one masked map with a scalar | none / `Kernel.map_p` + mask | `fix_cell` (slots are the default) + a validity law: it is NOT a no-op |
+| F4 | `fill_null(e, lit)`: lit == dtype default: validity := AllValid, payload untouched (the null-slot invariant); other lit: one masked map with a scalar. **Post-review B1 (section 14):** standalone F4 now resets the null slots itself (owned: `Eval.fix` in place; borrowed: one masked copy), because F32 neg broke the invariant; as the fill side of F1 / F2 (a frame column) it still reads the stored slot | `Eval.fix` / `Kernel.zipb` / none | `peep_f4*` (no slot hypothesis) + a validity law: it is NOT a no-op |
 | F5 | filter predicate: mask AND kept count in one loop; written in place into a dead Bool operand when the predicate's leaf is a Col (else fresh) | new `Kernel.pred_count` | `popcount_sum` + the mask cell laws |
 | F6 | compaction of k aligned columns with one mask in one loop (k <= 4 per loop by arity; chained) | new `Kernel.compact3/4` | `compact_contents` per column (same mask, same cursor) |
 | F7 | Kleene and/or, floor_div/mod, strict casts: NOT fused (separate rules; W1d's `R{v, ok}` unboxed record replaces the per-row `Maybe`) | existing | existing; strict-cast row-major error precedence kept by evaluating fallible fragments as their own pass |

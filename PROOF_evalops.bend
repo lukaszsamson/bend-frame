@@ -201,6 +201,53 @@ def isnull_w(neg: Bool, +n: U32, +d: Nat, v: C.Valid) -> Laws.ColW(D.TBool{}, n,
     case False{} C.Mask{m}:
       (C.CBool{n, d, C.AllValid{}, m}, {==}, ({==}, {==}))
 
+# post-review B1: the numeric unary maps split on the validity (AllValid: Kernel.map; Mask: the masked
+# Kernel.zipb loop, whose ZB record Eval.un.mi / un.mf take apart), so the typing witness splits too
+def mi_w(+n: U32, d: Nat, r: K.ZB<U32, U32, U32>) -> Laws.ColW(D.TI32{}, n, V.Eval.un.mi(n, d, r)):
+  match r:
+    case K.ZB{o, x, m}:
+      (C.CI32{n, d, C.Mask{m}, o}, {==}, ({==}, {==}))
+
+def mf_w(+n: U32, d: Nat, r: K.ZB<F32, U32, F32>) -> Laws.ColW(D.TF32{}, n, V.Eval.un.mf(n, d, r)):
+  match r:
+    case K.ZB{o, x, m}:
+      (C.CF32{n, d, C.Mask{m}, o}, {==}, ({==}, {==}))
+
+def ineg_w(+n: U32, +d: Nat, v: C.Valid, x: Array<U32>) -> Laws.ColW(D.TI32{}, n, V.Eval.un.ineg(n, d, v, x)):
+  match v:
+    case C.AllValid{}:
+      (C.CI32{n, d, C.AllValid{}, K.Kernel.map(~U32, ~U32, ~(w => U32.sub(0, w)), n, d, x, 0)}, {==}, ({==}, {==}))
+    case C.Mask{m}:
+      mi_w(n, d, K.Kernel.zipb(~U32, ~U32, ~U32, ~(w => k => Bool.pick(U32, U32.is_ne(k, 0), U32.sub(0, w), 0)), n, d, x, m, 0))
+
+def iabs_w(+n: U32, +d: Nat, v: C.Valid, x: Array<U32>) -> Laws.ColW(D.TI32{}, n, V.Eval.un.iabs(n, d, v, x)):
+  match v:
+    case C.AllValid{}:
+      (C.CI32{n, d, C.AllValid{}, K.Kernel.map(~U32, ~U32, ~(w => D.I32.mag(D.I32{w})), n, d, x, 0)}, {==}, ({==}, {==}))
+    case C.Mask{m}:
+      mi_w(n, d, K.Kernel.zipb(~U32, ~U32, ~U32, ~(w => k => Bool.pick(U32, U32.is_ne(k, 0), D.I32.mag(D.I32{w}), 0)), n, d, x, m, 0))
+
+def fneg_w(+n: U32, +d: Nat, v: C.Valid, x: Array<F32>) -> Laws.ColW(D.TF32{}, n, V.Eval.un.fneg(n, d, v, x)):
+  match v:
+    case C.AllValid{}:
+      (C.CF32{n, d, C.AllValid{}, K.Kernel.map(~F32, ~F32, ~(w => F32.neg(w)), n, d, x, 0.0)}, {==}, ({==}, {==}))
+    case C.Mask{m}:
+      mf_w(n, d, K.Kernel.zipb(~F32, ~U32, ~F32, ~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.neg(w), 0.0)), n, d, x, m, 0.0))
+
+def fabs_w(+n: U32, +d: Nat, v: C.Valid, x: Array<F32>) -> Laws.ColW(D.TF32{}, n, V.Eval.un.fabs(n, d, v, x)):
+  match v:
+    case C.AllValid{}:
+      (C.CF32{n, d, C.AllValid{}, K.Kernel.map(~F32, ~F32, ~(w => F32.abs(w)), n, d, x, 0.0)}, {==}, ({==}, {==}))
+    case C.Mask{m}:
+      mf_w(n, d, K.Kernel.zipb(~F32, ~U32, ~F32, ~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.abs(w), 0.0)), n, d, x, m, 0.0))
+
+def fsqrt_w(+n: U32, +d: Nat, v: C.Valid, x: Array<F32>) -> Laws.ColW(D.TF32{}, n, V.Eval.un.fsqrt(n, d, v, x)):
+  match v:
+    case C.AllValid{}:
+      (C.CF32{n, d, C.AllValid{}, K.Kernel.map(~F32, ~F32, ~(w => F32.sqrt(w)), n, d, x, 0.0)}, {==}, ({==}, {==}))
+    case C.Mask{m}:
+      mf_w(n, d, K.Kernel.zipb(~F32, ~U32, ~F32, ~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.sqrt(w), 0.0)), n, d, x, m, 0.0))
+
 def Laws.eval_un_typed(op, c, t, hok):
   match op c:
     case X.Neg{} C.CBool{+n, +d, v, x}:
@@ -208,9 +255,9 @@ def Laws.eval_un_typed(op, c, t, hok):
     case X.Neg{} C.CU32{+n, +d, v, x}:
       Empty.absurd(Laws.ResW(True{}, t, n, V.Eval.un(X.Neg{}, C.CU32{n, d, v, x})), PV.fail_done_r(D.DType, X.Expr.type.un.ok(X.Neg{}, D.TU32{}), t, {==}, hok))
     case X.Neg{} C.CI32{+n, +d, v, x}:
-      (V.Eval.un(X.Neg{}, C.CI32{n, d, v, x}), {==}, (L.done_inj(D.DType, D.TI32{}, t, hok), {==}))
+      PV.resw_dtype(True{}, t, D.TI32{}, n, Done{V.Eval.un.ineg(n, d, v, x)}, L.done_inj(D.DType, D.TI32{}, t, hok), PV.done_w(D.TI32{}, n, V.Eval.un.ineg(n, d, v, x), ineg_w(n, d, v, x)))
     case X.Neg{} C.CF32{+n, +d, v, x}:
-      (V.Eval.un(X.Neg{}, C.CF32{n, d, v, x}), {==}, (L.done_inj(D.DType, D.TF32{}, t, hok), {==}))
+      PV.resw_dtype(True{}, t, D.TF32{}, n, Done{V.Eval.un.fneg(n, d, v, x)}, L.done_inj(D.DType, D.TF32{}, t, hok), PV.done_w(D.TF32{}, n, V.Eval.un.fneg(n, d, v, x), fneg_w(n, d, v, x)))
     case X.Neg{} C.CStr{+n, +d, v, x}:
       Empty.absurd(Laws.ResW(True{}, t, n, V.Eval.un(X.Neg{}, C.CStr{n, d, v, x})), PV.fail_done_r(D.DType, X.Expr.type.un.ok(X.Neg{}, D.TStr{}), t, {==}, hok))
     case X.Not{} C.CBool{+n, +d, v, x}:
@@ -248,9 +295,9 @@ def Laws.eval_un_typed(op, c, t, hok):
     case X.Abs{} C.CU32{+n, +d, v, x}:
       Empty.absurd(Laws.ResW(True{}, t, n, V.Eval.un(X.Abs{}, C.CU32{n, d, v, x})), PV.fail_done_r(D.DType, X.Expr.type.un.ok(X.Abs{}, D.TU32{}), t, {==}, hok))
     case X.Abs{} C.CI32{+n, +d, v, x}:
-      (V.Eval.un(X.Abs{}, C.CI32{n, d, v, x}), {==}, (L.done_inj(D.DType, D.TI32{}, t, hok), {==}))
+      PV.resw_dtype(True{}, t, D.TI32{}, n, Done{V.Eval.un.iabs(n, d, v, x)}, L.done_inj(D.DType, D.TI32{}, t, hok), PV.done_w(D.TI32{}, n, V.Eval.un.iabs(n, d, v, x), iabs_w(n, d, v, x)))
     case X.Abs{} C.CF32{+n, +d, v, x}:
-      (V.Eval.un(X.Abs{}, C.CF32{n, d, v, x}), {==}, (L.done_inj(D.DType, D.TF32{}, t, hok), {==}))
+      PV.resw_dtype(True{}, t, D.TF32{}, n, Done{V.Eval.un.fabs(n, d, v, x)}, L.done_inj(D.DType, D.TF32{}, t, hok), PV.done_w(D.TF32{}, n, V.Eval.un.fabs(n, d, v, x), fabs_w(n, d, v, x)))
     case X.Abs{} C.CStr{+n, +d, v, x}:
       Empty.absurd(Laws.ResW(True{}, t, n, V.Eval.un(X.Abs{}, C.CStr{n, d, v, x})), PV.fail_done_r(D.DType, X.Expr.type.un.ok(X.Abs{}, D.TStr{}), t, {==}, hok))
     case X.Sqrt{} C.CBool{+n, +d, v, x}:
@@ -260,7 +307,7 @@ def Laws.eval_un_typed(op, c, t, hok):
     case X.Sqrt{} C.CI32{+n, +d, v, x}:
       Empty.absurd(Laws.ResW(True{}, t, n, V.Eval.un(X.Sqrt{}, C.CI32{n, d, v, x})), PV.fail_done_r(D.DType, X.Expr.type.un.ok(X.Sqrt{}, D.TI32{}), t, {==}, hok))
     case X.Sqrt{} C.CF32{+n, +d, v, x}:
-      (V.Eval.un(X.Sqrt{}, C.CF32{n, d, v, x}), {==}, (L.done_inj(D.DType, D.TF32{}, t, hok), {==}))
+      PV.resw_dtype(True{}, t, D.TF32{}, n, Done{V.Eval.un.fsqrt(n, d, v, x)}, L.done_inj(D.DType, D.TF32{}, t, hok), PV.done_w(D.TF32{}, n, V.Eval.un.fsqrt(n, d, v, x), fsqrt_w(n, d, v, x)))
     case X.Sqrt{} C.CStr{+n, +d, v, x}:
       Empty.absurd(Laws.ResW(True{}, t, n, V.Eval.un(X.Sqrt{}, C.CStr{n, d, v, x})), PV.fail_done_r(D.DType, X.Expr.type.un.ok(X.Sqrt{}, D.TStr{}), t, {==}, hok))
     case X.LenChars{} C.CBool{+n, +d, v, x}:
