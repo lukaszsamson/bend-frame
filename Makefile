@@ -260,11 +260,12 @@ fork-audit:
 	@for p in $(FORK_AUDIT_PROGS); do $(BEND) $$p -o build/fork-audit/$$(basename $$p .bend).c > /dev/null || exit 1; done
 	@python3 -I bench/w5/scale/forkaudit.py --check bench/w5/scale/forkaudit.allow $(foreach p,$(FORK_AUDIT_PROGS),build/fork-audit/$(basename $(notdir $(p))).c)
 
-# Radix.sort's 8-bit (depth <= 14) and 16-bit paths give the same stable order (native: the JS
-# interpreter cannot build the 2^15-slot arrays the 16-bit side needs in reasonable time)
+# Radix.sort's 8-bit (depth <= 14) and 16-bit paths give the same stable order, 9 shapes x 10 sizes
+# incl. the dispatch boundary 16383 / 16384 / 16385 / 32768 and n = 0 (native: the JS interpreter
+# cannot build the 2^15-slot arrays the 16-bit side needs in reasonable time)
 radix-check:
 	@mkdir -p build
 	@$(BEND) bench/checks/radix_paths.bend -o build/radix_paths > /dev/null
 	@./build/radix_paths > build/radix_paths.out
 	@n=$$(grep -c 'eq=1 sorted=1 stable=1$$' build/radix_paths.out); t=$$(wc -l < build/radix_paths.out | tr -d ' '); \
-	  if [ "$$n" = 40 ] && [ "$$t" = 40 ]; then echo "radix-check: ok, 40 cases"; else echo "radix-check: FAIL ($$n of $$t ok)"; cat build/radix_paths.out; exit 1; fi
+	  if [ "$$n" = 90 ] && [ "$$t" = 90 ]; then echo "radix-check: ok, 90 cases"; else echo "radix-check: FAIL ($$n of $$t ok)"; cat build/radix_paths.out; exit 1; fi

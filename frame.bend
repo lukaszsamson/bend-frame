@@ -807,6 +807,17 @@ def collect_engine(eng: R.CsvEngine, p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame
 # 2^14 rows, row-wise operators forked over the leaves, sort / join / group_by behind a flatten
 # boundary); engine_chunked_at(g) uses leaves of 2^g rows (tests, the differential). Both answer the
 # same frame or the same error (values, validity, names, height, row order, F32 bits, error texts).
+# PERFORMANCE (PROVISIONAL, plans/GATES_V02.md G2 run B): from eager frames the chunked engine is SLOWER
+# than the reference at one thread (1M rows: q1 8 vs 3 ms, q2 18 vs 3, q3 22 vs 12; the conversions into
+# and out of chunks) and 1.3-2x slower at 12 threads (q1 4 vs 3, q2 6 vs 3, q3 15 vs 11). Use it ONLY over scan_csv plans with
+# row-wise first consumers (filter, with_columns, row-wise select), on several threads, where the v0.2
+# reader builds the chunks directly (q1 4.0x, q2 3.8x, a 50% filter 5.9x at 12 vs 1 thread; the parse
+# that feeds them is serial, so end to end the gain is bounded near 2x). engine_reference() names the
+# default executor explicitly: collect_with(engine_reference(), p, env) is DF.collect(p, env) and
+# collect_raw_with(engine_reference(), p, env) is DF.collect_raw(p, env); it is also the engine the
+# chunked one is checked against (make diff-chunked). The v0.2 reader has no public piece-size knob
+# (the piece size is internal, 240 KiB; tests reach it through src/csv.bend), and the chunked engine
+# cannot be paired with the v0.1 reader from this facade.
 def engine_reference() -> QC.Engine:
   QC.Reference{}
 
@@ -816,7 +827,8 @@ def engine_chunked() -> QC.Engine:
 def engine_chunked_at(g: Nat) -> QC.Engine:
   QC.Chunked{g}
 
-# collect by the engine
+# collect by the engine. Use engine_chunked() only over scan_csv plans with row-wise first consumers, on
+# several threads; from eager frames it is slower than the default (see the note above engine_reference)
 def collect_with(eng: QC.Engine, p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
   QC.Lazy.collect_with(eng, p, env)
 

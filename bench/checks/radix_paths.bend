@@ -1,8 +1,13 @@
 # NATIVE check (make radix-check; the JS interpreter cannot build 2^15-slot arrays in reasonable time, so
 # this is not under tests/). Radix.sort's two paths agree (src/radix.bend): inputs of at most 2^14 slots sort with 8-bit digits
 # (Radix.s8, the 1k-control fix of GATES_V02.md G3), bigger ones with 16-bit digits (Radix.run).
-# The same words are sorted twice: at their own depth (the 8-bit path) and in a 2^15-slot copy (the
-# 16-bit path, since the path is chosen by the depth). Each line checks, over the first n rows:
+# The same words are sorted twice. Side A is the 8-bit path: Radix.sort at the input's own depth when
+# that is <= 14 (n <= 16384), and for n > 16384 (depth 15, where Radix.sort itself takes the 16-bit
+# path) Radix.s8 called directly with every byte marked as varying. Side B is the 16-bit path:
+# Radix.sort in a 2^15-slot copy (the path is chosen by the depth, and every n here is <= 2^15).
+# Sizes: 1 2 7 300 1000, the dispatch boundary 16383 16384 (depth 14, 8-bit in production) 16385
+# 32768 (depth 15, 16-bit in production), and the empty input n = 0 (answered as 3 ones: nothing to
+# disagree about). Each line checks, over the first n rows:
 #   eq      the two answers are the same (words and rows), slot by slot
 #   sorted  the words are non-decreasing
 #   stable  equal words keep their rows in increasing order (the rows start as 0..n-1)
@@ -31,8 +36,10 @@ def word(+k: U32, +n: U32, +i: U32) -> U32:
       U32.or(U32.shln(U32.mod(U32.mul(i, 37), 251), 8n), U32.shln(U32.mod(i, 3), 16n))
     case 6:
       5
-    case _:
+    case 7:
       U32.mod(i, 256)
+    case _:
+      U32.mod(U32.mul(i, 7919), 1000)
 
 def gen(c: Nat, +k: U32, +n: U32, +i: U32, a: Array<U32>) -> Array<U32>:
   match c:
@@ -65,12 +72,23 @@ def cmp(+k: U32, +n: U32, sa: Array<U32> & Array<U32>, sb: Array<U32> & Array<U3
   (bw, bp) = sb
   show(k, n, chk(U32.to_nat(n), 0, 0, 0, 1, 1, 1, Array.get(U32, aw, 0), Array.get(U32, ap, 0), Array.get(U32, bw, 0), Array.get(U32, bp, 0)))
 
+# side A: the 8-bit path (Radix.sort at depth d <= 14, else Radix.s8 forced at depth d with all four bytes varying)
+def side_a.go(sm: Bool, +n: U32, +d: Nat, ws: Array<U32>, pm: Array<U32>) -> Array<U32> & Array<U32>:
+  match sm:
+    case True{}:
+      RD.Radix.sort(n, d, (ws, pm))
+    case False{}:
+      RD.Radix.s8(n, d, 4294967295, ws, pm)
+
+def side_a(+k: U32, +n: U32, +d: Nat) -> Array<U32> & Array<U32>:
+  side_a.go(Nat.is_le(d, 14n), n, d, gen(U32.to_nat(n), k, n, 0, Array.new(U32, d, 0)), K.Kernel.iota(n, d))
+
 def one(+k: U32, +n: U32) -> String:
   +d = K.Kernel.depth_for(n)
-  cmp(k, n, RD.Radix.sort(n, d, (gen(U32.to_nat(n), k, n, 0, Array.new(U32, d, 0)), K.Kernel.iota(n, d))), RD.Radix.sort(n, 15n, (gen(U32.to_nat(n), k, n, 0, Array.new(U32, 15n, 0)), K.Kernel.iota(n, 15n))))
+  cmp(k, n, side_a(k, n, d), RD.Radix.sort(n, 15n, (gen(U32.to_nat(n), k, n, 0, Array.new(U32, 15n, 0)), K.Kernel.iota(n, 15n))))
 
 def sizes(+k: U32) -> String:
-  one(k, 1) ++ "\n" ++ one(k, 2) ++ "\n" ++ one(k, 7) ++ "\n" ++ one(k, 300) ++ "\n" ++ one(k, 1000)
+  one(k, 0) ++ "\n" ++ one(k, 1) ++ "\n" ++ one(k, 2) ++ "\n" ++ one(k, 7) ++ "\n" ++ one(k, 300) ++ "\n" ++ one(k, 1000) ++ "\n" ++ one(k, 16383) ++ "\n" ++ one(k, 16384) ++ "\n" ++ one(k, 16385) ++ "\n" ++ one(k, 32768)
 
 def main() -> IO(Unit):
-  IO.print(sizes(0) ++ "\n" ++ sizes(1) ++ "\n" ++ sizes(2) ++ "\n" ++ sizes(3) ++ "\n" ++ sizes(4) ++ "\n" ++ sizes(5) ++ "\n" ++ sizes(6) ++ "\n" ++ sizes(7))
+  IO.print(sizes(0) ++ "\n" ++ sizes(1) ++ "\n" ++ sizes(2) ++ "\n" ++ sizes(3) ++ "\n" ++ sizes(4) ++ "\n" ++ sizes(5) ++ "\n" ++ sizes(6) ++ "\n" ++ sizes(7) ++ "\n" ++ sizes(8))

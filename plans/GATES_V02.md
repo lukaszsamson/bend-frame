@@ -10,7 +10,7 @@ DESIGN.md 16.8 (engine, proposed at W0) and 17.8 (strings and reader, proposed a
 as section 5 prescribes ("report provisional observations and leave gates unevaluated"; no sample was rejected after it was
 seen). Each timing row still carries the provisional observation and whether it would meet its threshold, failing cells
 included. The gates that do not depend on load are evaluated: **G1 met** (0 failing cases), **G4 met** for the frozen 1M
-sales workload (RSS is a high-water mark, identical across repetitions), **G5 met**, **G6 met** (exact counts). Provisionally
+sales workload (RSS is a high-water mark, identical across repetitions), **G5 PARTIAL** (corrected after the v0.2 reviews: the original "every changed proved production path keeps its theorem chain" is not met, see G5), **G6 met** (exact counts). Provisionally
 NOT met even on a loaded machine: G2 for q3, q4, q5 and the parse (the 16.8 / 17.8 revised targets included), and the 1k
 controls of q3 and q5 (G3 "within 10%"; fixed after W8, see the 1k-control paragraph). No geometric mean is used anywhere.
 
@@ -128,16 +128,22 @@ Live / retained storage per phase (G4's second sentence) is G6's table 3 / 4 (`g
 live for 28 MB of flat lower bound (1.20, the power-of-two blocks); the v0.2 reader allocates 1,392 MB in 83 M allocations to
 parse the 41 MB file against v0.1's 4,036 MB in 352 M (the remaining allocations are the File API's per-byte cons cells).
 
-## G5 proofs (evaluated: MET)
+## G5 proofs (evaluated: PARTIAL; corrected after the v0.2 reviews, plans/REVIEW_V02_FABLE.txt H1 / H2, plans/REVIEW_V02_ASTRA.txt 2)
+
+The first version of this section said MET. That overstated it: theorem count, a passing independent checker and mutation rejection do not establish coverage of a different runner or of every template instance. The proofs fall in three groups:
+
+- **Preserved theorems about existing functions**: all 149 v0.1 laws, none weakened, dropped or turned into a hypothesis; `release_run` unchanged. The evaluator typing theorems (`run_typed`, `eval_full_typed`, `eval_expr_typed`) are about `Eval.full` / `Eval.expr` / `Eval.run`.
+- **New local kernel and peephole theorems, with their instances and premises** (82 laws): section 18's fused-kernel laws are each at ONE template instance, while production instantiates the kernels for u32 / i32 / f32 arithmetic and comparisons; section 19's peephole laws are one instance per peephole, and `peep_f4_cell` is a U32 instance under the premise that null slots hold the zero payload (a premise no theorem establishes for every producer; an F32 negation breached it, review finding B1); section 22 is "14 laws over 53 generated wrappers, 4 of them (sum, min, max, popcount) on the chunked runner's path".
+- **Unproven integration**: the fused runner `Eval.runz(Eval.fuse(Eval.mark(compile)))`, which every eager verb and every `collect` now uses for `select`, `with_columns` and `filter` (`src/eval.bend` `Eval.slot.mh`, `Eval.filter.mask.x`), so the v0.1 typing theorems no longer describe the code the default path executes; the chunked runner's `CX.*` walks and the `Eval.runz` call in each leaf; the v0.2 reader, coder, rank stage and radix pipeline; native execution.
 
 | requirement | measured | status |
 |---|---|---|
-| every changed proved production path keeps its theorem chain | 231 laws (149 at the baseline), all proven over the production functions; no v0.1 law weakened, dropped or turned into a hypothesis; `release_run` unchanged; DESIGN.md 8.2 lists every v0.2 law section and the tested-only parts | met |
-| new chunked / fused kernels have content laws; --verdict passes | LAWS sections 18 (fused kernels), 19 (peepholes), 20 (Filter + Select), 21 (chunk trees, incl. `croom_of_cap` discharging CRoom per leaf), 22 (chunked wrappers); `make proofs` and `make verdict` ALL PROOFS CHECK in `make ci` | met |
+| every changed proved production path keeps its theorem chain | 231 laws (149 at the baseline), all proven over production functions; no v0.1 law weakened, dropped or turned into a hypothesis; `release_run` unchanged; DESIGN.md 8.2 lists every v0.2 law section and the tested-only parts. BUT `select` / `with_columns` / `filter` moved from `Eval.run` (typing proven) to `Eval.runz` (equivalence to `run` NOT stated: LAWS.bend section 19 header, DESIGN.md 8.1 / 8.2), so the chain stops at the kernels and peepholes; the integration is tested only (`tests/eval_fused`, the differentials) | **PARTIAL** (an experimental release accepts tested-only fusion; it does not claim the original preservation gate passed. Closing it: prove `runz` = `run` or retire the fused runner, v0.3) |
+| new chunked / fused kernels have content laws; --verdict passes | LAWS sections 18 (fused kernels), 19 (peepholes), 20 (Filter + Select), 21 (chunk trees, incl. `croom_of_cap` discharging CRoom per leaf), 22 (chunked wrappers); `make proofs` and `make verdict` ALL PROOFS CHECK in `make ci`; at one template instance each (section 18, 19), and section 22 covers 53 generated wrappers of which the runner calls 4 | met as stated (content laws exist; at the instances listed above) |
 | no @unsafe, foreign workaround or assumed equivalence | none in src/, LAWS.bend, PROOF*.bend (`--verdict` refuses `@unsafe`); `Array.fork` unused | met |
 | in-place mutation controls for new kernels / bridges | 92 mutations (78 new), all rejected, the unmutated copy accepted (`make mutation-check`) | met |
 | dictionary hypotheses stay conditional | `Probe`, `EncProbe`, `MergeProbe`, `FindProbe` unchanged (W2.6 not done) | met |
-| tested-only parts listed | the chunked runner, the v0.2 reader, the coder, the rank stage, the radix pipeline, n_unique, describe's fused pass, the balanced list forks, the scheduler (DESIGN.md 8.2) | met (as a listing; none is proven) |
+| tested-only parts listed | the fused runner `Eval.runz` (added to the list by the review), the chunked runner, the v0.2 reader, the coder, the rank stage, the radix pipeline, n_unique, describe's fused pass, the balanced list forks, the scheduler (DESIGN.md 8.2) | met (as a listing; none is proven) |
 
 ## G6 phases and copies (evaluated: MET)
 
@@ -154,7 +160,7 @@ parse the 41 MB file against v0.1's 4,036 MB in 352 M (the remaining allocations
 |---|---|
 | runnable baseline frozen at 3612482 with its oracle artifacts | yes (`make m2-baseline`, `bench/m2/expected.json`) |
 | engine selector and representation boundary | yes (`Engine`, `CsvEngine`; DESIGN.md 16.5) |
-| new layout and fusion opt-in until G1-G6 and clean-consumer checks pass | fusion: on in the default executor since T4.x (proven per kernel, G5); chunked layout: opt-in, NOT flipped (G2 not met on q3-q5) |
+| new layout and fusion opt-in until G1-G6 and clean-consumer checks pass | fusion: on in the default executor since T4.x (kernels and peepholes proven at stated instances; the fused runner's integration tested only, G5 PARTIAL: a second deviation from "until G1-G6 pass" besides the reader flip); chunked layout: opt-in, NOT flipped (G2 not met on q3-q5) |
 | default flip separate from removal | the READER default flipped at W8 (commit 3b57c14, its own commit; DESIGN.md 14 "W8"), on G1 (exact) and provisional parse / RSS evidence while G2-G3 are unevaluated: a DEVIATION from "until G1-G6 pass", taken on the orchestrator's instruction and recorded; nothing removed |
 | removal of the v0.1 reader / reference executor | NOT done; needs a stabilization period, two independently reproduced full gate runs with the new default on a quiet machine, and a reproducible final baseline run |
 | consumer, mutation and hosted-platform checks | consumer-check and mutation-check green in `make ci`; hosted CI (no remote) and Linux never run |
@@ -169,3 +175,11 @@ parse the 41 MB file against v0.1's 4,036 MB in 352 M (the remaining allocations
 3. The 16.8 / 17.8 thresholds were never formally frozen; this report uses them as proposed.
 4. ~~The 1k-row q3 / q5 controls regress 1.25-1.57x~~ Fixed after W8 (the radix sort's fixed 2^17-slot histogram; see the 1k-control paragraph): now 0.50-0.57x of v0.1, provisionally.
 5. The reader default flip precedes G2-G4 evaluation (D7 deviation above); the orchestrator decides whether that stands.
+6. G5 is PARTIAL (corrected after the reviews): the fused runner behind the default `select` / `with_columns` / `filter` path has no equivalence theorem to `Eval.run`. Accepted for an experimental release as tested-only; the gap is v0.3 work (prove `runz` = `run` or retire the fused runner).
+
+## Post-review notes (2026-10-12; plans/REVIEW_V02_FABLE.txt, plans/REVIEW_V02_ASTRA.txt)
+
+- **Independent timing reproduction (Fable, load 3.0-3.4, still above the protocol's < 2, so still PROVISIONAL)**, 1M rows, medians of 3 fresh processes, the delivery's harness: default reader + reference executor q1-q5 3 / 3 / 11 / 14 / 10 ms at one thread and 3 / 4 / 11 / 13 / 10 at 12 (12-vs-1: 1.00 / 0.75 / 1.00 / 1.08 / 1.00x), q6 49 -> 16 ms (3.06x), parse 627 -> 335 ms (1.87x); v0.2 reader + chunked executor from eager frames q1 8 -> 5 ms, q2 17 -> 6, q3 21 -> 14. Every one-thread number above reproduces within noise. G2 stays unevaluated.
+- **What the README now says about it**: the default executor does not scale on q1-q5; the "4-6x" walks hold only on inputs born chunked (a `scan_csv` plan with a row-wise first consumer, run F); from eager frames the chunked engine is slower than the default at one thread (q1 8 vs 3 ms, q2 17-18 vs 3, q3 21-22 vs 11-12) and 1.3-2x slower at 12 threads, so it is documented as "use only over scan_csv plans with row-wise first consumers, on several threads"; the 1k-control statement is labelled provisional (it rests on a post-W8 fix measured on a loaded machine).
+- **Limits restated** (Astra): distinct-string group / unique ~630 MB peak and distinct-key join ~1 GB (the 600 MB G4 gate covers the frozen sales workload only); the v0.2 reader's 1.39 GB / ~83 M allocations for 41 MB is allocation traffic, not peak RSS; no streaming; no guarantee against adversarial hash collisions.
+- **D7**: the reader default flip before G2-G4 stands as a recorded deviation, and so does fusion in the default executor with G5 PARTIAL; removal of the duplicate v0.1 reader / reference executor needs two quiet-machine gate runs (decision owner: the user; see plans/STATUS.md "v0.2 review dispositions").

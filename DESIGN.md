@@ -904,7 +904,7 @@ Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 | `get_cloned_typed` | `Frame.get_cloned` (= `Cols.cg.go`, `Column.clone`, `Schema.find`) | `frame_ok(h, f)` (every column h rows, unique names) and `Schema.find(fschema f, n) == Some t` | bend, --verdict |
 | `eval_un_typed` .. `eval_agg_typed` (10 laws) | `Eval.un`, `Eval.bin`, `Eval.cast`, `Eval.try_cast`, `Eval.fill`, `Eval.when`, `Eval.isin`, `Eval.clip`, `Eval.strpred`, `Eval.agg` and everything they call (`Column.mk_w`, `Eval.fix`, the kernels, `Kernel.depth_for`) | the operand dtypes are accepted by the operation's rule in `expr.bend` (`Expr.type.un.ok`, `bin.ok`, `Cast.ok`, `fill`, `when.ok`, `isin.ok`, `clip.ok`, `strpred.ok`, `agg.ok`); the claims are dtype, length and totality (`ResW`): not the cells | bend, --verdict |
 | `run_typed` | `Eval.compile`, `Eval.run` (= `Eval.step`, `Eval.exec`, `Eval.app1/2/3`, `Eval.do1/2/3`, `Eval.fit`, `Eval.fit_agg`, `Eval.push`, `Eval.wrap`, `Eval.unit`, `Eval.bcast`, `Frame.get_cloned`), `A.Expr.analyse` | `fschema(f) == s`, `frame_ok(h, f)`, a stack satisfying `StkTy(h, sh, stk)`, `A.Expr.analyse(e, s) == Done{Ana{t, rs, k, tot, loc}}`; every Expr node (Col, Lit, Alias, Cast, TryCast, Un, Bin, FillNull, Agg, When, IsIn, Clip, StrPred). Claims: frame unchanged, one new slot of dtype t and kind `skind(k)` with `klen` rows, failure only when tot is False. NOT claimed: cell values, that only the columns `rs` are read, the locality field `loc` | bend, --verdict |
-| `eval_full_typed`, `eval_expr_typed` | `Eval.full`, `Eval.expr` (= `Eval.slot`, `Eval.slot.s/t/h`, `Eval.fin`, `Eval.mode.a/b`, `Eval.unslot`) | `WFFrame(f)` (P0) and `A.Expr.analyse(e, fschema f) == Done{..}`: the production type check `A.Ana.type` is the same analysis, so a Done answer is exactly what `Eval.filter` evaluates and, up to the moves of section 16, what `Eval.select` / `with_columns` evaluate (since T3.1 they run `Eval.slot.mv`: the same type check and `Eval.compile`'s code after `Eval.mark`; that marked code is NOT what `run_typed` is stated over, see the next row); the column has the frame's height (`Eval.full`) or `elen` (`Eval.expr`: 1 for a reduction) | bend, --verdict |
+| `eval_full_typed`, `eval_expr_typed` | `Eval.full`, `Eval.expr` (= `Eval.slot`, `Eval.slot.s/t/h`, `Eval.fin`, `Eval.mode.a/b`, `Eval.unslot`) | `WFFrame(f)` (P0) and `A.Expr.analyse(e, fschema f) == Done{..}`: the production type check `A.Ana.type` is the same analysis, so a Done answer is the analysis' verdict on every expression `Eval.select` / `with_columns` / `Eval.filter` are handed; the theorems are over `Eval.full` / `Eval.expr` themselves (the P2 entries, which only `group_by`'s computed keys and the sort-by-expression callers still execute), NOT over what the default verbs run. Since T3.1 `select` / `with_columns` run `Eval.slot.mv` (the same type check and `Eval.compile`'s code after `Eval.mark`), and since T4.2 `Eval.slot.mh` runs that marked code through the peephole post-pass and the second runner, `Eval.runz(Eval.fuse(Eval.mark(Eval.compile(e))))`, which `Eval.filter` also uses for every predicate the F5 passes do not take. Neither the marked code nor the fused runner is what `run_typed` is stated over, and `runz` = `run` is NOT proven (see the next row, the section 19 row and 8.2 "Proof coverage in three groups"); the column has the frame's height (`Eval.full`) or `elen` (`Eval.expr`: 1 for a reduction) | bend, --verdict |
 | `lend_observes`, `mark_reads`, `mark_moves_ok`, `compile_nomove`, `compile_reads` | `Frame.lend` (= `Cols.lend.go/step/k`, `Column.hollow`, `Frame.lend.k`), `Frame.get_cloned` (= `Cols.cg.go`, `Column.clone`), `Frame.replace` (= `Frame.info`, `Cols.names`, `FInfo.shape`, `Cols.replace.go/step/pick`, `Frame.replace.d`), `Eval.mark` (= `mark.i`, `mark.c`), `Eval.reads`, `Eval.compile` | lend: `frame_ok(h, f)` (unique names, every column h rows) and `fcol(f, n) == Some{c}`; mark: move-free code (what `Eval.compile` emits). NOT claimed: that the marked code computes the same stack as the unmarked one, i.e. a typing / equivalence theorem for `Eval.slot.mv` (`select`, `with_columns`, `Eval.full_mv` / `expr_mv`). The argument is the composition of these laws (a move answers the very column the copy reproduces, stand-ins keep `fschema` and `frame_ok`, and nothing reads a stand-in) plus tests and the differential; the step-by-step equivalence over `Eval.run` is open | bend, --verdict |
 | `decode_cell`, `strs_gather_cells`, `strs_compact_cells`, `strs_clone_w`, `dict_clone_w` | `Strs.decode` / `Dict.decode`, `Strs.gather`, `Strs.compact`, `Strs.clone` / `Dict.clone` (= `Strs.out.r/d`, `Strs.clone.r/d`, `Dict.clone.k`, `Kernel.gather` / `Kernel.compact_keep` at the String and U32 instances), i.e. the Str case of `Column.gather.data`, `Column.compact.data`, `Column.clone.s` (since W1f `Column.slice` range copies a Raw array or a Dictionary's codes directly, `Column.slice.s`: the template loop of `range_cell`, the Str instance not separately stated) | `n <= 2^d` (gather / decode), `CRoom` (compact, as section 11); no dictionary invariant needed (codes move unchanged) | bend, --verdict |
 | `str_same_sound`, `str_same_complete`, `dict_empty_wf`, `dict_code_spec` | `Str.same`, `Dict.empty`, `Dict.code` (= `Dict.code.h/k/p`, `Dict.add`, `Dict.fit`, `Dict.fit.k`, `Dict.room`, `Dict.dd`, `Dict.mix`, `Ix.seek` / `Ix.seek.go` / `Ix.look` / `Ix.id`, `Ix.grow` / `Ix.grow.go` / `Ix.move` / `Ix.move.k`), the index's `Array.set` / `Array.get` | `WFDictE(d, es)`; fewer than 2^30 entries (the row cap keeps every dictionary far below); the PROBE HYPOTHESIS `Probe(d, s)`: the hash probe for s stops at a slot that is empty or holds s (production guarantees it by the load factor <= 1/2 and the pairwise distinct entries; this termination argument is not proven: the probe's answer is taken as given and shown sound). `Str.hash` is only used as a deterministic function | bend, --verdict |
@@ -976,9 +976,11 @@ What the release chain does NOT cover, stated exactly:
 - Two typers exist. The 20 expression-typing laws of LAWS section 2 (group 2 in the table
   above) are about `X.Expr.type`, which production uses only for `group_by`; `select`,
   `with_columns` and `filter` type their expressions through `A.Expr.analyse` (the shared
-  analysis), which the P2 theorems (`run_typed`, `eval_full_typed`, `eval_expr_typed`) cover
-  (plans/REVIEW_V01_FABLE.txt H3). The gap is in the older laws' relevance, not in the
-  soundness of the evaluator typing.
+  analysis); the P2 theorems (`run_typed`, `eval_full_typed`, `eval_expr_typed`) cover the
+  evaluator `Eval.full` / `Eval.expr` / `Eval.run` over it (plans/REVIEW_V01_FABLE.txt H3). The
+  gap is in the older laws' relevance, not in the soundness of the evaluator typing. Since v0.2
+  the default `select` / `with_columns` / `filter` run `Eval.runz(Eval.fuse(Eval.mark(..)))`
+  instead, which the P2 theorems do not cover (8.2, plans/REVIEW_V02_FABLE.txt H1).
 - The evaluator typing theorems (`run_typed`, `eval_full_typed`, `eval_expr_typed`)
   state dtype, height, the frame coming back unchanged and "fails only where the
   analysis says it may". They do not state cell values, that only the `refs` columns are
@@ -1105,7 +1107,8 @@ completed in M5 part 4).** The default optimizer `Optimize.release` is adjacent-
 (`Opt.hmerge`) and nothing else, and its result-equivalence theorem over the production runner
 (`release_run`, `release_run_obs`, checked by `bend` and `--verdict`) holds for EVERY plan and
 every environment, with no admissibility hypothesis: `Exec.run_pure(Optimize.release(p), env) ==
-Exec.run_pure(p, env)`, frames and errors included, hence equal `DF.dump` text. The evaluator is
+Exec.run_pure(p, env)`, frames and errors included, hence equal `DF.dump` text. The v0.1 evaluator (`Eval.full`, `Eval.expr`, `Eval.run`; since v0.2 the default `select` /
+`with_columns` / `filter` run the fused runner `Eval.runz` instead, see 8.2) is
 proven type-sound (`eval_full_typed`, `eval_expr_typed`, `run_typed`): over a well-formed frame,
 an expression the shared analysis accepts evaluates to the frame unchanged and a column of the
 predicted dtype and height, failing only where the analysis marks it fallible (a strict cast of
@@ -1140,10 +1143,40 @@ and `make verdict` print ALL PROOFS CHECK on the W8 tree (plans/STATUS.md "W8").
 | 19 Fusion peepholes (`PROOF_peep`; T4.2) | 25 | `Eval.fuse` / `Eval.fz.*` / `Eval.f5.*` (F1-F5): each fused evaluation equals `Eval.bin` / `Eval.fill` / the filter mask of the unfused evaluator; F4 is proven NOT a no-op on validity | the peephole selectors as written; Kleene and / or and fallible casts are not fused (F7) | 17 |
 | 20 Filter + Select (`PROOF_filtsel`; T4.3 / T4.4) | 5 | `Exec.fc` / `Exec.fs` (the physical Filter + plain Select step) against `Frame.filter_mask` then `Exec.select`, and `filter_select_run` over `Exec.run_pure` | the predicate's own mask and count are `Eval.filter.mask`'s (shared by both sides, so not an independent control) | 6 |
 | 21 Chunk trees (`PROOF_chunks`; T5.1) | 11 | `src/chunks.bend`: `CW.of` / `flatten` round trip, `concat`, `rechunk`, `head`, the lockstep `fits` walk, `Ch.rng`, `cmap` congruence; `croom_of_cap` DISCHARGES section 11's `CRoom` at a leaf | stated on the word tree `CW` (Bool / U32 / I32 / masks / codes); `CW.drop` / `CW.slice` and the F32 (`CF`) / Raw-string (`CS`) trees tested only | 12 |
-| 22 Chunked wrappers (`PROOF_ckernels`; T5.2) | 14 | `src/ckernels.bend` (generated): map / map_p / zip / zipb / zipv / pred_count / compact3 / fold / min / max wrappers are leafwise the flat kernels; `ck_sum` (U32 tree sum) | the instances stated (BendTT refuses a quantified cell type); the F32 in-order walk is tested only | 12 |
+| 22 Chunked wrappers (`PROOF_ckernels`; T5.2) | 14 | `src/ckernels.bend` (generated): map / map_p / zip / zipb / zipv / pred_count / compact3 / fold / min / max wrappers are leafwise the flat kernels; `ck_sum` (U32 tree sum) | the instances stated (BendTT refuses a quantified cell type); the F32 in-order walk is tested only. 14 laws over 53 generated wrappers, 4 of them (sum, min, max, popcount) on the chunked runner's path; the runner's real work (the `CX.*` walks, `Eval.runz` per leaf) is unproven | 12 |
+
+**Proof coverage in three groups (corrected after plans/REVIEW_V02_FABLE.txt H1 / H2 and plans/REVIEW_V02_ASTRA.txt 2; the
+original G5 requirement "every changed proved production path keeps its theorem chain" is PARTIAL, plans/GATES_V02.md G5).**
+Theorem count, a passing independent checker and mutation rejection are not coverage of a different runner or of every template
+instance, so the 231 laws are reported as:
+
+1. *Preserved theorems about existing functions* (the 149 v0.1 laws, unchanged): `release_run` over `Exec.run_pure`, the
+   evaluator typing theorems over `Eval.full` / `Eval.expr` / `Eval.run`, the buffer and string-storage laws. They remain true
+   statements about those functions. The default `select` / `with_columns` / `filter` path no longer executes `Eval.run` for
+   those verbs: `Eval.slot.mh` runs `Eval.runz(Eval.fuse(Eval.mark(Eval.compile(e))))`, and `Eval.filter` uses it for every
+   predicate the F5 passes do not take (`group_by`'s computed keys and the sort-by-expression callers still run `Eval.full` /
+   `Eval.expr`).
+2. *New local kernel and peephole theorems, with their instances and premises* (82 laws): section 18's fused-kernel laws are each at
+   ONE template instance (e.g. u32 add, f32 mul) while production instantiates the kernels for u32 / i32 / f32 arithmetic and
+   comparisons; section 19's peephole laws are one instance per peephole, and `peep_f4_cell` is a U32 instance under the
+   premise that a null slot already holds the zero payload (P0's null-slot invariant), which no theorem establishes for every
+   producer (an F32 `neg` of a null slot breached it: plans/REVIEW_V02_FABLE.txt B1, fixed after the review, see CHANGELOG
+   "Fixed after review"); section 22 is 14 laws over 53 generated wrappers, 4 of them (sum, min, max, popcount) on the chunked
+   runner's path; sections 16, 17, 20 and 21 are over the functions named in their rows.
+3. *Unproven integration*: the fused runner as a whole (`Eval.runz(Eval.fuse(..))` against `Eval.run`: the stack plumbing,
+   lend / replace; the fallback of each fused instruction IS the code it replaces, but no theorem says the runner keeps the
+   stack invariant), the chunked runner's `CX.*` walks and the `Eval.runz` call in each leaf, the Filter + Select step's shared
+   predicate mask, and native execution; plus the tested-only parts below. An experimental release accepts these as tested-only;
+   proving `runz` = `run` on dump, or retiring the fused runner, is v0.3 work.
 
 Tested only in v0.2 (in addition to the numbered list above, which still holds; each is covered by the named
 differential and tests, not by a law):
+
+- **The fused runner** (`Eval.runz` over `Eval.fuse(Eval.mark(Eval.compile(e)))`, `src/eval.bend`): no theorem relates it to
+  `Eval.run`; this is the code the default `select`, `with_columns` and `filter` execute. Evidence: tests/eval_fused (473
+  expressions through `with_columns` and `select`, 32 filter predicates, F32 by bits, against the unfused evaluator), the
+  differential generator on every engine (all engines share `Eval.runz`, so they can agree on the same wrong answer: the
+  oracle must be the unfused evaluator or Polars), the section 18 / 19 laws at their instances.
 
 - **The chunked runner** (`src/cexec.bend`, item 10 above): no theorem relates `Exec.run_with(Chunked{g}, ..)` to
   `Exec.run_pure`. Evidence: the G1 differential (`make diff-chunked`, `make diff-smoke`: every generated case by the
@@ -3468,7 +3501,11 @@ digits (`Radix.s8`: a 256-bucket count, prefix and scatter per byte that varies,
 The path is chosen by the depth, not by n, so a small n in a big array keeps the 16-bit path (no regression there).
 Results are identical by construction (any stable sort by the same words answers the same order) and by test;
 `make radix-check` (native, in make ci) compares the two paths on 40 inputs (8 shapes x 5 sizes, the 16-bit side forced
-by a 2^15-slot copy) and fails on a dropped byte pass (checked). The interpreter cannot run that comparison (it does not
+by a 2^15-slot copy) and fails on a dropped byte pass (checked). After the v0.2 reviews it runs 90 inputs (9 shapes, a
+heavy-duplicate shape added, x 10 sizes: also n = 0 and the dispatch boundary 16383 / 16384 / 16385 / 32768; depth_for(16384) is
+14, the 8-bit path in production, and depth_for(16385) is 15, the 16-bit path; for n > 16384 the 8-bit side is `Radix.s8` called
+directly with every byte marked as varying); a dropped byte pass in either path still fails it (checked on `Radix.s8.go` and
+`Radix.run`). The interpreter cannot run that comparison (it does not
 finish building 2^15-slot arrays in 10 minutes, at either commit), hence native. Measured (PROVISIONAL, load ~5): the
 8-row sort 185 -> 4.5 us; 1k controls q3 0.175 (v0.1) -> 0.100 ms, q4 0.325 -> 0.050, q5 0.200 -> 0.100; 1M q3 / q4 /
 q5 12 / 14 / 11 ms (unchanged). No law names `Radix.*`.
@@ -3898,7 +3935,16 @@ median: sort the valid cells by the 15.5.2 order (NaN greatest); n = 0 -> null;
 The even formula cannot overflow (`[-3e38, 3e38] -> 0.0`, Polars `0.0`;
 `[3e38, 3e38] -> 3e38`) and gives `NaN` for `[inf, -inf]` (Polars NaN). Known sign
 difference: `median([-0.0, 0.0])` is `0.0` here and `-0.0` in Polars (equal under
-15.5.2; the T2.2 oracle canonicalises the sign of zero for median). Worked example
+15.5.2; the T2.2 oracle canonicalises the sign of zero for median). A second, wider
+sign difference for an ODD count (v0.2 review B3, `tests/agg_median_zero_sign.bend`): the sort is
+STABLE and `-0.0` / `0.0` are the same order word, so the median is the cell at index `(n - 1) / 2`
+of the stable order, and a zero keeps its own sign (for all-zero values: the input's cell at that
+index). Polars selects the middle with an unstable partition: it agreed with that rule on every
+odd-count input tried up to 15 values (1,218 exhaustive cases over `{-0.0, 0.0}` up to length 7 and
+`{-1, -0.0, 0.0, 1}` at length 3 and 5; 174 random cases at 9, 11, 15) and answered the other
+sign in 107 of 226 random inputs of 21 to 61 values, in BOTH directions (Polars 2.0.0, f32
+Series; verified in bench's uv project). Contract note, not a change of behaviour: the sign of a
+zero median is not a compatibility claim, and oracles must canonicalise it (as T2.2 does). Worked example
 `std/var [1,2,4] f32`: the correctly rounded values (exact var 7/3, std 1.5275252316..) are
 `var = 2.3333333`, `std = 1.5275252`, but the algorithm above does NOT return them: `m` rounds
 to 2.3333333, the squares `(x - m)^2` and their sum are f32, so it yields `var = 2.3333335` and
@@ -3987,6 +4033,7 @@ for Str cells.
 | `has_header = False{}` | names `column_0 .. column_{k-1}` | same |
 | line numbers in errors | 1-based physical line of the record's first line; the header is line 1 | |
 | malformed quoting | `ParseError{0, "malformed csv"}` | error |
+| UTF-8 byte order mark (`EF BB BF`) at the start of the file | NOT stripped, by both readers and by `scan_csv`: it is ordinary content, so it stays in the first header name (U+FEFF, then the name; with `has_header = False{}` it stays in the first data cell, which then makes the first column `str` under inference; checked by hand on both readers). v0.2 review B2, pinned by `tests/csv_bom.bend` (v0.1 reader, v0.2 reader and scan, hand-derived: names `[65279, 97]` and `[98]`); a contract note, not a change of behaviour | stripped (`read_csv` and `scan_csv` name the column `a`; Polars 2.0.0) (**D** departure: strip the BOM before reading, or rename the column) |
 
 #### 15.6.3 Options
 
@@ -4632,7 +4679,7 @@ count is no longer its measure (q1's per-leaf allocations 922 -> 160 by G6; the 
 **Fork audit of src/ (every parallel let; `make fork-audit`).** After the fix above, every parallel let of the
 library was audited against the shape rule (a def with a parallel let does nothing but match and call FLAT
 helpers before it; helpers go in leaves, joins or a sequential prelude). Two views, both static: the SOURCE
-(66 parallel lets in 28 files, 67 since T5.5's `CX.p3`: no branch argument and no statement before the fork calls anything but the inlined
+(66 parallel lets in 28 files at the audit, 67 since T5.5's `CX.p3`, 68 at W8 (`make fork-audit` prints the current count, the one to trust): no branch argument and no statement before the fork calls anything but the inlined
 `U32.* / Bool.* / Nat.*` primitives) and the EMITTED C of bench/m2/driver.bend (v0.2 reader, chunked engine,
 describe) and tests/ckernels_sizes.bend (bench/w5/scale/forkaudit.py: every `forking def -> fork-free callee`
 call task). "Prelude" is the sequential caller that builds the tree the forking def matches. Verdicts: OK = the
