@@ -452,3 +452,17 @@ Gates of this documentation pass (tree after the edits above, load 3-4, M2 Pro):
 + `tests/agg_median_zero_sign.bend`), `make check` exit 0, `make proofs` ALL PROOFS CHECK (LAWS.bend comment edit only),
 `make radix-check` ok 90 cases, `make coverage` 762 / 54 / 0 (docs/COVERAGE.md regenerated), `make bench-check` exit 0 (q1-q6 at 1k and 100k).
 Not run here: `make ci` (needs the final tree after the B1 fix), `make verdict`, `make mutation-check`.
+
+## Post-review (REVIEW_V02_FABLE / REVIEW_V02_ASTRA), 2026-10-12
+- B1 (fill_null(neg(x), 0.0) gave -0.0 on null rows) FIXED at the producers, plus a second wrong
+  answer the audit found (DF.from_columns kept dirty null slots; chunked sum read them). P0 checker
+  runs on every differential / chunked / CSV-fuzz result; directed null-slot generator cases.
+- Claims corrected (G5 PARTIAL: the fused runner Eval.runz is tested only); BOM and median-sign
+  differences documented and pinned; radix-check 90 cases incl. the dispatch boundary.
+- `make ci` on a956c96: exit 0, "ci: all gates passed", 14 min 00 s (load 6.8-11): 209/209 tests,
+  241 laws (proofs + verdict), 104/104 mutations, diff-smoke, csv-fuzz-smoke, fork-audit, radix-check
+  (90), consumer-check, coverage 762/54/0.
+- Needs the user: a quiet-machine (load < 2) gate run; a git remote for hosted Linux CI; the removal
+  date of the v0.1 reader / reference executor (D7: after two quiet gate runs); whether to file the
+  Polars (eager sorted-merge join misses NaN keys) and Bend (buffer-reading File primitive; scheduler
+  fork-shape rule) issues.
