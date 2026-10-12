@@ -368,7 +368,7 @@ Baseline: 3612482 (v0.1 RC). The v0.1 data contract (DESIGN §15) does not chang
   CSV tests and fuzz; the chunked ENGINE stays opt-in (G2 not met on q3-q5). Nothing removed. DESIGN 14 "W8".
 - **Gate report**: plans/GATES_V02.md. The host was never quiet (load before each run 2.4-3.7, during 1.4-5.8), so every
   timing is PROVISIONAL and G2 / G3 are UNEVALUATED (M_02 section 5). Evaluated: G1 met, G4 met (frozen 1M workload:
-  190-314 MB vs 600), G5 met, G6 met. Provisionally not met: G2 q3 1.37x / q4 ~1.0x / q5 1.38x / parse 1.89x (also against
+  190-314 MB vs 600), G5 PARTIAL (corrected after the v0.2 reviews; first recorded as met), G6 met. Provisionally not met: G2 q3 1.37x / q4 ~1.0x / q5 1.38x / parse 1.89x (also against
   the W0 proposals 2x / 1.3x / 1.5x / 2x); G3 1k controls q3 1.57x and q5 1.25x of v0.1 (a fixed compute cost, either reader).
   Provisionally met: G2 q1 4.0x, q2 3.8x, filter 5.9x (pre-chunked), q6 3.1x; every G3 1M / distinct-string / parse cell.
 - **G1 runs on the W8 tree** (fresh seeds, all exit 0, 0 failing / 0 crashes / 0 oracle errors): `make diff` 8001 (Raw) and
@@ -394,8 +394,10 @@ Baseline: 3612482 (v0.1 RC). The v0.1 data contract (DESIGN §15) does not chang
   the 1k controls of q3 (1.57x) and q5 (1.25x). Not measured at W8: the rank stage alone, the 1M-distinct str column read.
 - [x] **G4 memory**: 190-314 MB peak on the frozen 1M q1-q6 workload (phases and e2e, 1-12 threads, both engines); parse
   216-253 MB. Reported, above 600 MB: the 1M distinct-string group_by / unique (~630 MB) and join (~1.03 GB).
-- [x] **G5 proofs**: 231 laws, ALL PROOFS CHECK under bend and --verdict, 92 mutation controls; no @unsafe; the tested-only list
-  is DESIGN 8.2; Dictionary hypotheses unchanged.
+- [~] **G5 proofs**: PARTIAL (corrected after the v0.2 reviews). 231 laws, ALL PROOFS CHECK under bend and --verdict, 92
+  mutation controls; no @unsafe; Dictionary hypotheses unchanged; but the default select / with_columns / filter path runs the fused
+  runner `Eval.runz`, which no theorem relates to `Eval.run` (the typing theorems' subject), the section 18 / 19 laws are at one
+  template instance each, and section 22 is 14 laws over 53 wrappers of which the runner calls 4. The tested-only list is DESIGN 8.2.
 - [x] **G6 phase / copy report**: phases separate in every m2 record; `make m2-g6` exact counts (compute-phase copies q1-q6:
   0 vs 8-105 MB at the baseline; W3's ">= 50% fewer clone bytes on q1-q5" met at 100%).
 - [x] **W0** harness, spikes, DESIGN 16 / 17. [x] **W1** a-g (W1g as T3.4). [x] **W2** 2.1-2.4 (2.5 / 2.6 optional, not done).
@@ -414,3 +416,39 @@ Baseline: 3612482 (v0.1 RC). The v0.1 data contract (DESIGN §15) does not chang
    sort; the parse needs a File API that reads into a flat buffer (DESIGN 17.10 item 1).
 3. Freeze (or restate) the 16.8 / 17.8 thresholds formally.
 4. ~~The 1k q3 / q5 control regression~~ FIXED after W8: the radix sort's fixed 2^17-slot histogram per sort (512 KB zeroed + 65,536-slot prefix sums, several times per string sort of the 8 groups); inputs of depth <= 14 now sort with 8-bit digits (src/radix.bend Radix.s8). 1k controls now q3 0.100 / q4 0.050 / q5 0.100 ms vs v0.1 0.175 / 0.325 / 0.200 (bench/m2/results/ctlfix-prov.jsonl, provisional). New gate `make radix-check` in make ci.
+
+## v0.2 review dispositions (plans/REVIEW_V02_FABLE.txt, plans/REVIEW_V02_ASTRA.txt; 2026-10-12, HEAD 6b55792)
+
+Both reviews: not releasable as delivered (one wrong-result regression, B1, and overstated proof claims); after the fix, the
+claim corrections and the tests, an EXPERIMENTAL release restricted to macOS arm64, performance provisional, M_02 scaling
+incomplete. Disposition key: fixed (this tree), documented (behaviour kept, stated in README / DESIGN / CHANGELOG, with a pinned
+test where it is a behaviour), deferred (owner), in progress (another agent), needs the user (machine / remote / decision).
+
+| item | disposition | where / how |
+|---|---|---|
+| Fable B1 / Astra 1: `fill_null(neg(x), lit_f32(0.0))` answers -0.0 for null rows (F4 peephole on a dirty null payload) | **in progress** (the B1 agent: src/eval.bend fix, regression matrix incl. comparison against the unfused evaluator, its own CHANGELOG "Fixed after review" subsection and DESIGN 14 entry) | not part of this documentation pass |
+| Fable: add neg / abs / sqrt-of-null to the differential generator's null producers (Astra: guaranteed coverage of the composition, not more random cases) | **in progress** with B1 (the B1 agent); if it lands without it: deferred to v0.3, owner next milestone | Astra's note: neg / abs / sqrt are registered in bench/diff/model.py; what is missing is a directed composition |
+| Fable B2: a UTF-8 BOM stays in the first header name with both readers; Polars strips it | **documented** (verified: Polars 2.0.0 `read_csv` / `scan_csv` name the column `a`; bend-frame's v0.1 reader, v0.2 reader and `scan_csv` keep U+FEFF; headerless: stays in the first data cell) | README "Differences from Polars", DESIGN 15.6.2 table, `tests/csv_bom.bend`. Behaviour unchanged; whether to strip the BOM is a v0.3 contract decision (user) |
+| Fable B3: median with an odd count whose middle values mix -0.0 and 0.0 differs in sign in both directions | **documented** (verified for n >= 21: 107 of 226 random inputs differ, both directions; NOT reproduced for odd n <= 15: 1,392 cases all agree, so the finding is true only for larger counts) | README, DESIGN 15.5.4, `tests/agg_median_zero_sign.bend` (hand-derived: stable order, index (n-1)/2). Behaviour unchanged |
+| Fable H1 / Astra 2: proof coverage of the default path (typing theorems are about `Eval.full` / `Eval.run`, the default runs `Eval.runz(Eval.fuse(Eval.mark(..)))`) | **fixed (claims)**: README Laws, DESIGN 8.1 rows (eval_full_typed) / 8.1 text / G6 claim / 8.2 "Proof coverage in three groups", GATES_V02 G5 marked PARTIAL, CHANGELOG Verified scope / Not claimed. **deferred (the proof gap)**: prove `runz` = `run` on dump, or retire the fused runner; owner: v0.3 | the three groups: preserved theorems about existing functions / new local kernel and peephole theorems with instances and premises / unproven integration (fused runner, CX.* walks, native) |
+| Fable H2: section 22 proves 53 generated wrappers of which the runner calls 4; section 18 laws at one template instance | **documented**: "14 laws over 53 generated wrappers, 4 of them (sum, min, max, popcount) on the chunked runner's path" (README, CHANGELOG, DESIGN 8.2, LAWS.bend section 22 header); instances listed per section | |
+| Fable H3 / Astra 3: "the same walks scale 4-6x" only on inputs born chunked; chunked from eager frames is 2.7-5.7x slower at one thread; the 1k-control claim is from a provisional run; default executor does not scale on q1-q5 | **fixed (claims)**: README Performance and Reader / engine sections, CHANGELOG Measured, frame.bend `engine_reference` / `collect_with` comment ("use only over scan_csv plans with row-wise first consumers, on several threads"), GATES_V02 post-review notes | threads help the parse (1.9x), describe (3x) and scan-fed row-wise plans under the chunked engine (4x) |
+| Astra 3 limits: distinct-string group / unique ~630 MB, distinct-key join ~1 GB (600 MB gate = sales workload only), reader 1.39 GB / ~83 M allocations for 41 MB, no streaming, no adversarial-hash guarantee | **documented** | README Limits and Performance, CHANGELOG, GATES_V02 |
+| Fable H4: README never says the reader default flipped before G2-G4 were evaluated | **fixed**: one sentence in README "Reader and engine selection" (also in the status paragraph), recorded deviation DESIGN 14 "W8" | |
+| Minor: parallel-let count drifts (66 / 67 / 68) | **fixed**: 68 (`make fork-audit`: 68 parallel lets in 28 files, 0 findings); DESIGN 16.10 / IMPLEMENTING snapshots now say "at the time, 68 at W8"; CHANGELOG states 68 | |
+| Minor: `engine_reference()` public but undocumented | **fixed**: README and frame.bend comment | |
+| Fable section 4: no public piece-size knob for the v0.2 reader; the chunked engine cannot pair with the v0.1 reader from the facade | **documented** (README, frame.bend comment) | |
+| Minor: docs/COVERAGE.md stale at HEAD | **fixed**: regenerated by `make coverage` (762 / 54 / 0), committed | |
+| Fable 5.2 / Astra 5: radix-check at the dispatch boundary (2^14-1, 2^14, 2^14+1, 2^15), empty input, stable duplicates | **fixed**: `make radix-check` now 90 cases (was 40): 9 shapes x sizes 0 / 1 / 2 / 7 / 300 / 1000 / 16383 / 16384 / 16385 / 32768; for n > 16384 the 8-bit side is `Radix.s8` called directly; dropping a byte pass in `Radix.s8.go` or `Radix.run` is caught (69 of 90 ok under each mutation) | bench/checks/radix_paths.bend, Makefile |
+| Fable 4: two readers (~5.2k lines) and two executors (~6.9k opt-in lines) coexist; "decide the removal date now" | **needs the user**: the removal date. Proposal on record (D7 as planned): remove the v0.1 reader / reference executor only after two independently reproduced quiet-machine gate runs with the new default AND a reproducible baseline run; nothing before then | Astra: do not delete references before D7's separate removal criteria are met |
+| Fable 5.3: one quiet-machine (load < 2) gate run of the GATES_V02 sequence (G2 / G3 are UNEVALUATED) | **needs the user** (a quiet machine; `bench/m2/README.md` "W8: reproducing the gate report"). Astra: not a blocker for an explicitly provisional experimental release, but required for definitive claims and any gate completion | Fable's load-3 run reproduces every one-thread cell within noise (GATES_V02 post-review notes) |
+| Fable 5.4 / Astra 4: hosted Linux / x86-64 CI has never run (the repo has no remote) | **needs the user** (a remote); the release stays labelled macOS arm64 only | README "Platform and CI" unchanged |
+| Astra 5: `make ci` on the final committed candidate, fresh differential seeds and the targeted null-producer cases | **needs** the final tree after the B1 fix (orchestrator): run `make ci` on it, `make diff` on two fresh seeds | this pass ran only the gates in its task: make test, check, radix-check, coverage, bench-check |
+| Fable v0.3 list: prove or retire the fused runner; chunked group_by and partitioned sort; a Base read-into-buffer primitive for the parse; removal of the duplicate reader / executor; generator widened to the null producers | **deferred** to v0.3 (owner: the user / next milestone); the same items as "Open after W8" above | |
+| API gaps (no window functions, dates, F32 only, `/` semantics) | unchanged from v0.1; Astra: F64 / I64 and dates are the most valuable next API additions | README Limits |
+
+
+Gates of this documentation pass (tree after the edits above, load 3-4, M2 Pro): `make test` 205/205 (0 XFAIL; 203 + `tests/csv_bom.bend`
++ `tests/agg_median_zero_sign.bend`), `make check` exit 0, `make proofs` ALL PROOFS CHECK (LAWS.bend comment edit only),
+`make radix-check` ok 90 cases, `make coverage` 762 / 54 / 0 (docs/COVERAGE.md regenerated), `make bench-check` exit 0 (q1-q6 at 1k and 100k).
+Not run here: `make ci` (needs the final tree after the B1 fix), `make verdict`, `make mutation-check`.

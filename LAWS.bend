@@ -3822,6 +3822,10 @@ law filter_select_run:
 #    the logical cells (U32.add associativity at the nodes, u32_fold_sum / popcount_sum per leaf);
 #  - per-leaf compaction into the leaf's own capacity: CRoom at every leaf from croom_of_cap (section
 #    21), hence compact_contents' CSpec at every leaf, and the kept count is the leaf mask's popcount.
+# WEIGHT (stated after the v0.2 reviews): these are 14 laws over 53 generated wrappers, 4 of them (sum, min,
+# max, popcount) on the chunked runner's path (src/cexec.bend). The runner's real work, the CX.* walks and
+# the Eval.runz call in each leaf, is not stated here or anywhere (DESIGN.md 8.2, "Proof coverage in three
+# groups"); the other wrappers are exercised by tests/ckernels_*.bend only.
 
 # ---- maps: the chunked map is Kernel.map leaf by leaf (instance: Bool not, x xor 1) ----------------------
 

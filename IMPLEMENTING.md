@@ -3160,7 +3160,7 @@ cheaper densify would take a conditional store of `first` (a branch that only mi
 accumulator (group sized); `Grp.agg.len` / `count` over a 1M-group key are the same loop as today.
 ## Fork audit (every parallel let of src/ against the 16.10 shape rule; `make fork-audit`)
 
-What was done: every parallel let in src/ (66 in 28 files, frame.bend has none) was checked against the Bend
+What was done: every parallel let in src/ (66 in 28 files at the time, 68 at W8: `make fork-audit` prints the current count; frame.bend has none) was checked against the Bend
 2.0.36 scheduler's fork-shape rule (DESIGN.md 16.10, "Scaling diagnosis" above) by two static views, the verdict
 table is at the end of DESIGN.md 16.10. One def changed (`CBs.feed`, the v0.1 sink's column fork: a 1-vs-rest
 chain became a prelude tree `FJ`); nothing else in src/ needed a change; bench/w5/scale/forkaudit.py grew a
@@ -3282,7 +3282,7 @@ three operations as Kernel.copy_into's spin_330); the gather `Cut.ga.go<U32>` is
 reads + 1 write per row, as the flat remap); the Raw gather `Cut.ga.go<String>` is spin_337 with one `blk_keep` per row
 (the row shares its entry string, as the flat Raw fall back); the leaf roll-over `Cut.roll` (spin_336) allocates one
 leaf buffer and one list cell per LEAF. The column fork `Csv.v2.cfork` matches and forks only (forkaudit.allow entry: the
-leaf call to `Csv.v2.ch.kone`); `make fork-audit`: 67 parallel lets, 0 findings, 0 new tasks.
+leaf call to `Csv.v2.ch.kone`); `make fork-audit`: 67 parallel lets at the time (68 at W8), 0 findings, 0 new tasks.
 
 Performance (PROVISIONAL: shared machine, load 5.8-29.9 (one round at 185 excluded), bench/m2 run.py e2e mode, 7-8
 fresh processes per cell, the four configs interleaved round by round by build/w66/meas.sh; raw samples in
@@ -3426,7 +3426,7 @@ C findings: no new kernel (the leaves call `Kernel.pred_count` and `Kernel.compa
 `spin_1822` = pred_count and `spin_1310` = compact3 in the emitted C of step c3, nothing allocated per row). The
 new forking def `CX.p3` matches the frame tree and forks; its leaf arm makes the one call task `CX.p3 -> CX.splitn`
 (leaf position, allowlisted), and `CX.p1` (the general predicate's walk 1) shows the leaf-arm tasks `-> CX.lframe`
-and `-> Eval.f5.go` of its compiled-plan arms (allowlisted). `make fork-audit`: 67 parallel lets, 0 source
+and `-> Eval.f5.go` of its compiled-plan arms (allowlisted). `make fork-audit`: 67 parallel lets at the time (68 at W8), 0 source
 findings, 33 forking defs, 13 call tasks, all reviewed.
 
 Gates (this worktree): `make test` PASS 201 / 201; `make check`; `make proofs` and `make verdict` ALL PROOFS CHECK;
