@@ -3481,3 +3481,38 @@ What the next agents need to know:
 - Bend idioms hit while writing the probe: IO.args includes the program name first; a `do` block cannot destructure
   (bind into a helper's parameter); `+x` on the last component of a Sigma destructuring cannot be inferred (pack
   flags into a word instead); helpers above callers and no mutual recursion (fold the step into one def).
+
+## Post-review: null-slot invariant (B1)
+
+- **An invariant nobody observes is an invariant nobody keeps.** P0 ("a null slot holds the dtype default") was in
+  DESIGN 4.4 and LAWS section 9 from M1, but no law said any operation PRESERVES it and `DF.dump` prints `null`, never
+  the slot. f32 `neg` wrote -0.0 under its nulls since M2 without a symptom; v0.2's F4 was the first code to
+  read a null slot as a value, and every engine answered -0.0 for `fill_null(neg(x), 0.0)`. When an optimisation starts
+  to rely on a representation invariant, add the CHECKER first (src/p0.bend) and run it on every differential result;
+  "the dumps agree" cannot see a slot.
+- **IEEE zero is not closed under the obvious maps.** `x -> -x` maps the default +0.0 to -0.0; `abs`, `sqrt`, `0 * x`
+  happen to map it back to +0.0, `0 - x` gives +0.0, `x * -1` gives -0.0. Do not argue "f(default) = default" per op:
+  write the default under a null in the op's own loop (`Kernel.zipb` over the data and the mask, template
+  `m != 0 ? f(x) : default`). One loop, nothing allocated per row, and the property no longer depends on f.
+- **`Kernel.zipb` is a masked map for free.** A borrowing zip of (data, mask) with `~(w => k => Bool.pick(T,
+  U32.is_ne(k, 0), f(w), z))` hands the mask back for the result's validity: no new kernel, no new loop proof
+  (`PF.zb_sim` / `PF.zb_cell` give the cell at any template), and the same shape is F4's borrowed masked copy.
+- **A peephole law with a premise about its operand is only as good as the operand's producers.** `peep_f4_cell` was
+  proven under "the slot at k is the default" and checked green while production violated it. Prefer the
+  premise-free form (here: F4 resets the slots itself, one in-place `mask_data` pass, and the law drops the hypothesis)
+  or state the producer laws that discharge it (`un_neg_f32_null`). Where neither is possible (Z1 / Z2 fill sides read
+  a frame column), say so in DESIGN 14 and test the invariant everywhere.
+- **The facade boundary is a producer too.** `DF.from_columns` accepted any `Column` built from raw buffers; the chunked
+  engine's u32 tree sum adds every slot, so a null slot holding 5 answered 17 for a sum of 3 (reached only after a
+  first chunked walk: an eager source frame goes flat). `from_columns` now runs `Eval.fix` per column.
+- **Mutation controls and verbatim witnesses.** PROOF_evalops' typing witnesses (`fneg_w`, ...) restate the masked
+  template text, so a mutated template is "caught" by a textual mismatch before any content law runs. The B1 controls
+  carry companion patches (scripts/mutation_check.sh, an optional 5th tuple element) that rewrite the witness alike,
+  so the rejection shown is the content law's (`un_neg_f32`, `un_*_null`).
+- **Proof idioms used.** Two witnesses (`PI.MDW`, `PI.CHW`) both consume the array and its well-formedness: clone the
+  array WITH its proof (`wfa_clone`: `CloneA` = two copies, two `WFArray`s, by induction on the tree like
+  `clone_words`). A lemma over a constructor-matching helper (`Eval.un.mf(n, d, r)`, `Eval.fz.dm.w`) is proven by
+  matching `r` (`mfd`, `dmw_cell`: `{==}` per case) and transported with clones, as `zb_cell_k` does. `+e` on the LAST
+  component of a Sigma destructuring cannot be inferred (again): put the shared equality on an earlier component.
+- **Worktree tooling.** Compound shell lines (loops, `$VAR` in a bend call, `git show` into a scratch path) are refused
+  in the isolated worktree; small scripts in the scratchpad (`python3 script.py`, `bash script.sh`) are not.

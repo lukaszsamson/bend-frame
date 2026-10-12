@@ -460,11 +460,193 @@ def gen_join_stress(g: "Gen") -> Case:
     return Case(f"d{g.index:04d}", g.seed, inputs, pl, "valid")
 
 
+# ---- directed: null producers feeding fill_null and sign-sensitive consumers (post-review B1) --------
+# v0.2 shipped fill_null(neg(x), 0.0) = -0.0 on the null rows (F32 neg wrote -0.0 under its nulls and F4
+# relied on the slot holding +0.0). The random grammar can draw that composition but never has to: in
+# 20k+ cases it did not. These cases ALWAYS build one: a null producer P (neg, sqrt(neg ..), abs, casts,
+# `x op lit` with negative / positive / zero literals on either side, floor_div / mod by a zero literal,
+# when/then with a null condition, Kleene and/or, a staged with_columns intermediate read back as a
+# frame column), fill_null(P, L) with the dtype default (F4) or another literal (+0.0 / -0.0 / 1.0 ...),
+# and a sign-sensitive consumer (1 / F, F * -1, cast to str, sort by F, group_by F). The f32 inputs hold
+# +0.0, -0.0 and nulls (valid -0.0 controls); every result's P0 report (src/p0.bend) is checked too.
+
+NS_F32 = [0.0, -0.0, 0.0, -0.0, 1.0, -2.0, 2.5, -0.5, 4.0, float("inf"), float("-inf"), float("nan")]
+NS_I32 = [0, 0, -1, 2, -5, 7, M.I32_MIN, M.I32_MAX]
+NS_U32 = [0, 0, 1, 7, 2**32 - 1]
+NS_FLIT = [0.0, -0.0, -1.0, 5.0, -5.0, 0.5]
+
+
+class NullSlot:
+    def __init__(self, g: "Gen"):
+        self.g = g
+        self.r = g.rng
+
+    def pick(self, xs):
+        return self.r.choice(xs)
+
+    # producers: an expression of dtype dt whose result has null rows (its inputs do)
+    def f32(self, depth, staged):
+        r = self.r
+        base = [col("x"), col("y")] + ([col("p")] if staged else [])
+        if depth <= 0:
+            return self.pick(base)
+        k = r.randrange(11)
+        sub = lambda: self.f32(depth - 1, staged)  # noqa: E731
+        if k == 0:
+            return Ex("neg", (sub(),))
+        if k == 1:
+            return Ex("sqrt", (Ex("neg", (sub(),)),))
+        if k == 2:
+            return Ex("abs", (sub(),))
+        if k in (3, 4):
+            op = self.pick(["add", "sub", "mul", "div"])
+            lt = lit("f32", M.f32(self.pick(NS_FLIT)))
+            return Ex(op, (sub(), lt)) if r.random() < 0.5 else Ex(op, (lt, sub()))
+        if k == 5:
+            return Ex("cast", (self.pick([col("i"), col("u"), col("b"), Ex("neg", (col("i"),))]),), ("f32",))
+        if k == 6 and "when" in self.g.ops:
+            other = sub() if r.random() < 0.5 else lit("f32", None)
+            return Ex("when", (self.boolp(depth - 1), sub(), other))
+        if k == 7:
+            return Ex("fill_null", (sub(), lit("f32", self.pick([M.f32(-0.0), M.f32(1.0)]))))
+        if k == 8:
+            return Ex(self.pick(["mul", "sub"]), (sub(), sub()))
+        return sub()
+
+    def i32(self, depth):
+        r = self.r
+        if depth <= 0:
+            return col("i")
+        k = r.randrange(6)
+        sub = lambda: self.i32(depth - 1)  # noqa: E731
+        if k == 0:
+            return Ex("neg", (sub(),))
+        if k == 1:
+            return Ex("abs", (sub(),))
+        if k == 2:
+            return Ex(self.pick(["add", "sub", "mul"]), (sub(), lit("i32", self.pick([0, -1, 3]))))
+        if k == 3 and "floor_div" in self.g.ops:
+            return Ex(self.pick(["floor_div", "mod"]), (sub(), lit("i32", self.pick([0, -1, 2]))))
+        if k == 4 and "try_cast" in self.g.ops:
+            return Ex("try_cast", (self.pick([col("x"), col("u")]),), ("i32",))
+        return sub()
+
+    def u32(self, depth):
+        r = self.r
+        if depth <= 0:
+            return col("u")
+        k = r.randrange(4)
+        if k == 0:
+            return Ex(self.pick(["add", "sub", "mul"]), (self.u32(depth - 1), lit("u32", self.pick([0, 1, 5]))))
+        if k == 1 and "floor_div" in self.g.ops:
+            return Ex(self.pick(["floor_div", "mod"]), (self.u32(depth - 1), lit("u32", self.pick([0, 2]))))
+        if k == 2 and "try_cast" in self.g.ops:
+            return Ex("try_cast", (col("x"),), ("u32",))
+        return self.u32(depth - 1)
+
+    def boolp(self, depth):
+        r = self.r
+        k = r.randrange(5)
+        if depth <= 0 or k == 0:
+            return Ex("gt", (col("x"), lit("f32", M.f32(self.pick([0.0, -0.0, 1.0])))))
+        if k == 1:
+            return Ex("not", (col("b"),))
+        if k == 2:
+            return Ex(self.pick(["and", "or"]), (col("b"), self.boolp(depth - 1)))
+        if k == 3:
+            return Ex("is_null", (col("y"),)) if r.random() < 0.3 else col("b")
+        return Ex("eq", (self.f32(depth - 1, False), lit("f32", M.f32(0.0))))
+
+    def producer(self, staged):
+        dt = self.r.choices(["f32", "i32", "u32", "bool", "str"], [60, 15, 8, 8, 9])[0]
+        d = self.r.choice([1, 1, 2, 2, 3])
+        if dt == "f32":
+            return dt, self.f32(d, staged)
+        if dt == "i32":
+            return dt, self.i32(d)
+        if dt == "u32":
+            return dt, self.u32(d)
+        if dt == "bool":
+            return dt, self.boolp(d)
+        return dt, Ex("cast", (self.f32(d - 1, staged),), ("str",))
+
+    def fill_lit(self, dt):
+        return {"f32": lambda: lit("f32", M.f32(self.pick([0.0, 0.0, -0.0, 1.0]))),
+                "i32": lambda: lit("i32", self.pick([0, 0, -1])),
+                "u32": lambda: lit("u32", self.pick([0, 0, 5])),
+                "bool": lambda: lit("bool", self.pick([False, False, True])),
+                "str": lambda: lit("str", self.pick(["", "", "z"]))}[dt]()
+
+    def consumer(self, dt, f):
+        """a sign-sensitive use of the filled value f (f32), or f itself"""
+        if dt != "f32":
+            return f
+        k = self.r.randrange(5)
+        if k == 0:
+            return Ex("div", (lit("f32", M.f32(1.0)), f))
+        if k == 1:
+            return Ex("mul", (f, lit("f32", M.f32(-1.0))))
+        if k == 2:
+            return Ex("cast", (f,), ("str",))
+        return f
+
+
+def gen_null_slot(g: "Gen") -> Case:
+    r = g.rng
+    ns = NullSlot(g)
+    n = g.pick([1, 2, 3, 4, 5, 7, 8, 9, 16, 17, 33] + ([100, 128, 129, 257] if "deep" in g.features else []))
+    null_p = g.pick([0.2, 0.4, 0.6, 1.0])
+
+    def vals(pool, conv=lambda v: v):
+        return [None if r.random() < null_p else conv(g.pick(pool)) for _ in range(n)]
+
+    xs = vals(NS_F32, M.f32)
+    if n >= 3:                      # a null row and a valid -0.0 control at fixed places
+        xs[r.randrange(n)] = None
+        xs[r.randrange(n)] = M.f32(-0.0)
+    cols = [Col("x", "f32", xs), Col("y", "f32", vals(NS_F32, M.f32)), Col("i", "i32", vals(NS_I32)),
+            Col("u", "u32", vals(NS_U32)), Col("b", "bool", vals([False, True]))]
+    inputs = {"t": Frame(cols, n)}
+    src = Pl("source", ("t",))
+    staged = r.random() < 0.4
+    pl = src
+    if staged:                      # p = a null producer, stored in the frame by its own with_columns
+        pl = Pl("with_columns", ((alias(ns.f32(r.choice([1, 2]), False), "p"),),), (pl,))
+    shape = r.choices(["select", "with", "sort", "group", "raw"], [35, 20, 15, 15, 15])[0]
+    outs, taken = [], set()
+    for j in range(r.choice([1, 1, 2, 3])):
+        dt, p = ns.producer(staged)
+        e = p if shape == "raw" else ns.consumer(dt, Ex("fill_null", (p, ns.fill_lit(dt))))
+        outs.append(alias(e, f"o{j}"))
+    if shape in ("select", "raw"):
+        es = tuple(outs) + ((col("x"),) if r.random() < 0.4 else ())
+        pl = Pl("select", (es,), (pl,))
+    elif shape == "with":
+        pl = Pl("with_columns", (tuple(outs),), (pl,))
+    else:
+        f = ns.f32(r.choice([1, 2]), staged)
+        k = alias(Ex("fill_null", (f, lit("f32", M.f32(ns.pick([0.0, 0.0, -0.0]))))), "k")
+        pl = Pl("with_columns", ((k,),), (pl,))
+        if shape == "sort":
+            pl = Pl("sort", ((("k", r.random() < 0.3, r.random() < 0.3), ("x", False, False)),), (pl,))
+        else:
+            pl = Pl("group_by", ((col("k"),), (alias(Ex("len"), "n"),)), (pl,))
+    c = Case(f"d{g.index:04d}", g.seed, inputs, pl, "valid", "nullslot")
+    try:                            # every directed case is well typed by construction; keep it honest
+        M.plan_schema(pl, c.sources())
+    except M.TErr as e:
+        raise AssertionError(f"nullslot case {c.id} is ill-typed: {e.text}")
+    return c
+
+
 def gen_case(seed: int, index: int, all_=False, features=None) -> Case:
     g = Gen(seed, index, all_, features)
     r = g.rng
     if "joinstress" in g.features:
         return gen_join_stress(g)
+    # directed null-slot cases (post-review B1): every case under --features nullslot, else ~15 %
+    if "nullslot" in g.features or ("nonullslot" not in g.features and r.random() < 0.15):
+        return gen_null_slot(g)
     kind = "invalid" if r.random() < 0.12 else "valid"
     g.err = 0.25 if kind == "invalid" else 0.0
     ts = g.schema()

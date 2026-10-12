@@ -108,9 +108,27 @@ def Laws.peep_f3_strict(op, n, d, v, x, n2, d2, vb, b):
 def Laws.peep_f4(n, d, m, a):
   {==}
 
-def Laws.peep_f4_not_noop(n, d, m, a, k, hm, ha):
+# post-review B1: F4 resets the null slots (Eval.fix = Kernel.mask_data in place); the fused fill's
+# cell at k is the reset buffer's, which mask_data_cell's witness (PI.MDW) gives: the slot where the mask
+# word is set, 0 where it is 0
+def pf4n_k(+n: U32, +d: Nat, -m: Array<U32>, -a: Array<U32>, +k: U32, +hm: {Laws.rd_at(U32, m, k) == 0 : U32}, w: PI.MDW(~U32, n, d, a, m, 0, k))
+  -> {Laws.ccell(Laws.z0_col(V.Eval.fz.z0(V.PFill{D.SU32{0}}, C.CU32{n, d, C.Mask{m}, a})), k) == D.SU32{0} : D.Scalar}:
+  (o, mb, emd, emb, wfo, cell) = w
+  %Equal.sym(Array<U32> & Array<U32>, K.Kernel.mask_data(~U32, n, a, m, 0), (o, mb), emd) : {Laws.ccell(C.Column.set_valid(V.Eval.fix.w2(D.TU32{}, n, d, _), C.AllValid{}), k) == D.SU32{0} : D.Scalar}
+  Equal.cong(U32, D.Scalar, q => D.SU32{q}, Laws.rd_at(U32, o, k), 0,
+    Equal.trans(U32, Laws.rd_at(U32, o, k), Laws.rdN(U32, d, o, k), 0, Laws.rd_at_wf(U32, d, o, k, wfo),
+      Equal.trans(U32, Laws.rdN(U32, d, o, k), Bool.pick(U32, U32.is_ne(Laws.rd_at(U32, m, k), 0), Laws.rd_at(U32, a, k), 0), 0, cell,
+        (%Equal.sym(U32, Laws.rd_at(U32, m, k), 0, hm) : {Bool.pick(U32, U32.is_ne(_, 0), Laws.rd_at(U32, a, k), 0) == 0 : U32}; {==}))))
+
+def Laws.peep_f4_not_noop(n, d, m, a, k, wf, fits, hk, hm):
   ((%Equal.sym(U32, Laws.rd_at(U32, m, k), 0, hm) : {Bool.pick(D.Scalar, U32.is_ne(_, 0), D.SU32{Laws.rd_at(U32, a, k)}, D.SNull{}) == D.SNull{} : D.Scalar}; {==}),
-   (%Equal.sym(U32, Laws.rd_at(U32, a, k), 0, ha) : {D.SU32{_} == D.SU32{0} : D.Scalar}; {==}))
+   pf4n_k(n, d, m, a, k, hm, PI.mask_data_w(~U32, n, d, a, m, 0, k, wf, fits, hk)))
+
+# F4 on a borrowed column: the masked copy is Kernel.zipb's loop over the data and the mask, which IS
+# Kernel.zip's with both operands handed back (PF.zb_sim)
+def Laws.peep_f4_borrow(n, d, m, a):
+  %Equal.sym(K.ZB<U32, U32, U32>, K.Kernel.zipb.go(~U32, ~U32, ~U32, ~(w => k => Bool.pick(U32, U32.is_ne(k, 0), w, 0)), U32.to_nat(n), 0, Array.new(U32, d, 0), Array.get(U32, a, 0), Array.get(U32, m, 0)), K.ZB{K.Kernel.zip.go(~U32, ~U32, ~U32, ~(w => k => Bool.pick(U32, U32.is_ne(k, 0), w, 0)), U32.to_nat(n), 0, Array.new(U32, d, 0), Array.get(U32, a, 0), Array.get(U32, m, 0)), a, m}, PF.zb_sim(~U32, ~U32, ~U32, ~(w => k => Bool.pick(U32, U32.is_ne(k, 0), w, 0)), U32.to_nat(n), 0, Array.new(U32, d, 0), a, m)) : {V.Eval.fz.dm.w(D.TU32{}, n, d, _) == V.Z1R{Some{C.CU32{n, d, C.AllValid{}, K.Kernel.zip(~U32, ~U32, ~U32, ~(w => k => Bool.pick(U32, U32.is_ne(k, 0), w, 0)), n, d, a, m, 0)}}, C.CU32{n, d, C.Mask{m}, a}} : V.Z1R}
+  {==}
 
 def Laws.peep_f4_other(lit, n, d, v, a, h):
   %Equal.sym(Bool, U32.is_zero(lit), False{}, h) : {V.Eval.fz.z0.b(_, C.CU32{n, d, v, a}) == V.Z0R{False{}, C.CU32{n, d, v, a}} : V.Z0R}
@@ -244,22 +262,188 @@ def pf5_cell(+n: U32, +d: Nat, -ok: Array<U32>, -q: Array<U32>, +lit: U32, +i: U
 def Laws.peep_f5_cell(n, d, ok, q, lit, i, fits, hi):
   pf5_cell(n, d, ok, q, lit, i, fits, hi, PF.clone3(U32, ok), clone4(U32, q))
 
-# ---- F4 against Eval.fill: Kernel.choose's cell, the null slot already the default ----------------------
+# ---- F4 against Eval.fill: both cells are the slot where the mask word is set, 0 where it is 0 ----------
+# Post-review B1: F4 resets the null slots itself (owned: Kernel.mask_data in place; borrowed: one masked
+# copy), so the fused cell no longer needs the P0 hypothesis v0.2 stated (the null slot at k holds the
+# default). Eval.fill's cell is Kernel.choose's against the broadcast 0 (PI.CHW); the owned fill's is
+# Kernel.mask_data's (PI.MDW); the borrowed fill's is Kernel.zipb's (PF.zb_cell). Each witness consumes
+# its own clone of the buffers (and of the data buffer's well-formedness: wfa_clone).
 
-def pf4_k(+n: U32, +d: Nat, -m: Array<U32>, -a: Array<U32>, +k: U32, +p0: {Bool.pick(U32, U32.is_ne(Laws.rd_at(U32, m, k), 0), Laws.rd_at(U32, a, k), 0) == Laws.rd_at(U32, a, k) : U32},
-  w: PI.CHW(~U32, n, d, m, a, Array.new(U32, K.Kernel.depth_for(n), 0), k))
+# two copies of a well-formed array, each with its own well-formedness
+def CloneA(-T: Data, +d: Nat, -a: Array<T>) -> Type:
+  &a1: Array<T> -> &a2: Array<T> -> {a1 == a : Array<T>} & {a2 == a : Array<T>} & Laws.WFArray(T, d, a1) & Laws.WFArray(T, d, a2)
+
+def wfa_clone_node(-T: Data, +p: Nat, -xs: Array<T>, -ys: Array<T>, wx: CloneA(T, p, xs), wy: CloneA(T, p, ys)) -> CloneA(T, 1n+p, ANode{xs, ys}):
+  (x1, x2, ex1, ex2, wx1, wx2) = wx
+  (y1, y2, ey1, ey2, wy1, wy2) = wy
+  (ANode{x1, y1}, ANode{x2, y2}, (%ey1 : {ANode{x1, y1} == ANode{xs, _} : Array<T>}; %ex1 : {ANode{x1, y1} == ANode{_, y1} : Array<T>}; {==}), (%ey2 : {ANode{x2, y2} == ANode{xs, _} : Array<T>}; %ex2 : {ANode{x2, y2} == ANode{_, y2} : Array<T>}; {==}), (wx1, wy1), (wx2, wy2))
+
+def wfa_clone(-T: Data, d: Nat, a: Array<T>, w: Laws.WFArray(T, d, a)) -> CloneA(T, d, a):
+  match d a:
+    case 0n ALeaf{+x}:
+      (ALeaf{x}, ALeaf{x}, {==}, {==}, Unit{}, Unit{})
+    case 1n++p ANode{xs, ys}:
+      (wl, wr) = w
+      wfa_clone_node(T, p, xs, ys, wfa_clone(T, p, xs, wl), wfa_clone(T, p, ys, wr))
+    case 0n ANode{xs, ys}:
+      Empty.absurd(CloneA(T, 0n, ANode{xs, ys}), w)
+    case 1n+p ALeaf{x}:
+      Empty.absurd(CloneA(T, 1n+p, ALeaf{x}), w)
+
+def pf4_k(+n: U32, +d: Nat, -m: Array<U32>, -a: Array<U32>, +k: U32, w1: PI.MDW(~U32, n, d, a, m, 0, k), w2: PI.CHW(~U32, n, d, m, a, Array.new(U32, K.Kernel.depth_for(n), 0), k))
   -> {Laws.ccell(Laws.z0_col(V.Eval.fz.z0(V.PFill{D.SU32{0}}, C.CU32{n, d, C.Mask{m}, a})), k) == Laws.ccell(Laws.res_col(V.Eval.fill(C.CU32{n, d, C.Mask{m}, a}, V.Eval.const_col(D.SU32{0}, D.TU32{}, n))), k) : D.Scalar}:
-  (mb, o, ech, emb, wfo, cell) = w
-  %Equal.sym(Array<U32> & Array<U32>, K.Kernel.choose(~U32, n, m, a, Array.new(U32, K.Kernel.depth_for(n), 0)), (mb, o), ech) : {Laws.ccell(Laws.z0_col(V.Eval.fz.z0(V.PFill{D.SU32{0}}, C.CU32{n, d, C.Mask{m}, a})), k) == Laws.ccell(Laws.res_col(V.Eval.fill.w(D.TU32{}, n, d, V.Eval.fill.t2(~U32, n, d, C.AllValid{}, _))), k) : D.Scalar}
-  Equal.cong(U32, D.Scalar, x => D.SU32{x}, Laws.rd_at(U32, a, k), Laws.rd_at(U32, o, k),
-    Equal.sym(U32, Laws.rd_at(U32, o, k), Laws.rd_at(U32, a, k),
-      (%Equal.sym(U32, Laws.rd_at(U32, o, k), Laws.rdN(U32, d, o, k), Laws.rd_at_wf(U32, d, o, k, wfo)) : {_ == Laws.rd_at(U32, a, k) : U32};
-       %Equal.sym(U32, Laws.rdN(U32, d, o, k), Bool.pick(U32, U32.is_ne(Laws.rd_at(U32, m, k), 0), Laws.rd_at(U32, a, k), Laws.rd_at(U32, Array.new(U32, K.Kernel.depth_for(n), 0), k)), cell) : {_ == Laws.rd_at(U32, a, k) : U32};
-       %Equal.sym(U32, Laws.rd_at(U32, Array.new(U32, K.Kernel.depth_for(n), 0), k), 0, PF.rd_at_new(U32, K.Kernel.depth_for(n), 0, k)) : {Bool.pick(U32, U32.is_ne(Laws.rd_at(U32, m, k), 0), Laws.rd_at(U32, a, k), _) == Laws.rd_at(U32, a, k) : U32};
-       p0)))
+  (o1, mb1, emd, emb1, wfo1, cell1) = w1
+  (mb2, o2, ech, emb2, wfo2, cell2) = w2
+  %Equal.sym(Array<U32> & Array<U32>, K.Kernel.mask_data(~U32, n, a, m, 0), (o1, mb1), emd) : {Laws.ccell(C.Column.set_valid(V.Eval.fix.w2(D.TU32{}, n, d, _), C.AllValid{}), k) == Laws.ccell(Laws.res_col(V.Eval.fill(C.CU32{n, d, C.Mask{m}, a}, V.Eval.const_col(D.SU32{0}, D.TU32{}, n))), k) : D.Scalar}
+  %Equal.sym(Array<U32> & Array<U32>, K.Kernel.choose(~U32, n, m, a, Array.new(U32, K.Kernel.depth_for(n), 0)), (mb2, o2), ech) : {Laws.ccell(C.CU32{n, d, C.AllValid{}, o1}, k) == Laws.ccell(Laws.res_col(V.Eval.fill.w(D.TU32{}, n, d, V.Eval.fill.t2(~U32, n, d, C.AllValid{}, _))), k) : D.Scalar}
+  Equal.cong(U32, D.Scalar, q => D.SU32{q}, Laws.rd_at(U32, o1, k), Laws.rd_at(U32, o2, k),
+    (%Equal.sym(U32, Laws.rd_at(U32, o1, k), Laws.rdN(U32, d, o1, k), Laws.rd_at_wf(U32, d, o1, k, wfo1)) : {_ == Laws.rd_at(U32, o2, k) : U32};
+     %Equal.sym(U32, Laws.rdN(U32, d, o1, k), Bool.pick(U32, U32.is_ne(Laws.rd_at(U32, m, k), 0), Laws.rd_at(U32, a, k), 0), cell1) : {_ == Laws.rd_at(U32, o2, k) : U32};
+     %Equal.sym(U32, Laws.rd_at(U32, o2, k), Laws.rdN(U32, d, o2, k), Laws.rd_at_wf(U32, d, o2, k, wfo2)) : {Bool.pick(U32, U32.is_ne(Laws.rd_at(U32, m, k), 0), Laws.rd_at(U32, a, k), 0) == _ : U32};
+     %Equal.sym(U32, Laws.rdN(U32, d, o2, k), Bool.pick(U32, U32.is_ne(Laws.rd_at(U32, m, k), 0), Laws.rd_at(U32, a, k), Laws.rd_at(U32, Array.new(U32, K.Kernel.depth_for(n), 0), k)), cell2) : {Bool.pick(U32, U32.is_ne(Laws.rd_at(U32, m, k), 0), Laws.rd_at(U32, a, k), 0) == _ : U32};
+     %Equal.sym(U32, Laws.rd_at(U32, Array.new(U32, K.Kernel.depth_for(n), 0), k), 0, PF.rd_at_new(U32, K.Kernel.depth_for(n), 0, k)) : {Bool.pick(U32, U32.is_ne(Laws.rd_at(U32, m, k), 0), Laws.rd_at(U32, a, k), 0) == Bool.pick(U32, U32.is_ne(Laws.rd_at(U32, m, k), 0), Laws.rd_at(U32, a, k), _) : U32};
+     {==}))
 
-def Laws.peep_f4_cell(n, d, m, a, k, wf, fits, hk, p0):
-  pf4_k(n, d, m, a, k, p0, PI.choose_w(~U32, n, d, m, a, Array.new(U32, K.Kernel.depth_for(n), 0), k, wf, fits, hk))
+def pf4_c(+n: U32, +d: Nat, -m: Array<U32>, -a: Array<U32>, +k: U32, +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}, +hk: {U32.is_lt(k, n) == True{} : Bool},
+  wa: CloneA(U32, d, a), wm: &m1: Array<U32> -> &m2: Array<U32> -> {m1 == m : Array<U32>} & {m2 == m : Array<U32>})
+  -> {Laws.ccell(Laws.z0_col(V.Eval.fz.z0(V.PFill{D.SU32{0}}, C.CU32{n, d, C.Mask{m}, a})), k) == Laws.ccell(Laws.res_col(V.Eval.fill(C.CU32{n, d, C.Mask{m}, a}, V.Eval.const_col(D.SU32{0}, D.TU32{}, n))), k) : D.Scalar}:
+  (a1, a2, ea1, ea2, wf1, wf2) = wa
+  (m1, m2, em1, em2) = wm
+  pf4_k(n, d, m, a, k,
+    (%ea1 : PI.MDW(~U32, n, d, _, m, 0, k); %em1 : PI.MDW(~U32, n, d, a1, _, 0, k); PI.mask_data_w(~U32, n, d, a1, m1, 0, k, wf1, fits, hk)),
+    (%ea2 : PI.CHW(~U32, n, d, m, _, Array.new(U32, K.Kernel.depth_for(n), 0), k); %em2 : PI.CHW(~U32, n, d, _, a2, Array.new(U32, K.Kernel.depth_for(n), 0), k); PI.choose_w(~U32, n, d, m2, a2, Array.new(U32, K.Kernel.depth_for(n), 0), k, wf2, fits, hk)))
+
+def Laws.peep_f4_cell(n, d, m, a, k, wf, fits, hk):
+  pf4_c(n, d, m, a, k, fits, hk, wfa_clone(U32, d, a, wf), PC.clone_eq(U32, m))
+
+# the borrowed fill's cell is the masked copy's slot (Eval.fz.dm.w takes Kernel.zipb's record apart)
+def dmw_cell(+n: U32, +d: Nat, +k: U32, r: K.ZB<U32, U32, U32>) -> {Laws.ccell(Laws.z1_col(V.Eval.fz.dm.w(D.TU32{}, n, d, r)), k) == D.SU32{Laws.rd_at(U32, Laws.zb_o(U32, U32, U32, r), k)} : D.Scalar}:
+  match r:
+    case K.ZB{o, x, m}:
+      {==}
+
+def pf4b_k(+n: U32, +d: Nat, -m: Array<U32>, -a: Array<U32>, +k: U32,
+  e1: {Laws.ccell(Laws.z1_col(V.Eval.fz.dm.w(D.TU32{}, n, d, K.Kernel.zipb(~U32, ~U32, ~U32, ~(w => k => Bool.pick(U32, U32.is_ne(k, 0), w, 0)), n, d, a, m, 0))), k) == D.SU32{Laws.rd_at(U32, Laws.zb_o(U32, U32, U32, K.Kernel.zipb(~U32, ~U32, ~U32, ~(w => k => Bool.pick(U32, U32.is_ne(k, 0), w, 0)), n, d, a, m, 0)), k)} : D.Scalar},
+  e2: {Laws.rd_at(U32, Laws.zb_o(U32, U32, U32, K.Kernel.zipb(~U32, ~U32, ~U32, ~(w => k => Bool.pick(U32, U32.is_ne(k, 0), w, 0)), n, d, a, m, 0)), k) == Bool.pick(U32, U32.is_ne(Laws.rd_at(U32, m, k), 0), Laws.rd_at(U32, a, k), 0) : U32},
+  w: PI.CHW(~U32, n, d, m, a, Array.new(U32, K.Kernel.depth_for(n), 0), k))
+  -> {Laws.ccell(Laws.z1_col(V.Eval.fz.z0b(V.PFill{D.SU32{0}}, C.CU32{n, d, C.Mask{m}, a})), k) == Laws.ccell(Laws.res_col(V.Eval.fill(C.CU32{n, d, C.Mask{m}, a}, V.Eval.const_col(D.SU32{0}, D.TU32{}, n))), k) : D.Scalar}:
+  (mb2, o2, ech, emb2, wfo2, cell2) = w
+  %Equal.sym(Array<U32> & Array<U32>, K.Kernel.choose(~U32, n, m, a, Array.new(U32, K.Kernel.depth_for(n), 0)), (mb2, o2), ech) : {Laws.ccell(Laws.z1_col(V.Eval.fz.z0b(V.PFill{D.SU32{0}}, C.CU32{n, d, C.Mask{m}, a})), k) == Laws.ccell(Laws.res_col(V.Eval.fill.w(D.TU32{}, n, d, V.Eval.fill.t2(~U32, n, d, C.AllValid{}, _))), k) : D.Scalar}
+  %Equal.sym(D.Scalar, Laws.ccell(Laws.z1_col(V.Eval.fz.dm.w(D.TU32{}, n, d, K.Kernel.zipb(~U32, ~U32, ~U32, ~(w => k => Bool.pick(U32, U32.is_ne(k, 0), w, 0)), n, d, a, m, 0))), k), D.SU32{Laws.rd_at(U32, Laws.zb_o(U32, U32, U32, K.Kernel.zipb(~U32, ~U32, ~U32, ~(w => k => Bool.pick(U32, U32.is_ne(k, 0), w, 0)), n, d, a, m, 0)), k)}, e1) : {_ == Laws.ccell(C.CU32{n, d, C.AllValid{}, o2}, k) : D.Scalar}
+  Equal.cong(U32, D.Scalar, q => D.SU32{q}, Laws.rd_at(U32, Laws.zb_o(U32, U32, U32, K.Kernel.zipb(~U32, ~U32, ~U32, ~(w => k => Bool.pick(U32, U32.is_ne(k, 0), w, 0)), n, d, a, m, 0)), k), Laws.rd_at(U32, o2, k),
+    (%Equal.sym(U32, Laws.rd_at(U32, Laws.zb_o(U32, U32, U32, K.Kernel.zipb(~U32, ~U32, ~U32, ~(w => k => Bool.pick(U32, U32.is_ne(k, 0), w, 0)), n, d, a, m, 0)), k), Bool.pick(U32, U32.is_ne(Laws.rd_at(U32, m, k), 0), Laws.rd_at(U32, a, k), 0), e2) : {_ == Laws.rd_at(U32, o2, k) : U32};
+     %Equal.sym(U32, Laws.rd_at(U32, o2, k), Laws.rdN(U32, d, o2, k), Laws.rd_at_wf(U32, d, o2, k, wfo2)) : {Bool.pick(U32, U32.is_ne(Laws.rd_at(U32, m, k), 0), Laws.rd_at(U32, a, k), 0) == _ : U32};
+     %Equal.sym(U32, Laws.rdN(U32, d, o2, k), Bool.pick(U32, U32.is_ne(Laws.rd_at(U32, m, k), 0), Laws.rd_at(U32, a, k), Laws.rd_at(U32, Array.new(U32, K.Kernel.depth_for(n), 0), k)), cell2) : {Bool.pick(U32, U32.is_ne(Laws.rd_at(U32, m, k), 0), Laws.rd_at(U32, a, k), 0) == _ : U32};
+     %Equal.sym(U32, Laws.rd_at(U32, Array.new(U32, K.Kernel.depth_for(n), 0), k), 0, PF.rd_at_new(U32, K.Kernel.depth_for(n), 0, k)) : {Bool.pick(U32, U32.is_ne(Laws.rd_at(U32, m, k), 0), Laws.rd_at(U32, a, k), 0) == Bool.pick(U32, U32.is_ne(Laws.rd_at(U32, m, k), 0), Laws.rd_at(U32, a, k), _) : U32};
+     {==}))
+
+def pf4b_c(+n: U32, +d: Nat, -m: Array<U32>, -a: Array<U32>, +k: U32, +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}, +hk: {U32.is_lt(k, n) == True{} : Bool}, wf: Laws.WFArray(U32, d, a),
+  wa: &a1: Array<U32> -> &a2: Array<U32> -> &a3: Array<U32> -> {a1 == a : Array<U32>} & {a2 == a : Array<U32>} & {a3 == a : Array<U32>},
+  wm: &m1: Array<U32> -> &m2: Array<U32> -> &m3: Array<U32> -> {m1 == m : Array<U32>} & {m2 == m : Array<U32>} & {m3 == m : Array<U32>})
+  -> {Laws.ccell(Laws.z1_col(V.Eval.fz.z0b(V.PFill{D.SU32{0}}, C.CU32{n, d, C.Mask{m}, a})), k) == Laws.ccell(Laws.res_col(V.Eval.fill(C.CU32{n, d, C.Mask{m}, a}, V.Eval.const_col(D.SU32{0}, D.TU32{}, n))), k) : D.Scalar}:
+  (a1, a2, a3, +ea1, ea2, ea3) = wa
+  (m1, m2, m3, em1, em2, em3) = wm
+  pf4b_k(n, d, m, a, k,
+    (%ea3 : {Laws.ccell(Laws.z1_col(V.Eval.fz.dm.w(D.TU32{}, n, d, K.Kernel.zipb(~U32, ~U32, ~U32, ~(w => k => Bool.pick(U32, U32.is_ne(k, 0), w, 0)), n, d, _, m, 0))), k) == D.SU32{Laws.rd_at(U32, Laws.zb_o(U32, U32, U32, K.Kernel.zipb(~U32, ~U32, ~U32, ~(w => k => Bool.pick(U32, U32.is_ne(k, 0), w, 0)), n, d, _, m, 0)), k)} : D.Scalar};
+     %em3 : {Laws.ccell(Laws.z1_col(V.Eval.fz.dm.w(D.TU32{}, n, d, K.Kernel.zipb(~U32, ~U32, ~U32, ~(w => k => Bool.pick(U32, U32.is_ne(k, 0), w, 0)), n, d, a3, _, 0))), k) == D.SU32{Laws.rd_at(U32, Laws.zb_o(U32, U32, U32, K.Kernel.zipb(~U32, ~U32, ~U32, ~(w => k => Bool.pick(U32, U32.is_ne(k, 0), w, 0)), n, d, a3, _, 0)), k)} : D.Scalar};
+     dmw_cell(n, d, k, K.Kernel.zipb(~U32, ~U32, ~U32, ~(w => k => Bool.pick(U32, U32.is_ne(k, 0), w, 0)), n, d, a3, m3, 0))),
+    (%ea2 : {Laws.rd_at(U32, Laws.zb_o(U32, U32, U32, K.Kernel.zipb(~U32, ~U32, ~U32, ~(w => k => Bool.pick(U32, U32.is_ne(k, 0), w, 0)), n, d, _, m, 0)), k) == Bool.pick(U32, U32.is_ne(Laws.rd_at(U32, m, k), 0), Laws.rd_at(U32, _, k), 0) : U32};
+     %em2 : {Laws.rd_at(U32, Laws.zb_o(U32, U32, U32, K.Kernel.zipb(~U32, ~U32, ~U32, ~(w => k => Bool.pick(U32, U32.is_ne(k, 0), w, 0)), n, d, a2, _, 0)), k) == Bool.pick(U32, U32.is_ne(Laws.rd_at(U32, _, k), 0), Laws.rd_at(U32, a2, k), 0) : U32};
+     PF.zb_cell(~U32, ~U32, ~U32, ~(w => k => Bool.pick(U32, U32.is_ne(k, 0), w, 0)), d, n, a2, m2, 0, k, fits, hk)),
+    (%ea1 : PI.CHW(~U32, n, d, m, _, Array.new(U32, K.Kernel.depth_for(n), 0), k); %em1 : PI.CHW(~U32, n, d, _, a1, Array.new(U32, K.Kernel.depth_for(n), 0), k); PI.choose_w(~U32, n, d, m1, a1, Array.new(U32, K.Kernel.depth_for(n), 0), k, (%Equal.sym(Array<U32>, a1, a, ea1) : Laws.WFArray(U32, d, _); wf), fits, hk)))
+
+def Laws.peep_f4_borrow_cell(n, d, m, a, k, wf, fits, hk):
+  pf4b_c(n, d, m, a, k, fits, hk, wf, PF.clone3(U32, a), PF.clone3(U32, m))
+
+# ---- post-review B1: the masked f32 neg (Eval.un, the producer whose null slot broke F4's premise) ------
+
+def Laws.un_neg_f32(n, d, m, x):
+  %Equal.sym(K.ZB<F32, U32, F32>, K.Kernel.zipb.go(~F32, ~U32, ~F32, ~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.neg(w), 0.0)), U32.to_nat(n), 0, Array.new(F32, d, 0.0), Array.get(F32, x, 0), Array.get(U32, m, 0)), K.ZB{K.Kernel.zip.go(~F32, ~U32, ~F32, ~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.neg(w), 0.0)), U32.to_nat(n), 0, Array.new(F32, d, 0.0), Array.get(F32, x, 0), Array.get(U32, m, 0)), x, m}, PF.zb_sim(~F32, ~U32, ~F32, ~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.neg(w), 0.0)), U32.to_nat(n), 0, Array.new(F32, d, 0.0), x, m)) : {Done{V.Eval.un.mf(n, d, _)} == Done{C.CF32{n, d, C.Mask{m}, K.Kernel.zip(~F32, ~U32, ~F32, ~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.neg(w), 0.0)), n, d, x, m, 0.0)}} : E.ResT(C.Column)}
+  {==}
+
+# the f32 data of Eval.un.mf's column is the zipb record's output
+def mfd(+n: U32, +d: Nat, r: K.ZB<F32, U32, F32>) -> {Laws.fdata(Laws.res_col(Done{V.Eval.un.mf(n, d, r)})) == Laws.zb_o(F32, U32, F32, r) : Array<F32>}:
+  match r:
+    case K.ZB{o, x, m}:
+      {==}
+
+def unc_k(+n: U32, +d: Nat, -m: Array<U32>, -x: Array<F32>, +k: U32, +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}, +hk: {U32.is_lt(k, n) == True{} : Bool},
+  wx: &x1: Array<F32> -> &x2: Array<F32> -> {x1 == x : Array<F32>} & {x2 == x : Array<F32>}, wm: &m1: Array<U32> -> &m2: Array<U32> -> {m1 == m : Array<U32>} & {m2 == m : Array<U32>})
+  -> {Laws.rd_at(F32, Laws.fdata(Laws.res_col(V.Eval.un(X.Neg{}, C.CF32{n, d, C.Mask{m}, x}))), k) == Bool.pick(F32, U32.is_ne(Laws.rd_at(U32, m, k), 0), F32.neg(Laws.rd_at(F32, x, k)), 0.0) : F32}:
+  (x1, x2, ex1, ex2) = wx
+  (m1, m2, em1, em2) = wm
+  %Equal.sym(Array<F32>, Laws.fdata(Laws.res_col(Done{V.Eval.un.mf(n, d, K.Kernel.zipb(~F32, ~U32, ~F32, ~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.neg(w), 0.0)), n, d, x, m, 0.0))})), Laws.zb_o(F32, U32, F32, K.Kernel.zipb(~F32, ~U32, ~F32, ~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.neg(w), 0.0)), n, d, x, m, 0.0)),
+    (%ex1 : {Laws.fdata(Laws.res_col(Done{V.Eval.un.mf(n, d, K.Kernel.zipb(~F32, ~U32, ~F32, ~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.neg(w), 0.0)), n, d, _, m, 0.0))})) == Laws.zb_o(F32, U32, F32, K.Kernel.zipb(~F32, ~U32, ~F32, ~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.neg(w), 0.0)), n, d, _, m, 0.0)) : Array<F32>};
+     %em1 : {Laws.fdata(Laws.res_col(Done{V.Eval.un.mf(n, d, K.Kernel.zipb(~F32, ~U32, ~F32, ~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.neg(w), 0.0)), n, d, x1, _, 0.0))})) == Laws.zb_o(F32, U32, F32, K.Kernel.zipb(~F32, ~U32, ~F32, ~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.neg(w), 0.0)), n, d, x1, _, 0.0)) : Array<F32>};
+     mfd(n, d, K.Kernel.zipb(~F32, ~U32, ~F32, ~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.neg(w), 0.0)), n, d, x1, m1, 0.0)))) : {Laws.rd_at(F32, _, k) == Bool.pick(F32, U32.is_ne(Laws.rd_at(U32, m, k), 0), F32.neg(Laws.rd_at(F32, x, k)), 0.0) : F32}
+  %ex2 : {Laws.rd_at(F32, Laws.zb_o(F32, U32, F32, K.Kernel.zipb(~F32, ~U32, ~F32, ~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.neg(w), 0.0)), n, d, _, m, 0.0)), k) == Bool.pick(F32, U32.is_ne(Laws.rd_at(U32, m, k), 0), F32.neg(Laws.rd_at(F32, _, k)), 0.0) : F32}
+  %em2 : {Laws.rd_at(F32, Laws.zb_o(F32, U32, F32, K.Kernel.zipb(~F32, ~U32, ~F32, ~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.neg(w), 0.0)), n, d, x2, _, 0.0)), k) == Bool.pick(F32, U32.is_ne(Laws.rd_at(U32, _, k), 0), F32.neg(Laws.rd_at(F32, x2, k)), 0.0) : F32}
+  PF.zb_cell(~F32, ~U32, ~F32, ~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.neg(w), 0.0)), d, n, x2, m2, 0.0, k, fits, hk)
+
+def Laws.un_neg_f32_cell(n, d, m, x, k, fits, hk):
+  unc_k(n, d, m, x, k, fits, hk, PC.clone_eq(F32, x), PC.clone_eq(U32, m))
+
+def Laws.un_neg_f32_null(n, d, m, x, k, fits, hk, hm):
+  %Equal.sym(F32, Laws.rd_at(F32, Laws.fdata(Laws.res_col(V.Eval.un(X.Neg{}, C.CF32{n, d, C.Mask{m}, x}))), k), Bool.pick(F32, U32.is_ne(Laws.rd_at(U32, m, k), 0), F32.neg(Laws.rd_at(F32, x, k)), 0.0), Laws.un_neg_f32_cell(n, d, m, x, k, fits, hk)) : {_ == 0.0 : F32}
+  %Equal.sym(U32, Laws.rd_at(U32, m, k), 0, hm) : {Bool.pick(F32, U32.is_ne(_, 0), F32.neg(Laws.rd_at(F32, x, k)), 0.0) == 0.0 : F32}
+  {==}
+
+# the same cell for any masked f32 template g (abs, sqrt) and, through Eval.un.mi, any word template
+def ucf_k(~g: F32 -> U32 -> F32, +n: U32, +d: Nat, -m: Array<U32>, -x: Array<F32>, +k: U32, +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}, +hk: {U32.is_lt(k, n) == True{} : Bool},
+  wx: &x1: Array<F32> -> &x2: Array<F32> -> {x1 == x : Array<F32>} & {x2 == x : Array<F32>}, wm: &m1: Array<U32> -> &m2: Array<U32> -> {m1 == m : Array<U32>} & {m2 == m : Array<U32>})
+  -> {Laws.rd_at(F32, Laws.fdata(Laws.res_col(Done{V.Eval.un.mf(n, d, K.Kernel.zipb(~F32, ~U32, ~F32, ~g, n, d, x, m, 0.0))})), k) == g(Laws.rd_at(F32, x, k), Laws.rd_at(U32, m, k)) : F32}:
+  (x1, x2, ex1, ex2) = wx
+  (m1, m2, em1, em2) = wm
+  %Equal.sym(Array<F32>, Laws.fdata(Laws.res_col(Done{V.Eval.un.mf(n, d, K.Kernel.zipb(~F32, ~U32, ~F32, ~g, n, d, x, m, 0.0))})), Laws.zb_o(F32, U32, F32, K.Kernel.zipb(~F32, ~U32, ~F32, ~g, n, d, x, m, 0.0)),
+    (%ex1 : {Laws.fdata(Laws.res_col(Done{V.Eval.un.mf(n, d, K.Kernel.zipb(~F32, ~U32, ~F32, ~g, n, d, _, m, 0.0))})) == Laws.zb_o(F32, U32, F32, K.Kernel.zipb(~F32, ~U32, ~F32, ~g, n, d, _, m, 0.0)) : Array<F32>};
+     %em1 : {Laws.fdata(Laws.res_col(Done{V.Eval.un.mf(n, d, K.Kernel.zipb(~F32, ~U32, ~F32, ~g, n, d, x1, _, 0.0))})) == Laws.zb_o(F32, U32, F32, K.Kernel.zipb(~F32, ~U32, ~F32, ~g, n, d, x1, _, 0.0)) : Array<F32>};
+     mfd(n, d, K.Kernel.zipb(~F32, ~U32, ~F32, ~g, n, d, x1, m1, 0.0)))) : {Laws.rd_at(F32, _, k) == g(Laws.rd_at(F32, x, k), Laws.rd_at(U32, m, k)) : F32}
+  %ex2 : {Laws.rd_at(F32, Laws.zb_o(F32, U32, F32, K.Kernel.zipb(~F32, ~U32, ~F32, ~g, n, d, _, m, 0.0)), k) == g(Laws.rd_at(F32, _, k), Laws.rd_at(U32, m, k)) : F32}
+  %em2 : {Laws.rd_at(F32, Laws.zb_o(F32, U32, F32, K.Kernel.zipb(~F32, ~U32, ~F32, ~g, n, d, x2, _, 0.0)), k) == g(Laws.rd_at(F32, x2, k), Laws.rd_at(U32, _, k)) : F32}
+  PF.zb_cell(~F32, ~U32, ~F32, ~g, d, n, x2, m2, 0.0, k, fits, hk)
+
+def mid(+n: U32, +d: Nat, r: K.ZB<U32, U32, U32>) -> {Laws.wdata(Laws.res_col(Done{V.Eval.un.mi(n, d, r)})) == Laws.zb_o(U32, U32, U32, r) : Array<U32>}:
+  match r:
+    case K.ZB{o, x, m}:
+      {==}
+
+def uci_k(~g: U32 -> U32 -> U32, +n: U32, +d: Nat, -m: Array<U32>, -x: Array<U32>, +k: U32, +fits: {U32.is_le(n, U32.shln(1, d)) == True{} : Bool}, +hk: {U32.is_lt(k, n) == True{} : Bool},
+  wx: &x1: Array<U32> -> &x2: Array<U32> -> {x1 == x : Array<U32>} & {x2 == x : Array<U32>}, wm: &m1: Array<U32> -> &m2: Array<U32> -> {m1 == m : Array<U32>} & {m2 == m : Array<U32>})
+  -> {Laws.rd_at(U32, Laws.wdata(Laws.res_col(Done{V.Eval.un.mi(n, d, K.Kernel.zipb(~U32, ~U32, ~U32, ~g, n, d, x, m, 0))})), k) == g(Laws.rd_at(U32, x, k), Laws.rd_at(U32, m, k)) : U32}:
+  (x1, x2, ex1, ex2) = wx
+  (m1, m2, em1, em2) = wm
+  %Equal.sym(Array<U32>, Laws.wdata(Laws.res_col(Done{V.Eval.un.mi(n, d, K.Kernel.zipb(~U32, ~U32, ~U32, ~g, n, d, x, m, 0))})), Laws.zb_o(U32, U32, U32, K.Kernel.zipb(~U32, ~U32, ~U32, ~g, n, d, x, m, 0)),
+    (%ex1 : {Laws.wdata(Laws.res_col(Done{V.Eval.un.mi(n, d, K.Kernel.zipb(~U32, ~U32, ~U32, ~g, n, d, _, m, 0))})) == Laws.zb_o(U32, U32, U32, K.Kernel.zipb(~U32, ~U32, ~U32, ~g, n, d, _, m, 0)) : Array<U32>};
+     %em1 : {Laws.wdata(Laws.res_col(Done{V.Eval.un.mi(n, d, K.Kernel.zipb(~U32, ~U32, ~U32, ~g, n, d, x1, _, 0))})) == Laws.zb_o(U32, U32, U32, K.Kernel.zipb(~U32, ~U32, ~U32, ~g, n, d, x1, _, 0)) : Array<U32>};
+     mid(n, d, K.Kernel.zipb(~U32, ~U32, ~U32, ~g, n, d, x1, m1, 0)))) : {Laws.rd_at(U32, _, k) == g(Laws.rd_at(U32, x, k), Laws.rd_at(U32, m, k)) : U32}
+  %ex2 : {Laws.rd_at(U32, Laws.zb_o(U32, U32, U32, K.Kernel.zipb(~U32, ~U32, ~U32, ~g, n, d, _, m, 0)), k) == g(Laws.rd_at(U32, _, k), Laws.rd_at(U32, m, k)) : U32}
+  %em2 : {Laws.rd_at(U32, Laws.zb_o(U32, U32, U32, K.Kernel.zipb(~U32, ~U32, ~U32, ~g, n, d, x2, _, 0)), k) == g(Laws.rd_at(U32, x2, k), Laws.rd_at(U32, _, k)) : U32}
+  PF.zb_cell(~U32, ~U32, ~U32, ~g, d, n, x2, m2, 0, k, fits, hk)
+
+def Laws.un_abs_f32_null(n, d, m, x, k, fits, hk, hm):
+  %Equal.sym(F32, Laws.rd_at(F32, Laws.fdata(Laws.res_col(V.Eval.un(X.Abs{}, C.CF32{n, d, C.Mask{m}, x}))), k), Bool.pick(F32, U32.is_ne(Laws.rd_at(U32, m, k), 0), F32.abs(Laws.rd_at(F32, x, k)), 0.0), ucf_k(~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.abs(w), 0.0)), n, d, m, x, k, fits, hk, PC.clone_eq(F32, x), PC.clone_eq(U32, m))) : {_ == 0.0 : F32}
+  %Equal.sym(U32, Laws.rd_at(U32, m, k), 0, hm) : {Bool.pick(F32, U32.is_ne(_, 0), F32.abs(Laws.rd_at(F32, x, k)), 0.0) == 0.0 : F32}
+  {==}
+
+def Laws.un_sqrt_f32_null(n, d, m, x, k, fits, hk, hm):
+  %Equal.sym(F32, Laws.rd_at(F32, Laws.fdata(Laws.res_col(V.Eval.un(X.Sqrt{}, C.CF32{n, d, C.Mask{m}, x}))), k), Bool.pick(F32, U32.is_ne(Laws.rd_at(U32, m, k), 0), F32.sqrt(Laws.rd_at(F32, x, k)), 0.0), ucf_k(~(w => k => Bool.pick(F32, U32.is_ne(k, 0), F32.sqrt(w), 0.0)), n, d, m, x, k, fits, hk, PC.clone_eq(F32, x), PC.clone_eq(U32, m))) : {_ == 0.0 : F32}
+  %Equal.sym(U32, Laws.rd_at(U32, m, k), 0, hm) : {Bool.pick(F32, U32.is_ne(_, 0), F32.sqrt(Laws.rd_at(F32, x, k)), 0.0) == 0.0 : F32}
+  {==}
+
+def Laws.un_neg_i32_null(n, d, m, x, k, fits, hk, hm):
+  %Equal.sym(U32, Laws.rd_at(U32, Laws.wdata(Laws.res_col(V.Eval.un(X.Neg{}, C.CI32{n, d, C.Mask{m}, x}))), k), Bool.pick(U32, U32.is_ne(Laws.rd_at(U32, m, k), 0), U32.sub(0, Laws.rd_at(U32, x, k)), 0), uci_k(~(w => k => Bool.pick(U32, U32.is_ne(k, 0), U32.sub(0, w), 0)), n, d, m, x, k, fits, hk, PC.clone_eq(U32, x), PC.clone_eq(U32, m))) : {_ == 0 : U32}
+  %Equal.sym(U32, Laws.rd_at(U32, m, k), 0, hm) : {Bool.pick(U32, U32.is_ne(_, 0), U32.sub(0, Laws.rd_at(U32, x, k)), 0) == 0 : U32}
+  {==}
+
+def Laws.un_abs_i32_null(n, d, m, x, k, fits, hk, hm):
+  %Equal.sym(U32, Laws.rd_at(U32, Laws.wdata(Laws.res_col(V.Eval.un(X.Abs{}, C.CI32{n, d, C.Mask{m}, x}))), k), Bool.pick(U32, U32.is_ne(Laws.rd_at(U32, m, k), 0), D.I32.mag(D.I32{Laws.rd_at(U32, x, k)}), 0), uci_k(~(w => k => Bool.pick(U32, U32.is_ne(k, 0), D.I32.mag(D.I32{w}), 0)), n, d, m, x, k, fits, hk, PC.clone_eq(U32, x), PC.clone_eq(U32, m))) : {_ == 0 : U32}
+  %Equal.sym(U32, Laws.rd_at(U32, m, k), 0, hm) : {Bool.pick(U32, U32.is_ne(_, 0), D.I32.mag(D.I32{Laws.rd_at(U32, x, k)}), 0) == 0 : U32}
+  {==}
+
+def Laws.un_neg_f32_valid(n, d, m, x, k, fits, hk, hm):
+  %Equal.sym(F32, Laws.rd_at(F32, Laws.fdata(Laws.res_col(V.Eval.un(X.Neg{}, C.CF32{n, d, C.Mask{m}, x}))), k), Bool.pick(F32, U32.is_ne(Laws.rd_at(U32, m, k), 0), F32.neg(Laws.rd_at(F32, x, k)), 0.0), Laws.un_neg_f32_cell(n, d, m, x, k, fits, hk)) : {_ == F32.neg(Laws.rd_at(F32, x, k)) : F32}
+  %Equal.sym(Bool, U32.is_ne(Laws.rd_at(U32, m, k), 0), True{}, hm) : {Bool.pick(F32, _, F32.neg(Laws.rd_at(F32, x, k)), 0.0) == F32.neg(Laws.rd_at(F32, x, k)) : F32}
+  {==}
 
 # ---- F2 masked: the fused cell against Eval.bin's (vand + zip + fix) ------------------------------------
 # The fused column (peep_f2_mask_back) holds zipv's value output O under mask_and; Eval.bin's is

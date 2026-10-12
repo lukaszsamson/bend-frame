@@ -15,6 +15,9 @@
 # 2 / 8 rows across the regions), each flattened (CFrame.to_frame) and compared the same way, a chunk frame
 # also checked WFCFrame (CFrame.check); a difference is `DIFF chunk g<g> piece <p>: ...`. One line per case:
 #   `<id>: ok <runs> | <the v0.1 outcome>`   or   `<id>: DIFF <piece, first difference>`
+# Every compared text ends its dump with the P0 report line (src/p0.bend, post-review B1): a read whose
+# null slots do not hold the dtype default differs from a clean reference, and a dirty REFERENCE is a
+# `DIFF p0` line itself (tests/lib/v02cmp.bend Run.line.p0).
 # With `show` the full v0.1 text and the full v0.2 text (at the FIRST piece of the list) are printed
 # instead, after `== <id> v01` / `== <id> v02 piece <p>` lines.
 # Test-only code. Idioms as DESIGN 9: helpers above their callers, no mutual recursion.
@@ -165,7 +168,7 @@ def Fz.run1(+id: String, +path: String, +c: T.Cf, +ps: List<&2, U32>) -> IO(Unit
     r : T.RP <- T.Run.all([T.CP{c, ps}], path, T.RP{Nil{}, "", True{}, 0})
     +d1 : String <- Fz.ck(c, path, 1n, Fz.first(ps), r0)
     +d3 : String <- Fz.ck(c, path, 3n, Fz.first(ps), r0)
-    IO.print(T.Run.line(id, M.Cmp.outcome(r0), Fz.ck.fold(r, d1, d3)))
+    IO.print(T.Run.line.p0(id, r0, M.Cmp.outcome(r0), Fz.ck.fold(r, d1, d3)))
 
 def Fz.case(+show: Bool, +toks: List<&2, String>) -> IO(Unit):
   Bool.pick(IO(Unit), show, Fz.show(Fz.cfg(Fz.at(toks, 0n), toks), Fz.at(toks, 1n), Fz.num(Fz.at(Fz.split(Fz.at(toks, 8n), 44), 0n))), Fz.run1(Fz.at(toks, 0n), Fz.at(toks, 1n), Fz.cfg(Fz.at(toks, 0n), toks), Fz.pieces(toks)))

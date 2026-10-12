@@ -14,6 +14,8 @@ answers with the oracle's own dumps (so nothing needs the Bend binary), then inj
     shrinker raises                             -> 1
     one crash                                   -> 1
     oracle error                                -> 1
+    a dirty null slot (P0 report "BAD ..."), all dumps agreeing -> 1   (post-review B1)
+    a missing P0 report                         -> 1
     reduce.py: clean -> 0; a finding of any kind (known kind, new kind, crash) -> 1
 """
 from __future__ import annotations
@@ -59,15 +61,22 @@ def good_results(cases):
     for c in cases:
         kind, exp = evalcase.oracle_result(c)
         assert kind == "ok", f"{c.id}: oracle {kind}: {exp}"
-        out[c.id] = {"eager": exp["eager"], "raw": exp["lazy"], "opt": exp["lazy"], "full": exp["lazy"]}
+        out[c.id] = {"eager": exp["eager"], "raw": exp["lazy"], "opt": exp["lazy"], "full": exp["lazy"],
+                     bendrun.P0_KEY: {"eager": "ok", "raw": "ok", "opt": "ok", "full": "ok"}}
     return out
 
 
-def drive(argv, *, bad=(), crash=(), shrink_ret=None, shrink_raises=False, oracle_error=False):
+def drive(argv, *, bad=(), crash=(), shrink_ret=None, shrink_raises=False, oracle_error=False, dirty=(), no_p0=()):
     """run.main(argv) with a mocked Bend; returns the exit status. `bad`: indices of cases whose eager
-    dump is replaced by a different one; `crash`: indices reported as crashes."""
+    dump is replaced by a different one; `crash`: indices reported as crashes; `dirty`: indices whose
+    opt run reports a null slot that is not the default (every dump still agrees: post-review B1);
+    `no_p0`: indices whose raw run printed no P0 report."""
     cases = [gen.gen_case(SEED, i, False, set()) for i in range(N)]
     base = good_results(cases)
+    for i in dirty:
+        base[cases[i].id][bendrun.P0_KEY]["opt"] = 'BAD [col "x": 1 null slot(s) not the default, first row 0 holds 0x80000000; 0 validity word(s) not 0/1; 0 bool word(s) not 0/1]'
+    for i in no_p0:
+        base[cases[i].id][bendrun.P0_KEY].pop("raw")
     for i in bad:
         txt = base[cases[i].id]["eager"]
         base[cases[i].id]["eager"] = "error\tInvalidOperation: injected mismatch\n" if not txt.startswith("error") else "frame\nheight\t0\nwidth\t0\n"
@@ -140,6 +149,12 @@ def main():
     expect("run.py crash, --no-shrink", drive(["--no-shrink"], crash=[3]), 1)
     expect("run.py oracle error", drive([], oracle_error=True, shrink_ret="B01"), 1)
     expect("run.py oracle error, --no-shrink", drive(["--no-shrink"], oracle_error=True), 1)
+    expect("run.py dirty null slot (P0)", drive([], dirty=[1], shrink_ret=None), 1)
+    expect("run.py dirty null slot (P0), --no-shrink", drive(["--no-shrink"], dirty=[1]), 1)
+    expect("run.py missing P0 report", drive(["--no-shrink"], no_p0=[4]), 1)
+    # the parser: the P0 line is split off the dump, the dump compares as before
+    parsed = bendrun.parse_output("-- d0001 eager\nframe\nheight\t0\nwidth\t0\np0 ok\n\n-- d0001 raw\nerror\tX\np0 BAD [col]\n")
+    expect("parse_output splits the P0 line", 0 if parsed == {"d0001": {"eager": "frame\nheight\t0\nwidth\t0\n", "raw": "error\tX\n", bendrun.P0_KEY: {"eager": "ok", "raw": "BAD [col]"}}} else 1, 0)
     expect("reduce.py clean", drive_reduce(), 0)
     for kind in reduce_mod.DEFECT_KINDS + ("infra", "a-kind-added-later"):
         expect(f"reduce.py finding {kind}", drive_reduce(finding_kind=kind), 1)

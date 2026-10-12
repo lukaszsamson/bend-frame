@@ -26,14 +26,19 @@ def plan() -> DF.Plan():
 def main() -> IO(Unit):
   do IO<Unit>:
     DX.four("d0002", eager(), plan(), DX.env1("t", f_t()), DX.env1("t", f_t()), DX.env1("t", f_t()))
+
 #|-- d0002 eager
 #|error	DuplicateColumn: x
+#|p0 ok
 #|
 #|-- d0002 raw
 #|error	DuplicateColumn: x
+#|p0 ok
 #|
 #|-- d0002 opt
 #|error	DuplicateColumn: x
+#|p0 ok
 #|
 #|-- d0002 full
 #|error	DuplicateColumn: x
+#|p0 ok

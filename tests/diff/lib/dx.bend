@@ -12,6 +12,7 @@ import ./../../../src/schema.bend as S
 import ./../../../src/expr.bend as X
 import ./../../../src/sort.bend as O
 import ./../../../src/plan.bend as P
+import ./../../../src/p0.bend as Z
 
 # ---- dtypes ---------------------------------------------------------------------------
 
@@ -144,8 +145,11 @@ def src(+name: String, r: E.ResT(C.Frame)) -> P.Plan:
 
 # ---- printing -------------------------------------------------------------------------
 
+# the dump (DF.dump's text) followed by the line "p0 <report>" (src/p0.bend: "ok" when every null slot
+# of every column holds the dtype default; post-review B1). run.py splits the line off the dump and
+# fails the case on any report other than "ok" (class "P0", evalcase.p0_diffs)
 def show(+tag: String, how: String, r: E.ResT(C.Frame)) -> String:
-  "-- " ++ tag ++ " " ++ how ++ "\n" ++ DF.dump(r)
+  "-- " ++ tag ++ " " ++ how ++ "\n" ++ Z.P0.dump(r)
 
 # eager, raw-lazy (DF.collect_raw), default-optimised (DF.collect) and fully optimised
 # (DF.collect_full) dumps of one case; each lazy run gets its own env (collect consumes it)

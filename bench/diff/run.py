@@ -74,7 +74,7 @@ def main(argv=None):
     ap.add_argument("--timeout", type=float, default=300.0)
     ap.add_argument("--out", help="failures JSON (default: build/diff/seed<seed>/failures.json)")
     ap.add_argument("--scratch")
-    ap.add_argument("--features", default="", help="comma list; 'noreductions' (no reducers outside group_by: masks B04-a), 'noselfjoin', 'deep' (more rows up to 300, plans up to 6 verbs)")
+    ap.add_argument("--features", default="", help="comma list; 'noreductions' (no reducers outside group_by: masks B04-a), 'noselfjoin', 'deep' (more rows up to 300, plans up to 6 verbs), 'nullslot' (every case a directed null-slot case: null producers into fill_null and sign-sensitive consumers, post-review B1; by default ~15 %), 'nonullslot' (none)")
     ap.add_argument("--all", action="store_true", help="use every grammar row (the facade may not have it: those cases fail)")
     ap.add_argument("--no-oracle", action="store_true")
     ap.add_argument("--no-shrink", action="store_true")

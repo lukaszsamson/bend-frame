@@ -32,6 +32,7 @@ def plan() -> DF.Plan():
 def main() -> IO(Unit):
   do IO<Unit>:
     DX.four("d0004", eager(), plan(), DX.env1("t", f_t()), DX.env1("t", f_t()), DX.env1("t", f_t()))
+
 #|-- d0004 eager
 #|frame
 #|height	1
@@ -39,6 +40,7 @@ def main() -> IO(Unit):
 #|col	bool	"x"
 #|col	f32	"z"
 #|row	false	0x3a83126f
+#|p0 ok
 #|
 #|-- d0004 raw
 #|frame
@@ -47,6 +49,7 @@ def main() -> IO(Unit):
 #|col	bool	"x"
 #|col	f32	"z"
 #|row	false	0x3a83126f
+#|p0 ok
 #|
 #|-- d0004 opt
 #|frame
@@ -55,6 +58,7 @@ def main() -> IO(Unit):
 #|col	bool	"x"
 #|col	f32	"z"
 #|row	false	0x3a83126f
+#|p0 ok
 #|
 #|-- d0004 full
 #|frame
@@ -63,3 +67,4 @@ def main() -> IO(Unit):
 #|col	bool	"x"
 #|col	f32	"z"
 #|row	false	0x3a83126f
+#|p0 ok
