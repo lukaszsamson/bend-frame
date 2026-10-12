@@ -1,0 +1,194 @@
+Review of v0.2 delivery -- Astra, 2026-10-12
+==========================================
+Reviewed HEAD 6b55792. Read plans/GATES_V02.md, cross-read REVIEW_V02_FABLE.txt,
+and checked the relevant production evaluator, laws, test/generator code, radix
+check, facade, README and benchmark accounting. This is a focused release review,
+not an exhaustive audit of every new definition. No implementation changes.
+
+Verdict
+-------
+Not ready as-is: there is a confirmed wrong-result regression in the default
+execution path, and the advertised proof coverage exceeds the actual coverage.
+After fixing the regression, extending its tests and correcting the claims, I
+would support an EXPERIMENTAL release restricted to the tested platform and
+stated API. Finishing M_02's scaling goals is a separate question: they are not
+met, and should remain explicitly incomplete.
+
+1. Release blocker: fill_null after F32 negation exposes a dirty null payload
+---------------------------------------------------------------------------
+Location: src/eval.bend:385-388 (Eval.un.f), :2919-2922 (Eval.fz.z0.b).
+
+A nullable f32 column stores +0.0 beneath its null mask. Negation maps that slot
+to -0.0 without resetting it. F4 implements fill_null(x, +0.0) by changing the
+mask to AllValid, relying on the payload already being the exact dtype default.
+That premise is false after negation. The comment at :416-417 is also false for
+F32 Neg. Ordinary Eval.fill replaces the slot and gives the correct result.
+
+Independently reproduced on the checked-out code in BOTH interpreter and native:
+  input                       [null, +0.0, -0.0, 2.0]
+  fill_null(neg(x), +0.0):
+    default fused evaluator   [-0.0, -0.0, +0.0, -2.0]
+    unfused Eval.full         [+0.0, -0.0, +0.0, -2.0]
+
+This is not just formatting: a second interpreter reproduction computes
+1.0 / fill_null(neg(x), +0.0). On the null row the fused result is NEGATIVE
+infinity (0xff800000), while the unfused result is POSITIVE infinity
+(0x7f800000). It violates the unchanged F32-bit contract.
+
+Reproductions and observed outputs are in plans/review_v02_astra/:
+  null_zero.bend, null_zero.interpreter.txt, null_zero.native.txt
+  null_zero_reciprocal.bend, null_zero_reciprocal.txt
+Run: ~/.bend/bin/bend plans/review_v02_astra/null_zero.bend
+Native: append -o /tmp/null-zero, then execute /tmp/null-zero.
+These are diagnostic programs, not passing regression tests.
+
+Fix the producer invariant (reset invalid F32 slots after negation, preferably
+in the same loop if practical), or restrict/remove the optimization where its
+premise is not established. Do not erase negative zero in VALID rows.
+
+Required regression matrix: owned and borrowed inputs, select/with_columns,
+staged intermediate columns, eager/default/raw/full/chunked collection, and
+fill after neg, sqrt(neg(...)), casts and conditional/null-producing expressions.
+Check bits and a sign-sensitive consumer, with +0.0 and -0.0 literals and valid
+negative-zero controls. Compare against the unfused evaluator as well as engines:
+all engines sharing Eval.runz can agree on the same wrong answer.
+
+Fable found this first; I independently confirmed it and its infinity-sign
+consequence. One nuance: neg/abs/sqrt ARE registered in bench/diff/model.py and
+the generator samples registered operations. They are not simply absent from
+the generator. What is missing is guaranteed coverage of this composition and
+invariant. More undirected random cases alone are a weak remedy.
+
+2. Release blocker for the claims: G5 is not fully met as written
+---------------------------------------------------------------
+README.md:192 describes the evaluator as type-sound and says every theorem is
+over the functions that run. GATES_V02.md G5 says every changed proved production
+path keeps its theorem chain. Those statements need qualification/correction.
+
+The default select/with_columns/filter route now reaches Eval.runz through
+Eval.slot.mh (src/eval.bend:3523-3525). The old evaluator typing proofs cover
+Eval.run / Eval.full. LAWS.bend:3188 explicitly says runz-versus-run equivalence
+is NOT stated. The local peephole theorems do not bridge the whole runner.
+In particular peep_f4_cell (LAWS:3466) proves a U32 instance under a zero-payload
+premise; it does not prove that every F32 producer maintains that premise.
+The counterexample above runs despite all proofs passing.
+
+These are useful production-code proofs, not empty tautologies. But theorem
+count, a passing independent checker, and mutation rejection do not establish
+coverage of a different runner or every template instance. Report separately:
+  - preserved theorems about existing functions;
+  - new local kernel/peephole theorems and their instances/premises;
+  - unproven integration and native execution.
+
+Correct README, CHANGELOG, DESIGN's old evaluator descriptions and GATES G5.
+Mark the original preservation requirement PARTIAL unless the missing bridge is
+proved or the proved path is restored. An experimental release can deliberately
+accept tested-only fusion; it cannot claim the original proof-preservation gate
+has passed merely because its old theorems still compile.
+The default head-merge theorem remains meaningful within its specified runner;
+this finding does not invalidate all optimizer or buffer proofs.
+
+3. Performance: acceptable for an experiment, not a completed scaling milestone
+-------------------------------------------------------------------------------
+I inspected the report and accounting; I did NOT rerun the multi-thousand-process
+timing suite or independently establish quiet-machine performance. All figures
+below are the delivery's provisional measurements, not fresh Astra measurements.
+
+Strong gains worth releasing:
+  - Default 1M-row q1-q6 compute: about 3/3/12/13/10/49 ms at one thread.
+  - Distinct-string group/unique: about 125/126 ms versus 12.5 seconds at v0.1;
+    distinct-key join about 356 ms versus 4.2 seconds.
+  - 41 MB parse: about 632 ms at one thread, 334 ms at 12.
+  - Sales-workload RSS: roughly 190-314 MB versus ~1.3 GB.
+  - The 1k sort-histogram regression has a concrete correction and a native check.
+The copy/allocation counters provide useful supporting evidence beyond timing.
+
+Remaining limits:
+  - Default q1-q5 compute is essentially serial. Chunked q3/q4/q5 do not reach
+    even the proposed revised scaling targets. Parse is ~1.9x, not 4x overall.
+  - Converting eager flat inputs can make opt-in chunked q1/q2/q3 substantially
+    slower: ~8/18/22 ms at one thread versus ~3/3/12. Do not recommend chunked
+    as a general faster executor. Explain the penalty alongside scan-fed gains.
+  - The 4-6x micro/row-wise gains depend on already-owned chunks; they are not
+    whole-query or CSV-to-result speedups.
+  - Distinct-string group/unique retain ~630 MB peak; distinct-key join ~1 GB.
+    The <600 MB gate covers the frozen sales workload, not every 1M-row frame.
+  - Reader still allocates ~1.39 GB cumulatively in ~83 million allocations for
+    the 41 MB file. This is allocation traffic, not peak RSS. The serial File
+    producer remains a genuine structural bottleneck.
+  - No streaming/out-of-core execution, and no practical performance guarantee
+    for adversarial hash collisions, huge strings or pathological skew.
+
+None of these disclosed limits alone makes a small experimental release
+unacceptable. They do make a broad "Polars replacement" or "scales on 12 cores"
+claim unacceptable. Keep chunked opt-in and keep the reference implementations.
+The reader default changed before the agreed gates passed; record this release
+scope decision explicitly rather than retrospectively count it as compliance.
+
+G2/G3 remain unevaluated under the agreed quiet-machine protocol. A controlled
+run is necessary for definitive performance claims and original gate completion.
+I would not block an explicitly provisional experimental release indefinitely on
+that run, once correctness is fixed. This differs from Fable's mandatory quiet-run
+release checklist. Do not lower the targets after the fact or delete references
+before D7's separate removal criteria are met.
+
+4. API and portability
+----------------------
+The intended small API is coherent: five nullable dtypes, eager/lazy selection,
+filter, derived columns, sort, grouping/reductions, inner/left/semi/anti joins,
+row/column operations, unique/concat, CSV and basic string expressions.
+v0.2 deliberately adds performance machinery rather than verbs. No additional
+verb is needed just to make this release usable for that scope.
+
+Practical adoption limits remain F32-only floats, 32-bit integers, no temporal
+columns, windows/rolling/cumulative operations, Parquet/IPC, full/as-of joins or
+out-of-core execution, plus the 2^23 row cap. F64/I64 and dates are more valuable
+next API additions than increasing the count of small convenience expressions.
+For ordinary analytics these are major gaps; for an experimental Bend dataframe
+library they are reasonable if prominent. It is not an Explorer implementation.
+
+Document engine_reference alongside the other selectors. Keep unsupported
+piece-size/reader-executor combinations clearly internal. Fable also reports BOM
+header retention and additional signed-zero median differences from Polars;
+I have not independently reproduced those two findings. Verify and document them
+before claiming complete compatibility; neither is a newly demonstrated Astra
+regression.
+
+Only macOS arm64 is validated. Running hosted Linux/x86-64 CI is advisable before
+claiming those platforms. It need not block a clearly macOS-arm64-only experiment;
+do not imply that writing the workflow establishes portability.
+
+5. Tests and release decision
+-----------------------------
+Fresh checks in this review:
+  TEST_JOBS=4 scripts/test.sh       PASS 203/203, XFAIL 0, exit 0
+  make proofs verdict radix-check  both ALL PROOFS CHECK; radix 40/40, exit 0
+  signed-zero diagnostic           mismatch in interpreter AND native
+  reciprocal diagnostic           opposite infinity sign in interpreter
+Logs are under plans/review_v02_astra/. I did not run the entire make ci, its
+92 mutation cases, or fresh large differential/CSV campaigns; those remain
+reported evidence from the delivery/Fable, not independently repeated here.
+
+The delivery has substantial testing: 203 test programs, reported large seeded
+engine/CSV differential suites, numerical checks, 92 mutation checks and a clean
+consumer check. The coverage matrix checks declared operation/case accounting,
+not all expression compositions or all kernel invariants. The common fused
+backend is a correlated oracle risk, demonstrated by the counterexample.
+
+The current radix-check has 40 cases, sizes 1/2/7/300/1000 at two allocated depths.
+It does exercise both algorithms, but not row counts around the new dispatch
+boundary. Add 16383/16384/16385/32768, empty input, and stable-duplicate checks
+there. This is targeted regression coverage, not evidence of a known sort bug.
+
+Release checklist:
+  1. Fix the signed-zero regression and add the targeted composition tests.
+  2. Correct proof claims and mark original G5 preservation partial; clearly accept
+     tested-only fused integration or restore/prove the covered execution path.
+  3. Run make ci on the final committed candidate, fresh differential seeds plus
+     the targeted null-producer cases, and clean-consumer/native checks. Refresh
+     docs/COVERAGE.md after the radix additions. Keep all failures build-failing.
+  4. Label release experimental, platform scope explicit, performance provisional,
+     chunked opt-in, M_02 scaling incomplete. Retain reference engines/readers.
+
+With those completed: yes to an experimental release. As delivered at 6b55792:
+no. No publication or code fix was attempted in this review.

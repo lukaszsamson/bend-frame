@@ -1,0 +1,5 @@
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.
+/Users/lukaszsamson/.bend/bin/bend PROOF.bend --verdict
+ALL PROOFS CHECK
+radix-check: ok, 40 cases

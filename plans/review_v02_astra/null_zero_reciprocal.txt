@@ -1,0 +1,20 @@
+fused:
+frame
+height	4
+width	1
+col	f32	"x"
+row	0xff800000
+row	0xff800000
+row	0x7f800000
+row	0xbf000000
+
+unfused:
+frame
+height	4
+width	1
+col	f32	"x"
+row	0x7f800000
+row	0xff800000
+row	0x7f800000
+row	0xbf000000
+

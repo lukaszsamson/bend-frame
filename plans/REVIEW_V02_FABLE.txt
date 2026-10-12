@@ -1,0 +1,196 @@
+REVIEW of the v0.2 delivery (HEAD 6b55792) -- Fable 5.1, 2026-10-12
+====================================================================
+Questions: is this ready for an experimental release; glaring bugs; API gaps;
+unacceptable performance problems. Inputs: plans/GATES_V02.md, README, CHANGELOG,
+DESIGN 8.2 / 16 / 17, STATUS; my own `make ci` run; my own timing run with the
+delivery's harness at load ~3; two delegated audits with their own repo copies
+(a bug hunt of ~2,800 facade cases against v0.1, Polars and every engine; an audit
+of the proof, fork-shape and API claims). The tree was not modified except this
+file (my `make ci` regenerated docs/COVERAGE.md, which I restored; see Q4).
+
+--------------------------------------------------------------------------
+0. Verdict
+--------------------------------------------------------------------------
+Not yet. One wrong-result regression blocks an experimental release; it is a
+one-line fix plus a test. After that, and after four honesty edits to README /
+CHANGELOG, v0.2 is releasable as what it is: a large, correct, well-measured
+performance milestone whose thread scaling arrived only on the CSV parse,
+describe and the opt-in scan-to-chunk path, not on the default executor.
+
+  make ci (mine)        green, 14 min: 203/203 tests, 92/92 mutations caught,
+                        0 differential failures, fork-audit 0 findings, coverage
+                        762/54/0
+  proofs                ALL PROOFS CHECK, bend and --verdict (231 laws)
+  bug hunt              1 regression (B1), 1 undocumented difference, 0 other
+                        discrepancies in ~2,800 cases
+  timing (load 3.2)     reproduces GATES_V02 within noise, table in section 3
+
+--------------------------------------------------------------------------
+1. Glaring bugs
+--------------------------------------------------------------------------
+B1 (blocker) fill_null(neg(x), lit_f32(0.0)) answers -0.0 for null rows of an
+   F32 column. v0.1 and Polars answer 0.0. Every engine and reader is affected
+   (eager, collect, collect_raw, collect_full, chunked at every grain, chunk-mode
+   scans), at every height tried (1 .. 100k). Cause: the F4 peephole (Eval.fz.z0,
+   src/eval.bend ~2905-2935) treats fill_null with the dtype default as a
+   validity-only change on the strength of the null-slot invariant, but
+   Eval.un.f's Neg (~385) maps the +0.0 null slot to -0.0 and never calls
+   Eval.fix; the comment at eval.bend:416-417 ("neg/abs/sqrt of a default slot
+   is the default again") is false for f32 neg. Observable through show, dump,
+   cast to str ("-0"), and any downstream sign-sensitive op. It contradicts the
+   CHANGELOG's "the v0.1 data contract is unchanged ... F32 bits" and the F4 law
+   (which proves F4 against Eval.fill on an operand that satisfies the
+   invariant; the operand here does not). Fix: run the f32 Neg result through
+   Eval.fix (or make F4 check its operand's producer), add the regression test,
+   and add neg/abs/sqrt-of-null to the differential generator's null-producer
+   list, which is why 20k+ generated cases missed it. Reproduction kept at the
+   scratchpad path in the bug hunt report; the minimal program is 12 lines.
+B2 (document) a UTF-8 BOM stays in the first header name with both readers;
+   Polars strips it. Not in README or DESIGN 15.6.
+B3 (document) median with an odd count whose middle values are a mix of -0.0
+   and 0.0 differs from Polars in sign in both directions; README documents only
+   the even [-0.0, 0.0] case.
+Not bugs: Polars' lit(0.0) - x giving -0.0 for x = 0.0 (Bend gives IEEE +0.0);
+f32 var 1-ulp differences (documented); joins over the row cap (documented).
+
+What the bug hunt covered without finding anything else: 88 CSV files x up to 17
+variants (multi-line quoted cells across every piece edge, CRLF, no final
+newline, BOM / UTF-8 at both ends, header-only, blank lines, padded numerics, a
+string after 150 numeric rows under a frozen scan schema, the row cap, error
+precedence across regions); 384 sort cases at 1000 / 2^14-1 / 2^14 / 2^14+1 /
+2^15 / 70k rows over 16 key specs incl. the 8-bit/16-bit radix boundary; 387
+group_by / unique / join cases incl. 19 real FNV-1a collision pairs, prefix
+chains, 70,001 distinct (Auto falls back to Raw), mixed Raw/Dict joins; n_unique
+over every dtype; 558 fused-kernel cases at the boundary heights; moves,
+chunked chains at grains 0..15, string rank edge cases.
+
+--------------------------------------------------------------------------
+2. Honesty of the claims
+--------------------------------------------------------------------------
+The gate report is scrupulous about timing (every number labelled provisional,
+G2/G3 left unevaluated, the D7 deviation recorded). Three places overstate:
+
+H1 Proof coverage of the default path. Since v0.2 every eager verb and every
+   collect evaluates filter / select / with_columns expressions through
+   Eval.runz(Eval.fuse(Eval.mark(compile))) (src/eval.bend 3523-3525, 3684-3689,
+   3836). The v0.1 typing theorems (eval_full_typed, run_typed) are about
+   Eval.full / Eval.run, which the default path no longer executes for these
+   verbs (group_by still does). LAWS section 19's header says the runz/fuse
+   equivalence is NOT stated; DESIGN.md:908, :2765, :3001 disclose it. But
+   README.md:192 still says the typing proof covers select, with_columns and
+   filter and that "every theorem quantifies over the functions that run";
+   DESIGN.md:907 says a Done answer "is exactly what Eval.filter evaluates";
+   GATES G5 says "every changed proved production path keeps its theorem chain";
+   CHANGELOG's "Not claimed" omits the fused runner. B1 is exactly a bug in the
+   uncovered code. Fix the four sentences; the proof gap itself is v0.3 work.
+H2 Section 22 (chunked wrappers, 14 laws) proves 53 generated wrappers of which
+   the chunked runner calls four (popcount, min, max, sum); its real work is the
+   CX.* walks and Eval.runz per leaf, unproven. Section 18's fused-kernel laws
+   are each at ONE template instance while production instantiates them for
+   u32/i32/f32 arithmetic and comparisons. DESIGN 8.2 lists the runner as
+   tested-only, so this is a matter of weight, not deception: say "14 laws over
+   wrappers, 4 of them on the runner's path".
+H3 README:220 "after the fix the same walks scale 4-6x" holds only on inputs
+   born chunked (GATES run F); from eager frames the same walks give 1.6-2.8x in
+   my run and 2.0-3.0x in the report's run B. README:217's 1k-control claim is
+   stated as fact from a provisional run. Qualify both.
+H4 README never says the reader default flipped before G2-G4 were evaluated;
+   only CHANGELOG:49 does. One sentence in README's reader section.
+
+Minor: the parallel-let count drifts across docs (66 / 67 / 68); engine_
+reference() is public but undocumented; docs/COVERAGE.md at HEAD is stale (the
+radix fix commit added defs; `make ci` regenerates it and leaves the tree
+dirty), so commit the regenerated file.
+
+--------------------------------------------------------------------------
+3. Performance: what I measured and what is unacceptable
+--------------------------------------------------------------------------
+My run: the delivery's harness, candidate binary built from HEAD, 1M rows,
+medians of 3 fresh processes, 1-minute load 3.0-3.4 at start (the protocol says
+< 2; this is the quietest run anyone has had), peak RSS from the same records.
+
+  default reader + reference executor (what DF.collect runs)
+  workload   1 thr    12 thr   12-vs-1   RSS 1/12   GATES_V02 (1 thr)
+  q1 compute   3 ms     3 ms    1.00x    224/257     3
+  q2           3        4       0.75x    229/262     3
+  q3          11       11       1.00x    230/262    12
+  q4          14       13       1.08x    234/267    13
+  q5          10       10       1.00x    234/266    10
+  q6          49       16       3.06x    226/310    49
+  parse      627      335       1.87x    216/249   632
+
+  v0.2 reader + chunked executor, from eager (flat) frames
+  q1           8        5       1.60x    242/274
+  q2          17        6       2.83x    258/286
+  q3          21       14       1.50x    254/287
+  q5          10       10       1.00x    234/266
+
+So: every one-thread number of the gate report reproduces; G3's one-thread
+targets are met on the sales queries, the distinct-string cells (not re-run
+here; 125-356 ms vs 4-12 s in v0.1 per the report) and the parse; G4 is met
+(all under 320 MB vs 1.3 GB). G2 is NOT met on the default path: the executor
+users get does not scale at all on q1-q5 (0.75-1.08x), the parse scales 1.87x
+(target 4x, revised 2x), and the opt-in chunked engine from eager frames is
+2.7-5.7x SLOWER at one thread than the default (8 / 17 / 21 vs 3 / 3 / 11 ms)
+and only recovers to about parity or 2x at 12 threads. Its real gain (4x on
+q1/q2, 5.9x on a 50 % filter) exists only when the leaves are born in a
+scan_csv read by the v0.2 reader (GATES run F; e2e over scan_csv is bounded by
+the serial parse, 1.9x).
+
+Is anything unacceptable? No wrong trade-off was made: q3/q4/q5 are now 2-3.5x
+faster than v0.1 at one thread, memory dropped 5-7x, the 100x distinct-string
+cells are gone, and nothing regressed except B1. What is unacceptable is only
+to describe this as "the engine scales with threads"; it does not, outside the
+three paths above, and the README (169, 216, 222) already says so. The
+remaining lever is structural and known: group_by, sort, join and unique run
+flat; the CSV producer is serial because the File API delivers cons lists on
+the IO thread (DESIGN 17.10; a Base primitive reading into a U32 buffer is the
+toolchain request).
+
+Recommendation on the chunked engine's positioning: keep it public and opt-in,
+but the README must carry the one-thread penalty from eager frames (above) next
+to the scan-path gains, and the facade doc for collect_with should say "use only
+over scan_csv plans with row-wise first consumers, on several threads".
+
+--------------------------------------------------------------------------
+4. API gaps
+--------------------------------------------------------------------------
+By plan, v0.2 added no verbs. The ten new public names are the reader and engine
+selectors (csv_engine_v01/v02, read_csv_engine, read_csv_v02, collect_engine,
+engine_reference, engine_chunked, engine_chunked_at, collect_with,
+collect_raw_with); nine are documented, engine_reference is not. Observations:
+  - No public piece-size knob for the v0.2 reader (CsvV02{piece} only via src);
+    acceptable for v0.2, say so.
+  - The chunked engine cannot be paired with the v0.1 reader from the facade;
+    irrelevant to users.
+  - Two readers (~2.4k + ~2.8k lines) and two executors (~6.9k opt-in lines, 49
+    of 53 generated wrappers unused in production) coexist. The plan's D7 says
+    removal follows two quiet-machine gate runs; until then this is 10k lines of
+    duplicate surface to keep in sync. Decide the removal date now.
+  - API gaps that users will hit remain the v0.1 ones: no window functions, no
+    dates, F32 only, Polars' `/` semantics differ. None new.
+
+--------------------------------------------------------------------------
+5. Ready for an experimental release? Checklist
+--------------------------------------------------------------------------
+  1. Fix B1 (Eval.fix after f32 Neg, or an F4 operand check), add the
+     regression test and the generator's neg/abs/sqrt-of-null producer; rerun
+     make ci and `make diff` on two fresh seeds.
+  2. README / CHANGELOG / DESIGN edits H1-H4; document B2 and B3; document
+     engine_reference; commit the regenerated docs/COVERAGE.md; add the radix
+     8-bit/16-bit boundary (2^14-1, 2^14, 2^14+1, 2^15) to make radix-check
+     (the audit's scratch version passed all 32 cases).
+  3. One quiet-machine gate run (load < 2) of the GATES_V02 sequence. My load-3
+     run is the closest to date and reproduces every cell; it is not the
+     protocol's run.
+  4. Push to a remote once so the workflow runs on Linux before a hub publish
+     (never run; x86-64 never exercised).
+  5. Position the release honestly: "0.2.0: 2-7x less memory, 2-100x faster on
+     one thread, the parse 6x faster; threads help the parse (1.9x), describe
+     (3x) and scan-fed row-wise plans under the opt-in chunked engine (4x);
+     the default executor does not yet scale". That sentence is true today.
+
+For v0.3, in order: prove or retire the fused runner (runz = run on dump), a
+chunked group_by and a partitioned sort (the two flat stages that cap q3-q5),
+the Base read-into-buffer primitive for the parse, removal of the duplicate
+reader and executor, and the generator widened to the null producers it missed.
