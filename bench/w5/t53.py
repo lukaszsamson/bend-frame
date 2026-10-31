@@ -20,7 +20,7 @@ PARAM = {"filter": 50}
 
 
 def one(op, mode, threads, reps):
-    argv = [EXE, "--threads", str(threads), SALES, PRODS, op, str(mode), str(reps), str(PARAM.get(op, 0))]
+    argv = [EXE, "+RTS", "--threads", str(threads), "-RTS", SALES, PRODS, op, str(mode), str(reps), str(PARAM.get(op, 0))]
     l0 = os.getloadavg()[0]
     t = time.time()
     p = subprocess.run(argv, cwd=ROOT, capture_output=True, text=True, timeout=1800)

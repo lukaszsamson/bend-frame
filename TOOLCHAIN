@@ -1,6 +1,6 @@
 # Pinned toolchain for bend-frame. Shell-sourceable (KEY=value, no spaces).
 # `make toolchain-check` fails when an installed tool differs; .github/workflows/ci.yml installs these.
-BEND_VERSION=2.0.36
+BEND_VERSION=2.0.39
 LEAN_VERSION=4.34.0
 POLARS_VERSION=2.0.0
 NUMPY_VERSION=2.5.3

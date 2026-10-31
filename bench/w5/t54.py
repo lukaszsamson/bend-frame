@@ -18,7 +18,7 @@ def load1():
 
 
 def run(binary, threads, k, reps, sales, prods):
-    argv = [os.path.join(ROOT, "build/t54", binary), "--threads", str(threads), sales, prods, str(k), str(reps)]
+    argv = [os.path.join(ROOT, "build/t54", binary), "+RTS", "--threads", str(threads), "-RTS", sales, prods, str(k), str(reps)]
     l0 = load1()
     t = time.time()
     p = subprocess.run(argv, cwd=ROOT, capture_output=True, text=True, timeout=900)

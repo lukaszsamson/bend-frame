@@ -370,47 +370,56 @@ def Laws.u32_min_assoc(a, b, c):
     case U32{+x} U32{+y} U32{+z}:
       min_assoc_k(x, y, z, Word.cmp(32n, x, y), Word.cmp(32n, y, z), {==}, {==})
 
-# ---- String.eq: reflexive and sound (the runtime name equality of Names.has, Schema.find, Env.take, Opt.ren.find) ----
+# ---- String.eq (Base 2.0.39: Cmp.is_eq of String.order.go(a, b, EQ)): reflexive and sound (the runtime name equality of Names.has, Schema.find, Env.take, Opt.ren.find) ----
 
-def chr_cmp_refl(c: Char) -> {Char.cmp(c, c) == ((c, c), EQ{}) : (Char & Char) & Cmp}:
-  match c:
-    case Chr{U32{x}}:
-      %Equal.sym(Cmp, Word.cmp(32n, x, x), EQ{}, word_cmp_refl(32n, x)) : {((Chr{U32{x}}, Chr{U32{x}}), _) == ((Chr{U32{x}}, Chr{U32{x}}), EQ{}) : (Char & Char) & Cmp}
-      {==}
-
-def str_cmp_refl(s: String) -> {String.cmp(s, s) == ((s, s), EQ{}) : (String & String) & Cmp}:
+def str_ord_refl(s: String) -> {String.order.go(s, s, EQ{}) == EQ{} : Cmp}:
   match s:
     case SNil{}:
       {==}
-    case SCon{+h, +t}:
-      %Equal.sym((Char & Char) & Cmp, Char.cmp(h, h), ((h, h), EQ{}), chr_cmp_refl(h)) : {String.cmp.fin(t, t, _) == ((SCon{h, t}, SCon{h, t}), EQ{}) : (String & String) & Cmp}
-      %Equal.sym((String & String) & Cmp, String.cmp(t, t), ((t, t), EQ{}), str_cmp_refl(t)) : {String.cmp.rec(h, h, _) == ((SCon{h, t}, SCon{h, t}), EQ{}) : (String & String) & Cmp}
-      {==}
+    case SCon{Chr{U32{+x}}, +t}:
+      %Equal.sym(Cmp, Word.cmp(32n, x, x), EQ{}, word_cmp_refl(32n, x)) : {String.order.go(t, t, _) == EQ{} : Cmp}
+      str_ord_refl(t)
 
 def Laws.str_eq_refl(s):
-  %Equal.sym((String & String) & Cmp, String.cmp(s, s), ((s, s), EQ{}), str_cmp_refl(s)) : {Cmp.is_eq(Pair.snd(String & String, Cmp, _)) == True{} : Bool}
+  %Equal.sym(Cmp, String.order.go(s, s, EQ{}), EQ{}, str_ord_refl(s)) : {Cmp.is_eq(_) == True{} : Bool}
   {==}
 
-# the tail step: rr is String.cmp(t1, t2)
-def str_sound_rec(-h1: Char, -h2: Char, -t1: String, -t2: String, rr: (String & String) & Cmp, e: {String.cmp(t1, t2) == rr : (String & String) & Cmp},
-  ih: {String.eq(t1, t2) == True{} : Bool} -> {t1 == t2 : String})
-  -> {Cmp.is_eq(Pair.snd(String & String, Cmp, String.cmp.rec(h1, h2, rr))) == True{} : Bool} -> {t1 == t2 : String}:
-  ((t1b, t2b), r) = rr
-  h => ih((%Equal.sym((String & String) & Cmp, String.cmp(t1, t2), ((t1b, t2b), r), e) : {Cmp.is_eq(Pair.snd(String & String, Cmp, _)) == True{} : Bool}; h))
+# a non-EQ accumulator is returned as is
+def str_ord_lt(a: String, b: String) -> {String.order.go(a, b, LT{}) == LT{} : Cmp}:
+  match a b:
+    case SNil{} SNil{}:
+      {==}
+    case SNil{} SCon{h, t}:
+      {==}
+    case SCon{h, t} SNil{}:
+      {==}
+    case SCon{Chr{x}, t1} SCon{Chr{y}, t2}:
+      {==}
+
+def str_ord_gt(a: String, b: String) -> {String.order.go(a, b, GT{}) == GT{} : Cmp}:
+  match a b:
+    case SNil{} SNil{}:
+      {==}
+    case SNil{} SCon{h, t}:
+      {==}
+    case SCon{h, t} SNil{}:
+      {==}
+    case SCon{Chr{x}, t1} SCon{Chr{y}, t2}:
+      {==}
 
 # the head step: c is Word.cmp(32n, x, y)
 def str_sound_step(+x: Word(32n), +y: Word(32n), +t1: String, +t2: String, c: Cmp, e: {Word.cmp(32n, x, y) == c : Cmp},
   ih: {String.eq(t1, t2) == True{} : Bool} -> {t1 == t2 : String})
-  -> {Cmp.is_eq(Pair.snd(String & String, Cmp, String.cmp.fin(t1, t2, ((Chr{U32{x}}, Chr{U32{y}}), c)))) == True{} : Bool} -> {SCon{Chr{U32{x}}, t1} == SCon{Chr{U32{y}}, t2} : String}:
+  -> {Cmp.is_eq(String.order.go(t1, t2, c)) == True{} : Bool} -> {SCon{Chr{U32{x}}, t1} == SCon{Chr{U32{y}}, t2} : String}:
   match c:
     case LT{}:
-      h => Empty.absurd({SCon{Chr{U32{x}}, t1} == SCon{Chr{U32{y}}, t2} : String}, false_true(h))
+      h => Empty.absurd({SCon{Chr{U32{x}}, t1} == SCon{Chr{U32{y}}, t2} : String}, false_true(Equal.trans(Bool, False{}, Cmp.is_eq(String.order.go(t1, t2, LT{})), True{}, Equal.cong(Cmp, Bool, Cmp.is_eq, LT{}, String.order.go(t1, t2, LT{}), Equal.sym(Cmp, String.order.go(t1, t2, LT{}), LT{}, str_ord_lt(t1, t2))), h)))
     case GT{}:
-      h => Empty.absurd({SCon{Chr{U32{x}}, t1} == SCon{Chr{U32{y}}, t2} : String}, false_true(h))
+      h => Empty.absurd({SCon{Chr{U32{x}}, t1} == SCon{Chr{U32{y}}, t2} : String}, false_true(Equal.trans(Bool, False{}, Cmp.is_eq(String.order.go(t1, t2, GT{})), True{}, Equal.cong(Cmp, Bool, Cmp.is_eq, GT{}, String.order.go(t1, t2, GT{}), Equal.sym(Cmp, String.order.go(t1, t2, GT{}), GT{}, str_ord_gt(t1, t2))), h)))
     case EQ{}:
       h =>
         %word_cmp_eq(32n, x, y, e) : {SCon{Chr{U32{x}}, t1} == SCon{Chr{U32{_}}, t2} : String}
-        %str_sound_rec(Chr{U32{x}}, Chr{U32{y}}, t1, t2, String.cmp(t1, t2), {==}, ih)(h) : {SCon{Chr{U32{x}}, t1} == SCon{Chr{U32{x}}, _} : String}
+        %ih(h) : {SCon{Chr{U32{x}}, t1} == SCon{Chr{U32{x}}, _} : String}
         {==}
 
 def Laws.str_eq_sound(a, b, h):

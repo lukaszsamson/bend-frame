@@ -60,7 +60,7 @@ def pworker(q, n):
 def measure(variant, q, n, th):
     csv = f"bench/data/sales_{n}.csv"
     if variant in ("bend", "full"):
-        cmd = ["./build/bench"] + (["--threads", "1"] if th == "1" else []) + [csv, q, "1", str(batch_for(n, q)), th]
+        cmd = ["./build/bench"] + (["+RTS", "--threads", "1", "-RTS"] if th == "1" else []) + [csv, q, "1", str(batch_for(n, q)), th]
         line, rss, tail = run_cmd(cmd, {"BF_OPT": "full"} if variant == "full" else {})
         sec = json.loads(line)["seconds"] if line else None
         return {"seconds": sec, "rss": rss} if sec is not None else {"error": tail, "rss": rss}

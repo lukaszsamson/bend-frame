@@ -138,7 +138,7 @@ def main():
             for th in a.threads:
                 for rep in range(a.reps):
                     l0 = os.getloadavg()[0]
-                    cmd = ["./build/m6"] + (["--threads", th] if th != "default" else []) + ["hc", op, f"bench/data/hc/t_{n}.csv", f"bench/data/hc/dim_{n}.csv", res]
+                    cmd = ["./build/m6"] + (["+RTS", "--threads", th, "-RTS"] if th != "default" else []) + ["hc", op, f"bench/data/hc/t_{n}.csv", f"bench/data/hc/dim_{n}.csv", res]
                     line, rss, wall = run_cmd(cmd)
                     rec = {"engine": "bend", "op": op, "n": n, "threads": th, "rep": rep, "load1": l0, "rss": rss, "wall": round(wall, 2)}
                     try:

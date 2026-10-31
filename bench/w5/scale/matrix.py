@@ -28,7 +28,7 @@ NAMES = {0: "fold (leaf back)", 1: "fold, input dropped", 2: "fresh map, input d
 
 
 def one(mode, threads, depth, reps, gap):
-    argv = ["/usr/bin/time", "-l", EXE, "--threads", str(threads), str(mode), str(depth), str(reps), "io", str(gap)]
+    argv = ["/usr/bin/time", "-l", EXE, "+RTS", "--threads", str(threads), "-RTS", str(mode), str(depth), str(reps), "io", str(gap)]
     l0 = os.getloadavg()[0]
     p = subprocess.run(argv, cwd=ROOT, capture_output=True, text=True, timeout=600)
     l1 = os.getloadavg()[0]

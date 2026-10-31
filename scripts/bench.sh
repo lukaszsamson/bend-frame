@@ -29,7 +29,7 @@ fi
 mkdir -p build
 "$BEND" bench/main.bend -o build/bench
 
-# build/bench [--threads N] sales.csv query repeats batch label [out.csv] -> one JSON line.
+# build/bench [+RTS --threads N -RTS] sales.csv query repeats batch label [out.csv] -> one JSON line.
 # ONE measurement per process, `procs_for` processes per cell, best kept (compare.py takes the min):
 # parsing again inside a process slows down (heap growth: 100k rows go from ~0.5 s to ~3 s per parse
 # after a few), and so does the collect itself. IO.now has 1 ms resolution, so tiny queries run
@@ -101,7 +101,7 @@ fi
 for n in $SIZES; do
   for q in $QUERIES; do
     for t in 1 default; do
-      flags=(); if [ "$t" = 1 ]; then flags=(--threads 1); fi
+      flags=(); if [ "$t" = 1 ]; then flags=(+RTS --threads 1 -RTS); fi
       for _ in $(seq "$(procs_for $n)"); do
         line=$(./build/bench ${flags[@]+"${flags[@]}"} bench/data/sales_$n.csv $q 1 "$(batch_for $n $q)" $t | tail -1) || true
         echo "$line"

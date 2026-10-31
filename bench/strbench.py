@@ -48,7 +48,7 @@ def run(cmd, env_extra):
 
 
 def thr_args(t):
-    return [] if t == "default" else ["--threads", str(t)]
+    return [] if t == "default" else ["+RTS", "--threads", str(t), "-RTS"]
 
 
 def ops_mode(a):

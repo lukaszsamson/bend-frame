@@ -25,7 +25,7 @@ def main():
             for t in threads:
                 for m in modes:
                     load = os.getloadavg()[0]
-                    r = subprocess.run([exe, "--threads", str(t), m, str(reps)], capture_output=True, text=True, timeout=600)
+                    r = subprocess.run([exe, "+RTS", "--threads", str(t), "-RTS", m, str(reps)], capture_output=True, text=True, timeout=600)
                     line = r.stdout.strip().splitlines()[-1]
                     rec = json.loads(line)
                     rec.update({"threads": t, "round": rnd, "load1": round(load, 2), "ms_per_rep": rec["ms_total"] / rec["reps"]})

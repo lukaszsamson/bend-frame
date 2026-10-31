@@ -31,7 +31,7 @@ G2 = {"q1": 3.0, "q2": 3.0, "q3": 2.0, "q5": 1.5, "filter": 3.0}
 
 
 def one(op, threads, reps, exe=EXE, mode=3, label="cand"):
-    argv = [exe, "--threads", str(threads), SALES, PRODS, op, str(mode), str(reps), str(PARAM.get(op, 0))]
+    argv = [exe, "+RTS", "--threads", str(threads), "-RTS", SALES, PRODS, op, str(mode), str(reps), str(PARAM.get(op, 0))]
     l0 = os.getloadavg()[0]
     p = subprocess.run(argv, cwd=ROOT, capture_output=True, text=True, timeout=1800)
     l1 = os.getloadavg()[0]

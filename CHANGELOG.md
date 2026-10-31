@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased: toolchain moved to Bend 2.0.39 (2026-10-31)
+
+- `TOOLCHAIN` pins Bend 2.0.39 (was 2.0.36). Library code is unchanged; everything else that broke was Bend, not the library:
+  - **Base changed `String.eq`** to `Cmp.is_eq(String.order(a, b))` (a loop `String.order.go` over an accumulator, no longer `String.cmp`). `Laws.str_eq_refl` / `Laws.str_eq_sound` (PROOF_lib.bend) are re-proven over `String.order.go` (`str_ord_refl`, `str_ord_lt`, `str_ord_gt`, a new `str_sound_step`); `make proofs` and `make mutation-check` (104/104) are green again.
+  - **Runtime flags are now `+RTS --threads N -RTS`**; a bare `--threads N` reaches `IO.args` as an ordinary argument (the bench driver then tried to open the file "1"). `scripts/bench.sh`, `scripts/baseline.sh`, `bench/m2/run.py`, `bench/m6.py`, `bench/hc.py`, `bench/strbench.py`, `bench/w2/campaign.sh`, `bench/w4/run.py`, `bench/w5/*` use the new form. The `bench/spikes/` scripts and the historical result files keep the 2.0.36 spelling.
+  - `scripts/test.sh` default per-file limit 120 s -> 900 s (see the next point).
+- Open against 2.0.39 (drafts in `plans/issues/bend_2_0_39.md`): `bend PROOF.bend --verdict` (and `-o PROOF.bendtt`) die with "the machine stack overflowed" (2.0.36: ALL PROOFS CHECK in ~40 s), so `make verdict` / `make ci` fail at that gate; `bend FILE.bend` (run mode) uses ~10x the memory and runs 3-7x slower than 2.0.36 on the CSV tests (`tests/csvlane.bend`: 8 min, `csvprod`: 4 s -> 14 s, 0.5 GB -> 5.7 GB peak RSS). Binaries built with `-o` are unaffected.
+- Performance on 2.0.39 (native, 1 thread, interleaved with 2.0.36 binaries, loaded machine): q1-q6 compute at 1M rows and the parse are within noise of 2.0.36 (parse 625-650 ms vs 655-673 ms). The `File.read_at` floor probe is unchanged (~105-125 ms for 41 MB). Parse is ~95% of end-to-end time in every q1-q6 e2e cell (compute is 4-55 ms); the largest compute cells are `str_join_1m` (500 ms), `str_group_1m` / `str_unique_1m` (~175 ms).
+
 ## 0.2.0 (performance milestone, 2026-10-11; not published)
 
 The plan is `plans/M_02.txt`; the gate report is `plans/GATES_V02.md`. **The v0.1 data contract (`DESIGN.md` 15) is unchanged**: the same values, validity, names, row order, F32 bits (the existing NaN-payload relaxation aside), errors and error order, for every operation, eager and lazy. No new API surface beyond the engine and reader selectors.

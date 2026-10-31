@@ -1,6 +1,6 @@
 # bend-frame
 
-A columnar dataframe library for [Bend](https://bend-lang.com/) 2 (checked against Bend 2.0.36), shaped after the Polars 2.0 eager and lazy APIs, for CSV ETL: load, clean, derive, combine, aggregate, sort and export. Queries are built as a lazy `Plan`, a pure data tree, and the output schema is resolved before any row is read: `DF.collect_schema` returns a strict error such as a filter on a `u32` column, and `DF.collect` refuses the same plan with the same error. Row order is part of the contract: `select`, `with_columns`, `filter` and `head` keep input order, `sort` is stable and multi-key, and `group_by`, `unique` and joins answer in first-appearance and left-row order. Dtypes are `Bool`, `U32`, `I32`, `F32` and `Str`, each nullable through a validity mask, with no implicit casts.
+A columnar dataframe library for [Bend](https://bend-lang.com/) 2 (checked against Bend 2.0.39), shaped after the Polars 2.0 eager and lazy APIs, for CSV ETL: load, clean, derive, combine, aggregate, sort and export. Queries are built as a lazy `Plan`, a pure data tree, and the output schema is resolved before any row is read: `DF.collect_schema` returns a strict error such as a filter on a `u32` column, and `DF.collect` refuses the same plan with the same error. Row order is part of the contract: `select`, `with_columns`, `filter` and `head` keep input order, `sort` is stable and multi-key, and `group_by`, `unique` and joins answer in first-appearance and left-row order. Dtypes are `Bool`, `U32`, `I32`, `F32` and `Str`, each nullable through a validity mask, with no implicit casts.
 
 **What v0.1 claims, and only this:** A small Bend-native dataframe library with tested ETL operations, verified core buffer operations and evaluator typing, and a result-preserving default optimizer under documented input and runtime assumptions.
 
@@ -255,7 +255,7 @@ These are the v0.1 numbers, kept as the last comparison with Polars; 0.2.0 was n
 
 ## Development
 
-Toolchain pins are in `TOOLCHAIN`: Bend 2.0.36, Lean 4.34.0 (for `--verdict`, via elan), uv 0.12.23, Python 3.14.3, Polars 2.0.0, NumPy 2.5.3 (the Python side lives in the uv project under `bench/`). `make toolchain-check` fails on drift.
+Toolchain pins are in `TOOLCHAIN`: Bend 2.0.39, Lean 4.34.0 (for `--verdict`, via elan), uv 0.12.23, Python 3.14.3, Polars 2.0.0, NumPy 2.5.3 (the Python side lives in the uv project under `bench/`). `make toolchain-check` fails on drift.
 
 ```sh
 make ci             # the whole gate, in order: toolchain-check check runner-check diff-driver-check test proofs verdict mutation-check bench-check diff-smoke csv-fuzz-smoke fork-audit consumer-check coverage

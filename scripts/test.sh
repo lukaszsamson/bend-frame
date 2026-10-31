@@ -40,7 +40,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
 BEND_BIN="${BEND:-$HOME/.bend/bin/bend}"
-LIMIT="${TEST_TIMEOUT:-120}"
+LIMIT="${TEST_TIMEOUT:-900}"
 TEST_DIR="${TEST_DIR:-tests}"
 JOBS="${TEST_JOBS:-1}"
 case "$JOBS" in

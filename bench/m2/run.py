@@ -265,7 +265,7 @@ def last_json(stdout: str):
 def argv_for(w, mode, binary, threads, outp):
     a = [str(BIN[binary])]
     if threads:
-        a += ["--threads", str(threads)]
+        a += ["+RTS", "--threads", str(threads), "-RTS"]
     aux = "-" if w.aux == "-" else str(ROOT / w.aux)
     return a + [mode if mode != "stages" else "stages", w.op, str(ROOT / w.file), aux, str(w.batch), str(w.param), str(outp)]
 
@@ -858,7 +858,7 @@ def cmd_micro(a):
     for rep in range(a.procs):
         k = rep % len(combos)
         for n, m, t in combos[k:] + combos[:k]:
-            argv = [str(mdir / n), "--threads", str(t), m]
+            argv = [str(mdir / n), "+RTS", "--threads", str(t), "-RTS", m]
             lb = loadavg()
             r = run_process(argv, {}, a.timeout)
             la = loadavg()
@@ -1233,7 +1233,7 @@ def g6_cstats_run(a, ws):
         if w.op in ("q6", "parse", "stages"):
             continue
         aux = "-" if w.aux == "-" else str(ROOT / w.aux)
-        argv = [str(exe), "--threads", "1", w.op, str(ROOT / w.file), aux, str(w.param)]
+        argv = [str(exe), "+RTS", "--threads", "1", "-RTS", w.op, str(ROOT / w.file), aux, str(w.param)]
         p = subprocess.run(argv, cwd=ROOT, capture_output=True, text=True, timeout=a.timeout, env=dict(os.environ, BF_ENGINE="v02"))
         j = last_json(p.stdout)
         st = (j or {}).get("stats", "")

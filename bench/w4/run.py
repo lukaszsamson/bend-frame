@@ -22,7 +22,7 @@ MODES = ["q1today", "q1today3", "q1fused", "q2today", "q2fused", "q2ntoday", "q2
 
 def run_one(exe, mode, reps):
     l0 = os.getloadavg()[0]
-    p = subprocess.run([exe, "--threads", "1", mode, str(reps)], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    p = subprocess.run([exe, "+RTS", "--threads", "1", "-RTS", mode, str(reps)], capture_output=True, text=True, stdin=subprocess.DEVNULL)
     l1 = os.getloadavg()[0]
     out = {}
     for line in p.stdout.splitlines():

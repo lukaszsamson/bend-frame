@@ -46,7 +46,7 @@ measure() {
   local csv=$1 q=$2 batch=$3 n=$4 proc=$5 line rss load
   if [ -r /proc/loadavg ]; then load=$(cut -d' ' -f1 /proc/loadavg)
   else load=$(sysctl -n vm.loadavg | awk '{print $2}'); fi
-  line=$(/usr/bin/time "$TIME_FLAG" ./build/bench --threads "$THREADS" "$csv" "$q" 1 "$batch" "$THREADS" 2>build/time.err | tail -1)
+  line=$(/usr/bin/time "$TIME_FLAG" ./build/bench +RTS --threads "$THREADS" -RTS "$csv" "$q" 1 "$batch" "$THREADS" 2>build/time.err | tail -1)
   case "$line" in
     '{'*'}') ;;
     *) echo "unexpected output from build/bench ($q n=$n): $line" >&2; exit 1 ;;

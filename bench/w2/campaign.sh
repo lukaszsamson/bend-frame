@@ -10,7 +10,7 @@ BEND=${BEND:-$HOME/.bend/bin/bend}
 OUT=${1:-bench/w2/results/w2_$(date +%Y%m%d-%H%M%S).jsonl}
 mkdir -p build/w2 bench/w2/results
 "$BEND" bench/w2/w2.bend -o build/w2/w2
-BIN="build/w2/w2 --threads 1"
+BIN="build/w2/w2 +RTS --threads 1 -RTS"
 echo "uptime before: $(uptime)"
 cell() { # reps shape n modes...
   local reps=$1 shape=$2 n=$3

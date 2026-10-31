@@ -1,6 +1,6 @@
 # bend-frame — design
 
-A columnar dataframe library for Bend 2 (checked against Bend 2.0.36), shaped
+A columnar dataframe library for Bend 2 (checked against Bend 2.0.39), shaped
 after Polars 2.0's eager/lazy API and Elixir Explorer's ergonomics, written so
 that other agents can implement it module by module. Every type definition in
 this document is checked by `probes/p21_design_sigs.bend` (`--check-only`
@@ -1796,7 +1796,7 @@ Join.run makes first). Differences:
 3. **`make check`** also checks `frame.bend`, `examples/*.bend` and `bench/*.bend`.
    `make ci` = `toolchain-check check test proofs verdict bench-check`.
 4. **`bench-check`** = `BENCH_MODE=check scripts/bench.sh`: correctness at 1k and 100k only.
-5. **`TOOLCHAIN`** pins Bend 2.0.36, Lean 4.34.0, Polars 2.0.0, numpy 2.5.3, uv 0.12.23,
+5. **`TOOLCHAIN`** pins Bend 2.0.39, Lean 4.34.0, Polars 2.0.0, numpy 2.5.3, uv 0.12.23,
    Python 3.14.3; `make toolchain-check` fails on drift. CI installs these (see
    `.github/workflows/ci.yml`; macOS arm64 and Linux x86_64).
 

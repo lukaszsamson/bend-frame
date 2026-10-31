@@ -30,7 +30,7 @@ def main():
             for t in THREADS:
                 for m in MODES:
                     l0 = os.getloadavg()[0]
-                    r = subprocess.run([exe, "--threads", str(t), m, str(reps)], capture_output=True, text=True, timeout=900)
+                    r = subprocess.run([exe, "+RTS", "--threads", str(t), "-RTS", m, str(reps)], capture_output=True, text=True, timeout=900)
                     l1 = os.getloadavg()[0]
                     rec = json.loads(r.stdout.strip().splitlines()[-1])
                     rec.update({"threads": t, "round": rnd, "load1_before": round(l0, 2), "load1_after": round(l1, 2),
