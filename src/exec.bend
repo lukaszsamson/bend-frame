@@ -648,8 +648,9 @@ def Exec.fs.cmp(r: E.ResT(C.Frame), m: Array<U32>, +kept: U32) -> E.ResT(C.Frame
     case Done{g}:
       Done{Exec.fc(g, m, kept)}
 
-# the select on the UNFILTERED frame (its errors depend on the names only, which the filter keeps),
-# then the selected columns compacted with filter's mask and kept count
+# the select on the frame Eval.filter.mask hands back (unfiltered, or only its kept rows under an
+# all-ones mask when the mask is selective; its errors depend on the names only, which the filter
+# keeps), then the selected columns compacted with that mask and kept count
 def Exec.fs.q(f: C.Frame, +es: List<&2, X.Expr>, r: Array<U32> & U32) -> E.ResT(C.Frame):
   (m, +kept) = r
   Exec.fs.cmp(C.Frame.select_names(f, V.Eval.names(es)), m, kept)

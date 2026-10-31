@@ -210,6 +210,20 @@ w2-diff:
 w2-mutation:
 	python3 bench/w2/mutation.py
 
+# ---- PDS-H-style workload (bench/tpch/README.md) ----------------------------------------------------
+# make tpch [TPCH_SF=0.2]  generate TPC-H-shaped tables if missing, build bench/tpch/run.bend, run the nine
+#                          queries at one thread (5 collects each, ms per collect) and check every result
+#                          against Polars (bench/tpch/run_polars.py check); not part of ci
+EXAMPLES += $(wildcard bench/tpch/*.bend)
+TPCH_SF ?= 0.2
+.PHONY: tpch
+tpch:
+	@test -f bench/data/tpch/sf$(TPCH_SF)/lineitem.csv || uv run --project bench python bench/tpch/gen.py $(TPCH_SF)
+	$(BEND) bench/tpch/run.bend -o build/tpch
+	@mkdir -p build/tpch_out
+	./build/tpch +RTS --threads 1 -RTS bench/data/tpch/sf$(TPCH_SF) all 5 build/tpch_out
+	uv run --project bench python bench/tpch/run_polars.py check bench/data/tpch/sf$(TPCH_SF) build/tpch_out
+
 # ---- W6.4: CSV fuzz harness, the v0.2 reader against the v0.1 reader (bench/diff/csvfuzz.py) ------
 # make csv-fuzz SEED=1 N=10000 [CSV_FUZZ_ARGS="--jobs 8 --shrink-secs 300"]
 #     N random files + read specs (bench/diff/csvgen.py), each read by BOTH engines at piece sizes 1, 2, 3, 7,

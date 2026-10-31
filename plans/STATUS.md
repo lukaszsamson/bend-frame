@@ -466,3 +466,38 @@ Not run here: `make ci` (needs the final tree after the B1 fix), `make verdict`,
   date of the v0.1 reader / reference executor (D7: after two quiet gate runs); whether to file the
   Polars (eager sorted-merge join misses NaN keys) and Bend (buffer-reading File primitive; scheduler
   fork-shape rule) issues.
+
+## PDS-H-style profiling pass (bench/tpch), 2026-11-01, Bend 2.0.39
+Workload: `bench/tpch/` (`make tpch`): TPC-H-shaped tables from `gen.py` (sf 0.2: 1.2M lineitem rows, 85 MB),
+nine PDS-H queries (Q1 Q3 Q4 Q5 Q6 Q10 Q12 Q13 Q18) on the public facade, native driver, Polars twins and a
+checker. Every result matches Polars at sf 0.01 and 0.2. Profiled with macOS `sample` (the binaries keep one
+`WL_FID_*` symbol per Bend function; hot loops are `spin_N`, matched to Bend by their parameter names in the
+`-o x.c` output). Method and numbers: bench/tpch/README.md.
+
+Fixed (no proven function touched; `make proofs` ALL PROOFS CHECK):
+- Join pair table always built on the RIGHT input (~35% of query time; Q5 built 2^22 slots over all of
+  lineitem): now over the smaller side (`Join.side`), and a first word key with span < max(2^16, 2(nl+nr)) takes
+  direct-address ids (`Join.word`). Q5 2.2x, Q4 1.6x, Q3 1.5x.
+- Selective filter compacted every column over every row (~20%): when kept <= h/8, `Eval.filter.mask` gathers the
+  kept rows once and hands on an all-ones mask; `Frame.filter_mask` / `Exec.fc` unchanged (their laws hold for
+  every mask result). Q6 1.4x, Q12 1.2x.
+- group_by direct-coding bound 2^20 -> max(2^20, 2n) (`Grp.direct`): a 1.2M-value key no longer radix-sorts
+  (~38% of Q18). Q18 1.35x.
+- Multi-key group_by densified after every key: `Grp.combine` now only keeps codes injective, one densify at the end;
+  a product over 2^22 densifies both sides before the pair-rank sorts.
+- Totals, sf 0.2, 1 thread, load 15-200: 384 -> 284 ms for the nine queries; Polars 1t 162 ms (new / Polars:
+  Q1 3.1x, Q3 2.3x, Q4 2.9x, Q5 1.7x, Q6 5.2x, Q10 2.4x, Q12 1.1x, Q13 1.0x, Q18 0.5x). Sales q1-q6 unchanged.
+- Gates on the final tree: `make test` 209/209 (csvlane needs TEST_TIMEOUT > 900 under load: 14 min), `make check`,
+  `make proofs`, `make diff-smoke` 0 failing, `make bench-check` identical. Not run: `make ci` (verdict is broken on
+  2.0.39, see plans/issues/bend_2_0_39.md), `make mutation-check`, a quiet-machine run.
+
+Gaps left open:
+1. CSV read dominates end to end: lineitem 2.0-2.3 s vs Polars 1t 0.67-0.76 s, while all nine queries take ~0.3 s.
+   The lane parser (`Csv.v2.ftree` and below) is the v0.2 reader work; serial producer / File API (DESIGN 17.10).
+2. Projection pushdown is opt-in: default `DF.collect` carries all 13 lineitem columns through filters and joins;
+   `DF.collect_full` cuts a further 25-45% on Q3 Q4 Q6 Q10 Q13. Making it default is a contract decision (needs the user).
+3. Q1's six compensated-sum scatters (Neumaier, row order, DESIGN 15.5.3) are not reassociated or fused.
+4. Filters keeping most rows still compact every column over every row; a cheaper compaction loop means
+   re-proving PROOF_filtsel / PROOF_fused / PROOF_contents.
+5. String-key joins still build the string table on the right side whatever the sizes (`Key.build`); not hit by
+   this workload.

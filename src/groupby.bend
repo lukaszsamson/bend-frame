@@ -6,18 +6,19 @@
 #  2. dictionary-encode each key column ONCE into dense U32 codes, null = 0:
 #       bool  -> 0 null / 1 false / 2 true
 #       u32 / i32 / f32 -> the order-preserving sort word (sort.bend; -0.0 =
-#         0.0, every NaN one value); a value range < 2^20 is coded directly
-#         (word - min + 1), a wider one by rank after a radix sort
+#         0.0, every NaN one value); a value range < max(2^20, 2n) is coded
+#         directly (word - min + 1), a wider one by rank after a radix sort
 #       str   -> Raw: first-appearance codes from 1 by the packed flat coder
 #         (H.Hc.code.pk, src/hcode.bend, v0.2 W2.3: one walk per row hashes
 #         and packs its code points, a hash hit compares flat words, the rows
 #         borrowed and handed back; ids from 0, so + 1 in the null-zeroing
 #         pass); Dictionary: code + 1. No per-row key strings, no concatenation
 #  3. combine the key codes left to right: g * k_c + c when the product of
-#     the cardinalities is <= 2^22, then re-densified through a direct table;
-#     otherwise the pairs are ranked by a radix sort. A final densify pass
-#     numbers the groups in FIRST-APPEARANCE order and records each group's
-#     first row (`first`).
+#     the cardinalities is <= 2^22 (not densified: only injective); over it,
+#     both sides are densified to their distinct counts first, and a product
+#     still over it is ranked by a radix sort. A final densify pass numbers
+#     the groups in FIRST-APPEARANCE order and records each group's first
+#     row (`first`).
 #  4. key output columns = the key columns gathered at `first`; every
 #     aggregation is one scatter over the rows into an n_groups accumulator
 #     array (U32/I32 sums: wrapping word adds; F32 sum and every mean: the
@@ -85,6 +86,12 @@ def Grp.limit() -> U32:
 
 def Grp.range() -> U32:
   1048576
+
+# a word key whose value span is below max(Grp.range(), 2n) is coded directly (word - min + 1):
+# its densify table has at most ~4n slots, far cheaper than the radix sort of the rank path (a
+# group_by on a 1.2M-row key spanning 1.2M values, bench/tpch q18, sorted every row before)
+def Grp.direct(+n: U32, +span: U32) -> Bool:
+  U32.is_lt(span, U32.max(Grp.range(), U32.add(n, n)))
 
 def Grp.bug(what: String) -> E.Err:
   E.InvalidOperation{"group_by: unexpected " ++ what}
@@ -286,7 +293,7 @@ def Grp.enc.mm(+n: U32, +d: Nat, r: Array<U32> & Array<U32> & MM) -> Codes:
   (w, m, mm) = r
   match mm:
     case MM{+mn, +mx}:
-      Grp.enc.pick(U32.is_gt(mn, mx), U32.is_lt(U32.sub(mx, mn), Grp.range()), n, d, mn, mx, w, m)
+      Grp.enc.pick(U32.is_gt(mn, mx), Grp.direct(n, U32.sub(mx, mn)), n, d, mn, mx, w, m)
 
 # a word column to codes (the validity as a mask array: 1 slot of 1 when AllValid, read with wrapping
 # indices as every other mask here; before T5.4b it was a 2^d-slot array of ones, filled per call)
@@ -528,18 +535,49 @@ def Grp.key1(+n: U32, +d: Nat, c: C.Column) -> C.Column & Groups:
     case other:
       Grp.key1.o(n, d, Grp.encode_keep(other))
 
+# codes densified to first-appearance group ids (k = the distinct count)
+def Grp.compact(+n: U32, +d: Nat, cd: Codes) -> Codes:
+  match cd:
+    case Codes{+k, c}:
+      Grp.to_codes(Grp.densify(n, d, k, c))
+
+def Grp.fits(+kg: U32, +kc: U32) -> Bool:
+  U32.is_le(kg, U32.div(Grp.limit(), kc))
+
+# g * kc + c: injective on the pairs and < kg * kc, NOT dense. Every consumer of combined codes
+# densifies them itself (GroupBy.group, Uniq.group) or only needs injective codes below k
+# (Grp.firstocc), so no densify pass is spent here (a two-key group_by was three densifies over
+# every row, now one)
+def Grp.combine.z(+n: U32, +d: Nat, +kg: U32, +kc: U32, a: Array<U32>, b: Array<U32>) -> Codes:
+  Codes{U32.mul(kg, kc), Grp.zipk(~(k => x => y => U32.add(U32.mul(x, k), y)), n, d, kc, a, b)}
+
 def Grp.combine.b(small: Bool, +n: U32, +d: Nat, +kg: U32, +kc: U32, a: Array<U32>, b: Array<U32>) -> Codes:
   match small:
     case True{}:
-      Grp.to_codes(Grp.densify(n, d, U32.mul(kg, kc), Grp.zipk(~(k => x => y => U32.add(U32.mul(x, k), y)), n, d, kc, a, b)))
+      Grp.combine.z(n, d, kg, kc, a, b)
     case False{}:
       Grp.prank(n, d, a, b)
 
-# dense codes of the pairs (g, c)
+def Grp.combine.k(+n: U32, +d: Nat, g: Codes, c: Codes) -> Codes:
+  match g c:
+    case Codes{+kg, a} Codes{+kc, b}:
+      Grp.combine.b(Grp.fits(kg, kc), n, d, kg, kc, a, b)
+
+# a product of code ranges over Grp.limit(): both sides are first densified to their distinct
+# counts (a wide word key spans up to ~2n values by Grp.direct but may hold few distinct ones: a
+# date); only a product still over the limit takes the pair rank's two radix sorts
+def Grp.combine.c(small: Bool, +n: U32, +d: Nat, g: Codes, c: Codes) -> Codes:
+  match small g c:
+    case True{} Codes{+kg, a} Codes{+kc, b}:
+      Grp.combine.z(n, d, kg, kc, a, b)
+    case False{} gg cc:
+      Grp.combine.k(n, d, Grp.compact(n, d, gg), Grp.compact(n, d, cc))
+
+# injective codes of the pairs (g, c), each below the returned k (dense or not)
 def Grp.combine(+n: U32, +d: Nat, g: Codes, c: Codes) -> Codes:
   match g c:
     case Codes{+kg, a} Codes{+kc, b}:
-      Grp.combine.b(U32.is_le(kg, U32.div(Grp.limit(), kc)), n, d, kg, kc, a, b)
+      Grp.combine.c(Grp.fits(kg, kc), n, d, Codes{kg, a}, Codes{kc, b})
 
 # ---- accumulator steps ------------------------------------------------------------------------
 
@@ -1257,20 +1295,12 @@ def GroupBy.group(+n: U32, +d: Nat, aggs: List<&2, X.Expr>, f: C.Frame, r: List<
     case Codes{+k, c}:
       GroupBy.out(aggs, f, kc, Grp.densify(n, d, k, c))
 
-# the first key's codes. A single key goes straight to GroupBy.group's densify: combining with the
-# constant code 1 (g * k + c with g = 0) is the identity and its densify numbers the groups by first
-# appearance exactly as the final one does, so the result is identical without the zipk pass, the
-# zeroed constant array and the second densify. With more keys the first key is still compacted to
-# its distinct count (what the combine's densify did; the codes are < ng, so the pair products stay
-# small), but by one densify, never the pair-rank sort a wide key used to take.
-def Grp.compact(+n: U32, +d: Nat, cd: Codes) -> Codes:
-  match cd:
-    case Codes{+k, c}:
-      Grp.to_codes(Grp.densify(n, d, k, c))
-
+# several keys: the first key's codes as they are (Grp.combine compacts a side only when a product
+# outgrows Grp.limit()), the others combined in, then the one densify of GroupBy.group. A single key
+# goes straight to Grp.key1 and its densify.
 def GroupBy.first.many(+n: U32, +d: Nat, aggs: List<&2, X.Expr>, f: C.Frame, name: String, rest: List<&1, C.Named>, r: C.Column & Codes) -> E.ResT(C.Frame):
   (c1, cd) = r
-  GroupBy.group(n, d, aggs, f, Grp.codes(rest, n, d, (C.Named{name, c1} <> Nil{}, Grp.compact(n, d, cd))))
+  GroupBy.group(n, d, aggs, f, Grp.codes(rest, n, d, (C.Named{name, c1} <> Nil{}, cd)))
 
 # a single key: the key and its groups in one go (Grp.key1); several keys: the codes of the first, then the others
 def GroupBy.first.g(aggs: List<&2, X.Expr>, f: C.Frame, name: String, r: C.Column & Groups) -> E.ResT(C.Frame):

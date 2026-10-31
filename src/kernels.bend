@@ -116,6 +116,21 @@ def Kernel.gather.go(~T: Data, n: Nat, +j: U32, so: Array<T> & Array<T>, r: Arra
 def Kernel.gather(~T: Data, +n: U32, +d: Nat, src: Array<T>, perm: Array<U32>, +z: T) -> Array<T> & Array<U32>:
   Kernel.gather.go(~T, U32.to_nat(n), 0, (src, Array.new(T, d, z)), Array.get(U32, perm, 0))
 
+# the positions of the 1 words of mask[0..n), ascending: out[k] = i, k += mask[i] (branch-free, as
+# Kernel.compact: every dropped row writes slot k, so out needs MORE slots than the kept count)
+def Kernel.where.go(n: Nat, +i: U32, +k: U32, out: Array<U32>, mi: Array<U32> & U32) -> Array<U32>:
+  match n:
+    case 0n:
+      (mask, bit) = mi
+      out
+    case 1n+p:
+      (mask, +bit) = mi
+      +j = U32.inc(i)
+      Kernel.where.go(p, j, U32.add(k, bit), Array.set(U32, out, k, i), Array.get(U32, mask, j))
+
+def Kernel.where(+n: U32, +d: Nat, mask: Array<U32>) -> Array<U32>:
+  Kernel.where.go(U32.to_nat(n), 0, 0, Array.new(U32, d, 0), Array.get(U32, mask, 0))
+
 # acc[g[i]] = f(acc[g[i]], v[i]) for i < n: the scatter behind group_by
 def Kernel.scatter.put(~T: Data, ~A: Data, ~f: A -> T -> A, +g: U32, x: T, r: Array<A> & A) -> Array<A>:
   (acc, old) = r

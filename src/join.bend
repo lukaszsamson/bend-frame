@@ -12,8 +12,10 @@
 #     the left key looked up in it sequentially (Hc.find.pk; a miss can never
 #     match: DEAD). Several keys are combined into one
 #     dense id per row with a pair table ((id so far, code) -> dense id),
-#     built on the right side and probed by the left. Null keys never match:
-#     their rows get DEAD.
+#     built on the SMALLER side and probed by the other (ids are only labels:
+#     the side changes no match); a first word key whose codes span a narrow
+#     range takes direct-address ids instead (Join.word). Null keys never
+#     match: their rows get DEAD.
 #  3. Right rows are grouped by id (CSR: counts, exclusive prefix sums, rows
 #     in right order). For left row i with id g: m = counts[g] matches.
 #     Pass 1 sizes the output (inner: m rows, left: max(m, 1) rows), pass 2
@@ -83,6 +85,18 @@ type Slot is Type:
 
 type DS is Type:
   DS{pt: PT, out: Array<U32>}
+
+# direct-address ids of a first word key (Dd.*): ids handed out so far, slot -> id + 1, row -> id
+type DD is Type:
+  DD{g: U32, table: Array<U32>, out: Array<U32>}
+
+# a key's codes and validity handed back with the live codes' min and max
+type DM is Type:
+  DM{codes: Array<U32>, live: Array<U32>, mn: U32, mx: U32}
+
+# the build side's ids, the probe side's ids, and the id count
+type DR is Type:
+  DR{g: U32, ob: Array<U32>, op: Array<U32>}
 
 type JS is Type:
   JS{first: Bool, g: U32, nl: U32, nr: U32, lcols: List<&1, C.Named>, rcols: List<&1, C.Named>, accl: Array<U32>, accr: Array<U32>}
@@ -586,20 +600,174 @@ def Join.dense.a(+dict: Bool, +nl: U32, +nr: U32, lcols: List<&1, C.Named>, rcol
     case DS{pt, outr}:
       Join.dense.b(nl, nr, lcols, rcols, outr, Dense.run(nl, False{}, dict, pt, accl, cl, ll))
 
-# combine: a first string key's codes are dense ids already; else densify
-def Join.comb(direct: Bool, +dict: Bool, +dg: U32, +nl: U32, +nr: U32, lcols: List<&1, C.Named>, rcols: List<&1, C.Named>, accl: Array<U32>, accr: Array<U32>, cl: Array<U32>, ll: Array<U32>, cr: Array<U32>, lr: Array<U32>) -> JS:
+def Join.dense.lb(+nl: U32, +nr: U32, lcols: List<&1, C.Named>, rcols: List<&1, C.Named>, outl: Array<U32>, r: DS) -> JS:
+  match r:
+    case DS{pt, outr}:
+      JS{False{}, PT.count(pt), nl, nr, lcols, rcols, outl, outr}
+
+def Join.dense.l(+dict: Bool, +nl: U32, +nr: U32, lcols: List<&1, C.Named>, rcols: List<&1, C.Named>, accr: Array<U32>, cr: Array<U32>, lr: Array<U32>, r: DS) -> JS:
+  match r:
+    case DS{pt, outl}:
+      Join.dense.lb(nl, nr, lcols, rcols, outl, Dense.run(nr, False{}, dict, pt, accr, cr, lr))
+
+# the pair table is built over the smaller side and probed by the other. A dense id only labels
+# an equal (id so far, code) pair: the CSR groups the right rows by id and a left row finds its
+# matches through its own id, so which side hands the ids out changes no match, no count and no
+# order; a probe miss is DEAD on either side (no match). The table of the smaller side stays in
+# cache (q5 of bench/tpch: a 45k-row left side against all 1.2M lineitem rows on the right).
+def Join.side(small_left: Bool, +dict: Bool, +nl: U32, +nr: U32, lcols: List<&1, C.Named>, rcols: List<&1, C.Named>, accl: Array<U32>, accr: Array<U32>, cl: Array<U32>, ll: Array<U32>, cr: Array<U32>, lr: Array<U32>) -> JS:
+  match small_left:
+    case True{}:
+      Join.dense.l(dict, nl, nr, lcols, rcols, accr, cr, lr, Dense.run(nl, True{}, dict, PT.new(nl), accl, cl, ll))
+    case False{}:
+      Join.dense.a(dict, nl, nr, lcols, rcols, accl, cl, ll, Dense.run(nr, True{}, dict, PT.new(nr), accr, cr, lr))
+
+# ---- a first word key over a narrow value range: direct-address ids, no pair table ------------------
+#
+# The first key's id so far is 0 on every row, so its pairs are just its codes. When the build side's
+# live codes span less than max(2^16, 2 (nl + nr)) words, a table indexed by code - min hands out the
+# ids (first appearance on the build side, as PT.op's) and the probe side reads them back: one read and
+# one write per row instead of a hash and a probe walk. Same ids up to their labels: same matches.
+
+# the min and max of the live codes (mn > mx: no live code); the arrays come back
+def Dd.mm.go(n: Nat, +i: U32, +mn: U32, +mx: U32, rc: Array<U32> & U32, rl: Array<U32> & U32) -> DM:
+  match n:
+    case 0n:
+      (codes, x) = rc
+      (lives, v) = rl
+      DM{codes, lives, mn, mx}
+    case 1n+p:
+      (codes, +x) = rc
+      (lives, +v) = rl
+      +j = U32.inc(i)
+      Dd.mm.go(p, j, U32.min(mn, U32.or(x, U32.sub(v, 1))), U32.max(mx, U32.and(x, U32.sub(0, v))), Array.get(U32, codes, j), Array.get(U32, lives, j))
+
+def Dd.mm(+n: U32, codes: Array<U32>, live: Array<U32>) -> DM:
+  Dd.mm.go(U32.to_nat(n), 0, 4294967295, 0, Array.get(U32, codes, 0), Array.get(U32, live, 0))
+
+# build: a live row's slot gets the next id when empty (the slot keeps its word otherwise; a dead
+# row writes back what it read); the row's id, or DEAD when null
+def Dd.put.b(+i: U32, +l: U32, +g: U32, out: Array<U32>, +slot: U32, rt: Array<U32> & U32) -> DD:
+  (table, +t) = rt
+  +live = U32.is_ne(l, 0)
+  +id = Bool.pick(U32, U32.is_eq(t, 0), g, U32.sub(t, 1))
+  DD{U32.add(g, Bool.to_u32(Bool.and(live, U32.is_eq(t, 0)))), Array.set(U32, table, slot, Bool.pick(U32, live, U32.inc(id), t)), Array.set(U32, out, i, Bool.pick(U32, live, id, Join.dead()))}
+
+# probe: the slot's id when the row is live, its code in range and the slot taken; else DEAD
+def Dd.put.p(+i: U32, +ok: Bool, +g: U32, out: Array<U32>, rt: Array<U32> & U32) -> DD:
+  (table, +t) = rt
+  DD{g, table, Array.set(U32, out, i, Bool.pick(U32, Bool.and(ok, U32.is_ne(t, 0)), U32.sub(t, 1), Join.dead()))}
+
+def Dd.row.k(+build: Bool, +i: U32, +l: U32, +g: U32, out: Array<U32>, +ok: Bool, +slot: U32, rt: Array<U32> & U32) -> DD:
+  match build:
+    case True{}:
+      Dd.put.b(i, l, g, out, slot, rt)
+    case False{}:
+      Dd.put.p(i, ok, g, out, rt)
+
+def Dd.row(+build: Bool, +i: U32, +mn: U32, +span: U32, +c: U32, +l: U32, st: DD) -> DD:
+  match st:
+    case DD{+g, table, out}:
+      +slot = U32.sub(c, mn)
+      Dd.row.k(build, i, l, g, out, Bool.and(U32.is_ne(l, 0), U32.is_le(slot, span)), slot, Array.get(U32, table, slot))
+
+def Dd.go(n: Nat, +i: U32, +build: Bool, +mn: U32, +span: U32, st: DD, rc: Array<U32> & U32, rl: Array<U32> & U32) -> DD:
+  match n:
+    case 0n:
+      st
+    case 1n+p:
+      (codes, +c) = rc
+      (lives, +l) = rl
+      +j = U32.inc(i)
+      Dd.go(p, j, build, mn, span, Dd.row(build, i, mn, span, c, l, st), Array.get(U32, codes, j), Array.get(U32, lives, j))
+
+def Dd.run(+n: U32, +build: Bool, +mn: U32, +span: U32, st: DD, codes: Array<U32>, live: Array<U32>) -> DD:
+  Dd.go(U32.to_nat(n), 0, build, mn, span, st, Array.get(U32, codes, 0), Array.get(U32, live, 0))
+
+def Dd.both.k(outb: Array<U32>, r: DD) -> DR:
+  match r:
+    case DD{+g, table, outp}:
+      DR{g, outb, outp}
+
+def Dd.both.p(+np: U32, +mn: U32, +span: U32, cp: Array<U32>, lp: Array<U32>, r: DD) -> DR:
+  match r:
+    case DD{+g, table, outb}:
+      Dd.both.k(outb, Dd.run(np, False{}, mn, span, DD{g, table, Array.new(U32, K.Kernel.depth_for(np), 0)}, cp, lp))
+
+# the ids of both sides: the build side (nb rows) first, then the probe side (np rows)
+def Dd.both(+nb: U32, +np: U32, +mn: U32, +span: U32, cb: Array<U32>, lb: Array<U32>, cp: Array<U32>, lp: Array<U32>) -> DR:
+  Dd.both.p(np, mn, span, cp, lp, Dd.run(nb, True{}, mn, span, DD{0, Array.new(U32, K.Kernel.depth_for(U32.inc(span)), 0), Array.new(U32, K.Kernel.depth_for(nb), 0)}, cb, lb))
+
+def Join.narrow(+mn: U32, +mx: U32, +nl: U32, +nr: U32) -> Bool:
+  Bool.and(U32.is_le(mn, mx), U32.is_lt(U32.sub(mx, mn), U32.max(65536, U32.add(U32.add(nl, nr), U32.add(nl, nr)))))
+
+def Join.dd.l(+nl: U32, +nr: U32, lcols: List<&1, C.Named>, rcols: List<&1, C.Named>, r: DR) -> JS:
+  match r:
+    case DR{+g, ob, op}:
+      JS{False{}, g, nl, nr, lcols, rcols, ob, op}
+
+def Join.dd.r(+nl: U32, +nr: U32, lcols: List<&1, C.Named>, rcols: List<&1, C.Named>, r: DR) -> JS:
+  match r:
+    case DR{+g, ob, op}:
+      JS{False{}, g, nl, nr, lcols, rcols, op, ob}
+
+# the left side builds (it is the smaller one): direct ids when narrow, else the pair table
+def Join.word.lk(ok: Bool, +nl: U32, +nr: U32, lcols: List<&1, C.Named>, rcols: List<&1, C.Named>, accl: Array<U32>, accr: Array<U32>, cl: Array<U32>, ll: Array<U32>, cr: Array<U32>, lr: Array<U32>, +mn: U32, +span: U32) -> JS:
+  match ok:
+    case True{}:
+      Join.dd.l(nl, nr, lcols, rcols, Dd.both(nl, nr, mn, span, cl, ll, cr, lr))
+    case False{}:
+      Join.side(True{}, False{}, nl, nr, lcols, rcols, accl, accr, cl, ll, cr, lr)
+
+def Join.word.l(+nl: U32, +nr: U32, lcols: List<&1, C.Named>, rcols: List<&1, C.Named>, accl: Array<U32>, accr: Array<U32>, cr: Array<U32>, lr: Array<U32>, m: DM) -> JS:
+  match m:
+    case DM{cl, ll, +mn, +mx}:
+      Join.word.lk(Join.narrow(mn, mx, nl, nr), nl, nr, lcols, rcols, accl, accr, cl, ll, cr, lr, mn, U32.sub(mx, mn))
+
+# the right side builds
+def Join.word.rk(ok: Bool, +nl: U32, +nr: U32, lcols: List<&1, C.Named>, rcols: List<&1, C.Named>, accl: Array<U32>, accr: Array<U32>, cl: Array<U32>, ll: Array<U32>, cr: Array<U32>, lr: Array<U32>, +mn: U32, +span: U32) -> JS:
+  match ok:
+    case True{}:
+      Join.dd.r(nl, nr, lcols, rcols, Dd.both(nr, nl, mn, span, cr, lr, cl, ll))
+    case False{}:
+      Join.side(False{}, False{}, nl, nr, lcols, rcols, accl, accr, cl, ll, cr, lr)
+
+def Join.word.r(+nl: U32, +nr: U32, lcols: List<&1, C.Named>, rcols: List<&1, C.Named>, accl: Array<U32>, accr: Array<U32>, cl: Array<U32>, ll: Array<U32>, m: DM) -> JS:
+  match m:
+    case DM{cr, lr, +mn, +mx}:
+      Join.word.rk(Join.narrow(mn, mx, nl, nr), nl, nr, lcols, rcols, accl, accr, cl, ll, cr, lr, mn, U32.sub(mx, mn))
+
+# a first word key (its ids so far are all 0): the smaller side's codes decide between direct ids
+# and the pair table
+def Join.word(small_left: Bool, +nl: U32, +nr: U32, lcols: List<&1, C.Named>, rcols: List<&1, C.Named>, accl: Array<U32>, accr: Array<U32>, cl: Array<U32>, ll: Array<U32>, cr: Array<U32>, lr: Array<U32>) -> JS:
+  match small_left:
+    case True{}:
+      Join.word.l(nl, nr, lcols, rcols, accl, accr, cr, lr, Dd.mm(nl, cl, ll))
+    case False{}:
+      Join.word.r(nl, nr, lcols, rcols, accl, accr, cl, ll, Dd.mm(nr, cr, lr))
+
+def Join.comb.w(word1: Bool, +dict: Bool, +nl: U32, +nr: U32, lcols: List<&1, C.Named>, rcols: List<&1, C.Named>, accl: Array<U32>, accr: Array<U32>, cl: Array<U32>, ll: Array<U32>, cr: Array<U32>, lr: Array<U32>) -> JS:
+  match word1:
+    case True{}:
+      Join.word(U32.is_lt(nl, nr), nl, nr, lcols, rcols, accl, accr, cl, ll, cr, lr)
+    case False{}:
+      Join.side(U32.is_lt(nl, nr), dict, nl, nr, lcols, rcols, accl, accr, cl, ll, cr, lr)
+
+# combine: a first string key's codes are dense ids already; a first word key may take direct ids
+# (Join.word); else densify through the pair table
+def Join.comb(direct: Bool, word1: Bool, +dict: Bool, +dg: U32, +nl: U32, +nr: U32, lcols: List<&1, C.Named>, rcols: List<&1, C.Named>, accl: Array<U32>, accr: Array<U32>, cl: Array<U32>, ll: Array<U32>, cr: Array<U32>, lr: Array<U32>) -> JS:
   match direct:
     case True{}:
       JS{False{}, dg, nl, nr, lcols, rcols, cl, cr}
     case False{}:
-      Join.dense.a(dict, nl, nr, lcols, rcols, accl, cl, ll, Dense.run(nr, True{}, dict, PT.new(nr), accr, cr, lr))
+      Join.comb.w(word1, dict, nl, nr, lcols, rcols, accl, accr, cl, ll, cr, lr)
 
 # dg: the right side's distinct string ids (a word key: 0, unused)
-def Join.key.d(+t: D.DType, first: Bool, +nl: U32, +nr: U32, accl: Array<U32>, accr: Array<U32>, rcols: List<&1, C.Named>, cr: Array<U32>, lr: Array<U32>, +dg: U32, lcols: List<&1, C.Named>, s: Slot) -> JS:
+def Join.key.d(+t: D.DType, +first: Bool, +nl: U32, +nr: U32, accl: Array<U32>, accr: Array<U32>, rcols: List<&1, C.Named>, cr: Array<U32>, lr: Array<U32>, +dg: U32, lcols: List<&1, C.Named>, s: Slot) -> JS:
   match s:
     case SOut{Enc{cl, ll, gl}, tb}:
       +str = D.DType.eq(t, D.TStr{})
-      Join.comb(Bool.and(first, str), str, dg, nl, nr, lcols, rcols, accl, accr, cl, ll, cr, lr)
+      Join.comb(Bool.and(first, str), Bool.and(first, Bool.not(str)), str, dg, nl, nr, lcols, rcols, accl, accr, cl, ll, cr, lr)
     case SIn{tb}:
       JS{first, 0, nl, nr, lcols, rcols, accl, accr}
 

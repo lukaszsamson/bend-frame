@@ -9,6 +9,22 @@
 - Open against 2.0.39 (drafts in `plans/issues/bend_2_0_39.md`): `bend PROOF.bend --verdict` (and `-o PROOF.bendtt`) die with "the machine stack overflowed" (2.0.36: ALL PROOFS CHECK in ~40 s), so `make verdict` / `make ci` fail at that gate; `bend FILE.bend` (run mode) uses ~10x the memory and runs 3-7x slower than 2.0.36 on the CSV tests (`tests/csvlane.bend`: 8 min, `csvprod`: 4 s -> 14 s, 0.5 GB -> 5.7 GB peak RSS). Binaries built with `-o` are unaffected.
 - Performance on 2.0.39 (native, 1 thread, interleaved with 2.0.36 binaries, loaded machine): q1-q6 compute at 1M rows and the parse are within noise of 2.0.36 (parse 625-650 ms vs 655-673 ms). The `File.read_at` floor probe is unchanged (~105-125 ms for 41 MB). Parse is ~95% of end-to-end time in every q1-q6 e2e cell (compute is 4-55 ms); the largest compute cells are `str_join_1m` (500 ms), `str_group_1m` / `str_unique_1m` (~175 ms).
 
+## Unreleased: performance on a PDS-H-style workload (2026-11-01)
+
+New workload `bench/tpch/` (README there): TPC-H-shaped tables and nine PDS-H queries (Q1, Q3, Q4, Q5, Q6, Q10,
+Q12, Q13, Q18) written with the public facade, a native driver, Polars twins and a checker; `make tpch`. Profiling it
+with `sample` found four hot spots, fixed without touching any proven function (`make proofs`: ALL PROOFS CHECK). The
+data contract is unchanged: every query matches Polars at sf 0.01 and 0.2; `make test` passes 209 of 209 (`tests/csvlane.bend` needs a limit above the default 900 s under load: 14 min, the 2.0.39 run-mode
+slowness noted above), `make check` passes, `make diff-smoke` has 0 failing cases and `make bench-check` is identical.
+- Joins build the key pair table over the smaller input, not always the right one (`Join.side`), and a first word key
+  over a narrow range (span < max(2^16, 2 (nl + nr))) takes direct-address ids with no hashing (`Join.word`).
+- A filter keeping at most 1/8 of the rows gathers the kept rows once by position before the (unchanged) compaction
+  (`Eval.filter.sel`, `Frame.take_rows`, `Kernel.where`).
+- group_by codes a word key directly while its span is below max(2^20, 2n) (`Grp.direct`; was 2^20, so a 1.2M-value
+  key took a radix sort), and combining keys no longer densifies after each key (`Grp.combine`): one densify at the end.
+- sf 0.2, one thread, loaded machine: the nine queries 384 -> 284 ms in total (Q5 2.2x, Q4 1.6x, Q3 1.5x, Q6 / Q18
+  1.35x); the sales q1-q6 cells are unchanged within noise. Remaining gaps and why they stay: bench/tpch/README.md.
+
 ## 0.2.0 (performance milestone, 2026-10-11; not published)
 
 The plan is `plans/M_02.txt`; the gate report is `plans/GATES_V02.md`. **The v0.1 data contract (`DESIGN.md` 15) is unchanged**: the same values, validity, names, row order, F32 bits (the existing NaN-payload relaxation aside), errors and error order, for every operation, eager and lazy. No new API surface beyond the engine and reader selectors.

@@ -3956,12 +3956,44 @@ def Eval.filter.mask.a(+pred: X.Expr, r: C.Frame & List<&2, S.Field>) -> E.ResT(
   (f, +s) = r
   Eval.filter.mask.b(pred, f, A.Ana.type(pred, s), Eval.f5.plan(pred, s))
 
-# filter's mask: the frame back (no column moved or compacted), the row mask (1 = keep: pred true
-# AND valid) and the kept count, or the predicate's error (TypeMismatch{"filter", "bool", got}
-# first, then the evaluation's). ONE function for every caller: Eval.filter compacts every column
-# with it (Frame.filter_mask), Exec.fs (the Filter + Select step, src/exec.bend) only the selected
+def Eval.filter.sel.go(sel: Bool, f: C.Frame, m: Array<U32>, +h: U32, +kept: U32) -> C.Frame & (Array<U32> & U32):
+  match sel:
+    case True{}:
+      (C.Frame.take_rows(f, K.Kernel.where(h, K.Kernel.depth_for(U32.inc(kept)), m), kept), (Array.new(U32, 0n, 1), kept))
+    case False{}:
+      (f, (m, kept))
+
+def Eval.filter.sel.h(m: Array<U32>, +kept: U32, r: C.Frame & U32) -> C.Frame & (Array<U32> & U32):
+  (f, +h) = r
+  Eval.filter.sel.go(U32.is_le(U32.mul(kept, 8), h), f, m, h, kept)
+
+def Eval.filter.sel.r(f: C.Frame, r: Array<U32> & U32) -> C.Frame & (Array<U32> & U32):
+  (m, +kept) = r
+  Eval.filter.sel.h(m, kept, C.Frame.height(f))
+
+def Eval.filter.sel.k(x: C.Frame & (Array<U32> & U32)) -> C.Frame & (Array<U32> & U32):
+  (f, r) = x
+  Eval.filter.sel.r(f, r)
+
+# a selective mask (kept <= h / 8): the kept rows are gathered ONCE by their positions (one pass over
+# the mask, then `kept` rows per column) and handed on with an all-ones mask (one slot, read with
+# wrapping indices), so the compaction that follows (Frame.filter_mask / Exec.fc, unchanged) walks
+# `kept` rows per column instead of h: the same rows in the same order, the same validity and string
+# storage (bench/tpch q6: 13 lineitem columns compacted over 1.2M rows to keep 2% of them)
+def Eval.filter.sel(r: E.ResT(C.Frame & (Array<U32> & U32))) -> E.ResT(C.Frame & (Array<U32> & U32)):
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{x}:
+      Done{Eval.filter.sel.k(x)}
+
+# filter's mask: the frame (back as it came, or only its kept rows with an all-ones mask when the
+# mask is selective: Eval.filter.sel), the row mask (1 = keep: pred true AND valid) and the kept
+# count, or the predicate's error (TypeMismatch{"filter", "bool", got} first, then the evaluation's).
+# ONE function for every caller: Eval.filter compacts every column with it (Frame.filter_mask),
+# Exec.fs (the Filter + Select step, src/exec.bend) only the selected
 def Eval.filter.mask(f: C.Frame, +pred: X.Expr) -> E.ResT(C.Frame & (Array<U32> & U32)):
-  Eval.filter.mask.a(pred, S.Frame.schema(f))
+  Eval.filter.sel(Eval.filter.mask.a(pred, S.Frame.schema(f)))
 
 def Eval.filter.q(f: C.Frame, r: Array<U32> & U32) -> E.ResT(C.Frame):
   (m, +kept) = r

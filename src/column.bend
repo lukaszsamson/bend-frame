@@ -1133,3 +1133,29 @@ def Frame.filter_mask(f: Frame, mask: Array<U32>, +kept: U32) -> Frame:
   match f:
     case Frame{h, cols}:
       Frame.filter_mask.k(kept, Cols.compact.go(cols, kept, (mask, Nil{})))
+
+def Cols.take_rows.add(n: String, acc: List<&1, Named>, r: Column & Array<U32>) -> Array<U32> & List<&1, Named>:
+  (c, idx) = r
+  (idx, Named{n, c} <> acc)
+
+def Cols.take_rows.step(n: String, +kept: U32, col: Column, st: Array<U32> & List<&1, Named>) -> Array<U32> & List<&1, Named>:
+  (idx, acc) = st
+  Cols.take_rows.add(n, acc, Column.gather(col, idx, kept))
+
+def Cols.take_rows.go(cols: List<&1, Named>, +kept: U32, st: Array<U32> & List<&1, Named>) -> Array<U32> & List<&1, Named>:
+  match cols:
+    case Nil{}:
+      st
+    case Named{n, col} <> rest:
+      Cols.take_rows.go(rest, kept, Cols.take_rows.step(n, kept, col, st))
+
+def Frame.take_rows.k(+kept: U32, r: Array<U32> & List<&1, Named>) -> Frame:
+  (idx, acc) = r
+  Frame{kept, List.reverse(&1, Named, acc)}
+
+# rows idx[0..kept) of every column, in that order (Column.gather: the validity too, depth_for(kept));
+# idx is consumed
+def Frame.take_rows(f: Frame, idx: Array<U32>, +kept: U32) -> Frame:
+  match f:
+    case Frame{h, cols}:
+      Frame.take_rows.k(kept, Cols.take_rows.go(cols, kept, (idx, Nil{})))
