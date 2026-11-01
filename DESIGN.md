@@ -782,8 +782,8 @@ runner's physical step `Exec.run_phys`; v0.2 T4.1 added section 18, the fused ke
 the fusion peepholes; T4.3 section 20, the Filter + Select step; T5.1 section 21, the chunk trees; T5.2
 section 22, the chunked kernel wrappers; recounted at T4.4, after the T4.2 / T4.3 / T5.2 merges, and after
 the post-review B1 fix, which added 10 laws to section 19):
-`LAWS.bend` states 241 laws over `src/` in 22 sections (5 and 5b counted as one; per section 5, 20, 9,
-9, 5, 2, 5, 11, 6, 5, 16, 4, 22, 22, 9, 5, 4, 17, 35, 5, 11, 14); `PROOF.bend` imports
+`LAWS.bend` states 242 laws over `src/` in 23 sections (5 and 5b counted as one; per section 5, 20, 9,
+9, 5, 2, 5, 11, 6, 5, 16, 4, 22, 22, 9, 5, 4, 17, 35, 5, 11, 14, 1; v0.3 W3 added section 23, `where_contents`); `PROOF.bend` imports
 `PROOF_lib`, `PROOF_schema`, `PROOF_expr`, `PROOF_plan`, `PROOF_kernels`, `PROOF_exec`,
 `PROOF_bits`, `PROOF_contents`, `PROOF_eval`, `PROOF_evalops`, `PROOF_evalrun`,
 `PROOF_strs`, `PROOF_append`, `PROOF_inplace`, `PROOF_moves`, `PROOF_sorthead`, `PROOF_fused`,
@@ -856,7 +856,7 @@ on aliases / on every select), T5.1 12 over the chunk trees and T5.2 12 over the
 `Eval.filter.mask`, which `Eval.filter` and `Exec.fs` share, so a wrong count there changes both sides
 of `filter_select_step` and is not a control any more (no law pins Eval.filter's count against an
 independent model; before T4.4 it was Exec.fs's private copy that was mutated); the control mutates
-the step's own use of the count (`Exec.fs.q`, kept + 1) instead. `make mutation-check` runs 104 mutations (92 at W8; 12 added by the post-review B1 fix)
+the step's own use of the count (`Exec.fs.q`, kept + 1) instead. `make mutation-check` runs 107 mutations (92 at W8; 12 added by the post-review B1 fix; 3 by v0.3 W3, on `Kernel.where`)
 in all, all caught, the unmutated copy accepted.
 
 Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
@@ -1168,10 +1168,9 @@ instance, so the 231 laws are reported as:
    `Eval.expr`).
 2. *New local kernel and peephole theorems, with their instances and premises* (82 laws): section 18's fused-kernel laws are each at
    ONE template instance (e.g. u32 add, f32 mul) while production instantiates the kernels for u32 / i32 / f32 arithmetic and
-   comparisons; section 19's peephole laws are one instance per peephole, and `peep_f4_cell` is a U32 instance under the
-   premise that a null slot already holds the zero payload (P0's null-slot invariant), which no theorem establishes for every
-   producer (an F32 `neg` of a null slot breached it: plans/REVIEW_V02_FABLE.txt B1, fixed after the review, see CHANGELOG
-   "Fixed after review"); section 22 is 14 laws over 53 generated wrappers, 4 of them (sum, min, max, popcount) on the chunked
+   comparisons; section 19's peephole laws are one instance per peephole (`peep_f4_cell` was stated at W8 under the premise
+   that a null slot already holds the zero payload; an F32 `neg` of a null slot breached it, plans/REVIEW_V02_FABLE.txt B1,
+   and since the B1 fix F4 resets the slots itself and the law carries NO slot premise); section 22 is 14 laws over 53 generated wrappers, 4 of them (sum, min, max, popcount) on the chunked
    runner's path; sections 16, 17, 20 and 21 are over the functions named in their rows.
 3. *Unproven integration*: the fused runner as a whole (`Eval.runz(Eval.fuse(..))` against `Eval.run`: the stack plumbing,
    lend / replace; the fallback of each fused instruction IS the code it replaces, but no theorem says the runner keeps the
@@ -1206,6 +1205,39 @@ differential and tests, not by a law):
 - **Parallel execution itself**: the native runtime's scheduler is outside every law (as in v0.1); `make fork-audit`
   is a static shape check (16.10), not a correctness argument.
 
+
+### 8.3 v0.3 assurance status (plan M_03 G4 and section 4)
+
+**The honest sentence (M_03 section 4).** Proven over the production code: the buffer kernels (gather, compact, map / zip,
+fold, append, in-place reset and choose, and since v0.3 `Kernel.where`, the row list of a selective filter), both string
+storages, the chunk trees, the evaluator peepholes against the unfused evaluator, the null-slot producers, the plan-level
+equivalences (release optimizer = unoptimized, physical runner = pure runner, Filter + Select step) and the v0.1 typing of
+`Eval.full` / `Eval.run`. Tested only: the fused runner `Eval.runz` that filter / select / with_columns execute, the chunked
+runner, both CSV readers, the string coder and rank stage, the radix sort, sort / group_by / join semantics (including the v0.2
+build-side and direct-code paths below), floating-point results, Dictionary completeness, and native execution. The
+independent BendTT check passes on the pinned Bend 2.0.39 (`make verdict`, ~30 s; section 8's W0 note: the `FZW` Sigma of
+PROOF_filtsel.bend written inline worked around bendlang/bend#1984).
+
+v0.3 adds 1 law (241 -> 242) and 3 in-place controls (104 -> 107):
+
+| LAWS section (PROOF file) | laws | production functions they pin | hypotheses / not claimed | controls |
+|---|---:|---|---|---:|
+| 23 Selective filters (`PROOF_where`; W3) | 1 | `where_contents`: `Kernel.where` (the index list `Eval.filter.sel.go` builds when kept * 8 <= height) writes every kept row's index at its cursor, in row order: the compaction's contract (CSpec) with the row index for a[i] | `CRoom` (0/1 mask, cursor below 2^d: the caller allocates `depth_for(kept + 1)` slots); NOT claimed: `Frame.take_rows` (the gather of every column by that list) equals `Frame.filter_mask`, nor that `Eval.filter.mask`'s selective branch equals its non-selective one | 3 |
+
+Tested only since v0.2's PDS-H pass (no law; each guarded by `make test-mutation-check`, which applies the v0.3 review's
+mutation in place and requires tests/regress/V03_fastpaths.bend and V03_boundaries.bend to fail):
+
+- **The selective filter's gather** (`Eval.filter.sel.go`: `Frame.take_rows(f, Kernel.where(..), kept)` and the all-ones
+  mask it hands on): the index list is proven (section 23); the gather composition and the branch's equality with the mask
+  compaction are tested (V03_fastpaths: kept = 0, 1, h/8, h/8 + 1, 16 .. 128, all; Raw / Dictionary; eager, lazy, chunked).
+- **The join's build side and direct ids** (`Join.side`, `Join.word.*`, `Join.narrow`, `Dd.*`): the smaller side builds, a
+  word key spanning < max(65536, 2(nl + nr)) gets direct-address ids. Tests: V03_fastpaths (spans 65535 / 65536, smaller
+  left / right / equal, i32 extremes, strings), V03_fastpaths_big (native: spans 2(nl + nr) - 1 / .. / + 1 at nl + nr =
+  40,000), V03_boundaries; mutation: the direct-id probe off by one.
+- **group_by's direct codes and key combine** (`Grp.direct`, `Grp.combine*`, `Grp.prank`): a word key spanning < max(2^20,
+  2n) is coded `x - min + 1` (null 0); two keys combine without densify while the code ranges' product is <= 2^22. Tests:
+  V03_fastpaths (spans 2^20 - 1 / 2^20, i32, code ranges 2047 / 2048 / 2049 x 2048), V03_fastpaths_big (n = 600,000:
+  spans 2n - 1 / 2n / 2n + 1; the pair rank); mutation: the minimum merged with the null group.
 
 ## 9. Idiom checklist for implementers (copy into every module's header)
 
@@ -4818,6 +4850,12 @@ def the audit changed, `CBs.feed` (the v0.1 sink's column fork, one fork per chu
 4373 / 2515 / 2180 ms before, 4317 / 2406 / 2104 after (7 interleaved processes per cell, load 14-59; within
 noise: the heaviest column is one unit of 1.1-1.7 s, so the chunk is bounded by its biggest column, not by the
 shape of the fork).
+
+**On Bend 2.0.38+ (v0.3 W2).** The emitted C changed: the task table is `CONSTV Fid FID_T[]` of `{ar, resw, bangs,
+nofk}` (2.0.36: `u8 FID_T[][3]` with the fork-free flag in bit 1) and segments are spelled `_k12 / _j12 / _c12` (2.0.36:
+`_K12 / _J12 / _C12`). `forkaudit.py` reads both, so both halves of `make fork-audit` run on 2.0.39 (68 parallel lets, 34
+forking defs, 14 allowed call tasks, 0 findings: the same as on 2.0.36), and the call-task half still flags the stall shape
+(plans/issues/forkshape.bend: `ps -> split`).
 
 ### 16.11 As built at W8 (summary; the deviations are section 14's v0.2 entries, the numbers plans/GATES_V02.md)
 

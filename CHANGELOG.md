@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.3.0 (unreleased): the stabilisation release (plans/M_03.txt)
+
+- **Independent verification restored on the pinned Bend 2.0.39.** `bend PROOF.bend --verdict` (BendTT, the Lean-checked kernel)
+  prints ALL PROOFS CHECK again (~30 s). It had overflowed the machine stack since 2.0.38 (bendlang/bend#1984): the translation
+  expanded the type-level def `FZW(c)` (a Sigma) of PROOF_filtsel.bend at its 17 uses; the Sigma is now written inline (the
+  proof terms are unchanged). `make verdict` stays in `make ci`; `make verdict-probe` checks the translation alone. No reduced
+  assurance in this release.
+- **Proofs:** 242 laws (241 + `where_contents`, LAWS section 23: `Kernel.where`, the kept-row list of a selective filter, puts
+  each kept row's index at its cursor in row order, the compaction's contract), 107 in-place mutation controls (104 + 3 on
+  `Kernel.where`). Still tested only, now stated explicitly (DESIGN.md 8.3): the selective filter's gather (`Frame.take_rows`),
+  the join's build side and direct ids, group_by's direct codes and key combine, the fused runner `Eval.runz`.
+- **Targeted tests of the v0.2 fast paths** (expected values from independent Python models, `bench/v03/`):
+  `tests/regress/V03_boundaries.bend` (the v0.3 Astra review's 102 cases), `V03_fastpaths.bend` (140 cases at the switch-over
+  points: key spans 2^20 - 1 / 2^20, code ranges either side of 2^22, join spans 65535 / 65536 with each side smaller,
+  selective filters at kept = h/8 and h/8 + 1, eager / lazy / chunked), `V03_fastpaths_big.bend` (native, 25 cases at
+  600,000-row and 40,000-row boundaries), and four reader-validity fixtures in `tests/csvadv` read by every corpus test against
+  the v0.1 reader. `make test-mutation-check` (in ci) requires these tests to fail under the v0.3 review's mutations.
+- **Tooling on 2.0.39:** `make fork-audit` runs both halves again (the emitted C's task table and segment names changed);
+  `scripts/test.sh` runs `#! native` tests as binaries (the three CSV lane tests: the interpreter lane got 3-7x slower in
+  2.0.37, bendlang/bend#1983) and the per-file limit is back to 300 s; the PDS-H comparator compares nulls, NaN and signed
+  infinities by class (self-test: 19 cases) and `make tpch-check` (sf 0.01) is in ci; `make coverage-check` fails ci when the
+  committed `docs/COVERAGE.md` is stale; `toolchain-check` only warns on uv; the CI workflow reads the Bend 2.0.39 archive
+  sha256 from `TOOLCHAIN` (checked against the release; the workflow has still never run).
+- Docs: README's laws paragraph opens with the honest coverage sentence (M_03 section 4); stale `peep_f4_cell` premise text,
+  counts and the selective-filter wording corrected.
+
 ## Unreleased: toolchain moved to Bend 2.0.39 (2026-10-31)
 
 - `TOOLCHAIN` pins Bend 2.0.39 (was 2.0.36). Library code is unchanged; everything else that broke was Bend, not the library:
@@ -75,7 +101,7 @@ Against the pinned v0.1 baseline (3612482), same driver, Apple M2 Pro, medians o
 241 laws in `LAWS.bend` (149 in 0.1.0; 82 added by the W8 close, 10 more by the B1 fix), all proven in `PROOF*.bend` over production functions, checked by `bend PROOF.bend` and `--verdict`; no axiom, no `@unsafe`, no open law. They fall in three groups of different weight, and the original gate G5 ("every changed proved production path keeps its theorem chain") is recorded as PARTIAL in `plans/GATES_V02.md`:
 
 1. **Preserved theorems about existing functions** (the 149 v0.1 laws): none weakened, dropped or turned into a hypothesis; the Dictionary probe hypotheses stay conditional; `release_run` is unchanged. The evaluator typing theorems (`run_typed`, `eval_full_typed`, `eval_expr_typed`) are about `Eval.full` / `Eval.expr` / `Eval.run`, which since 0.2.0 the default `select` / `with_columns` / `filter` path no longer executes: those verbs run `Eval.runz(Eval.fuse(Eval.mark(compile)))`, and the equivalence of `runz` to `run` is not stated (`LAWS.bend` section 19 header).
-2. **New local kernel and peephole theorems, each at stated instances and premises** (82 laws: `range_cell`, and sections 16-22): section 18's fused-kernel laws are each at ONE template instance while production instantiates the kernels for u32 / i32 / f32; section 19's peephole laws are one instance per peephole (`peep_f4_cell` is a U32 instance under a zero-payload premise that no theorem establishes for every producer); section 22 is 14 laws over 53 generated chunked wrappers, 4 of them (sum, min, max, popcount) on the chunked runner's path. New facts that matter beyond their kernels: `croom_of_cap` derives v0.1's `CRoom` hypothesis for per-leaf compaction; `sort_head_run` / `collect_obs` relate the physical runner `collect` executes to `Exec.run_pure`; `filter_select_run` proves the Filter + Select step.
+2. **New local kernel and peephole theorems, each at stated instances and premises** (82 laws: `range_cell`, and sections 16-22): section 18's fused-kernel laws are each at ONE template instance while production instantiates the kernels for u32 / i32 / f32; section 19's peephole laws are one instance per peephole (`peep_f4_cell` was stated under a zero-payload premise; the post-review B1 fix below removed it); section 22 is 14 laws over 53 generated chunked wrappers, 4 of them (sum, min, max, popcount) on the chunked runner's path. New facts that matter beyond their kernels: `croom_of_cap` derives v0.1's `CRoom` hypothesis for per-leaf compaction; `sort_head_run` / `collect_obs` relate the physical runner `collect` executes to `Exec.run_pure`; `filter_select_run` proves the Filter + Select step.
 3. **Unproven integration**: the fused runner `Eval.runz` as a whole, the chunked runner's `CX.*` walks and the `Eval.runz` call in each leaf, the v0.2 reader, the string coder, the rank stage, the radix sort, n_unique, describe's fused pass, the balanced list forks, and native execution.
 
 - `make mutation-check`: 104 in-place mutations of production functions (14 in 0.1.0; 92 at the W8 close, 12 added by the B1 fix), all caught, the unmutated copy accepted.

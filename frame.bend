@@ -386,7 +386,8 @@ def desc(name: String) -> O.SortKey:
 def named(name: String, c: C.Column) -> C.Named:
   C.Named{name, c}
 
-# the columns with their null slots reset to the dtype default (V.Eval.fix: one in-place pass per
+# INTERNAL (a helper of from_columns, not part of the API; Bend has no private defs): the columns with their
+# null slots reset to the dtype default (V.Eval.fix: one in-place pass per
 # column that has a mask, nothing for an AllValid one). The facade exports the Column type, so a
 # caller can build a column from raw buffers whose null slots hold anything; every stored column must
 # hold the default there (the P0 invariant F4's fill side and the chunked u32 / i32 sum rely on:

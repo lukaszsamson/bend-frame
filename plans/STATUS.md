@@ -524,3 +524,18 @@ machine), `bench/mem/probe.bend` (arrays, lists, one CSV read) and the bench/tpc
      Array<U32> plus offsets, ~4 B per character) behind ST.Strs, which touches every string operation; not started.
   3. Every column is 2^depth_for(n) slots: up to 2x for a height just above a power of two (1.2M rows -> 2^21 slots).
   4. The bench/tpch driver clones its inputs twice (harness, not library); queries add 20-100 MB over the reads.
+
+## v0.3 stabilisation (plans/M_03.txt; 2026-11-01)
+- W0 DONE: `--verdict` ALL PROOFS CHECK on Bend 2.0.39 (the FZW Sigma of PROOF_filtsel.bend written inline at its 17 uses;
+  bendlang/bend#1984 narrowed to "a type-level def returning a Sigma"); `make verdict-probe`.
+- W2 DONE: fork-audit on 2.0.39's C (both halves); `#! native` tests (csvlane, csvlane_lines, csvprod) and TEST_TIMEOUT 300;
+  PDS-H comparator by class + self-test, `make tpch-check` in ci; `make coverage-check` in ci; uv drift warns; CI workflow
+  reads the 2.0.39 archive sha256 from TOOLCHAIN (checked against the release; never run).
+- W1 DONE: tests/regress/V03_boundaries (102), V03_fastpaths (140), V03_fastpaths_big (25, native), four reader-validity
+  fixtures in tests/csvadv; expected values from independent Python models (bench/v03/).
+- W3 PARTIAL (scoped down for usage): `where_contents` proven (LAWS section 23) with 3 mutation controls; `Frame.take_rows` /
+  the selective branch, the join direct ids and group_by direct codes are tested only (DESIGN 8.3) and guarded by
+  `make test-mutation-check` (the review's three mutations, 3 / 3 caught). runz = run stays first in the v0.4 proof list.
+- W4 DONE: README / CHANGELOG 0.3.0 / DESIGN 8.3 / LAWS section 20 note / GATES_V02 closing notes.
+- W5 needs the user: a quiet-machine (load < 2) gate run, a git remote for one workflow run, the v0.1-reader removal date
+  (proposal: v0.4), and the decisions D1 (projection pushdown default), D2 (BOM stripping), D4.

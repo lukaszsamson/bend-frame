@@ -183,3 +183,13 @@ The first version of this section said MET. That overstated it: theorem count, a
 - **What the README now says about it**: the default executor does not scale on q1-q5; the "4-6x" walks hold only on inputs born chunked (a `scan_csv` plan with a row-wise first consumer, run F); from eager frames the chunked engine is slower than the default at one thread (q1 8 vs 3 ms, q2 17-18 vs 3, q3 21-22 vs 11-12) and 1.3-2x slower at 12 threads, so it is documented as "use only over scan_csv plans with row-wise first consumers, on several threads"; the 1k-control statement is labelled provisional (it rests on a post-W8 fix measured on a loaded machine).
 - **Limits restated** (Astra): distinct-string group / unique ~630 MB peak and distinct-key join ~1 GB (the 600 MB G4 gate covers the frozen sales workload only); the v0.2 reader's 1.39 GB / ~83 M allocations for 41 MB is allocation traffic, not peak RSS; no streaming; no guarantee against adversarial hash collisions.
 - **D7**: the reader default flip before G2-G4 stands as a recorded deviation, and so does fusion in the default executor with G5 PARTIAL; removal of the duplicate v0.1 reader / reference executor needs two quiet-machine gate runs (decision owner: the user; see plans/STATUS.md "v0.2 review dispositions").
+
+## Closed by v0.3 (plans/M_03.txt, 2026-11-01)
+
+- **G5 (proof chain) on the current toolchain:** `--verdict` passes on the pinned Bend 2.0.39 again (M_03 W0; DESIGN.md 8
+  note). G5 stays PARTIAL for the reason above (the fused runner `Eval.runz` has no theorem relating it to `Eval.run`); v0.3
+  added `where_contents` (LAWS section 23) and lists every remaining tested-only fast path in DESIGN.md 8.3, each guarded by
+  `make test-mutation-check`.
+- **Still open, unchanged:** the quiet-machine gate run (G2 / G3 UNEVALUATED, every timing above PROVISIONAL), hosted Linux CI
+  (the workflow's 2.0.39 archive hashes are now checked against the release; the workflow has never run), and the removal
+  date of the v0.1 reader / reference executor (a user decision under D7; M_03 W5 proposes v0.4).

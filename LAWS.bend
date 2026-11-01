@@ -3899,6 +3899,10 @@ law cw_fits:
 #     (Exec.fs: Eval.filter's predicate, then Frame.select_names on the UNFILTERED frame, then
 #     only the selected columns compacted by Exec.fc's compact3 / compact4 groups) against
 #     Eval.filter then Exec.select, and Exec.run_phys against Exec.run_pure
+#     (v0.3 note: since v0.2's PDS-H pass, Eval.filter.mask gathers a SELECTIVE filter's kept rows (kept * 8 <=
+#     height) by Kernel.where + Frame.take_rows and hands on an all-ones mask, so on that path the compaction
+#     below only copies; Eval.filter.mask sits on both sides of these equations. Kernel.where's row list is
+#     proven in section 23; the take_rows gather and the branch's equality are tested only, DESIGN.md 8.3)
 # =====================================================================================
 #
 # The first four claims are TERM equalities over the production functions (the same arrays, not
