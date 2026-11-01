@@ -14,6 +14,8 @@
 #   infer_rows 100, row cap 3          piece 64
 # The line is `<case>: ok <runs> | <the v0.1 outcome of the first configuration>`, else the first run
 # that differs.
+# Since the v0.1 reader's removal (DESIGN.md 14 "Pre-release") the reference is the reader at 1 MiB pieces;
+# `ref <hash>` pins every reference text to the one the v0.1 reader gave (the goldens were frozen from it).
 import Base
 import ./../src/strs.bend as ST
 import ./../bench/w6/cases.bend as CS
@@ -53,109 +55,109 @@ def main() -> IO(Unit):
   do IO<Unit>:
     args : List<String> <- IO.args()
     Inf.loop(T.Run.only(args), CS.Cases.all())
-#|quoted_nl: ok 23 | frame| height 120| width 3
-#|quoted_nl_crlf: ok 23 | frame| height 120| width 3
-#|quoted_nl_nofinal: ok 23 | frame| height 120| width 3
-#|cr_soup: ok 23 | frame| height 4| width 2
-#|cr_only_data: ok 23 | frame| height 1| width 2
-#|crlf_plain: ok 23 | frame| height 150| width 3
-#|utf8_typed: ok 23 | frame| height 120| width 4
-#|utf8_bare: ok 23 | frame| height 150| width 2
-#|long_records: ok 23 | frame| height 12| width 2
-#|huge_record: ok 23 | frame| height 3| width 2
-#|blanks_w2: ok 23 | frame| height 2| width 2
-#|blanks_w1: ok 23 | frame| height 5| width 1
-#|blanks_w1_str: ok 23 | frame| height 7| width 1
-#|blanks_only: ok 23 | frame| height 0| width 0
-#|lead_blank: ok 23 | frame| height 1| width 2
-#|lead_blank_nohdr: ok 23 | frame| height 2| width 2
-#|empty: ok 23 | frame| height 0| width 0
-#|header_only: ok 23 | frame| height 0| width 2
-#|header_only_nonl: ok 23 | frame| height 0| width 2
-#|no_final_nl: ok 23 | frame| height 2| width 2
-#|final_sep: ok 23 | frame| height 2| width 2
-#|headerless: ok 23 | frame| height 3| width 2
-#|bad_utf8: ok 23 | frame| height 6| width 2
-#|mal_bare_quote_late: ok 23 | error ParseError at line 0: malformed csv
-#|mal_after_close: ok 23 | error ParseError at line 0: malformed csv
-#|mal_unclosed: ok 23 | error ParseError at line 0: malformed csv
-#|mal_unclosed_eof_q: ok 23 | error ParseError at line 0: malformed csv
-#|mal_cr_quote: ok 23 | error ParseError at line 0: malformed csv
-#|mal_closing_cr_text: ok 23 | error ParseError at line 0: malformed csv
-#|mal_and_ragged: ok 23 | error ParseError at line 0: malformed csv
-#|mal_in_second_half: ok 23 | error ParseError at line 0: malformed csv
-#|ragged_short: ok 23 | error ParseError at line 122: expected 3 fields, got 2
-#|ragged_long_first: ok 23 | error ParseError at line 42: expected 3 fields, got 4
-#|ragged_after_bad: ok 23 | error ParseError at line 153: expected 2 fields, got 3
-#|ragged_w1: ok 23 | error ParseError at line 3: expected 1 fields, got 2
-#|ragged_blank_ok: ok 23 | error ParseError at line 4: expected 2 fields, got 1
-#|bad_cols: ok 23 | error ParseError at line 163: column a: cannot parse "q" as u32
-#|bad_cols_later_row: ok 23 | error ParseError at line 202: column a: cannot parse "x" as u32
-#|bad_cols_earlier_other: ok 23 | error ParseError at line 203: column a: cannot parse "x" as u32
-#|bad_quoted_text: ok 23 | frame| height 2| width 2
-#|bad_i32_text: ok 23 | frame| height 2| width 1
-#|f32_edges: ok 23 | frame| height 49| width 1
-#|f32_one0: ok 23 | frame| height 2| width 1
-#|f32_one1: ok 23 | frame| height 2| width 1
-#|f32_one2: ok 23 | frame| height 2| width 1
-#|f32_one3: ok 23 | frame| height 2| width 1
-#|f32_one4: ok 23 | frame| height 2| width 1
-#|f32_one5: ok 23 | frame| height 2| width 1
-#|f32_one6: ok 23 | frame| height 2| width 1
-#|f32_one7: ok 23 | frame| height 2| width 1
-#|f32_one8: ok 23 | frame| height 2| width 1
-#|f32_one9: ok 23 | frame| height 2| width 1
-#|f32_one10: ok 23 | frame| height 2| width 1
-#|f32_one11: ok 23 | frame| height 2| width 1
-#|f32_one12: ok 23 | frame| height 2| width 1
-#|f32_one13: ok 23 | frame| height 2| width 1
-#|f32_one14: ok 23 | frame| height 2| width 1
-#|f32_one15: ok 23 | frame| height 2| width 1
-#|f32_one16: ok 23 | frame| height 2| width 1
-#|f32_one17: ok 23 | frame| height 2| width 1
-#|f32_random_fast: ok 23 | frame| height 1500| width 1
-#|u32_ok: ok 23 | frame| height 8| width 1
-#|u32_bad0: ok 23 | frame| height 2| width 1
-#|u32_bad1: ok 23 | frame| height 2| width 1
-#|u32_bad2: ok 23 | frame| height 2| width 1
-#|u32_bad3: ok 23 | frame| height 2| width 1
-#|u32_bad4: ok 23 | frame| height 2| width 1
-#|u32_bad5: ok 23 | frame| height 2| width 1
-#|u32_bad6: ok 23 | frame| height 2| width 1
-#|u32_bad7: ok 23 | frame| height 2| width 1
-#|i32_ok: ok 23 | frame| height 12| width 1
-#|u32_overflow: ok 23 | frame| height 2| width 1
-#|u32_plus: ok 23 | frame| height 2| width 1
-#|u32_sign: ok 23 | frame| height 2| width 1
-#|u32_unicode_digit: ok 23 | frame| height 2| width 1
-#|i32_edges: ok 23 | frame| height 14| width 1
-#|i32_bad0: ok 23 | frame| height 2| width 1
-#|i32_bad1: ok 23 | frame| height 2| width 1
-#|i32_bad2: ok 23 | frame| height 2| width 1
-#|i32_bad3: ok 23 | frame| height 2| width 1
-#|i32_bad4: ok 23 | frame| height 2| width 1
-#|i32_bad5: ok 23 | frame| height 2| width 1
-#|i32_bad6: ok 23 | frame| height 2| width 1
-#|i32_bad7: ok 23 | frame| height 2| width 1
-#|i32_bad8: ok 23 | frame| height 2| width 1
-#|i32_bad9: ok 23 | frame| height 2| width 1
-#|bool_edges: ok 23 | frame| height 8| width 1
-#|bool_bad: ok 23 | frame| height 2| width 1
-#|bool_bad2: ok 23 | frame| height 2| width 1
-#|bool_bad3: ok 23 | frame| height 2| width 1
-#|escaped_numeric: ok 23 | frame| height 1| width 2
-#|escaped_f32_bad: ok 23 | frame| height 1| width 2
-#|nulls_all_types: ok 23 | frame| height 4| width 5
-#|quote_edges: ok 23 | frame| height 120| width 2
-#|fnv_collide: ok 23 | frame| height 160| width 2
-#|fnv_collide_q: ok 23 | frame| height 120| width 2
-#|wide: ok 23 | frame| height 60| width 12
-#|tab_sep: ok 23 | frame| height 80| width 3
-#|semicolon: ok 23 | frame| height 80| width 2
-#|sep_dot: ok 23 | frame| height 60| width 2
-#|sep_minus: ok 23 | frame| height 60| width 2
-#|sep_pipe: ok 23 | frame| height 2| width 2
-#|v03_late_null: ok 23 | frame| height 400| width 5
-#|v03_valid_masked_valid: ok 23 | frame| height 300| width 2
-#|v03_quoted_empty_late: ok 23 | frame| height 260| width 2
-#|v03_all_null_col: ok 23 | frame| height 120| width 2
+#|quoted_nl: ok 23 ref 915186154 | frame| height 120| width 3
+#|quoted_nl_crlf: ok 23 ref 915186154 | frame| height 120| width 3
+#|quoted_nl_nofinal: ok 23 ref 915186154 | frame| height 120| width 3
+#|cr_soup: ok 23 ref 1167909139 | frame| height 4| width 2
+#|cr_only_data: ok 23 ref 1307349943 | frame| height 1| width 2
+#|crlf_plain: ok 23 ref 603343479 | frame| height 150| width 3
+#|utf8_typed: ok 23 ref 4205450481 | frame| height 120| width 4
+#|utf8_bare: ok 23 ref 3959756745 | frame| height 150| width 2
+#|long_records: ok 23 ref 669068679 | frame| height 12| width 2
+#|huge_record: ok 23 ref 786766633 | frame| height 3| width 2
+#|blanks_w2: ok 23 ref 2576560668 | frame| height 2| width 2
+#|blanks_w1: ok 23 ref 1722789338 | frame| height 5| width 1
+#|blanks_w1_str: ok 23 ref 172243790 | frame| height 7| width 1
+#|blanks_only: ok 23 ref 2957717423 | frame| height 0| width 0
+#|lead_blank: ok 23 ref 3144608163 | frame| height 1| width 2
+#|lead_blank_nohdr: ok 23 ref 1363038035 | frame| height 2| width 2
+#|empty: ok 23 ref 3281325747 | frame| height 0| width 0
+#|header_only: ok 23 ref 1326555876 | frame| height 0| width 2
+#|header_only_nonl: ok 23 ref 1326555876 | frame| height 0| width 2
+#|no_final_nl: ok 23 ref 287000412 | frame| height 2| width 2
+#|final_sep: ok 23 ref 2619656811 | frame| height 2| width 2
+#|headerless: ok 23 ref 1158794947 | frame| height 3| width 2
+#|bad_utf8: ok 23 ref 2014264903 | frame| height 6| width 2
+#|mal_bare_quote_late: ok 23 ref 2168275818 | error ParseError at line 0: malformed csv
+#|mal_after_close: ok 23 ref 2168275818 | error ParseError at line 0: malformed csv
+#|mal_unclosed: ok 23 ref 2168275818 | error ParseError at line 0: malformed csv
+#|mal_unclosed_eof_q: ok 23 ref 2168275818 | error ParseError at line 0: malformed csv
+#|mal_cr_quote: ok 23 ref 2168275818 | error ParseError at line 0: malformed csv
+#|mal_closing_cr_text: ok 23 ref 2168275818 | error ParseError at line 0: malformed csv
+#|mal_and_ragged: ok 23 ref 2168275818 | error ParseError at line 0: malformed csv
+#|mal_in_second_half: ok 23 ref 2168275818 | error ParseError at line 0: malformed csv
+#|ragged_short: ok 23 ref 1955628230 | error ParseError at line 122: expected 3 fields, got 2
+#|ragged_long_first: ok 23 ref 3549659795 | error ParseError at line 42: expected 3 fields, got 4
+#|ragged_after_bad: ok 23 ref 2091055774 | error ParseError at line 153: expected 2 fields, got 3
+#|ragged_w1: ok 23 ref 3658014522 | error ParseError at line 3: expected 1 fields, got 2
+#|ragged_blank_ok: ok 23 ref 2759680653 | error ParseError at line 4: expected 2 fields, got 1
+#|bad_cols: ok 23 ref 2438608209 | error ParseError at line 163: column a: cannot parse "q" as u32
+#|bad_cols_later_row: ok 23 ref 4245205080 | error ParseError at line 202: column a: cannot parse "x" as u32
+#|bad_cols_earlier_other: ok 23 ref 1388759736 | error ParseError at line 203: column a: cannot parse "x" as u32
+#|bad_quoted_text: ok 23 ref 3739943162 | frame| height 2| width 2
+#|bad_i32_text: ok 23 ref 3405695625 | frame| height 2| width 1
+#|f32_edges: ok 23 ref 1173612713 | frame| height 49| width 1
+#|f32_one0: ok 23 ref 2616819189 | frame| height 2| width 1
+#|f32_one1: ok 23 ref 2961059313 | frame| height 2| width 1
+#|f32_one2: ok 23 ref 3562606745 | frame| height 2| width 1
+#|f32_one3: ok 23 ref 1542531745 | frame| height 2| width 1
+#|f32_one4: ok 23 ref 268765393 | frame| height 2| width 1
+#|f32_one5: ok 23 ref 717099265 | frame| height 2| width 1
+#|f32_one6: ok 23 ref 1339220261 | frame| height 2| width 1
+#|f32_one7: ok 23 ref 4168755249 | frame| height 2| width 1
+#|f32_one8: ok 23 ref 3684531441 | frame| height 2| width 1
+#|f32_one9: ok 23 ref 1673705101 | frame| height 2| width 1
+#|f32_one10: ok 23 ref 2162978081 | frame| height 2| width 1
+#|f32_one11: ok 23 ref 1614454545 | frame| height 2| width 1
+#|f32_one12: ok 23 ref 171761833 | frame| height 2| width 1
+#|f32_one13: ok 23 ref 292488641 | frame| height 2| width 1
+#|f32_one14: ok 23 ref 2237930265 | frame| height 2| width 1
+#|f32_one15: ok 23 ref 1798984997 | frame| height 2| width 1
+#|f32_one16: ok 23 ref 4249842135 | frame| height 2| width 1
+#|f32_one17: ok 23 ref 3418014837 | frame| height 2| width 1
+#|f32_random_fast: ok 23 ref 3225836425 | frame| height 1500| width 1
+#|u32_ok: ok 23 ref 1002485291 | frame| height 8| width 1
+#|u32_bad0: ok 23 ref 4120470988 | frame| height 2| width 1
+#|u32_bad1: ok 23 ref 1709098938 | frame| height 2| width 1
+#|u32_bad2: ok 23 ref 4165791864 | frame| height 2| width 1
+#|u32_bad3: ok 23 ref 1045251380 | frame| height 2| width 1
+#|u32_bad4: ok 23 ref 249911172 | frame| height 2| width 1
+#|u32_bad5: ok 23 ref 3559475152 | frame| height 2| width 1
+#|u32_bad6: ok 23 ref 3654713718 | frame| height 2| width 1
+#|u32_bad7: ok 23 ref 3744971162 | frame| height 2| width 1
+#|i32_ok: ok 23 ref 809879121 | frame| height 12| width 1
+#|u32_overflow: ok 23 ref 4120470988 | frame| height 2| width 1
+#|u32_plus: ok 23 ref 3744971162 | frame| height 2| width 1
+#|u32_sign: ok 23 ref 3654713718 | frame| height 2| width 1
+#|u32_unicode_digit: ok 23 ref 183117040 | frame| height 2| width 1
+#|i32_edges: ok 23 ref 1952696298 | frame| height 14| width 1
+#|i32_bad0: ok 23 ref 1722631340 | frame| height 2| width 1
+#|i32_bad1: ok 23 ref 1880410462 | frame| height 2| width 1
+#|i32_bad2: ok 23 ref 2124018332 | frame| height 2| width 1
+#|i32_bad3: ok 23 ref 1192507408 | frame| height 2| width 1
+#|i32_bad4: ok 23 ref 2969284248 | frame| height 2| width 1
+#|i32_bad5: ok 23 ref 3954047582 | frame| height 2| width 1
+#|i32_bad6: ok 23 ref 3119938750 | frame| height 2| width 1
+#|i32_bad7: ok 23 ref 4034534204 | frame| height 2| width 1
+#|i32_bad8: ok 23 ref 3448707808 | frame| height 2| width 1
+#|i32_bad9: ok 23 ref 770667956 | frame| height 2| width 1
+#|bool_edges: ok 23 ref 566640967 | frame| height 8| width 1
+#|bool_bad: ok 23 ref 1432964243 | frame| height 2| width 1
+#|bool_bad2: ok 23 ref 3790757573 | frame| height 2| width 1
+#|bool_bad3: ok 23 ref 1018802933 | frame| height 2| width 1
+#|escaped_numeric: ok 23 ref 3672942544 | frame| height 1| width 2
+#|escaped_f32_bad: ok 23 ref 1050782314 | frame| height 1| width 2
+#|nulls_all_types: ok 23 ref 3422971483 | frame| height 4| width 5
+#|quote_edges: ok 23 ref 3062970722 | frame| height 120| width 2
+#|fnv_collide: ok 23 ref 1688257888 | frame| height 160| width 2
+#|fnv_collide_q: ok 23 ref 232082356 | frame| height 120| width 2
+#|wide: ok 23 ref 803481346 | frame| height 60| width 12
+#|tab_sep: ok 23 ref 3950951670 | frame| height 80| width 3
+#|semicolon: ok 23 ref 3406048175 | frame| height 80| width 2
+#|sep_dot: ok 23 ref 3929045757 | frame| height 60| width 2
+#|sep_minus: ok 23 ref 3184784515 | frame| height 60| width 2
+#|sep_pipe: ok 23 ref 506848103 | frame| height 2| width 2
+#|v03_late_null: ok 23 ref 2524980457 | frame| height 400| width 5
+#|v03_valid_masked_valid: ok 23 ref 1229861632 | frame| height 300| width 2
+#|v03_quoted_empty_late: ok 23 ref 654949357 | frame| height 260| width 2
+#|v03_all_null_col: ok 23 ref 1394786096 | frame| height 120| width 2

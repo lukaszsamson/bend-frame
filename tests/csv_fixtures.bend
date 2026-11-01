@@ -6,6 +6,7 @@ import ./../src/err.bend as E
 import ./../src/column.bend as C
 import ./../src/fmt.bend as F
 import ./../src/csv.bend as V
+import ./lib/ctext.bend as X
 
 def snd(r: C.Frame & String) -> String:
   (f, s) = r
@@ -34,10 +35,10 @@ def text(r: E.ResT(C.Frame)) -> String:
       snd(V.Csv.render(f, None{}))
 
 # render(parse(text)) is a fixed point: parsing the rendering renders the same text
-def again(+t1: String) -> String:
-  Bool.show(String.eq(t1, text(V.Csv.parse(t1, V.Csv.default()))))
+def again(+t1: String) -> IO(String):
+  IO.bind(E.ResT(C.Frame), String, X.Tx.parse("fixtures", t1, V.Csv.default()), r => IO.pure(String, Bool.show(String.eq(t1, text(r)))))
 
-def roundtrip(r: E.ResT(C.Frame)) -> String:
+def roundtrip(r: E.ResT(C.Frame)) -> IO(String):
   again(text(r))
 
 def main() -> IO(Unit):
@@ -47,11 +48,11 @@ def main() -> IO(Unit):
     t2 : E.ResT(C.Frame) <- V.Csv.read("bench/fixtures/tiny.csv", V.Csv.default())
     IO.print(head(t2, 4n))
     t3 : E.ResT(C.Frame) <- V.Csv.read("bench/fixtures/tiny.csv", V.Csv.default())
-    IO.print(roundtrip(t3))
+    X.Tx.out(roundtrip(t3))
     p : E.ResT(C.Frame) <- V.Csv.read("bench/fixtures/products.csv", V.Csv.default())
     IO.print(show(p))
     p2 : E.ResT(C.Frame) <- V.Csv.read("bench/fixtures/products.csv", V.Csv.default())
-    IO.print(roundtrip(p2))
+    X.Tx.out(roundtrip(p2))
 #|shape: (20, 7)
 #|+-----+---------+---------+-----+--------+----------+-------+
 #|| id  | region  | product | qty | price  | discount | ok    |

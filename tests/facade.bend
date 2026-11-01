@@ -140,7 +140,6 @@ def main() -> IO(Unit):
     nowhere : DF.ResT(DF.Frame()) <- DF.write_csv(w2, "/no/such/dir/x.csv")
     IO.print(DF.show(nowhere))
     IO.print(DF.show(DF.from_columns([])))
-
 #|shape: (4, 7)
 #|+-----+---------+---------+-----+--------+----------+------+
 #|| id  | region  | product | qty | price  | discount | ok   |
@@ -207,7 +206,8 @@ def main() -> IO(Unit):
 #|id:u32, region:str, product:str, qty:u32, price:f32, discount:f32, ok:bool
 #|GROUP_BY [col("region")] AGG [lit(1).len().alias("n")] MAINTAIN_ORDER
 #|  FILTER col("ok")
-#|    SCAN CSV bench/fixtures/tiny.csv [id:u32, region:str, product:str, qty:u32, price:f32, discount:f32, ok:bool]
+#|    SELECT [col("region"), col("ok")]
+#|      SCAN CSV bench/fixtures/tiny.csv [id:u32, region:str, product:str, qty:u32, price:f32, discount:f32, ok:bool]
 #|shape: (5, 2)
 #|+---------+-----+
 #|| region  | n   |

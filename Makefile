@@ -255,9 +255,11 @@ tpch-check:
 	./build/tpch +RTS --threads 1 -RTS bench/data/tpch/sf0.01 all 1 build/tpch_check > /dev/null
 	uv run --project bench python bench/tpch/run_polars.py check bench/data/tpch/sf0.01 build/tpch_check
 
-# ---- W6.4: CSV fuzz harness, the v0.2 reader against the v0.1 reader (bench/diff/csvfuzz.py) ------
+# ---- W6.4: CSV fuzz harness of the reader (bench/diff/csvfuzz.py) -----------------------------------------
+# The reference is the reader at 1 MiB pieces; the smoke seeds also check bench/diff/golden/seed<S>.json, the
+# reference texts' hashes frozen from the removed v0.1 reader (DESIGN.md 14 "Pre-release").
 # make csv-fuzz SEED=1 N=10000 [CSV_FUZZ_ARGS="--jobs 8 --shrink-secs 300"]
-#     N random files + read specs (bench/diff/csvgen.py), each read by BOTH engines at piece sizes 1, 2, 3, 7,
+#     N random files + read specs (bench/diff/csvgen.py), each read by the reader at piece sizes 1, 2, 3, 7,
 #     64, 4096 and the default, compared exactly (DF.dump + Str storage). Native runner build/csvfuzz/runner
 #     (built on demand, ~7 s). Failures are shrunk and written to build/csvfuzz/seed<SEED>/failures.json;
 #     exit 1 on any failure. ~30 s per 2000 cases on an 8-job run. `--show c000017` prints one case's texts.
@@ -265,7 +267,7 @@ tpch-check:
 #                       crash -> exit 1, shrinking), no Bend needed
 # make csv-fuzz-smoke   csv-fuzz-check, then two fixed seeds x CSV_SMOKE_N cases, deterministic (not in `ci:`
 #                       yet; the orchestrator decides)
-# make csv-fuzz-mutants detection power: mutants of the v0.2 reader (bench/w6/mut63.py's list, applied to a
+# make csv-fuzz-mutants detection power: mutants of the reader (bench/w6/mut63.py's list, applied to a
 #                       COPY of src/) must make the fuzz run fail; ~10 min, not part of ci
 CSV_SMOKE_N ?= 1500
 CSV_FUZZ_ARGS ?=
@@ -278,8 +280,8 @@ csv-fuzz-check:
 	cd bench && uv run python diff/tests/test_csvfuzz.py
 
 csv-fuzz-smoke: csv-fuzz-check
-	cd bench && BEND=$(BEND) uv run python diff/csvfuzz.py --seed 20261004 --n $(CSV_SMOKE_N) --strict
-	cd bench && BEND=$(BEND) uv run python diff/csvfuzz.py --seed 20261005 --n $(CSV_SMOKE_N) --strict
+	cd bench && BEND=$(BEND) uv run python diff/csvfuzz.py --seed 20261004 --n $(CSV_SMOKE_N) --strict --golden diff/golden/seed20261004.json
+	cd bench && BEND=$(BEND) uv run python diff/csvfuzz.py --seed 20261005 --n $(CSV_SMOKE_N) --strict --golden diff/golden/seed20261005.json
 
 csv-fuzz-mutants:
 	cd bench && BEND=$(BEND) uv run python diff/csvfuzz_mut.py $(CSV_FUZZ_ARGS)

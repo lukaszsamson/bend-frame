@@ -1,5 +1,5 @@
 # B02: the csvparse fork (quotedness, physical lines) and the reader / writer rules of
-# DESIGN.md 15.6 at text level: Csv.parse / parse_with / render_with over strings.
+# DESIGN.md 15.6 at text level: strings read through tests/lib/ctext.bend, render_with.
 import Base
 import ./../frame.bend as DF
 import ./../src/dtype.bend as D
@@ -7,6 +7,7 @@ import ./../src/err.bend as E
 import ./../src/column.bend as C
 import ./../src/csvparse.bend as H
 import ./../src/csv.bend as V
+import ./lib/ctext.bend as X
 import ./../src/dump.bend as Y
 
 # ---- the parser: every cell as text/quoted, every record with its line ---------------------
@@ -40,11 +41,11 @@ def parse(+tag: String, +text: String) -> String:
 def dump(+tag: String, r: E.ResT(C.Frame)) -> String:
   "-- " ++ tag ++ "\n" ++ DF.dump(r)
 
-def rd(+tag: String, +text: String) -> String:
-  dump(tag, V.Csv.parse(text, V.Csv.default()))
+def rd(+tag: String, +text: String) -> IO(String):
+  IO.bind(E.ResT(C.Frame), String, X.Tx.parse("cells", text, V.Csv.default()), r => IO.pure(String, dump(tag, r)))
 
-def rs(+tag: String, +text: String, +ts: List<&2, D.DType>) -> String:
-  dump(tag, V.Csv.parse_with(text, V.Csv.default(), ts))
+def rs(+tag: String, +text: String, +ts: List<&2, D.DType>) -> IO(String):
+  IO.bind(E.ResT(C.Frame), String, X.Tx.parse_with("cells", text, V.Csv.default(), ts), r => IO.pure(String, dump(tag, r)))
 
 def snd(r: C.Frame & String) -> String:
   (f, s) = r
@@ -58,8 +59,8 @@ def rend.k(r: E.ResT(C.Frame), w: V.CsvWriteOpts) -> String:
       Y.Dump.quote(snd(V.Csv.render_with(f, w))) ++ "\n"
 
 # parse, then write with the options, as an escaped one-line text
-def rend(+tag: String, +text: String, w: V.CsvWriteOpts) -> String:
-  "-- " ++ tag ++ "\n" ++ rend.k(V.Csv.parse(text, V.Csv.default()), w)
+def rend(+tag: String, +text: String, w: V.CsvWriteOpts) -> IO(String):
+  IO.bind(E.ResT(C.Frame), String, X.Tx.parse("cells", text, V.Csv.default()), r => IO.pure(String, "-- " ++ tag ++ "\n" ++ rend.k(r, w)))
 
 def main() -> IO(Unit):
   do IO<Unit>:
@@ -68,25 +69,25 @@ def main() -> IO(Unit):
     IO.print(parse("escaped quote", "\"a\"\"b\",c\n"))
     IO.print(parse("empty final field", "a,\n,\n"))
     IO.print(parse("rejected", "a\"b\n"))
-    IO.print(rd("quoted empty vs null", "a,b\n\"\",\n,\"\"\n"))
-    IO.print(rd("quoted spaces stay in str", "s,n\n\" \",\" \"\n x ,5\n"))
-    IO.print(rd("only quoted empties: str", "a,b\n\"\",1\n\"\",2\n"))
-    IO.print(rd("whitespace-only column is str", "a,b\n  ,1\n ,2\n"))
-    IO.print(rd("quoted number is a number", "a\n\"5\"\n\"6\"\n"))
-    IO.print(rs("explicit: blank numeric is null", "a,b\n\" \",x\n2,\"\"\n", [D.TU32{}, D.TStr{}]))
-    IO.print(rs("explicit: unquoted empty str is null", "a,b\n,\n", [D.TStr{}, D.TStr{}]))
-    IO.print(rs("bad value after a multi-line field", "n,s\n1,\"a\nb\"\n\n x ,c\n", [D.TU32{}, D.TStr{}]))
-    IO.print(rd("blank lines in two columns are skipped", "a,b\n1,x\n\n\n3,y\n"))
-    IO.print(rd("blank line in one column is a null row", "a\n1\n\n3\n"))
-    IO.print(rd("ragged after blank and multi-line", "a,b\n\"x\ny\",1\n\n2\n"))
-    IO.print(rd("long row", "a,b\n1,2,3\n"))
-    IO.print(rd("header only", "a,b\n"))
-    IO.print(rd("empty file", ""))
-    IO.print(rd("duplicate names", "a,a\n1,2\n"))
-    IO.print(rend("write default", "a,b\n\"\",1\n,2\nx,\n", V.Csv.write_default()))
-    IO.print(rend("write ; no header", "a,b\n\"x;y\",1.5\n\"\",2\n", V.CsvWriteOpts{';', False{}, None{}}))
-    IO.print(rend("write precision", "a,b\n1.005,x\n2.5,\"\"\n", V.CsvWriteOpts{',', True{}, Some{1}}))
-    IO.print(rend("write empty header name", "\"\",b\n1,2\n", V.Csv.write_default()))
+    X.Tx.out(rd("quoted empty vs null", "a,b\n\"\",\n,\"\"\n"))
+    X.Tx.out(rd("quoted spaces stay in str", "s,n\n\" \",\" \"\n x ,5\n"))
+    X.Tx.out(rd("only quoted empties: str", "a,b\n\"\",1\n\"\",2\n"))
+    X.Tx.out(rd("whitespace-only column is str", "a,b\n  ,1\n ,2\n"))
+    X.Tx.out(rd("quoted number is a number", "a\n\"5\"\n\"6\"\n"))
+    X.Tx.out(rs("explicit: blank numeric is null", "a,b\n\" \",x\n2,\"\"\n", [D.TU32{}, D.TStr{}]))
+    X.Tx.out(rs("explicit: unquoted empty str is null", "a,b\n,\n", [D.TStr{}, D.TStr{}]))
+    X.Tx.out(rs("bad value after a multi-line field", "n,s\n1,\"a\nb\"\n\n x ,c\n", [D.TU32{}, D.TStr{}]))
+    X.Tx.out(rd("blank lines in two columns are skipped", "a,b\n1,x\n\n\n3,y\n"))
+    X.Tx.out(rd("blank line in one column is a null row", "a\n1\n\n3\n"))
+    X.Tx.out(rd("ragged after blank and multi-line", "a,b\n\"x\ny\",1\n\n2\n"))
+    X.Tx.out(rd("long row", "a,b\n1,2,3\n"))
+    X.Tx.out(rd("header only", "a,b\n"))
+    X.Tx.out(rd("empty file", ""))
+    X.Tx.out(rd("duplicate names", "a,a\n1,2\n"))
+    X.Tx.out(rend("write default", "a,b\n\"\",1\n,2\nx,\n", V.Csv.write_default()))
+    X.Tx.out(rend("write ; no header", "a,b\n\"x;y\",1.5\n\"\",2\n", V.CsvWriteOpts{';', False{}, None{}}))
+    X.Tx.out(rend("write precision", "a,b\n1.005,x\n2.5,\"\"\n", V.CsvWriteOpts{',', True{}, Some{1}}))
+    X.Tx.out(rend("write empty header name", "\"\",b\n1,2\n", V.Csv.write_default()))
 #|-- quotedness
 #|L1: U[a] Q[] Q[b] U[] U[c] 
 #|

@@ -12,6 +12,8 @@
 # EncAutoAt{3, 2} g2 7; inferred (infer_rows 100) g2 7; inferred (infer_rows 0) g4 64; one dtype too many
 # g2 64; row cap 3 g2 31. The line is `<case>: ok <runs>` or the first run that differs; the last line counts
 # the runs that produced a chunk frame (each one checked against the reference's height above).
+# Since the v0.1 reader's removal (DESIGN.md 14 "Pre-release") the reference is the reader at 1 MiB pieces;
+# `ref <hash>` pins every reference text to the one the v0.1 reader gave (the goldens were frozen from it).
 import Base
 import ./../src/err.bend as E
 import ./../src/kernels.bend as K
@@ -100,7 +102,7 @@ def Ck.ref(c: T.Cf, +g: Nat, +path: String) -> IO(RF):
   match c:
     case T.Cf{l, +schema, +hdr, +sep, +inf, +enc, +cap}:
       do IO<RF>:
-        r : E.ResT(C.Frame) <- V.Csv.read_full(path, V.CsvOpts{Chr{sep}, hdr, inf}, T.Sch.dts(schema), enc, 1048576, cap)
+        r : E.ResT(C.Frame) <- V.Csv.read_v02_full(path, V.CsvOpts{Chr{sep}, hdr, inf}, T.Sch.dts(schema), enc, 1048576, cap)
         return Ck.rf.k(g, r)
 
 def Ck.cand(c: T.Cf, +g: Nat, +path: String, +piece: U32) -> IO(CR):
@@ -117,7 +119,7 @@ def Ck.label(c: T.Cf) -> String:
 
 # the first difference ("" none), runs, chunk frames
 type ST2 is Data:
-  ST2{v: String, n: U32, k: U32}
+  ST2{v: String, n: U32, k: U32, hh: U32}
 
 def Ck.why(+lab: String, +d: String, +big: Bool, +chk: Bool, +bad: String) -> String:
   Bool.pick(String, String.is_empty(d), Bool.pick(String, Bool.and(Bool.or(big, chk), Bool.not(Bool.and(big, chk))), lab ++ ": chunk decision " ++ Bool.pick(String, chk, "chunked", "flat") ++ " for a frame " ++ Bool.pick(String, big, "over", "within") ++ " 2^g rows", Bool.pick(String, String.is_empty(bad), "", lab ++ ":" ++ bad)), lab ++ ": " ++ d)
@@ -125,8 +127,14 @@ def Ck.why(+lab: String, +d: String, +big: Bool, +chk: Bool, +bad: String) -> St
 # a run against the reference: the text, the chunk decision, the shape
 def Ck.judge(+lab: String, +ref: RF, r: CR, st: ST2) -> ST2:
   match ref r st:
-    case RF{+rt, +big} CR{+text, +chk, +bad} ST2{+v, +n, +k}:
-      Bool.pick(ST2, String.is_empty(v), ST2{Ck.why(lab, M.Cmp.diff(rt, text), big, chk, bad), U32.inc(n), U32.add(k, Bool.to_u32(chk))}, ST2{v, n, k})
+    case RF{+rt, +big} CR{+text, +chk, +bad} ST2{+v, +n, +k, +hh}:
+      Bool.pick(ST2, String.is_empty(v), ST2{Ck.why(lab, M.Cmp.diff(rt, text), big, chk, bad), U32.inc(n), U32.add(k, Bool.to_u32(chk)), hh}, ST2{v, n, k, hh})
+
+# the reference text's hash folded in (frozen as the golden `ref <hash>`)
+def Ck.fold(r: RF, st: ST2) -> ST2:
+  match r st:
+    case RF{+rt, big} ST2{v, n, k, +hh}:
+      ST2{v, n, k, T.Sg.hash(rt, hh)}
 
 def Ck.run.k(+lab: String, +ref: RF, st: ST2, r: CR) -> ST2:
   Ck.judge(lab, ref, r, st)
@@ -153,7 +161,7 @@ def Ck.all(cs: List<&2, GC>, +path: String, st: ST2) -> IO(ST2):
     case GC{+c, +g, ps} <> t:
       do IO<ST2>:
         +ref : RF <- Ck.ref(c, g, path)
-        st2 : ST2 <- Ck.pieces(40n, c, g, path, ref, ps, st)
+        st2 : ST2 <- Ck.pieces(40n, c, g, path, ref, ps, Ck.fold(ref, st))
         Ck.all(t, path, st2)
 
 def Ck.cfgs(+schema: String, +hdr: Bool, +sep: U32) -> List<&2, GC>:
@@ -171,12 +179,12 @@ def Ck.cfgs(+schema: String, +hdr: Bool, +sep: U32) -> List<&2, GC>:
 
 def Ck.line(+name: String, r: ST2) -> String & U32:
   match r:
-    case ST2{+v, +n, +k}:
-      (Bool.pick(String, String.is_empty(v), name ++ ": ok " ++ U32.show(n), name ++ ": DIFF " ++ v), k)
+    case ST2{+v, +n, +k, +hh}:
+      (Bool.pick(String, String.is_empty(v), name ++ ": ok " ++ U32.show(n) ++ " ref " ++ U32.show(hh), name ++ ": DIFF " ++ v), k)
 
 def Ck.file(+name: String, +schema: String, +hdr: Bool, +sep: U32) -> IO(String & U32):
   do IO<String & U32>:
-    r : ST2 <- Ck.all(Ck.cfgs(schema, hdr, sep), "tests/csvadv/" ++ name ++ ".csv", ST2{"", 0, 0})
+    r : ST2 <- Ck.all(Ck.cfgs(schema, hdr, sep), "tests/csvadv/" ++ name ++ ".csv", ST2{"", 0, 0, 2166136261})
     return Ck.line(name, r)
 
 def Ck.one(+only: String, c: CS.Mf) -> IO(String & U32):
@@ -205,110 +213,110 @@ def main() -> IO(Unit):
     args : List<String> <- IO.args()
     +k : U32 <- Ck.loop(T.Run.only(args), CS.Cases.all(), 0)
     IO.print("chunk frames: " ++ U32.show(k))
-#|quoted_nl: ok 13
-#|quoted_nl_crlf: ok 13
-#|quoted_nl_nofinal: ok 13
-#|cr_soup: ok 13
-#|cr_only_data: ok 13
-#|crlf_plain: ok 13
-#|utf8_typed: ok 13
-#|utf8_bare: ok 13
-#|long_records: ok 13
-#|huge_record: ok 13
-#|blanks_w2: ok 13
-#|blanks_w1: ok 13
-#|blanks_w1_str: ok 13
-#|blanks_only: ok 13
-#|lead_blank: ok 13
-#|lead_blank_nohdr: ok 13
-#|empty: ok 13
-#|header_only: ok 13
-#|header_only_nonl: ok 13
-#|no_final_nl: ok 13
-#|final_sep: ok 13
-#|headerless: ok 13
-#|bad_utf8: ok 13
-#|mal_bare_quote_late: ok 13
-#|mal_after_close: ok 13
-#|mal_unclosed: ok 13
-#|mal_unclosed_eof_q: ok 13
-#|mal_cr_quote: ok 13
-#|mal_closing_cr_text: ok 13
-#|mal_and_ragged: ok 13
-#|mal_in_second_half: ok 13
-#|ragged_short: ok 13
-#|ragged_long_first: ok 13
-#|ragged_after_bad: ok 13
-#|ragged_w1: ok 13
-#|ragged_blank_ok: ok 13
-#|bad_cols: ok 13
-#|bad_cols_later_row: ok 13
-#|bad_cols_earlier_other: ok 13
-#|bad_quoted_text: ok 13
-#|bad_i32_text: ok 13
-#|f32_edges: ok 13
-#|f32_one0: ok 13
-#|f32_one1: ok 13
-#|f32_one2: ok 13
-#|f32_one3: ok 13
-#|f32_one4: ok 13
-#|f32_one5: ok 13
-#|f32_one6: ok 13
-#|f32_one7: ok 13
-#|f32_one8: ok 13
-#|f32_one9: ok 13
-#|f32_one10: ok 13
-#|f32_one11: ok 13
-#|f32_one12: ok 13
-#|f32_one13: ok 13
-#|f32_one14: ok 13
-#|f32_one15: ok 13
-#|f32_one16: ok 13
-#|f32_one17: ok 13
-#|f32_random_fast: ok 13
-#|u32_ok: ok 13
-#|u32_bad0: ok 13
-#|u32_bad1: ok 13
-#|u32_bad2: ok 13
-#|u32_bad3: ok 13
-#|u32_bad4: ok 13
-#|u32_bad5: ok 13
-#|u32_bad6: ok 13
-#|u32_bad7: ok 13
-#|i32_ok: ok 13
-#|u32_overflow: ok 13
-#|u32_plus: ok 13
-#|u32_sign: ok 13
-#|u32_unicode_digit: ok 13
-#|i32_edges: ok 13
-#|i32_bad0: ok 13
-#|i32_bad1: ok 13
-#|i32_bad2: ok 13
-#|i32_bad3: ok 13
-#|i32_bad4: ok 13
-#|i32_bad5: ok 13
-#|i32_bad6: ok 13
-#|i32_bad7: ok 13
-#|i32_bad8: ok 13
-#|i32_bad9: ok 13
-#|bool_edges: ok 13
-#|bool_bad: ok 13
-#|bool_bad2: ok 13
-#|bool_bad3: ok 13
-#|escaped_numeric: ok 13
-#|escaped_f32_bad: ok 13
-#|nulls_all_types: ok 13
-#|quote_edges: ok 13
-#|fnv_collide: ok 13
-#|fnv_collide_q: ok 13
-#|wide: ok 13
-#|tab_sep: ok 13
-#|semicolon: ok 13
-#|sep_dot: ok 13
-#|sep_minus: ok 13
-#|sep_pipe: ok 13
-#|v03_late_null: ok 13
-#|v03_valid_masked_valid: ok 13
-#|v03_quoted_empty_late: ok 13
-#|v03_all_null_col: ok 13
+#|quoted_nl: ok 13 ref 2456925537
+#|quoted_nl_crlf: ok 13 ref 2456925537
+#|quoted_nl_nofinal: ok 13 ref 2456925537
+#|cr_soup: ok 13 ref 653889593
+#|cr_only_data: ok 13 ref 2137380742
+#|crlf_plain: ok 13 ref 1235492054
+#|utf8_typed: ok 13 ref 913073712
+#|utf8_bare: ok 13 ref 702682411
+#|long_records: ok 13 ref 3622224818
+#|huge_record: ok 13 ref 174097878
+#|blanks_w2: ok 13 ref 525734152
+#|blanks_w1: ok 13 ref 736606925
+#|blanks_w1_str: ok 13 ref 1974667876
+#|blanks_only: ok 13 ref 2531830033
+#|lead_blank: ok 13 ref 3291184990
+#|lead_blank_nohdr: ok 13 ref 2446962298
+#|empty: ok 13 ref 860977786
+#|header_only: ok 13 ref 2839471930
+#|header_only_nonl: ok 13 ref 2839471930
+#|no_final_nl: ok 13 ref 4247394958
+#|final_sep: ok 13 ref 3928925530
+#|headerless: ok 13 ref 460470950
+#|bad_utf8: ok 13 ref 3772257771
+#|mal_bare_quote_late: ok 13 ref 640210390
+#|mal_after_close: ok 13 ref 640210390
+#|mal_unclosed: ok 13 ref 640210390
+#|mal_unclosed_eof_q: ok 13 ref 640210390
+#|mal_cr_quote: ok 13 ref 640210390
+#|mal_closing_cr_text: ok 13 ref 640210390
+#|mal_and_ragged: ok 13 ref 640210390
+#|mal_in_second_half: ok 13 ref 640210390
+#|ragged_short: ok 13 ref 3547612252
+#|ragged_long_first: ok 13 ref 3104375331
+#|ragged_after_bad: ok 13 ref 1023256888
+#|ragged_w1: ok 13 ref 2005729940
+#|ragged_blank_ok: ok 13 ref 3426205117
+#|bad_cols: ok 13 ref 2050686700
+#|bad_cols_later_row: ok 13 ref 4001348096
+#|bad_cols_earlier_other: ok 13 ref 2250716794
+#|bad_quoted_text: ok 13 ref 1964674682
+#|bad_i32_text: ok 13 ref 3765415294
+#|f32_edges: ok 13 ref 1930747939
+#|f32_one0: ok 13 ref 3788561408
+#|f32_one1: ok 13 ref 3057366588
+#|f32_one2: ok 13 ref 2993357084
+#|f32_one3: ok 13 ref 2742481496
+#|f32_one4: ok 13 ref 921799530
+#|f32_one5: ok 13 ref 18321896
+#|f32_one6: ok 13 ref 155064812
+#|f32_one7: ok 13 ref 3409159340
+#|f32_one8: ok 13 ref 2045691964
+#|f32_one9: ok 13 ref 3036294320
+#|f32_one10: ok 13 ref 1606899108
+#|f32_one11: ok 13 ref 1410930280
+#|f32_one12: ok 13 ref 1810411874
+#|f32_one13: ok 13 ref 127540472
+#|f32_one14: ok 13 ref 2034760992
+#|f32_one15: ok 13 ref 3202075960
+#|f32_one16: ok 13 ref 3534819366
+#|f32_one17: ok 13 ref 2709987572
+#|f32_random_fast: ok 13 ref 1887256117
+#|u32_ok: ok 13 ref 73236129
+#|u32_bad0: ok 13 ref 559854898
+#|u32_bad1: ok 13 ref 1020561220
+#|u32_bad2: ok 13 ref 2452839370
+#|u32_bad3: ok 13 ref 2432491078
+#|u32_bad4: ok 13 ref 2865806304
+#|u32_bad5: ok 13 ref 195042266
+#|u32_bad6: ok 13 ref 2887143512
+#|u32_bad7: ok 13 ref 1970734768
+#|i32_ok: ok 13 ref 408757714
+#|u32_overflow: ok 13 ref 559854898
+#|u32_plus: ok 13 ref 1970734768
+#|u32_sign: ok 13 ref 2887143512
+#|u32_unicode_digit: ok 13 ref 1288759354
+#|i32_edges: ok 13 ref 1038313820
+#|i32_bad0: ok 13 ref 2620023282
+#|i32_bad1: ok 13 ref 3956662704
+#|i32_bad2: ok 13 ref 538146650
+#|i32_bad3: ok 13 ref 2178607430
+#|i32_bad4: ok 13 ref 3425568626
+#|i32_bad5: ok 13 ref 4055634028
+#|i32_bad6: ok 13 ref 719665570
+#|i32_bad7: ok 13 ref 2058950770
+#|i32_bad8: ok 13 ref 1006948192
+#|i32_bad9: ok 13 ref 1552484898
+#|bool_edges: ok 13 ref 43445787
+#|bool_bad: ok 13 ref 4274523428
+#|bool_bad2: ok 13 ref 651776950
+#|bool_bad3: ok 13 ref 3021831858
+#|escaped_numeric: ok 13 ref 1484970852
+#|escaped_f32_bad: ok 13 ref 3780841934
+#|nulls_all_types: ok 13 ref 365447298
+#|quote_edges: ok 13 ref 760576850
+#|fnv_collide: ok 13 ref 1658878243
+#|fnv_collide_q: ok 13 ref 3003248157
+#|wide: ok 13 ref 2298020098
+#|tab_sep: ok 13 ref 185703228
+#|semicolon: ok 13 ref 2671573928
+#|sep_dot: ok 13 ref 3686960460
+#|sep_minus: ok 13 ref 3111210836
+#|sep_pipe: ok 13 ref 2451710702
+#|v03_late_null: ok 13 ref 2145058258
+#|v03_valid_masked_valid: ok 13 ref 1020371371
+#|v03_quoted_empty_late: ok 13 ref 1970138843
+#|v03_all_null_col: ok 13 ref 1765088282
 #|chunk frames: 273

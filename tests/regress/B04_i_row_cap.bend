@@ -8,7 +8,7 @@
 #    a 65536 x 65536 one (2^32 rows: a wrapped sum would read 0), and a zero-column frame of
 #    8388609 rows under group_by (Frame{h, []} holds no data);
 #  - the other paths are exercised through their `.cap` entry points with a lowered cap
-#    (K.Kernel.check_rows.cap, C.Column.from_scalars.cap, V.Csv.rows.cap / V.Csv.parse_with.cap);
+#    (K.Kernel.check_rows.cap, C.Column.from_scalars.cap, V.Csv.v2 row cap through tests/lib/ctext.bend);
 #    the error text then names the lowered cap.
 # concat_vertical does not exist yet (M3): its cases wait in pending/B04_i_concat_cap.bend.txt.
 import Base
@@ -20,6 +20,7 @@ import ./../../src/expr.bend as X
 import ./../../src/plan.bend as P
 import ./../../src/kernels.bend as K
 import ./../../src/csv.bend as V
+import ./../lib/ctext.bend as TX
 import ./lib/rx.bend as R
 
 def chk(m: Maybe<&2, E.Err>) -> String:
@@ -81,14 +82,14 @@ def main() -> IO(Unit):
     IO.print(res("B04-i from_scalars at-cap", C.Column.from_scalars.cap(4, us(4n), D.TU32{})))
     IO.print(res("B04-i from_scalars over-bad-dtype", C.Column.from_scalars.cap(3, us(4n), D.TStr{})))
     IO.print(res("B04-i from_scalars default-cap", C.Column.from_scalars(us(4n), D.TU32{})))
-    IO.print(R.show("B04-i csv over", "eager", V.Csv.parse_with.cap(3, "a\n1\n2\n3\n4\n", hdr(), Nil{})))
-    IO.print(R.show("B04-i csv at-cap", "eager", V.Csv.parse_with.cap(4, "a\n1\n2\n3\n4\n", hdr(), Nil{})))
-    IO.print(R.show("B04-i csv over-explicit-dtypes", "eager", V.Csv.parse_with.cap(3, "a\n1\n2\n3\n4\n", hdr(), [D.TU32{}])))
-    IO.print(R.show("B04-i csv no-header", "eager", V.Csv.parse_with.cap(2, "1\n2\n3\n", V.CsvOpts{',', False{}, 100}, Nil{})))
-    IO.print(R.show("B04-i csv blank-lines-not-counted", "eager", V.Csv.parse_with.cap(2, "a,b\n1,2\n\n\n3,4\n", hdr(), Nil{})))
-    IO.print(R.show("B04-i csv header-only", "eager", V.Csv.parse_with.cap(0, "a,b\n", hdr(), Nil{})))
-    IO.print(R.show("B04-i csv ragged-before-cap", "eager", V.Csv.parse_with.cap(1, "a,b\n1,2\n3\n", hdr(), Nil{})))
-    IO.print(R.show("B04-i csv default-cap", "eager", V.Csv.parse_with("a\n1\n2\n", hdr(), Nil{})))
+    TX.Tx.pr(TX.Tx.parse_cap("b04i", 3, "a\n1\n2\n3\n4\n", hdr(), Nil{}), r => R.show("B04-i csv over", "eager", r))
+    TX.Tx.pr(TX.Tx.parse_cap("b04i", 4, "a\n1\n2\n3\n4\n", hdr(), Nil{}), r => R.show("B04-i csv at-cap", "eager", r))
+    TX.Tx.pr(TX.Tx.parse_cap("b04i", 3, "a\n1\n2\n3\n4\n", hdr(), [D.TU32{}]), r => R.show("B04-i csv over-explicit-dtypes", "eager", r))
+    TX.Tx.pr(TX.Tx.parse_cap("b04i", 2, "1\n2\n3\n", V.CsvOpts{',', False{}, 100}, Nil{}), r => R.show("B04-i csv no-header", "eager", r))
+    TX.Tx.pr(TX.Tx.parse_cap("b04i", 2, "a,b\n1,2\n\n\n3,4\n", hdr(), Nil{}), r => R.show("B04-i csv blank-lines-not-counted", "eager", r))
+    TX.Tx.pr(TX.Tx.parse_cap("b04i", 0, "a,b\n", hdr(), Nil{}), r => R.show("B04-i csv header-only", "eager", r))
+    TX.Tx.pr(TX.Tx.parse_cap("b04i", 1, "a,b\n1,2\n3\n", hdr(), Nil{}), r => R.show("B04-i csv ragged-before-cap", "eager", r))
+    TX.Tx.pr(TX.Tx.parse_with("b04i", "a\n1\n2\n", hdr(), Nil{}), r => R.show("B04-i csv default-cap", "eager", r))
 #|-- B04-i guard
 #|8388608
 #|none

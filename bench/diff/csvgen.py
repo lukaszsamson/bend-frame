@@ -2,7 +2,8 @@
 
 A case is a file (bytes) plus an engine-independent read spec (explicit dtype letters or inference,
 header flag, separator, infer_rows, Str storage rule, row cap). The generator never says what the
-answer is: the oracle is the v0.1 reader, the candidate the v0.2 reader at several piece sizes
+answer is: the oracle was the v0.1 reader (now: the reader at 1 MiB pieces plus golden hashes frozen from
+the v0.1 reader, csvfuzz.py --golden), the candidate the reader at several piece sizes
 (DESIGN.md 15.6.6, 17.6), so it is free to produce files the contract rejects. Seed and index fix a
 case (`random.Random(f"csv:{seed}:{index}")`).
 
@@ -301,16 +302,19 @@ _ADV = None
 
 
 def adv_corpus():
+    # built whole, then published: csvfuzz.py generates cases on several threads, and a list published empty and
+    # filled in place let a thread draw from a partial corpus (a case then depended on thread timing)
     global _ADV
     if _ADV is None:
-        _ADV = []
+        corpus = []
         mp = os.path.join(ADV_DIR, "MANIFEST")
         if os.path.exists(mp):
             for line in open(mp).read().splitlines():
                 p = line.split()
                 if len(p) == 4:
                     with open(os.path.join(ADV_DIR, p[0] + ".csv"), "rb") as f:
-                        _ADV.append((p[0], f.read(), p[1], int(p[2]), int(p[3])))
+                        corpus.append((p[0], f.read(), p[1], int(p[2]), int(p[3])))
+        _ADV = corpus
     return _ADV
 
 

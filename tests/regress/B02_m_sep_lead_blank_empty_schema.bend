@@ -20,6 +20,7 @@ import ./../../src/dtype.bend as D
 import ./../../src/err.bend as E
 import ./../../src/column.bend as C
 import ./../../src/csv.bend as V
+import ./../lib/ctext.bend as X
 import ./../../src/plan.bend as P
 import ./lib/rx.bend as R
 
@@ -29,8 +30,8 @@ def opts() -> V.CsvOpts:
 def nohdr() -> V.CsvOpts:
   V.CsvOpts{',', False{}, 100}
 
-def rd(+tag: String, +text: String, o: V.CsvOpts, ts: List<&2, D.DType>) -> String:
-  R.show(tag, "eager", V.Csv.parse_with(text, o, ts))
+def rd(+tag: String, +text: String, o: V.CsvOpts, ts: List<&2, D.DType>) -> IO(String):
+  IO.bind(E.ResT(C.Frame), String, X.Tx.parse_with("b02m", text, o, ts), r => IO.pure(String, R.show(tag, "eager", r)))
 
 def fields(xs: List<&2, V.CsvField>) -> String:
   match xs:
@@ -62,22 +63,22 @@ def scan.k(+tag: String, rp: E.Res(P.Plan)) -> IO(Unit):
 
 def main() -> IO(Unit):
   do IO<Unit>:
-    IO.print(rd("B02-m lead-blank", "\n\na,b\n1,2\n", opts(), Nil{}))
-    IO.print(rd("B02-m lead-blank-crlf", "\r\n\r\na,b\r\n1,2\r\n", opts(), Nil{}))
-    IO.print(rd("B02-m lead-blank-only", "\n\n", opts(), Nil{}))
-    IO.print(rd("B02-m lead-blank-one-col", "\n1\n2\n", opts(), Nil{}))
-    IO.print(rd("B02-m lead-blank-no-header", "\n1\n2\n", nohdr(), Nil{}))
-    IO.print(rd("B02-m inner-blank-unchanged", "a\n\n1\n", opts(), Nil{}))
-    IO.print(rd("B02-m lead-blank-line-numbers", "\n\na,b\n1,2\n3\n", opts(), Nil{}))
-    IO.print(rd("B02-m lead-blank-explicit", "\na,b\n1,x\n", opts(), [D.TU32{}, D.TStr{}]))
+    X.Tx.out(rd("B02-m lead-blank", "\n\na,b\n1,2\n", opts(), Nil{}))
+    X.Tx.out(rd("B02-m lead-blank-crlf", "\r\n\r\na,b\r\n1,2\r\n", opts(), Nil{}))
+    X.Tx.out(rd("B02-m lead-blank-only", "\n\n", opts(), Nil{}))
+    X.Tx.out(rd("B02-m lead-blank-one-col", "\n1\n2\n", opts(), Nil{}))
+    X.Tx.out(rd("B02-m lead-blank-no-header", "\n1\n2\n", nohdr(), Nil{}))
+    X.Tx.out(rd("B02-m inner-blank-unchanged", "a\n\n1\n", opts(), Nil{}))
+    X.Tx.out(rd("B02-m lead-blank-line-numbers", "\n\na,b\n1,2\n3\n", opts(), Nil{}))
+    X.Tx.out(rd("B02-m lead-blank-explicit", "\na,b\n1,x\n", opts(), [D.TU32{}, D.TStr{}]))
     IO.print(inf("B02-m infer-lead-blank", "\n\na,b\n1,x\n", opts()))
-    IO.print(rd("B02-m sep-quote", "a\"b\n1\n", V.CsvOpts{'"', True{}, 100}, Nil{}))
-    IO.print(rd("B02-m sep-lf", "a\n1\n", V.CsvOpts{Chr{10}, True{}, 100}, Nil{}))
-    IO.print(rd("B02-m sep-cr", "a\n1\n", V.CsvOpts{Chr{13}, True{}, 100}, Nil{}))
-    IO.print(rd("B02-m sep-explicit-schema", "a\n1\n", V.CsvOpts{'"', True{}, 100}, [D.TU32{}]))
+    X.Tx.out(rd("B02-m sep-quote", "a\"b\n1\n", V.CsvOpts{'"', True{}, 100}, Nil{}))
+    X.Tx.out(rd("B02-m sep-lf", "a\n1\n", V.CsvOpts{Chr{10}, True{}, 100}, Nil{}))
+    X.Tx.out(rd("B02-m sep-cr", "a\n1\n", V.CsvOpts{Chr{13}, True{}, 100}, Nil{}))
+    X.Tx.out(rd("B02-m sep-explicit-schema", "a\n1\n", V.CsvOpts{'"', True{}, 100}, [D.TU32{}]))
     IO.print(inf("B02-m sep-infer", "a\n1\n", V.CsvOpts{'"', True{}, 100}))
-    IO.print(rd("B02-m sep-tab-ok", "a\tb\n1\t2\n", V.CsvOpts{Chr{9}, True{}, 100}, Nil{}))
-    IO.print(rd("B02-m sep-semicolon-ok", "a;b\n1;2\n", V.CsvOpts{';', True{}, 100}, Nil{}))
+    X.Tx.out(rd("B02-m sep-tab-ok", "a\tb\n1\t2\n", V.CsvOpts{Chr{9}, True{}, 100}, Nil{}))
+    X.Tx.out(rd("B02-m sep-semicolon-ok", "a;b\n1;2\n", V.CsvOpts{';', True{}, 100}, Nil{}))
     r0 : E.ResT(C.Frame) <- DF.read_csv_opts("tests/regress/data/B02_e_semicolon.csv", DF.csv_opts('"', True{}, 100))
     IO.print(R.show("B02-m sep-read-file", "eager", r0))
     rp : E.Res(P.Plan) <- DF.scan_csv_opts("tests/regress/data/B02_e_semicolon.csv", DF.csv_opts(Chr{10}, True{}, 100))
@@ -92,10 +93,10 @@ def main() -> IO(Unit):
     IO.print(R.show("B02-m empty-schema-count", "eager", e1))
     e2 : E.ResT(C.Frame) <- DF.read_csv_schema("tests/regress/data/B02_scan_empty.csv", DF.csv_opts(',', False{}, 100), [D.TU32{}])
     IO.print(R.show("B02-m empty-schema-count-no-header", "eager", e2))
-    IO.print(rd("B02-m blank-only-schema-count", "\n\n", opts(), [D.TU32{}]))
-    IO.print(rd("B02-m nohdr-lead-blank-wide", "\n1,2\n3,4\n", nohdr(), Nil{}))
-    IO.print(rd("B02-m nohdr-lead-blank-ragged", "\n\n1,2\n3\n", nohdr(), Nil{}))
-    IO.print(rd("B02-m nohdr-blank-only", "\n\n", nohdr(), Nil{}))
+    X.Tx.out(rd("B02-m blank-only-schema-count", "\n\n", opts(), [D.TU32{}]))
+    X.Tx.out(rd("B02-m nohdr-lead-blank-wide", "\n1,2\n3,4\n", nohdr(), Nil{}))
+    X.Tx.out(rd("B02-m nohdr-lead-blank-ragged", "\n\n1,2\n3\n", nohdr(), Nil{}))
+    X.Tx.out(rd("B02-m nohdr-blank-only", "\n\n", nohdr(), Nil{}))
     IO.print(inf("B02-m nohdr-infer-lead-blank", "\n1,x\n", nohdr()))
     m0 : E.ResT(C.Frame) <- DF.read_csv_opts("tests/regress/data/B02_m_missing.csv", DF.csv_opts('"', True{}, 100))
     IO.print(R.show("B02-m sep-read-missing-file", "eager", m0))

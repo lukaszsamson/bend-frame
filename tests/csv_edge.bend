@@ -12,6 +12,7 @@ import ./../src/err.bend as E
 import ./../src/column.bend as C
 import ./../src/csvparse.bend as H
 import ./../src/csv.bend as V
+import ./lib/ctext.bend as X
 import ./../src/dump.bend as Y
 
 def cells.go(cs: List<&2, H.CsvCell>) -> String:
@@ -41,8 +42,8 @@ def parse(+tag: String, +sep: Char, +text: String) -> String:
 def dump(+tag: String, r: E.ResT(C.Frame)) -> String:
   "-- " ++ tag ++ "\n" ++ DF.dump(r)
 
-def rd(+tag: String, +opts: V.CsvOpts, +text: String, +ts: List<&2, D.DType>) -> String:
-  dump(tag, V.Csv.parse_with(text, opts, ts))
+def rd(+tag: String, +opts: V.CsvOpts, +text: String, +ts: List<&2, D.DType>) -> IO(String):
+  IO.bind(E.ResT(C.Frame), String, X.Tx.parse_with("edge", text, opts, ts), r => IO.pure(String, dump(tag, r)))
 
 def mk.k(name: String, r: E.ResT(C.Column)) -> C.Named:
   match r:
@@ -70,27 +71,27 @@ def snd(r: C.Frame & String) -> String:
   (f, s) = r
   s
 
-def rt.t(+text: String, +o: V.CsvOpts, +ts: List<&2, D.DType>) -> String:
-  Y.Dump.quote(text) ++ "\n" ++ DF.dump(V.Csv.parse_with(text, o, ts))
+def rt.t(+text: String, +o: V.CsvOpts, +ts: List<&2, D.DType>) -> IO(String):
+  IO.bind(E.ResT(C.Frame), String, X.Tx.parse_with("edge", text, o, ts), r => IO.pure(String, Y.Dump.quote(text) ++ "\n" ++ DF.dump(r)))
 
-def rt.k(r: E.ResT(C.Frame), +w: V.CsvWriteOpts, +o: V.CsvOpts, +ts: List<&2, D.DType>) -> String:
+def rt.k(r: E.ResT(C.Frame), +w: V.CsvWriteOpts, +o: V.CsvOpts, +ts: List<&2, D.DType>) -> IO(String):
   match r:
     case Fail{e}:
-      "error: " ++ E.Err.show(e) ++ "\n"
+      IO.pure(String, "error: " ++ E.Err.show(e) ++ "\n")
     case Done{f}:
       rt.t(snd(V.Csv.render_with(f, w)), o, ts)
 
-def rt(+tag: String, r: E.ResT(C.Frame), +w: V.CsvWriteOpts, +o: V.CsvOpts, +ts: List<&2, D.DType>) -> String:
-  "-- " ++ tag ++ "\n" ++ rt.k(r, w, o, ts)
+def rt(+tag: String, r: E.ResT(C.Frame), +w: V.CsvWriteOpts, +o: V.CsvOpts, +ts: List<&2, D.DType>) -> IO(String):
+  IO.bind(String, String, rt.k(r, w, o, ts), s => IO.pure(String, "-- " ++ tag ++ "\n" ++ s))
 
 def numf() -> E.ResT(C.Frame):
   C.Frame.from_columns([mk("f", [D.SF32{1.5}, D.SNull{}, D.SF32{F32.neg(2.25)}], D.TF32{}), mk("i", [D.SI32{D.I32.neg(D.I32{4})}, D.SI32{D.I32{7}}, D.SNull{}], D.TI32{}), mk("b", [D.SBool{True{}}, D.SNull{}, D.SBool{False{}}], D.TBool{})])
 
 def main() -> IO(Unit):
   do IO<Unit>:
-    IO.print(rt("sep . numbers", numf(), V.CsvWriteOpts{'.', True{}, None{}}, V.CsvOpts{'.', True{}, 100}, [D.TF32{}, D.TI32{}, D.TBool{}]))
-    IO.print(rt("sep - numbers", numf(), V.CsvWriteOpts{'-', True{}, Some{2}}, V.CsvOpts{'-', True{}, 100}, [D.TF32{}, D.TI32{}, D.TBool{}]))
-    IO.print(rt("sep e numbers", numf(), V.CsvWriteOpts{'e', True{}, None{}}, V.CsvOpts{'e', True{}, 100}, [D.TF32{}, D.TI32{}, D.TBool{}]))
+    X.Tx.out(rt("sep . numbers", numf(), V.CsvWriteOpts{'.', True{}, None{}}, V.CsvOpts{'.', True{}, 100}, [D.TF32{}, D.TI32{}, D.TBool{}]))
+    X.Tx.out(rt("sep - numbers", numf(), V.CsvWriteOpts{'-', True{}, Some{2}}, V.CsvOpts{'-', True{}, 100}, [D.TF32{}, D.TI32{}, D.TBool{}]))
+    X.Tx.out(rt("sep e numbers", numf(), V.CsvWriteOpts{'e', True{}, None{}}, V.CsvOpts{'e', True{}, 100}, [D.TF32{}, D.TI32{}, D.TBool{}]))
     IO.print(parse("semicolon", ';', "a;\"b;c\";\"d,e\"\n1,2;;\"\"\n"))
     IO.print(parse("tab", '\t', "a\t\"b\tc\"\n"))
     IO.print(parse("escaped quotes", ',', "\"\"\"\",\"a\"\"\"\"b\",\"\"\"\"\"\"\n"))
@@ -99,20 +100,20 @@ def main() -> IO(Unit):
     IO.print(parse("no final newline quoted", ',', "a,\"b\""))
     IO.print(parse("final sep", ',', "a,"))
     IO.print(parse("only newline", ',', "\n"))
-    IO.print(rt("roundtrip schema", frame(), V.Csv.write_default(), V.Csv.default(), [D.TStr{}, D.TU32{}]))
-    IO.print(rt("roundtrip infer", frame(), V.Csv.write_default(), V.Csv.default(), []))
-    IO.print(rt("roundtrip ; infer", frame(), V.CsvWriteOpts{';', True{}, None{}}, V.CsvOpts{';', True{}, 100}, []))
-    IO.print(rt("roundtrip tab no header", frame(), V.CsvWriteOpts{'\t', False{}, None{}}, V.CsvOpts{'\t', False{}, 100}, []))
-    IO.print(rt("roundtrip 1 col", frame1(), V.Csv.write_default(), V.Csv.default(), []))
-    IO.print(rd("infer_rows 1", V.CsvOpts{',', True{}, 1}, "a\n1\nx\n", []))
-    IO.print(rd("infer_rows 2", V.CsvOpts{',', True{}, 2}, "a\n1\nx\n", []))
-    IO.print(rd("infer_rows 1 multi-line", V.CsvOpts{',', True{}, 1}, "a,b\n1,\"p\nq\"\n\n\nx,y\n", []))
-    IO.print(rd("schema count header only", V.Csv.default(), "a,b\n", [D.TU32{}]))
-    IO.print(rd("schema count empty", V.Csv.default(), "", [D.TU32{}]))
-    IO.print(rd("schema bool", V.Csv.default(), "a,b\ntrue,1\n\"\"\"x\",2\n", [D.TBool{}, D.TI32{}]))
-    IO.print(rd("schema i32 range", V.Csv.default(), "a\n-5\n3000000000\n", [D.TI32{}]))
-    IO.print(rd("schema u32 neg", V.Csv.default(), "a\n\r\n-1\n", [D.TU32{}]))
-    IO.print(rd("schema f32", V.Csv.default(), "a\n nan \n\"\"\n1e3\nx\n", [D.TF32{}]))
+    X.Tx.out(rt("roundtrip schema", frame(), V.Csv.write_default(), V.Csv.default(), [D.TStr{}, D.TU32{}]))
+    X.Tx.out(rt("roundtrip infer", frame(), V.Csv.write_default(), V.Csv.default(), []))
+    X.Tx.out(rt("roundtrip ; infer", frame(), V.CsvWriteOpts{';', True{}, None{}}, V.CsvOpts{';', True{}, 100}, []))
+    X.Tx.out(rt("roundtrip tab no header", frame(), V.CsvWriteOpts{'\t', False{}, None{}}, V.CsvOpts{'\t', False{}, 100}, []))
+    X.Tx.out(rt("roundtrip 1 col", frame1(), V.Csv.write_default(), V.Csv.default(), []))
+    X.Tx.out(rd("infer_rows 1", V.CsvOpts{',', True{}, 1}, "a\n1\nx\n", []))
+    X.Tx.out(rd("infer_rows 2", V.CsvOpts{',', True{}, 2}, "a\n1\nx\n", []))
+    X.Tx.out(rd("infer_rows 1 multi-line", V.CsvOpts{',', True{}, 1}, "a,b\n1,\"p\nq\"\n\n\nx,y\n", []))
+    X.Tx.out(rd("schema count header only", V.Csv.default(), "a,b\n", [D.TU32{}]))
+    X.Tx.out(rd("schema count empty", V.Csv.default(), "", [D.TU32{}]))
+    X.Tx.out(rd("schema bool", V.Csv.default(), "a,b\ntrue,1\n\"\"\"x\",2\n", [D.TBool{}, D.TI32{}]))
+    X.Tx.out(rd("schema i32 range", V.Csv.default(), "a\n-5\n3000000000\n", [D.TI32{}]))
+    X.Tx.out(rd("schema u32 neg", V.Csv.default(), "a\n\r\n-1\n", [D.TU32{}]))
+    X.Tx.out(rd("schema f32", V.Csv.default(), "a\n nan \n\"\"\n1e3\nx\n", [D.TF32{}]))
 #|-- sep . numbers
 #|"f.i.b\n\"1.5\".-4.true\n.7.\n\"-2.25\"..false\n"
 #|frame

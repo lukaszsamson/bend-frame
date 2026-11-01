@@ -8,6 +8,11 @@ reports only "41 TODOs found": the open signature stubs) and every idiom is
 proven by a runnable probe under `probes/` (`sh probes/run_probes.sh` → `PASS:
 25 / 25`). Bend binary: `~/.bend/bin/bend` (not on PATH).
 
+**Naming.** Nothing has been released: 0.1.0 will be the first release. "v0.1", "v0.2" and "v0.3" in this
+document, the plans and code comments name the internal milestones M_01, M_02 and M_03 that led to it, not
+versions; "the v0.1 contract" (section 15) is the data contract of 0.1.0. Section 14 "Pre-release" records
+what changed after M_03.
+
 ## 1. Goals, non-goals, Polars mapping
 
 Goals (v1):
@@ -888,7 +893,7 @@ Proven (`law x` in LAWS.bend, `def Laws.x` in the PROOF file named):
 
 | theorem | production function(s) it constrains | assumptions / scope | checkers |
 |---|---|---|---|
-| `release_run(_obs)` | `Optimize.release` (= `Opt.hmerge`, adjacent-Head merging, the whole default optimizer), `Exec.run_pure` (= `Exec.compile`, `Exec.mark`, `Exec.loop`, `Exec.step*`, `Exec.fin`), `Frame.head`, `Column.head` | NONE: every plan p (well-typed or not, every node kind, scans included) and every env (bindings are not validated by `run_pure`; `Exec.run` validates first and feeds the same env). Result equality of `E.ResT(C.Frame)`, frames included; errors included. | bend, --verdict |
+| `release_run(_obs)` | `Optimize.release` (= `Opt.hmerge`, adjacent-Head merging; the default optimizer's first step, followed by the tested-only projection pushdown since D1), `Exec.run_pure` (= `Exec.compile`, `Exec.mark`, `Exec.loop`, `Exec.step*`, `Exec.fin`), `Frame.head`, `Column.head` | NONE: every plan p (well-typed or not, every node kind, scans included) and every env (bindings are not validated by `run_pure`; `Exec.run` validates first and feeds the same env). Result equality of `E.ResT(C.Frame)`, frames included; errors included. | bend, --verdict |
 | `hmerge_run`, `hmerge_keeps_sources` | `Opt.hmerge(p, n)` vs `p` with the pending limit `n` and a suffix in the hypothesis; `Exec.later` (the last-use marks) | suffixes with the same Sources that run alike; every plan | bend, --verdict |
 | `hmerge_keeps_scans`, `release_keeps_scans` | `Opt.hmerge`, `Optimize.release`, `Exec.compile` (the `IScan` instructions `Exec.mat` reads and the runner's `IScan` takes from `Env.scans`) | none (all plans) | bend, --verdict |
 | `head_merge_run` | the same, as the local rule, for EVERY plan x (certified or not, scans included: both sides fail alike) | none | bend, --verdict |
@@ -1133,6 +1138,10 @@ to it. The fallback's cost on the benchmark: nil for the plans as written (no q1
 Head above a Select/WithColumns, tests/plan_release_bench.bend); against `optimize_full`'s
 pushdown it is 4-5 ms on q1 and q5 at 1M rows and nothing elsewhere (bench/README.md
 "optimize_full vs the default optimizer").
+**Pre-release change (D1, section 14 "Pre-release"):** the default optimizer is now `Optimize.default`, i.e.
+`Optimize.release` followed by projection pushdown (`Opt.proj`, R5). `release_run` still covers the first
+step; the second is tested only, so the 0.1.0 claim reads "a default optimizer whose head merging is proven
+result-preserving and whose projection pushdown is differentially tested".
 
 ### 8.2 v0.2 assurance status (W8 close; plan M_02 G5 and section 4)
 
@@ -1213,7 +1222,7 @@ fold, append, in-place reset and choose, and since v0.3 `Kernel.where`, the row 
 storages, the chunk trees, the evaluator peepholes against the unfused evaluator, the null-slot producers, the plan-level
 equivalences (release optimizer = unoptimized, physical runner = pure runner, Filter + Select step) and the v0.1 typing of
 `Eval.full` / `Eval.run`. Tested only: the fused runner `Eval.runz` that filter / select / with_columns execute, the chunked
-runner, both CSV readers, the string coder and rank stage, the radix sort, sort / group_by / join semantics (including the v0.2
+runner, the CSV reader, the string coder and rank stage, the radix sort, sort / group_by / join semantics (including the v0.2
 build-side and direct-code paths below), floating-point results, Dictionary completeness, and native execution. The
 independent BendTT check passes on the pinned Bend 2.0.39 (`make verdict`, ~30 s; section 8's W0 note: the `FZW` Sigma of
 PROOF_filtsel.bend written inline worked around bendlang/bend#1984).
@@ -2926,8 +2935,8 @@ later readers of the code need to know; none changes the data contract.
    long records and names to a few KB; W6.3's tests do the same (a 3,000-character header name, 5,000 leading
    blank lines: v0.1's `Csv.lead` is a non-tail walk over them).
 4. **Non-ASCII separators**: the lane compares BYTES with the separator, so a separator above U+007F (a
-   multi-byte UTF-8 sequence) cannot be tokenized there; W6.3 routes such reads to the v0.1 reader (same
-   answer by construction; tests/csv_v02_texts.bend `section_sep`).
+   multi-byte UTF-8 sequence) cannot be tokenized there; W6.3 routed such reads to the v0.1 reader. Since that
+   reader's removal (section 14 "Pre-release") such a separator is an `InvalidOperation` (15.6).
 5. **`CO.OS` carries the entries' first local rows** (`fr`, added by W6.3): the EncAuto rule needs the global
    first row of every entry.
 
@@ -3509,6 +3518,7 @@ What changed, and only this: `Csv.read_enc` / `Csv.read_with` / `Csv.read` (so `
 csv_v02_* test) and the CSV fuzz (bench/diff/csvfuzz.bend reads with `Csv.read_full`). The v0.2 reader's own fall back
 for a non-ASCII separator still calls the v0.1 reader. Removal is a later explicit gate (M_02 D7: a stabilization
 period, two independently reproduced full gate runs with the new default, a reproducible final baseline run).
+The user waived that gate and the v0.1 reader was removed before the first release (section 14 "Pre-release").
 
 1. **Justification (G1 for the reader, exact)**: every CSV test (tests/csv*, tests/coverage/csv_*, the B02 regressions)
    with the v0.1 reader as reference; the W6.4 fuzz, 10,000 cases x 7 piece sizes (1, 2, 3, 7, 64, 4096, the default)
@@ -3642,6 +3652,47 @@ and the default `--seed 32 --n 1000` fails 17 (`T2.2 eager` 9, `P0` 8); on the f
 tests/regress/V02_B1_null_slot.bend (owned / borrowed, select / with_columns, staged intermediates, eager / collect /
 collect_raw / collect_full / chunked at 2^0 and 2^2, against the UNFUSED `Eval.full`, F32 bits by `DF.dump`, every
 result's P0 report), V02_B1_raw_constructor.bend, and the two review reproductions (V02_B1_astra_null_zero*.bend).
+
+### Pre-release (after M_03): one CSV reader, the byte order mark, ASCII separators
+
+The user's decisions of 2026-11-01 (plans/M_03.txt section 5): remove the v0.1 reader now (D4), strip the BOM
+(D2), the restored `--verdict` needs no reduced-assurance wording (D3), and make projection pushdown the default
+only if it measures better (D1, below).
+
+1. **The v0.1 reader is gone.** `Csv.read_full`, `Csv.read_enc_v01`, `Csv.parse*` and the M4 streaming
+   machinery (builders, sink, chunk loop: ~870 lines of `src/csv.bend`, found by a reachability pass from every
+   other file) are deleted; `CsvEngine` is one constructor `CsvAt{piece}`; the facade loses `csv_engine_v01`,
+   `csv_engine_v02`, `read_csv_engine`, `read_csv_v02` and `collect_engine` (and tests/coverage/csv_engine.bend
+   its rows of `docs/COVERAGE.md`); `Exec.run_with` no longer has a flat-prep branch for it. What it was the
+   reference of keeps its evidence, frozen before the cut: the cross-reader tests (tests/csv_v02_*.bend,
+   tests/csvlane.bend) print `ref <hash>`, an FNV-style hash of every configuration's reference text
+   (`tests/lib/v02cmp.bend` `Sg.hash`), recorded while the reference was still the v0.1 reader and unchanged
+   with the reference now the reader at 1 MiB pieces; the fuzz smoke seeds check `bench/diff/golden/seed*.json`
+   (1,500 hashes each, written by the v0.1 reference with `--write-golden`); the text-level tests that called
+   `Csv.parse` on a string write the string to `/tmp` and read it (`tests/lib/ctext.bend`) with their
+   expectations unchanged. The order of the cut: the goldens recorded with the v0.1 reader as the reference, then the
+   tests switched and passing on the reader, then the code removed.
+2. **Separators.** The v0.1 reader was the fall back for a separator above U+007F; with it gone, `Csv.sep_err`
+   refuses such a separator on read, scan and write (`"csv: separator must be a single-byte (ASCII)
+   character"`), as Polars' single-byte separator does. The one test answer that changed on purpose:
+   tests/csv_v02_texts.bend `section_sep` (a `§` separator: the error, and a new reference hash).
+3. **BOM (D2).** 15.6.2's row: dropped by the header step (`Csv.v2.hbom`: one `File.read_at` of 3 bytes picks
+   the walk's start) and by the scan prefix (`Csv.unbom`).
+4. **D1.** **D1, measured, then adopted.** `Optimize.default` = `Optimize.release` then `Opt.proj` (R5) is what
+   `Lazy.collect`, `Lazy.collect_rd`, `Lazy.collect_with(_rd)` and `DF.optimize` run (15.2.8). `Opt.proj` only
+   inserts a plain-column `Select` directly over a Source / ScanCsv (keeping at least one column, and a join's
+   keys and clashing names); it moves nothing and keeps every expression, so the errors of 15.2 are unchanged
+   (the scan still parses every column, so CSV errors too). Measured with `TPCH_OPT=release` against the
+   default, PDS-H sf 0.2, one thread, 5 interleaved rounds x 3 repeats, medians, load 12-40: 339 -> 270 ms in
+   total (Q13 23 -> 11, Q3 40 -> 24, Q4 32 -> 19, Q10 40 -> 29, Q1 109 -> 97, Q5 26 -> 22; Q6, Q12, Q18 equal),
+   the same rows; `optimize_full` 269 ms. Assurance: `release_run` covers the first step only; R5 is tested
+   (every differential case's `collect`; plan_* tests), and the claim says so (README top, 8.1 note).
+5. **The fuzz generator's corpus race** (bench/diff/csvgen.py `adv_corpus`): the list was published empty and
+   filled in place while csvfuzz.py generated cases on 8 threads, so an adversarial case could depend on thread
+   timing; found because 7 golden entries did not reproduce. Fixed (built whole, then published); the goldens
+   were re-recorded with a runner built from the pre-removal tree (the v0.1 reader as the reference) and
+   reproduced on a second run. 234 entries were then rewritten for D2 / item 2 after an independent check
+   (`bench/diff/golden/README.md`).
 
 ## 15. v0.1 contract (frozen)
 
@@ -3850,7 +3901,7 @@ stays refused (not in 2.1; Polars allows it).
 |---|---|
 | `DF.collect_schema(p)` (exists) | `P.Plan.schema`: every *static* error of 15.2 and nothing else (not IO, not bindings, not data-dependent cast failures; 15.7 has `validate_bindings` for bindings) |
 | `DF.explain(p)` (exists) | `P.Plan.explain`; new lines: `SLICE <offset> <len>`, `TAIL <n>`, `DROP [a, b]`, `RENAME [a -> b, c -> d]`, `UNIQUE [a, b]` (`UNIQUE []` for all columns), `CONCAT` with every input indented below it, `SEMI JOIN ON [..]`, `ANTI JOIN ON [..]` |
-| `DF.optimize(p)` (exists; meaning changes) | `P.Optimize.release`: the certified fragment only (R1 merge heads; R2-R5 as they are proven in M5; until then only R1 and the restricted head sink of B01). Nodes it does not know (Sort movement, GroupBy/Join pushdown, Unique, Concat, Semi/Anti, Slice, Tail, Drop, Rename, fallible or reduction expressions) are barriers: the pass recurses into their inputs but never moves anything across them. `collect` uses this. |
+| `DF.optimize(p)` (exists; meaning changes) | `P.Optimize.default` since D1 (section 14 "Pre-release"): `P.Optimize.release`, then projection pushdown (`Opt.proj`: a plain-column `Select` of the needed columns directly over each Source / ScanCsv; tested, not proven). `P.Optimize.release` is the certified fragment only (R1 merge heads; R2-R5 as they are proven in M5; until then only R1 and the restricted head sink of B01). Nodes it does not know (Sort movement, GroupBy/Join pushdown, Unique, Concat, Semi/Anti, Slice, Tail, Drop, Rename, fallible or reduction expressions) are barriers: the pass recurses into their inputs but never moves anything across them. `collect` uses `Optimize.default`. |
 | `DF.optimize_full(p)` | `P.Plan.optimize_full`: today's four passes (merge, pushdown, head, projection), opt-in, excluded from the G6 guarantee, with the B01 head rule applied; `DF.collect_full` runs it |
 | `DF.err_show`, `DF.schema_show`, `DF.show` (exist) | unchanged |
 
@@ -4152,7 +4203,7 @@ for Str cells.
 
 | case | behaviour | Polars 2.0.0 |
 |---|---|---|
-| separator | `CsvOpts.sep` (any single char except `"`, CR and LF, which `InvalidOperation{"csv: separator must not be a double quote, CR or LF"}` refuses on read, scan and write; `','` default); a field holding it is quoted | same (Polars: one byte) |
+| separator | `CsvOpts.sep` (one ASCII char except `"`, CR and LF, which `InvalidOperation{"csv: separator must not be a double quote, CR or LF"}` refuses on read, scan and write; a char above U+007F is `InvalidOperation{"csv: separator must be a single-byte (ASCII) character"}`, also on all three; `','` default); a field holding it is quoted | same (Polars: one byte) |
 | escaped quote | `""` inside a quoted field is one `"` | same |
 | multi-line field | CR/LF inside quotes belong to the field; CRLF and LF line ends both accepted | same |
 | blank lines before the header (`has_header = True{}`) | skipped (physical line numbers unchanged; a file of blank lines only is the empty file); with `has_header = False{}` they are data like any blank line (the column count is the first non-blank record's) | skipped / null rows |
@@ -4166,7 +4217,7 @@ for Str cells.
 | `has_header = False{}` | names `column_0 .. column_{k-1}` | same |
 | line numbers in errors | 1-based physical line of the record's first line; the header is line 1 | |
 | malformed quoting | `ParseError{0, "malformed csv"}` | error |
-| UTF-8 byte order mark (`EF BB BF`) at the start of the file | NOT stripped, by both readers and by `scan_csv`: it is ordinary content, so it stays in the first header name (U+FEFF, then the name; with `has_header = False{}` it stays in the first data cell, which then makes the first column `str` under inference; checked by hand on both readers). v0.2 review B2, pinned by `tests/csv_bom.bend` (v0.1 reader, v0.2 reader and scan, hand-derived: names `[65279, 97]` and `[98]`); a contract note, not a change of behaviour | stripped (`read_csv` and `scan_csv` name the column `a`; Polars 2.0.0) (**D** departure: strip the BOM before reading, or rename the column) |
+| UTF-8 byte order mark (`EF BB BF`) at the start of the file | dropped (decision D2, pre-release): the reader's header step starts at byte 3 (`Csv.v2.hbom`; without a header the data starts there too, and a file that is only the mark is the empty frame) and `scan_csv`'s inference drops a leading U+FEFF (`Csv.unbom`); line numbers are unchanged. `tests/csv_bom.bend` (hand-derived). Until then it was kept as content (M_02 review B2) | stripped (`read_csv` and `scan_csv` name the column `a`; Polars 2.0.0) |
 
 #### 15.6.3 Options
 
@@ -4231,7 +4282,7 @@ v0.2 reader is opt-in through a `CsvEngine` value (`src/csv.bend`: `CsvV01{}` | 
 Both engines answer the same `ResT(Frame)`: values, validity, F32 bits, strings, the Str storage (Raw or
 Dictionary, and a Dictionary's codes and size), names, dtypes, column order, error texts, error lines and
 error precedence (tests/csv_v02_*.bend, tests/coverage/csv_engine.bend compare both at the dump and storage
-level). A separator outside ASCII is read by the v0.1 reader under either engine. Under `EncAutoAt{0, den}`
+level). A separator outside ASCII was read by the v0.1 reader under either engine (an `InvalidOperation` since its removal before 0.1.0). Under `EncAutoAt{0, den}`
 (a test-only storage rule) a zero-row Str column is Raw in both, as v0.1's builder checks the rule once on
 an empty chunk.
 
@@ -5528,7 +5579,7 @@ boundary", measured against the per-region Raw decode of 17.4.7.
   The fuzz (W6.4: 10,000 cases x 7 piece sizes, `make csv-fuzz-smoke` in ci) and the chunk hand-off (W6.6) followed;
   W8 made it the default (section 14 "W8"). Differs from 17.4: the producer is serial by platform fact (17.10 item 1:
   the File API answers cons lists on the IO thread), so the parse's 12-vs-1 ratio is bounded near 2x end to end while
-  the fork phase itself scales ~5x (16.10 "Fork audit"); a non-ASCII separator falls back to the v0.1 reader.
+  the fork phase itself scales ~5x (16.10 "Fork audit"); a non-ASCII separator fell back to the v0.1 reader (refused since its removal).
 - **W7 (flat string storage, SFlat)**: not scheduled (17.11's recommendation held: the distinct-key cells are met by the
   coder); deferred past v0.2.
 - **17.8 thresholds**: proposed at W0 (the parse G2 revision to ">= 2x end to end and >= 4x on the fork phase" is

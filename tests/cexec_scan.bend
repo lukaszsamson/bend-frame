@@ -1,7 +1,7 @@
-# W6.6: scan_csv collected by the chunked engine with the v0.2 reader (Lazy.collect_with_rd(CsvV02{piece},
+# W6.6: scan_csv collected by the chunked engine with the v0.2 reader (Lazy.collect_with_rd(CsvAt{piece},
 # Chunked{g}, ..)): the reader builds the scans' chunk leaves in its combine and the runner's IScan takes
 # them as they are (no CFrame.of_frame), DESIGN.md 17.5. Every answer is compared exactly (DF.dump) with the
-# reference engine over the v0.1 reader (Lazy.collect):
+# reference engine (Lazy.collect):
 #   * q1..q5 (bench/queries.bend) over bench/fixtures/tiny.csv (20 rows) and products.csv (64 rows) at grains
 #     2^0 (one row per leaf), 2^2 and 2^4 and pieces 7 / 64 / 4096 bytes (region edges inside the leaves); q5
 #     joins two scans (taken in postfix order); q6's describe over a collected scan;
@@ -10,8 +10,8 @@
 #     the header, a missing file, and (reader level) a header with a duplicate name (Frame.from_columns'
 #     DuplicateColumn, checked by the chunk build over the names);
 #   * the runner's counters (CStats): a scan whose consumer runs chunked (q1, q2, a head then a filter) is read
-#     into leaves and converts nothing on the way in (conv_in 0, bytes_in 0) where the v0.1 reader's flat scan
-#     frame is converted once (conv_in 1); a scan whose consumer runs flat (q4's sort, q5's join, a head then a
+#     into leaves and converts nothing on the way in (conv_in 0, bytes_in 0) where a flat scan frame (Exec.prep)
+#     is converted once (conv_in 1); a scan whose consumer runs flat (q4's sort, q5's join, a head then a
 #     sort, the scan as the result) is read flat (conv_in 0 and no flatten: conv_out 0).
 import Base
 import ./../frame.bend as DF
@@ -29,9 +29,9 @@ def same(+tag: String, +a: String, +b: String) -> String:
   Bool.pick(String, String.eq(a, b), tag ++ ": same", tag ++ ": DIFF\nreference:\n" ++ a ++ "\nchunked:\n" ++ b)
 
 def cand(+g: Nat, +piece: U32, +p: P.Plan) -> IO(E.ResT(C.Frame)):
-  QC.Lazy.collect_with_rd(R.CsvV02{piece}, QC.Chunked{g}, p, P.Env.empty())
+  QC.Lazy.collect_with_rd(R.CsvAt{piece}, QC.Chunked{g}, p, P.Env.empty())
 
-# the plan by the reference (v0.1 reader) and by the chunked engine over the v0.2 reader's leaves
+# the plan by the reference engine and by the chunked engine over the reader's leaves
 def cmp(+tag: String, +g: Nat, +piece: U32, +p: P.Plan) -> IO(String):
   do IO<String>:
     a : E.ResT(C.Frame) <- Q.Lazy.collect(p, P.Env.empty())
@@ -111,11 +111,11 @@ def st.v1(+g: Nat, +p: P.Plan, r: E.ResT(P.Env)) -> String:
     case Done{env}:
       st.show(QC.CX.run(g, p, env, Nil{}))
 
-# the counters of one plan: chunked scans from the v0.2 reader, and the v0.1 reader's flat scan frame
+# the counters of one plan: chunked scans from the v0.2 reader, and a flat scan frame (Exec.prep)
 def stats(+tag: String, +g: Nat, +p: P.Plan) -> IO(Unit):
   do IO<Unit>:
-    a : E.ResT(P.Env & List<&1, QC.PNF>) <- QC.CX.prep.k(P.Plan.schema(p), g, R.CsvV02{4096}, p, P.Env.empty())
-    b : E.ResT(P.Env) <- Q.Exec.prep(R.CsvV01{}, p, P.Env.empty())
+    a : E.ResT(P.Env & List<&1, QC.PNF>) <- QC.CX.prep.k(P.Plan.schema(p), g, R.CsvAt{4096}, p, P.Env.empty())
+    b : E.ResT(P.Env) <- Q.Exec.prep(R.CsvAt{1048576}, p, P.Env.empty())
     IO.print(tag ++ " v02 scan: " ++ st.k(g, p, a) ++ " | v01 scan: " ++ st.v1(g, p, b))
 
 # ---- files written for the error cases ----
@@ -206,7 +206,7 @@ def dup.out(r: E.ResT(R.CsvOut)) -> String:
 
 def dup.cmp() -> IO(String):
   do IO<String>:
-    a : E.ResT(C.Frame) <- R.Csv.read_full(dup.path(), R.Csv.default(), [], R.Csv.enc_default(), 1048576, 8388608)
+    a : E.ResT(C.Frame) <- R.Csv.read_v02_full(dup.path(), R.Csv.default(), [], R.Csv.enc_default(), 1048576, 8388608)
     b : E.ResT(R.CsvOut) <- R.Csv.read_v02_mode(R.CMChk{2n}, dup.path(), R.Csv.default(), [], R.Csv.enc_default(), 16, 8388608)
     return "duplicate header: v01 " ++ dup.out(R.Csv.v2.flat(a)) ++ " | chunk mode " ++ dup.out(b)
 

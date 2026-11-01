@@ -60,8 +60,8 @@
 # merge copies n rows), except v of a part with no null: ONE slot holding 1 (Col.vtrim), read with
 # wrapping indices like the full array of ones it stands for.
 #
-# Field rules (v0.1 `Csv.ok` / `Csv.rd.w`, bit for bit; tests/csvlane*.bend check them against
-# csvparse + Csv conversions): a numeric / bool field whose content is empty after trimming is
+# Field rules (the first reader's `Csv.ok` / `Csv.rd.w`, bit for bit; tests/csvlane*.bend check them
+# against goldens frozen from it): a numeric / bool field whose content is empty after trimming is
 # null (quoted or not); u32 = `U32.read` (digits only, no sign, overflow is bad); i32 = `I32.read`
 # ('-' then digits, no '+', in [-2^31, 2^31)); bool = exactly true / True / false / False; f32 = a
 # correctly rounded `F32.read` (strtof): the exact fast path [+-]digits[.digits] with mantissa

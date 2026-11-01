@@ -1,6 +1,78 @@
 # Changelog
 
-## 0.3.0 (unreleased): the stabilisation release (plans/M_03.txt)
+Nothing has been released yet: **0.1.0 will be the first release**. The work before it went through three
+internal milestones, M_01, M_02 and M_03 (`plans/M_0*.txt`). Older notes, plans and code comments call them
+"v0.1", "v0.2" and "v0.3" (and "0.2.0" / "0.3.0"): those are milestone labels, not versions, and nothing was
+published at any of them. Their notes are kept below, under "Development history".
+
+## 0.1.0 (unreleased)
+
+### What is in it
+
+- Five nullable dtypes (`Bool`, `U32`, `I32`, `F32`, `Str`) with no implicit casts; checked column and frame builders.
+- Eager verbs and lazy plans with one data semantics: `select`, `with_columns`, `filter`, `sort` (stable, multi-key),
+  `group_by`, inner / left / semi / anti joins, `head`, `slice`, `tail`, `drop`, `rename`, `unique`,
+  `concat_vertical`, `describe`, `show`, `dump`.
+- Expressions: casts (strict `cast`, lenient `try_cast`), arithmetic incl. `floor_div` / `mod` with floor rounding,
+  comparisons, Kleene `and` / `or`, `when`, `is_in`, `clip`, `is_between`, `fill_null`, `abs`, `sqrt`, string
+  predicates and `len_chars`, and the reductions `sum mean min max count len first last n_unique std var median`, in
+  `group_by` and as global reductions.
+- Lazy plans: schema and type errors before any row is read (`collect_schema`), binding validation
+  (`validate_bindings`), `explain`, the default optimizer and an opt-in `optimize_full` (filter merge, predicate and
+  projection pushdown, head sink).
+- CSV: one reader (a sequential producer of byte regions, one parallel fork of typed lanes, a sequential combine), type
+  inference or explicit schemas, a bounded scan prefix for lazy scans, writing with quoting and F32 formatting
+  options; the contract is `DESIGN.md` 15.6. A leading UTF-8 byte order mark is dropped, as Polars does.
+- `Str` columns stored as plain strings or as a Dictionary (codes into distinct entries), chosen per column by
+  cardinality; a flat hash coder and a radix rank stage for distinct-key `group_by` / `unique` / joins.
+- An opt-in chunked executor (`collect_with(engine_chunked(), ..)`) for `scan_csv` plans with row-wise first
+  consumers on several threads.
+- One numeric policy: a shared F32 total order (NaN greatest, `-0.0 == 0.0`), Neumaier-compensated F32 sums with a
+  non-finite guard, wrapping integer arithmetic. A 2^23 row cap, checked before allocating.
+- `DF.dump`, a typed text form of a result (dtypes, validity, F32 bits, errors), used by the tests and the
+  differential checks.
+
+The claim, what is proven and what is only tested: `README.md` (top and "Laws") and `DESIGN.md` 8. Toolchain: Bend
+2.0.39, Lean 4.34.0 (for `--verdict`), Polars 2.0.0 for the reference side (pins in `TOOLCHAIN`).
+
+### License
+
+Apache-2.0 (`LICENSE`, `NOTICE`). `src/csvparse.bend` is a fork of the MIT-licensed hub package
+`bend-csv-parser@0.1.0.1` and keeps its MIT notice.
+
+### Changes since M_03 (2026-11-01)
+
+- **One CSV reader.** M_01's sequential streaming reader is removed (~870 lines of `src/csv.bend`); the flat reader
+  that has been the default since M_02 is the only one. Removed from the facade: `csv_engine_v01`,
+  `csv_engine_v02`, `read_csv_engine`, `read_csv_v02`, `collect_engine` (use `read_csv_enc` / `collect`). Before the
+  removal every test and the CSV fuzz that used the old reader as their reference were frozen against it: the
+  cross-reader tests print a hash of the reference text of every configuration (`ref <hash>`), the fuzz smoke seeds
+  check a golden file of those hashes (`bench/diff/golden/`), and the text-level tests (`Csv.parse` over a string)
+  now write their text to a file and read it (`tests/lib/ctext.bend`) with their expectations unchanged.
+- **Byte order mark (decision D2).** A file starting with EF BB BF is read from its fourth byte, by the reader's
+  header step and by `scan_csv`'s schema inference, as Polars does (the column is "a", not "\uFEFFa"); line numbers
+  are unchanged. `tests/csv_bom.bend` covers headers, no header, a file that is only the mark, tiny pieces and the
+  scan.
+- **Separators.** The reader compares bytes: a separator outside ASCII is now an `InvalidOperation` ("csv: separator
+  must be a single-byte (ASCII) character") for reading, scanning and writing, as Polars' single-byte separator; the
+  old reader used to take one.
+- **Projection pushdown by default (decision D1: default if it measures better; it does).** `collect`,
+  `collect_with` and `DF.optimize` run `Optimize.default`: the proven `head` merging, then projection pushdown
+  (`Opt.proj`, R5: a `Select` of the needed columns directly over each source and scan; nothing else moves, no
+  expression is dropped, so no error is lost; the scan still parses every column). PDS-H sf 0.2, one thread,
+  medians of 5 interleaved rounds on a loaded machine: the nine queries 339 -> 270 ms (Q13 2.1x, Q3 / Q4 1.7x,
+  Q10 1.4x, Q1 / Q5 ~1.15x, Q6 / Q12 / Q18 unchanged; never slower), with the same rows; `optimize_full` adds
+  nothing measurable on top (269 ms). The claim changes accordingly: the head merging stays proven
+  (`release_run`), projection pushdown is tested only. `TPCH_OPT=release` measures the head merging alone.
+- **CSV fuzz determinism.** `bench/diff/csvgen.py` published its adversarial corpus before filling it, so a case
+  generated on one thread while another loaded it could draw from a partial corpus; it is built whole now. The
+  golden files were recorded twice with the v0.1 reader as the reference and reproduce exactly
+  (`bench/diff/golden/README.md`, which also lists the 234 entries rewritten after an independent check for the
+  BOM and separator decisions).
+
+## Development history (internal milestones; nothing was released)
+
+### M_03: stabilisation (plans/M_03.txt; noted at the time as "0.3.0")
 
 - **Independent verification restored on the pinned Bend 2.0.39.** `bend PROOF.bend --verdict` (BendTT, the Lean-checked kernel)
   prints ALL PROOFS CHECK again (~30 s). It had overflowed the machine stack since 2.0.38 (bendlang/bend#1984): the translation
@@ -26,7 +98,7 @@
 - Docs: README's laws paragraph opens with the honest coverage sentence (M_03 section 4); stale `peep_f4_cell` premise text,
   counts and the selective-filter wording corrected.
 
-## Unreleased: toolchain moved to Bend 2.0.39 (2026-10-31)
+### Between M_02 and M_03: toolchain moved to Bend 2.0.39 (2026-10-31)
 
 - `TOOLCHAIN` pins Bend 2.0.39 (was 2.0.36). Library code is unchanged; everything else that broke was Bend, not the library:
   - **Base changed `String.eq`** to `Cmp.is_eq(String.order(a, b))` (a loop `String.order.go` over an accumulator, no longer `String.cmp`). `Laws.str_eq_refl` / `Laws.str_eq_sound` (PROOF_lib.bend) are re-proven over `String.order.go` (`str_ord_refl`, `str_ord_lt`, `str_ord_gt`, a new `str_sound_step`); `make proofs` and `make mutation-check` (104/104) are green again.
@@ -35,7 +107,7 @@
 - Open against 2.0.39 (drafts in `plans/issues/bend_2_0_39.md`): `bend PROOF.bend --verdict` (and `-o PROOF.bendtt`) die with "the machine stack overflowed" (2.0.36: ALL PROOFS CHECK in ~40 s), so `make verdict` / `make ci` fail at that gate; `bend FILE.bend` (run mode) uses ~10x the memory and runs 3-7x slower than 2.0.36 on the CSV tests (`tests/csvlane.bend`: 8 min, `csvprod`: 4 s -> 14 s, 0.5 GB -> 5.7 GB peak RSS). Binaries built with `-o` are unaffected.
 - Performance on 2.0.39 (native, 1 thread, interleaved with 2.0.36 binaries, loaded machine): q1-q6 compute at 1M rows and the parse are within noise of 2.0.36 (parse 625-650 ms vs 655-673 ms). The `File.read_at` floor probe is unchanged (~105-125 ms for 41 MB). Parse is ~95% of end-to-end time in every q1-q6 e2e cell (compute is 4-55 ms); the largest compute cells are `str_join_1m` (500 ms), `str_group_1m` / `str_unique_1m` (~175 ms).
 
-## Unreleased: reader peak memory (2026-11-01)
+### Between M_02 and M_03: reader peak memory (2026-11-01)
 
 - The v0.2 reader no longer builds validity it throws away. A lane that finds no null in its region hands on a one-slot
   validity holding 1 (`Col.vtrim`, read with wrapping indices like the array of ones it replaces; the region's array is
@@ -50,7 +122,7 @@
   never become the 2^21-slot columns), filed as bendlang/bend#1986; and a String costs 16 bytes per character (the
   distinct-string file), bendlang/bend#1987. Repros in plans/issues/ (`allocclass.bend`, `strmem.bend`).
 
-## Unreleased: performance on a PDS-H-style workload (2026-11-01)
+### Between M_02 and M_03: performance on a PDS-H-style workload (2026-11-01)
 
 New workload `bench/tpch/` (README there): TPC-H-shaped tables and nine PDS-H queries (Q1, Q3, Q4, Q5, Q6, Q10,
 Q12, Q13, Q18) written with the public facade, a native driver, Polars twins and a checker; `make tpch`. Profiling it
@@ -66,7 +138,7 @@ slowness noted above), `make check` passes, `make diff-smoke` has 0 failing case
 - sf 0.2, one thread, loaded machine: the nine queries 384 -> 284 ms in total (Q5 2.2x, Q4 1.6x, Q3 1.5x, Q6 / Q18
   1.35x); the sales q1-q6 cells are unchanged within noise. Remaining gaps and why they stay: bench/tpch/README.md.
 
-## 0.2.0 (performance milestone, 2026-10-11; not published)
+### M_02: performance (plans/M_02.txt, 2026-10-11; noted at the time as "0.2.0")
 
 The plan is `plans/M_02.txt`; the gate report is `plans/GATES_V02.md`. **The v0.1 data contract (`DESIGN.md` 15) is unchanged**: the same values, validity, names, row order, F32 bits (the existing NaN-payload relaxation aside), errors and error order, for every operation, eager and lazy. No new API surface beyond the engine and reader selectors.
 
@@ -74,17 +146,17 @@ Candidate claim, as far as the gates demonstrate it: "owned chunks and fused ker
 
 **Release status: experimental; macOS arm64 only (Linux x86-64 and hosted CI have never run); performance PROVISIONAL; the M_02 thread-scaling goals are incomplete.** In one true sentence: 1.7x to 113x faster on one thread depending on the workload, about 4-7x less peak memory on the sales workload, and threads help the CSV parse (1.9x), `describe` (3x) and scan-fed row-wise plans under the opt-in chunked engine (4x), while the default executor does not yet scale with threads.
 
-### Changes
+#### Changes
 
-- **CSV reader (the default since 0.2.0).** A sequential producer of flat packed bytes in 240 KiB pieces with the record boundaries found in the same walk (`src/csvprod.bend`), ONE balanced fork of typed lanes over the regions (`src/csvlane.bend`: a generated one-def tokenizer, typed loops with cold private records, no per-cell string or list), and a sequential combine in region order that keeps v0.1's error precedence and dictionary codes (`Csv.v2.*` in `src/csv.bend`). The v0.1 reader is kept, selectable (`csv_engine_v01()`, `read_csv_engine`, `collect_engine`), and is the pinned reference of the CSV tests and fuzz.
+- **CSV reader (the default since M_02).** A sequential producer of flat packed bytes in 240 KiB pieces with the record boundaries found in the same walk (`src/csvprod.bend`), ONE balanced fork of typed lanes over the regions (`src/csvlane.bend`: a generated one-def tokenizer, typed loops with cold private records, no per-cell string or list), and a sequential combine in region order that keeps v0.1's error precedence and dictionary codes (`Csv.v2.*` in `src/csv.bend`). The v0.1 reader is kept, selectable (`csv_engine_v01()`, `read_csv_engine`, `collect_engine`), and is the pinned reference of the CSV tests and fuzz.
 - **Distinct-key strings.** A flat presized hash coder (`src/hcode.bend`; first-appearance ids, hash hits compared against the strings) and a lexical rank stage by radix refinement (`src/ranks.bend`) replace the Base-Map coder in group_by, unique, Raw n_unique, Raw sort keys and Dictionary ranks; the join probes a packed flat string table sequentially (no table clone per split).
 - **Evaluator fusion** (on in the default executor): literal operands as scalars (F1), null-propagating zips with validity in one loop (F2), total casts inside the zip (F3), `fill_null` with the dtype default as a validity change (F4), filter predicate mask and count in one pass (F5), up to four aligned columns compacted per loop (F6), and the Filter + plain Select step at the plan root (F8). Kleene logic and fallible casts are not fused.
 - **Fewer copies.** A liveness pass moves single-reference columns and borrows where a kernel hands the buffer back; group_by moves dead inputs and codes its key without a clone; the join copies its table only at a split; describe borrows and fuses its count / sum / min / max; `slice` is one range copy; `Sort + Head` gathers only the kept rows of the exact full argsort; the radix sort reads keys in place with one scan pass, skips sorted words and ping-pongs two buffers; n_unique is a radix sort plus a run count.
 - **Chunked engine (opt-in).** Owned chunk trees (`src/chunks.bend`), generated chunked kernel wrappers (`src/ckernels.bend`) and a chunked executor (`src/cexec.bend`) behind `collect_with(engine_chunked(), ..)`: row-wise operators fork over leaves of 2^14 rows; sort, join, group_by, unique and describe run the flat code behind a boundary; a `scan_csv` whose consumer is row-wise is read straight into chunk leaves by the v0.2 reader. Exact against the reference engine on every differential case.
-- **Parallel shape.** Every parallel let follows one rule found in this milestone (the Bend 2.0.36 scheduler's fork-shape rule, `DESIGN.md` 16.10): a forking def matches and forks and calls nothing non-flat before its parallel let; `make fork-audit` checks it statically (68 parallel lets in 28 files at 0.2.0, 0 findings) and is part of `make ci`.
+- **Parallel shape.** Every parallel let follows one rule found in this milestone (the Bend 2.0.36 scheduler's fork-shape rule, `DESIGN.md` 16.10): a forking def matches and forks and calls nothing non-flat before its parallel let; `make fork-audit` checks it statically (68 parallel lets in 28 files at M_02, 0 findings) and is part of `make ci`.
 - **Tooling.** `bench/m2/` (the frozen workload harness against the pinned baseline 3612482, with an instrumented copy / allocation mode, `make m2-g6`), `make diff-chunked` (G1), `make csv-fuzz` / `csv-fuzz-smoke` (the v0.2 reader against v0.1), `make fork-audit`; `make ci` now also runs `csv-fuzz-smoke` and `fork-audit`, and `diff-smoke` runs every case through the chunked engine too.
 
-### Measured (PROVISIONAL; `plans/GATES_V02.md`, `bench/m2/results/w8-*.jsonl`)
+#### Measured (PROVISIONAL; `plans/GATES_V02.md`, `bench/m2/results/w8-*.jsonl`)
 
 Against the pinned v0.1 baseline (3612482), same driver, Apple M2 Pro, medians of 5 fresh interleaved processes, load 1.4-5.8 (so: PROVISIONAL), 1M rows, 1 thread unless noted:
 
@@ -96,24 +168,24 @@ Against the pinned v0.1 baseline (3612482), same driver, Apple M2 Pro, medians o
 - Copies: the compute phase of q1-q6 copies no array block (q3 and q5: under 5 kB; v0.1: 8-105 MB per query), exact counts from the instrumented build (`make m2-g6`).
 - Small inputs (PROVISIONAL, one loaded run made after the W8 measurements): the 1k-row q3 / q4 / q5 controls take 0.100 / 0.050 / 0.100 ms per query against v0.1's 0.175 / 0.325 / 0.200 (`bench/m2/results/ctlfix-prov.jsonl`). At W8 q3 and q5 had regressed 1.57x / 1.25x: every radix sort allocated and prefix-summed a 2^17-slot histogram regardless of n; inputs of up to 2^14 slots now sort with 8-bit digits (`Radix.s8`; `make radix-check`). Every other cell is equal or faster. `make radix-check` covers both radix paths on 90 inputs, including the dispatch boundary (16383, 16384, 16385, 32768 rows), the empty input and heavy duplicates.
 
-### Verified scope
+#### Verified scope
 
-241 laws in `LAWS.bend` (149 in 0.1.0; 82 added by the W8 close, 10 more by the B1 fix), all proven in `PROOF*.bend` over production functions, checked by `bend PROOF.bend` and `--verdict`; no axiom, no `@unsafe`, no open law. They fall in three groups of different weight, and the original gate G5 ("every changed proved production path keeps its theorem chain") is recorded as PARTIAL in `plans/GATES_V02.md`:
+241 laws in `LAWS.bend` (149 in M_01; 82 added by the W8 close, 10 more by the B1 fix), all proven in `PROOF*.bend` over production functions, checked by `bend PROOF.bend` and `--verdict`; no axiom, no `@unsafe`, no open law. They fall in three groups of different weight, and the original gate G5 ("every changed proved production path keeps its theorem chain") is recorded as PARTIAL in `plans/GATES_V02.md`:
 
-1. **Preserved theorems about existing functions** (the 149 v0.1 laws): none weakened, dropped or turned into a hypothesis; the Dictionary probe hypotheses stay conditional; `release_run` is unchanged. The evaluator typing theorems (`run_typed`, `eval_full_typed`, `eval_expr_typed`) are about `Eval.full` / `Eval.expr` / `Eval.run`, which since 0.2.0 the default `select` / `with_columns` / `filter` path no longer executes: those verbs run `Eval.runz(Eval.fuse(Eval.mark(compile)))`, and the equivalence of `runz` to `run` is not stated (`LAWS.bend` section 19 header).
+1. **Preserved theorems about existing functions** (the 149 v0.1 laws): none weakened, dropped or turned into a hypothesis; the Dictionary probe hypotheses stay conditional; `release_run` is unchanged. The evaluator typing theorems (`run_typed`, `eval_full_typed`, `eval_expr_typed`) are about `Eval.full` / `Eval.expr` / `Eval.run`, which since M_02 the default `select` / `with_columns` / `filter` path no longer executes: those verbs run `Eval.runz(Eval.fuse(Eval.mark(compile)))`, and the equivalence of `runz` to `run` is not stated (`LAWS.bend` section 19 header).
 2. **New local kernel and peephole theorems, each at stated instances and premises** (82 laws: `range_cell`, and sections 16-22): section 18's fused-kernel laws are each at ONE template instance while production instantiates the kernels for u32 / i32 / f32; section 19's peephole laws are one instance per peephole (`peep_f4_cell` was stated under a zero-payload premise; the post-review B1 fix below removed it); section 22 is 14 laws over 53 generated chunked wrappers, 4 of them (sum, min, max, popcount) on the chunked runner's path. New facts that matter beyond their kernels: `croom_of_cap` derives v0.1's `CRoom` hypothesis for per-leaf compaction; `sort_head_run` / `collect_obs` relate the physical runner `collect` executes to `Exec.run_pure`; `filter_select_run` proves the Filter + Select step.
 3. **Unproven integration**: the fused runner `Eval.runz` as a whole, the chunked runner's `CX.*` walks and the `Eval.runz` call in each leaf, the v0.2 reader, the string coder, the rank stage, the radix sort, n_unique, describe's fused pass, the balanced list forks, and native execution.
 
-- `make mutation-check`: 104 in-place mutations of production functions (14 in 0.1.0; 92 at the W8 close, 12 added by the B1 fix), all caught, the unmutated copy accepted.
+- `make mutation-check`: 104 in-place mutations of production functions (14 in M_01; 92 at the W8 close, 12 added by the B1 fix), all caught, the unmutated copy accepted.
 - Tested only (`DESIGN.md` 8.2): the fused runner `Eval.runz` (tests/eval_fused: 473 expressions against the unfused evaluator, and every differential), the chunked executor (no theorem relates it to `Exec.run_pure`), the v0.2 reader, the string coder, the rank stage, the radix sort pipeline, n_unique, describe's fused pass, the balanced list forks, and the native scheduler.
 
-### Testing
+#### Testing
 
-- 209 test programs (files) in `make test` (158 in 0.1.0; 203 at the W8 close; six added after the reviews: `tests/csv_bom.bend`, `tests/agg_median_zero_sign.bend` and four B1 regressions under `tests/regress/V02_B1_*`), 0 XFAIL. `docs/COVERAGE.md`: 816 operation x kind cells, 762 covered, 54 n/a with a reason, 0 missing.
+- 209 test programs (files) in `make test` (158 in M_01; 203 at the W8 close; six added after the reviews: `tests/csv_bom.bend`, `tests/agg_median_zero_sign.bend` and four B1 regressions under `tests/regress/V02_B1_*`), 0 XFAIL. `docs/COVERAGE.md`: 816 operation x kind cells, 762 covered, 54 n/a with a reason, 0 missing.
 - G1 differential counts are in `plans/GATES_V02.md` (generated cases through the reference and the chunked engine at four grains, Raw and Dictionary, deep plans, join stress, interpreter vs native; the CSV fuzz of the v0.2 reader against v0.1 at seven piece sizes).
-- `make ci` green on the 0.2.0 tree (time and result in `plans/STATUS.md` "W8").
+- `make ci` green on the M_02 tree (time and result in `plans/STATUS.md` "W8").
 
-### Deviations from the plan (each recorded in `DESIGN.md` 14, v0.2 entries)
+#### Deviations from the plan (each recorded in `DESIGN.md` 14, v0.2 entries)
 
 - G2 parse target revised at W0 from >= 4x to ">= 2x end to end and >= 4x on the fork phase" (`DESIGN.md` 17.8, 17.10 item 1): the File API returns cons lists on the IO thread, so the producer is serial. The G2 / G3 per-query thresholds of 16.8 / 17.8 were proposed at W0 and never frozen on a quiet machine.
 - The chunked engine converts lazily (only where an operator needs the other representation), runs group_by flat, and reports data errors by a flat rerun; the reader picks chunks or a flat frame by the scan's consumer. The facade takes no chunk frame (results are flattened once).
@@ -121,7 +193,7 @@ Against the pinned v0.1 baseline (3612482), same driver, Apple M2 Pro, medians o
 - Not done: W2.5 (owned-partition coder), W2.6 (Dict index on flat arrays), W7 (flat string storage; deferred per `DESIGN.md` 17.11), a chunked group_by or partitioned parallel sort.
 - D7 says the new layout stays opt-in "until G1-G6 pass"; the READER default was flipped on G1 (exact on every CSV test, the 10,000-case fuzz x 7 piece sizes, the adversarial corpus), G4 and provisional parse evidence while G2 / G3 are unevaluated (`DESIGN.md` 14 "W8"). The chunked ENGINE was not flipped. Nothing was removed (removal is a later explicit gate).
 
-### Not claimed
+#### Not claimed
 
 - That every kernel forks, or that thread scaling is general: sort, join, group_by and unique stages do not scale with threads; F32 sums are one sequential pass by contract (`DESIGN.md` 15.5.3); the CSV producer is serial (File API), so the parse scales about 2x end to end.
 - That any timing gate passed: no measurement was taken on a quiet machine.
@@ -130,33 +202,28 @@ Against the pinned v0.1 baseline (3612482), same driver, Apple M2 Pro, medians o
 - That the reader default flip was gated: it was taken before G2-G4 were evaluated (see Deviations).
 - Linux, x86-64 or hosted-CI portability: only macOS arm64 has ever run.
 - That hashing or the CSV reader is linear in the worst case (collisions, skew, long records): growth is reported per row and byte at 100k / 300k / 1M, not bounded.
-- A verified chunked engine, reader, coder or sort (tested only), Polars compatibility, native runtime correctness; everything 0.1.0 did not claim.
+- A verified chunked engine, reader, coder or sort (tested only), Polars compatibility, native runtime correctness; everything M_01 did not claim.
 
-### Known limits
+#### Known limits
 
 - The machine for every number: Apple M2 Pro (8 P + 4 E cores), shared with other jobs; Bend 2.0.36 native. Linux and hosted CI have never run.
 - Peak RSS and times are workload-dependent; small inputs (under 2^14 rows) run the flat loops with no fork.
 
-### Fixed after review
+#### Fixed after review
 
 - **B1 (release blocker, both v0.2 reviews): `fill_null(neg(x), 0.0)` answered -0.0 on the null rows of an f32 column** (`1 / that`: -inf instead of +inf), in every engine; v0.1 and Polars answer +0.0. F32 `neg` wrote -0.0 under its nulls and the F4 fusion read that slot as the fill value. Fixed at the producers (the numeric unary maps write the dtype default under a null in their own masked loop; a valid -0.0 stays -0.0), in F4 (it resets the null slots itself: one in-place pass, or one masked copy of a borrowed column) and at the facade (`from_columns` resets the null slots of a column built from raw buffers: a dirty u32 slot made the chunked engine's tree sum wrong). The data contract is v0.1's again, bit for bit. The audit of every producer and the remaining premises is `DESIGN.md` 14 "v0.2 post-review: the null-slot invariant".
 - Detection of the class: `src/p0.bend` checks that every null slot holds the dtype default (F32 by its bits); the differential driver fails any result, in any engine or chunk grain, that breaks it (class `P0`), the CSV fuzz compares it, and ~15 % of generated cases (all of them with `--features nullslot`) build a null producer feeding `fill_null` and a sign-sensitive consumer. Regressions: `tests/regress/V02_B1_*.bend`, including the review's two reproductions.
 - Proofs: 241 laws (was 231): F4's cell law no longer assumes the null slot holds the default, and new laws state that the masked neg / abs / sqrt leave null slots at the default; 104 mutation controls (was 92).
 
-## 0.1.0 (experimental release candidate, 2026-10-10; not yet published)
+### M_01: the first feature-complete candidate (plans/M_01.txt, 2026-10-10)
 
-The first release, an EXPERIMENTAL one (plans/STATUS.md Decisions, 2026-10-10): the default optimizer is R1 only (adjacent `head` merging), the Dictionary string assurance is conditional (`Probe` / `EncProbe` hypotheses; index completeness is not proven), and the remaining proof work is deferred (R2-R5 as theorems, the grouped scatter invariant for `group_by`, Dictionary completeness and rank order). The release claim: a small Bend-native dataframe library with tested ETL operations, verified core buffer operations and evaluator typing, and a result-preserving default optimizer under documented input and runtime assumptions.
+Planned at the time as an experimental first release (plans/STATUS.md Decisions, 2026-10-10) and never published: the default optimizer is R1 only (adjacent `head` merging), the Dictionary string assurance is conditional (`Probe` / `EncProbe` hypotheses; index completeness is not proven), and the remaining proof work is deferred (R2-R5 as theorems, the grouped scatter invariant for `group_by`, Dictionary completeness and rank order). The claim drafted for it: a small Bend-native dataframe library with tested ETL operations, verified core buffer operations and evaluator typing, and a result-preserving default optimizer under documented input and runtime assumptions.
 
 Not claimed: Polars compatibility, a verified engine, verified sort/group/join partitioning, CSV completeness, floating-point accuracy, native runtime correctness.
 
 Toolchain: Bend 2.0.36, Lean 4.34.0 (for `--verdict`), Polars 2.0.0 for the reference side (pins in `TOOLCHAIN`).
 
-### License
-
-Apache-2.0 (`LICENSE`, `NOTICE`). `src/csvparse.bend` is a fork of the MIT-licensed hub package
-`bend-csv-parser@0.1.0.1` and keeps its MIT notice.
-
-### What is in it
+#### What is in it
 
 - Five nullable dtypes (`Bool`, `U32`, `I32`, `F32`, `Str`) with no implicit casts; checked column and frame builders.
 - Eager verbs and lazy plans with one data semantics: `select`, `with_columns`, `filter`, `sort` (stable, multi-key), `group_by`, inner / left / semi / anti joins, `head`, `slice`, `tail`, `drop`, `rename`, `unique`, `concat_vertical`, `describe`, `show`, `dump`.
@@ -168,7 +235,7 @@ Apache-2.0 (`LICENSE`, `NOTICE`). `src/csvparse.bend` is a fork of the MIT-licen
 - A 2^23 row cap, checked before allocating.
 - `DF.dump`, a typed text form of a result (dtypes, validity, F32 bits, errors), used by the tests and the differential checks.
 
-### Verified scope
+#### Verified scope
 
 - 149 laws in `LAWS.bend`, all proven in `PROOF*.bend` over the production functions, checked by `bend PROOF.bend` and by `bend PROOF.bend --verdict` (BendTT). No axiom, no `@unsafe`, no open law.
 - The default optimizer (adjacent `head` merging, R1 only) is proven result-preserving over the production runner `Exec.run_pure` for every plan and environment (frames and errors), scan plans included (scans live in an unnamed `scans` field of the environment; `hmerge_keeps_scans` / `release_keeps_scans` prove the optimized plan reads the same scans in the same order). Not proven: that `Plan.schema` and `Exec.validate` agree for `Optimize.release(p)` and `p` (true by inspection), and the IO materialisation `Exec.mat` itself.
@@ -177,14 +244,14 @@ Apache-2.0 (`LICENSE`, `NOTICE`). `src/csvparse.bend` is a fork of the MIT-licen
 - Hypotheses the laws take rather than prove: row counts that fit the buffers (`CRoom`, `CatFits`), and for Dictionaries that each hash probe stops at an empty slot or at the key. `DESIGN.md` section 8 has the assurance matrix and the exact list of what is tested but not proven.
 - Mutation evidence: eleven fixtures (`tests/proof_negative/`) mutate a renamed copy of a production function and try the production proof term against it (five are name-sensitive per their headers: an unmutated renamed copy is refused too, so they show a copy is rejected); and `make mutation-check` mutates 14 production functions in place and requires `bend PROOF.bend` to fail each time (all 14 caught).
 
-### Testing
+#### Testing
 
 - 158 test programs (files; each holds many cases, so this is not an assertion count) in `make test`, regression tests for every defect of the two pre-release reviews, and `docs/COVERAGE.md`, the operation x case matrix (774 cells: 727 covered, 47 n/a with a stated reason, 0 missing) with a def-call report over `src/`.
 - Goldens for six benchmark queries at 1k, 100k and 1M rows: q1, q2, q4, q5 equal Polars' output, q6 is within rtol 5e-5, and q3 is checked against the exact-rational F32 reference (`bench/golden.py`), not Polars (Polars' grouped f32 sum differs by an ulp or two: tiny fixture `inland`, Polars 96373.4141, reference 96373.4062). `make bench-check` covers 1k and 100k; 1M needs `CHECK_MAX=1000000 BENCH_MODE=check scripts/bench.sh`; the tracked 1k golden (`bench/golden/n1000`) is regenerated by each run.
 - `make ci` runs: toolchain-check, check, runner-check, diff-driver-check, test, proofs, verdict, mutation-check, bench-check, diff-smoke (200 strict cases each in Raw and Dictionary storage, then the F32 reduction check), consumer-check and coverage. Every differential and reduction failure exits 1. Larger runs (`make diff`, `make diff-reduce`) are manual.
 - A differential generator: eager vs raw-lazy vs optimized-lazy, and against a Polars-based oracle, in Raw and Dictionary string storage (22,000 generated cases in the M6 run, 0 failing), plus F32 reductions against an exact reference (`make diff-reduce`).
 
-### Fixed after review
+#### Fixed after review
 
 Two independent reviews of the first release candidate (`plans/REVIEW_V01_FABLE.txt`, `plans/REVIEW_V01_ASTRA.txt`) led to these changes before publication; `plans/STATUS.md` lists every finding and its disposition.
 
@@ -196,7 +263,7 @@ Two independent reviews of the first release candidate (`plans/REVIEW_V01_FABLE.
 - Documentation: the benchmark equivalence claim (q3), the `bench-check` scope, the exact scope of `release_run`, the mutation-evidence wording, the "failures fail the build" claim, test counting (files, not assertions), CI and platform status, and several stale comments (`LAWS.bend`, `tests/regress/B03_b_*`, `bench/diff/README.md`) were corrected.
 - License: Apache-2.0 (noted above).
 
-### Known limits
+#### Known limits
 
 - Performance at 1M rows on one thread: 0.9-17x Polars' time (2-3.5x on the string-keyed queries); no thread scaling (12 threads ~1.0x of 1); peak RSS about 1.3 GB vs Polars' 168 MB; group_by / unique / join over fully distinct string keys 30-330x slower than Polars. Numbers in `bench/README.md`.
 - Not proven, tested only: `optimize_full`, the cell values of most evaluator operations, sort, group_by and join, CSV, every floating-point result, Dictionary lookups that answer "absent".

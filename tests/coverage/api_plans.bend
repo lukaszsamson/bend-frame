@@ -423,7 +423,8 @@ def main() -> IO(Unit):
 #|-- optimize
 #|SELECT [col("id1")]
 #|  WITH_COLUMNS [(col("id") + lit(1)).alias("id1")]
-#|    SOURCE p [id:u32, g:str, v:f32]
+#|    SELECT [col("id")]
+#|      SOURCE p [id:u32, g:str, v:f32]
 #|-- optimize_full
 #|SELECT [col("id1")]
 #|  WITH_COLUMNS [(col("id") + lit(1)).alias("id1")]
@@ -438,7 +439,8 @@ def main() -> IO(Unit):
 #|-- optimize
 #|GROUP_BY [col("g")] AGG [lit(1).len(), col("v").max().alias("vmax")] MAINTAIN_ORDER
 #|  SORT BY [col("g")]
-#|    SOURCE p [id:u32, g:str, v:f32]
+#|    SELECT [col("g"), col("v")]
+#|      SOURCE p [id:u32, g:str, v:f32]
 #|-- optimize_full
 #|GROUP_BY [col("g")] AGG [lit(1).len(), col("v").max().alias("vmax")] MAINTAIN_ORDER
 #|  SORT BY [col("g")]
@@ -550,7 +552,8 @@ def main() -> IO(Unit):
 #|-- optimize
 #|HEAD 2
 #|  SELECT [col("id"), (col("v") * lit(2)).alias("v2")]
-#|    SOURCE p [id:u32, g:str, v:f32]
+#|    SELECT [col("id"), col("v")]
+#|      SOURCE p [id:u32, g:str, v:f32]
 #|-- optimize_full
 #|SELECT [col("id"), (col("v") * lit(2)).alias("v2")]
 #|  HEAD 2
@@ -565,7 +568,8 @@ def main() -> IO(Unit):
 #|-- optimize
 #|HEAD 0
 #|  SELECT [lit(1).alias("one")]
-#|    SOURCE p [id:u32, g:str, v:f32]
+#|    SELECT [col("id")]
+#|      SOURCE p [id:u32, g:str, v:f32]
 #|-- optimize_full
 #|HEAD 0
 #|  SELECT [lit(1).alias("one")]

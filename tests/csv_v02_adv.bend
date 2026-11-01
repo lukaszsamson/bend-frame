@@ -12,6 +12,8 @@
 #   explicit schema, row cap 3         piece 31
 # The line is `<case>: ok <runs> | <the v0.1 outcome of the first configuration>` when every run gave
 # v0.1's dump and storage, else the first run that differs.
+# Since the v0.1 reader's removal (DESIGN.md 14 "Pre-release") the reference is the reader at 1 MiB pieces;
+# `ref <hash>` pins every reference text to the one the v0.1 reader gave (the goldens were frozen from it).
 import Base
 import ./../src/strs.bend as ST
 import ./../bench/w6/cases.bend as CS
@@ -46,109 +48,109 @@ def main() -> IO(Unit):
   do IO<Unit>:
     args : List<String> <- IO.args()
     Adv.loop(T.Run.only(args), CS.Cases.all())
-#|quoted_nl: ok 16 | frame| height 120| width 3
-#|quoted_nl_crlf: ok 16 | frame| height 120| width 3
-#|quoted_nl_nofinal: ok 16 | frame| height 120| width 3
-#|cr_soup: ok 16 | frame| height 4| width 2
-#|cr_only_data: ok 16 | frame| height 1| width 2
-#|crlf_plain: ok 16 | frame| height 150| width 3
-#|utf8_typed: ok 16 | frame| height 120| width 4
-#|utf8_bare: ok 16 | frame| height 150| width 2
-#|long_records: ok 16 | frame| height 12| width 2
-#|huge_record: ok 16 | frame| height 3| width 2
-#|blanks_w2: ok 16 | frame| height 2| width 2
-#|blanks_w1: ok 16 | frame| height 5| width 1
-#|blanks_w1_str: ok 16 | frame| height 7| width 1
-#|blanks_only: ok 16 | error InvalidOperation: csv schema: 1 dtypes for 0 columns
-#|lead_blank: ok 16 | frame| height 1| width 2
-#|lead_blank_nohdr: ok 16 | frame| height 2| width 2
-#|empty: ok 16 | error InvalidOperation: csv schema: 2 dtypes for 0 columns
-#|header_only: ok 16 | frame| height 0| width 2
-#|header_only_nonl: ok 16 | frame| height 0| width 2
-#|no_final_nl: ok 16 | frame| height 2| width 2
-#|final_sep: ok 16 | frame| height 2| width 2
-#|headerless: ok 16 | frame| height 3| width 2
-#|bad_utf8: ok 16 | frame| height 6| width 2
-#|mal_bare_quote_late: ok 16 | error ParseError at line 0: malformed csv
-#|mal_after_close: ok 16 | error ParseError at line 0: malformed csv
-#|mal_unclosed: ok 16 | error ParseError at line 0: malformed csv
-#|mal_unclosed_eof_q: ok 16 | error ParseError at line 0: malformed csv
-#|mal_cr_quote: ok 16 | error ParseError at line 0: malformed csv
-#|mal_closing_cr_text: ok 16 | error ParseError at line 0: malformed csv
-#|mal_and_ragged: ok 16 | error ParseError at line 0: malformed csv
-#|mal_in_second_half: ok 16 | error ParseError at line 0: malformed csv
-#|ragged_short: ok 16 | error ParseError at line 122: expected 3 fields, got 2
-#|ragged_long_first: ok 16 | error ParseError at line 42: expected 3 fields, got 4
-#|ragged_after_bad: ok 16 | error ParseError at line 153: expected 2 fields, got 3
-#|ragged_w1: ok 16 | error ParseError at line 3: expected 1 fields, got 2
-#|ragged_blank_ok: ok 16 | error ParseError at line 4: expected 2 fields, got 1
-#|bad_cols: ok 16 | error ParseError at line 163: column a: cannot parse "q" as u32
-#|bad_cols_later_row: ok 16 | error ParseError at line 202: column a: cannot parse "x" as u32
-#|bad_cols_earlier_other: ok 16 | error ParseError at line 203: column a: cannot parse "x" as u32
-#|bad_quoted_text: ok 16 | error ParseError at line 3: column a: cannot parse "1"2" as u32
-#|bad_i32_text: ok 16 | error ParseError at line 3: column a: cannot parse "-" as i32
-#|f32_edges: ok 16 | frame| height 49| width 1
-#|f32_one0: ok 16 | error ParseError at line 3: column x: cannot parse "." as f32
-#|f32_one1: ok 16 | error ParseError at line 3: column x: cannot parse "+" as f32
-#|f32_one2: ok 16 | error ParseError at line 3: column x: cannot parse "-" as f32
-#|f32_one3: ok 16 | error ParseError at line 3: column x: cannot parse "1.5e" as f32
-#|f32_one4: ok 16 | error ParseError at line 3: column x: cannot parse "e5" as f32
-#|f32_one5: ok 16 | error ParseError at line 3: column x: cannot parse "0x10" as f32
-#|f32_one6: ok 16 | error ParseError at line 3: column x: cannot parse "1_0" as f32
-#|f32_one7: ok 16 | error ParseError at line 3: column x: cannot parse "٣" as f32
-#|f32_one8: ok 16 | error ParseError at line 3: column x: cannot parse "1 2" as f32
-#|f32_one9: ok 16 | error ParseError at line 3: column x: cannot parse "1.2.3" as f32
-#|f32_one10: ok 16 | error ParseError at line 3: column x: cannot parse "--1" as f32
-#|f32_one11: ok 16 | error ParseError at line 3: column x: cannot parse "+-1" as f32
-#|f32_one12: ok 16 | error ParseError at line 3: column x: cannot parse "1e" as f32
-#|f32_one13: ok 16 | error ParseError at line 3: column x: cannot parse "nan(0x1)" as f32
-#|f32_one14: ok 16 | error ParseError at line 3: column x: cannot parse "infinity1" as f32
-#|f32_one15: ok 16 | error ParseError at line 3: column x: cannot parse "- 1" as f32
-#|f32_one16: ok 16 | frame| height 2| width 1
-#|f32_one17: ok 16 | error ParseError at line 3: column x: cannot parse ".e3" as f32
-#|f32_random_fast: ok 16 | frame| height 1500| width 1
-#|u32_ok: ok 16 | frame| height 8| width 1
-#|u32_bad0: ok 16 | error ParseError at line 3: column x: cannot parse "4294967296" as u32
-#|u32_bad1: ok 16 | error ParseError at line 3: column x: cannot parse "5-" as u32
-#|u32_bad2: ok 16 | error ParseError at line 3: column x: cannot parse "1 2" as u32
-#|u32_bad3: ok 16 | error ParseError at line 3: column x: cannot parse "9999999999" as u32
-#|u32_bad4: ok 16 | error ParseError at line 3: column x: cannot parse "1.0" as u32
-#|u32_bad5: ok 16 | error ParseError at line 3: column x: cannot parse "0x1" as u32
-#|u32_bad6: ok 16 | error ParseError at line 3: column x: cannot parse "-5" as u32
-#|u32_bad7: ok 16 | error ParseError at line 3: column x: cannot parse "+5" as u32
-#|i32_ok: ok 16 | frame| height 12| width 1
-#|u32_overflow: ok 16 | error ParseError at line 3: column x: cannot parse "4294967296" as u32
-#|u32_plus: ok 16 | error ParseError at line 3: column x: cannot parse "+5" as u32
-#|u32_sign: ok 16 | error ParseError at line 3: column x: cannot parse "-5" as u32
-#|u32_unicode_digit: ok 16 | error ParseError at line 3: column x: cannot parse "٣" as u32
-#|i32_edges: ok 16 | error ParseError at line 4: column x: cannot parse "2147483648" as i32
-#|i32_bad0: ok 16 | error ParseError at line 3: column x: cannot parse "-" as i32
-#|i32_bad1: ok 16 | error ParseError at line 3: column x: cannot parse "+5" as i32
-#|i32_bad2: ok 16 | error ParseError at line 3: column x: cannot parse "--5" as i32
-#|i32_bad3: ok 16 | error ParseError at line 3: column x: cannot parse "- 5" as i32
-#|i32_bad4: ok 16 | error ParseError at line 3: column x: cannot parse "-5x" as i32
-#|i32_bad5: ok 16 | error ParseError at line 3: column x: cannot parse "5-" as i32
-#|i32_bad6: ok 16 | error ParseError at line 3: column x: cannot parse "- " as i32
-#|i32_bad7: ok 16 | error ParseError at line 3: column x: cannot parse "1 2" as i32
-#|i32_bad8: ok 16 | error ParseError at line 3: column x: cannot parse "-4294967296" as i32
-#|i32_bad9: ok 16 | error ParseError at line 3: column x: cannot parse "٣" as i32
-#|bool_edges: ok 16 | frame| height 8| width 1
-#|bool_bad: ok 16 | error ParseError at line 3: column x: cannot parse "TRUE" as bool
-#|bool_bad2: ok 16 | error ParseError at line 3: column x: cannot parse "true1" as bool
-#|bool_bad3: ok 16 | error ParseError at line 3: column x: cannot parse "1" as bool
-#|escaped_numeric: ok 16 | frame| height 1| width 2
-#|escaped_f32_bad: ok 16 | error ParseError at line 2: column y: cannot parse "1"2" as f32
-#|nulls_all_types: ok 16 | frame| height 4| width 5
-#|quote_edges: ok 16 | frame| height 120| width 2
-#|fnv_collide: ok 16 | frame| height 160| width 2
-#|fnv_collide_q: ok 16 | frame| height 120| width 2
-#|wide: ok 16 | frame| height 60| width 12
-#|tab_sep: ok 16 | frame| height 80| width 3
-#|semicolon: ok 16 | frame| height 80| width 2
-#|sep_dot: ok 16 | frame| height 60| width 2
-#|sep_minus: ok 16 | frame| height 60| width 2
-#|sep_pipe: ok 16 | frame| height 2| width 2
-#|v03_late_null: ok 16 | frame| height 400| width 5
-#|v03_valid_masked_valid: ok 16 | frame| height 300| width 2
-#|v03_quoted_empty_late: ok 16 | frame| height 260| width 2
-#|v03_all_null_col: ok 16 | frame| height 120| width 2
+#|quoted_nl: ok 16 ref 3660848361 | frame| height 120| width 3
+#|quoted_nl_crlf: ok 16 ref 3660848361 | frame| height 120| width 3
+#|quoted_nl_nofinal: ok 16 ref 3660848361 | frame| height 120| width 3
+#|cr_soup: ok 16 ref 3243194086 | frame| height 4| width 2
+#|cr_only_data: ok 16 ref 2120433875 | frame| height 1| width 2
+#|crlf_plain: ok 16 ref 337580950 | frame| height 150| width 3
+#|utf8_typed: ok 16 ref 4210816723 | frame| height 120| width 4
+#|utf8_bare: ok 16 ref 2160798226 | frame| height 150| width 2
+#|long_records: ok 16 ref 2809758723 | frame| height 12| width 2
+#|huge_record: ok 16 ref 4193401929 | frame| height 3| width 2
+#|blanks_w2: ok 16 ref 16512028 | frame| height 2| width 2
+#|blanks_w1: ok 16 ref 4062106745 | frame| height 5| width 1
+#|blanks_w1_str: ok 16 ref 227259790 | frame| height 7| width 1
+#|blanks_only: ok 16 ref 1285924934 | error InvalidOperation: csv schema: 1 dtypes for 0 columns
+#|lead_blank: ok 16 ref 2165247930 | frame| height 1| width 2
+#|lead_blank_nohdr: ok 16 ref 738704368 | frame| height 2| width 2
+#|empty: ok 16 ref 3633847768 | error InvalidOperation: csv schema: 2 dtypes for 0 columns
+#|header_only: ok 16 ref 3793825833 | frame| height 0| width 2
+#|header_only_nonl: ok 16 ref 3793825833 | frame| height 0| width 2
+#|no_final_nl: ok 16 ref 3483971356 | frame| height 2| width 2
+#|final_sep: ok 16 ref 3793080177 | frame| height 2| width 2
+#|headerless: ok 16 ref 741037692 | frame| height 3| width 2
+#|bad_utf8: ok 16 ref 1693231518 | frame| height 6| width 2
+#|mal_bare_quote_late: ok 16 ref 2149500661 | error ParseError at line 0: malformed csv
+#|mal_after_close: ok 16 ref 2149500661 | error ParseError at line 0: malformed csv
+#|mal_unclosed: ok 16 ref 2149500661 | error ParseError at line 0: malformed csv
+#|mal_unclosed_eof_q: ok 16 ref 2149500661 | error ParseError at line 0: malformed csv
+#|mal_cr_quote: ok 16 ref 2149500661 | error ParseError at line 0: malformed csv
+#|mal_closing_cr_text: ok 16 ref 2149500661 | error ParseError at line 0: malformed csv
+#|mal_and_ragged: ok 16 ref 2149500661 | error ParseError at line 0: malformed csv
+#|mal_in_second_half: ok 16 ref 2149500661 | error ParseError at line 0: malformed csv
+#|ragged_short: ok 16 ref 2327516365 | error ParseError at line 122: expected 3 fields, got 2
+#|ragged_long_first: ok 16 ref 505512197 | error ParseError at line 42: expected 3 fields, got 4
+#|ragged_after_bad: ok 16 ref 1355268141 | error ParseError at line 153: expected 2 fields, got 3
+#|ragged_w1: ok 16 ref 2123372173 | error ParseError at line 3: expected 1 fields, got 2
+#|ragged_blank_ok: ok 16 ref 3511307525 | error ParseError at line 4: expected 2 fields, got 1
+#|bad_cols: ok 16 ref 539321988 | error ParseError at line 163: column a: cannot parse "q" as u32
+#|bad_cols_later_row: ok 16 ref 3276094840 | error ParseError at line 202: column a: cannot parse "x" as u32
+#|bad_cols_earlier_other: ok 16 ref 4211621520 | error ParseError at line 203: column a: cannot parse "x" as u32
+#|bad_quoted_text: ok 16 ref 290885805 | error ParseError at line 3: column a: cannot parse "1"2" as u32
+#|bad_i32_text: ok 16 ref 3409588185 | error ParseError at line 3: column a: cannot parse "-" as i32
+#|f32_edges: ok 16 ref 4141828327 | frame| height 49| width 1
+#|f32_one0: ok 16 ref 1854493042 | error ParseError at line 3: column x: cannot parse "." as f32
+#|f32_one1: ok 16 ref 3976550503 | error ParseError at line 3: column x: cannot parse "+" as f32
+#|f32_one2: ok 16 ref 4176545517 | error ParseError at line 3: column x: cannot parse "-" as f32
+#|f32_one3: ok 16 ref 2781327289 | error ParseError at line 3: column x: cannot parse "1.5e" as f32
+#|f32_one4: ok 16 ref 4267603378 | error ParseError at line 3: column x: cannot parse "e5" as f32
+#|f32_one5: ok 16 ref 1553197369 | error ParseError at line 3: column x: cannot parse "0x10" as f32
+#|f32_one6: ok 16 ref 408020328 | error ParseError at line 3: column x: cannot parse "1_0" as f32
+#|f32_one7: ok 16 ref 3236215583 | error ParseError at line 3: column x: cannot parse "٣" as f32
+#|f32_one8: ok 16 ref 2848276239 | error ParseError at line 3: column x: cannot parse "1 2" as f32
+#|f32_one9: ok 16 ref 2348347000 | error ParseError at line 3: column x: cannot parse "1.2.3" as f32
+#|f32_one10: ok 16 ref 2841395767 | error ParseError at line 3: column x: cannot parse "--1" as f32
+#|f32_one11: ok 16 ref 34528397 | error ParseError at line 3: column x: cannot parse "+-1" as f32
+#|f32_one12: ok 16 ref 2191882262 | error ParseError at line 3: column x: cannot parse "1e" as f32
+#|f32_one13: ok 16 ref 933595457 | error ParseError at line 3: column x: cannot parse "nan(0x1)" as f32
+#|f32_one14: ok 16 ref 1834037849 | error ParseError at line 3: column x: cannot parse "infinity1" as f32
+#|f32_one15: ok 16 ref 1839273588 | error ParseError at line 3: column x: cannot parse "- 1" as f32
+#|f32_one16: ok 16 ref 209590927 | frame| height 2| width 1
+#|f32_one17: ok 16 ref 3693775730 | error ParseError at line 3: column x: cannot parse ".e3" as f32
+#|f32_random_fast: ok 16 ref 2551723220 | frame| height 1500| width 1
+#|u32_ok: ok 16 ref 2215534026 | frame| height 8| width 1
+#|u32_bad0: ok 16 ref 2450538927 | error ParseError at line 3: column x: cannot parse "4294967296" as u32
+#|u32_bad1: ok 16 ref 2653460731 | error ParseError at line 3: column x: cannot parse "5-" as u32
+#|u32_bad2: ok 16 ref 232618884 | error ParseError at line 3: column x: cannot parse "1 2" as u32
+#|u32_bad3: ok 16 ref 4012670259 | error ParseError at line 3: column x: cannot parse "9999999999" as u32
+#|u32_bad4: ok 16 ref 2982289912 | error ParseError at line 3: column x: cannot parse "1.0" as u32
+#|u32_bad5: ok 16 ref 2230849450 | error ParseError at line 3: column x: cannot parse "0x1" as u32
+#|u32_bad6: ok 16 ref 3664134075 | error ParseError at line 3: column x: cannot parse "-5" as u32
+#|u32_bad7: ok 16 ref 1409681701 | error ParseError at line 3: column x: cannot parse "+5" as u32
+#|i32_ok: ok 16 ref 669934795 | frame| height 12| width 1
+#|u32_overflow: ok 16 ref 2450538927 | error ParseError at line 3: column x: cannot parse "4294967296" as u32
+#|u32_plus: ok 16 ref 1409681701 | error ParseError at line 3: column x: cannot parse "+5" as u32
+#|u32_sign: ok 16 ref 3664134075 | error ParseError at line 3: column x: cannot parse "-5" as u32
+#|u32_unicode_digit: ok 16 ref 760566556 | error ParseError at line 3: column x: cannot parse "٣" as u32
+#|i32_edges: ok 16 ref 2771109939 | error ParseError at line 4: column x: cannot parse "2147483648" as i32
+#|i32_bad0: ok 16 ref 3409759122 | error ParseError at line 3: column x: cannot parse "-" as i32
+#|i32_bad1: ok 16 ref 2748190857 | error ParseError at line 3: column x: cannot parse "+5" as i32
+#|i32_bad2: ok 16 ref 3126518356 | error ParseError at line 3: column x: cannot parse "--5" as i32
+#|i32_bad3: ok 16 ref 1312719111 | error ParseError at line 3: column x: cannot parse "- 5" as i32
+#|i32_bad4: ok 16 ref 3174467261 | error ParseError at line 3: column x: cannot parse "-5x" as i32
+#|i32_bad5: ok 16 ref 1033520335 | error ParseError at line 3: column x: cannot parse "5-" as i32
+#|i32_bad6: ok 16 ref 3499603492 | error ParseError at line 3: column x: cannot parse "- " as i32
+#|i32_bad7: ok 16 ref 1449654304 | error ParseError at line 3: column x: cannot parse "1 2" as i32
+#|i32_bad8: ok 16 ref 1709605596 | error ParseError at line 3: column x: cannot parse "-4294967296" as i32
+#|i32_bad9: ok 16 ref 2259263496 | error ParseError at line 3: column x: cannot parse "٣" as i32
+#|bool_edges: ok 16 ref 485088866 | frame| height 8| width 1
+#|bool_bad: ok 16 ref 3421463317 | error ParseError at line 3: column x: cannot parse "TRUE" as bool
+#|bool_bad2: ok 16 ref 2548782478 | error ParseError at line 3: column x: cannot parse "true1" as bool
+#|bool_bad3: ok 16 ref 1717965546 | error ParseError at line 3: column x: cannot parse "1" as bool
+#|escaped_numeric: ok 16 ref 4246562446 | frame| height 1| width 2
+#|escaped_f32_bad: ok 16 ref 3542265137 | error ParseError at line 2: column y: cannot parse "1"2" as f32
+#|nulls_all_types: ok 16 ref 3286456878 | frame| height 4| width 5
+#|quote_edges: ok 16 ref 3898196625 | frame| height 120| width 2
+#|fnv_collide: ok 16 ref 2368566181 | frame| height 160| width 2
+#|fnv_collide_q: ok 16 ref 146275483 | frame| height 120| width 2
+#|wide: ok 16 ref 745368810 | frame| height 60| width 12
+#|tab_sep: ok 16 ref 578405736 | frame| height 80| width 3
+#|semicolon: ok 16 ref 973868724 | frame| height 80| width 2
+#|sep_dot: ok 16 ref 1422625908 | frame| height 60| width 2
+#|sep_minus: ok 16 ref 3019394772 | frame| height 60| width 2
+#|sep_pipe: ok 16 ref 248460768 | frame| height 2| width 2
+#|v03_late_null: ok 16 ref 1145691702 | frame| height 400| width 5
+#|v03_valid_masked_valid: ok 16 ref 2163582799 | frame| height 300| width 2
+#|v03_quoted_empty_late: ok 16 ref 3017533742 | frame| height 260| width 2
+#|v03_all_null_col: ok 16 ref 2605060937 | frame| height 120| width 2

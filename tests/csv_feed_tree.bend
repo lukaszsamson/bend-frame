@@ -1,3 +1,5 @@
+# (Since the v0.1 reader's removal, DESIGN.md 14 "Pre-release", every read below is the reader's, at the tiny
+# and big piece sizes; the expectations, frozen from the v0.1 reader, are unchanged. The original intent:)
 # The v0.1 streaming reader feeds the column builders of a chunk through ONE balanced fork over a tree of
 # (builder, cells) pairs (CBs.feed -> FJ.feed, DESIGN.md 16.10: a forking def matches and forks, nothing else
 # before the parallel let; the old 1-vs-rest chain down the column list is gone). The tree's shape depends on
@@ -56,7 +58,7 @@ def ft.write(+path: String, +text: String) -> IO(Unit):
 
 def ft.rd1(+path: String, +chunk: U32) -> IO(String):
   do IO<String>:
-    r : E.ResT(C.Frame) <- V.Csv.read_full(path, V.Csv.default(), [], ST.EncRaw{}, chunk, 8388608)
+    r : E.ResT(C.Frame) <- V.Csv.read_v02_full(path, V.Csv.default(), [], ST.EncRaw{}, chunk, 8388608)
     return DF.dump(r)
 
 def ft.rd2(+path: String, +piece: U32) -> IO(String):

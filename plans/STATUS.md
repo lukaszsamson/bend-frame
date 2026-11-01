@@ -544,3 +544,17 @@ machine), `bench/mem/probe.bend` (arrays, lists, one CSV read) and the bench/tpc
   fork-audit (68 lets, 0 findings), radix-check 90, tpch-check (selftest 19/19, q1-q18 ok), consumer-check, coverage-check.
 - Fresh-seed `make diff` (N = 1000 each, --strict --chunked): seeds 20261101 Raw, 20261102 Dict, 20261103 nullslot,
   20261104 Dict + deep: 0 failing cases, 0 oracle errors each (G2).
+
+## Pre-release decisions applied (2026-11-01; the user: "we prepare for v0.1")
+Nothing has shipped; 0.1.0 is the first release and M_01-M_03 were internal milestones (CHANGELOG restructured:
+one "0.1.0 (unreleased)" entry, the milestones under "Development history"; README and DESIGN carry the naming note).
+- D4 now: the v0.1 reader removed (src/csv.bend 3696 -> ~2700 lines; facade engine selectors gone). Its evidence was
+  frozen first: `ref <hash>` goldens in the cross-reader tests and bench/diff/golden/ for the fuzz smoke seeds; the
+  text-level tests read through tests/lib/ctext.bend with unchanged expectations. A non-ASCII separator is now an
+  InvalidOperation (the v0.1 reader was its fall back).
+- D2: BOM dropped (header step + scan prefix), tests/csv_bom.bend rewritten (hand-derived).
+- D3: no reduced-assurance wording (verdict passes).
+- D1: projection pushdown is the default (`Optimize.default`): PDS-H sf 0.2, one thread, 339 -> 270 ms, never slower;
+  tested, not proven; the claim says so.
+- Found and fixed on the way: a thread race in bench/diff/csvgen.py's adversarial corpus (cases could depend on timing).
+- Still needs the user: a quiet-machine timing run, a git remote for hosted CI, the hub publish of 0.1.0.

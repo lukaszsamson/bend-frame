@@ -6,7 +6,8 @@ Every case is a CSV (bytes) plus a MANIFEST line `name schema header sep`: schem
 I i32, F f32, B bool, S str; header 1 / 0; sep the separator's code point. tests/csvprod.bend
 (region starts == the reference parser's record starts, every piece size) and tests/csvlane.bend
 (typed columns, errors and lines == the v0.1 reader, every piece size) read the MANIFEST; the
-expected values are NEVER stored: the reference is Csv.read_full / csvparse at test time. The
+expected values are NEVER stored: the reference was Csv.read_full / csvparse at test time (since the v0.1
+reader's removal: the reader at 1 MiB pieces, pinned by `ref <hash>` goldens frozen from it). The
 cases are the W0 spike's tools/adv.py set (T5b) plus the W6 additions (CRLF split at every
 offset, multibyte UTF-8 everywhere, doubled quotes at piece edges, i32 edges, blank-line and
 single-column cases, other separators, a record far longer than any piece, unterminated last

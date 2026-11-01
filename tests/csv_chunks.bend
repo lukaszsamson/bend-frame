@@ -14,7 +14,7 @@ import ./../src/strs.bend as ST
 
 def rd(+path: String, +opts: V.CsvOpts, +ts: List<&2, D.DType>, enc: ST.StrEnc, +chunk: U32) -> IO(String):
   do IO<String>:
-    r : E.ResT(C.Frame) <- V.Csv.read_full(path, opts, ts, enc, chunk, 8388608)
+    r : E.ResT(C.Frame) <- V.Csv.read_v02_full(path, opts, ts, enc, chunk, 8388608)
     return DF.dump(r)
 
 def verdict(+tag: String, +base: String, +xs: List<&2, String>) -> String:
@@ -65,7 +65,7 @@ def st.r(r: E.ResT(C.Frame)) -> String:
 
 def storage(+tag: String, +path: String, enc: ST.StrEnc, +chunk: U32) -> IO(Unit):
   do IO<Unit>:
-    r : E.ResT(C.Frame) <- V.Csv.read_full(path, V.Csv.default(), [], enc, chunk, 8388608)
+    r : E.ResT(C.Frame) <- V.Csv.read_v02_full(path, V.Csv.default(), [], enc, chunk, 8388608)
     IO.print(tag ++ ":" ++ st.r(r))
 
 def o(+hdr: Bool, +inf: U32) -> V.CsvOpts:

@@ -1,4 +1,4 @@
-# M3: Csv.parse -- quotes, escaped quotes, CRLF, empty fields, trailing newline, inference,
+# M3: reading CSV text (tests/lib/ctext.bend: the text through a file) -- quotes, escaped quotes, CRLF, empty fields, trailing newline, inference,
 # explicit (strict) dtypes, errors, Csv.render round trip.
 import Base
 import ./../src/dtype.bend as D
@@ -6,6 +6,7 @@ import ./../src/err.bend as E
 import ./../src/column.bend as C
 import ./../src/fmt.bend as F
 import ./../src/csv.bend as V
+import ./lib/ctext.bend as X
 
 def snd(r: C.Frame & String) -> String:
   (f, s) = r
@@ -42,15 +43,22 @@ def dims(r: E.ResT(C.Frame)) -> String:
       dims.a(C.Frame.height(f))
 
 # parse -> render -> parse -> render: the two renders agree
-def again(r: E.ResT(C.Frame)) -> String:
+def again(r: E.ResT(C.Frame)) -> IO(String):
   match r:
     case Fail{e}:
-      "error: " ++ E.Err.show(e)
+      IO.pure(String, "error: " ++ E.Err.show(e))
     case Done{f}:
-      rend(V.Csv.parse(snd(V.Csv.render(f, None{})), V.Csv.default()))
+      IO.bind(E.ResT(C.Frame), String, X.Tx.parse("parse_again", snd(V.Csv.render(f, None{})), V.Csv.default()), r2 => IO.pure(String, rend(r2)))
 
 def eq(a: String, b: String) -> String:
   Bool.show(String.eq(a, b))
+
+def round(+text: String) -> IO(Unit):
+  do IO<Unit>:
+    r1 : E.ResT(C.Frame) <- X.Tx.parse("parse", text, V.Csv.default())
+    r2 : E.ResT(C.Frame) <- X.Tx.parse("parse", text, V.Csv.default())
+    +b : String <- again(r2)
+    IO.print(eq(rend(r1), b))
 
 def fields.go(xs: List<&2, V.CsvField>) -> String:
   match xs:
@@ -68,28 +76,28 @@ def fields(r: E.Res(List<&2, V.CsvField>)) -> String:
 
 def main() -> IO(Unit):
   do IO<Unit>:
-    IO.print(show(V.Csv.parse("id,name,score,flag\n1,ann,1.5,true\n2,\"b,\"\"ob\",,false\r\n3,,7,True\n", V.Csv.default())))
-    IO.print(rend(V.Csv.parse("id,name,score,flag\n1,ann,1.5,true\n2,\"b,\"\"ob\",,false\r\n3,,7,True\n", V.Csv.default())))
-    IO.print(eq(rend(V.Csv.parse("id,name,score,flag\n1,ann,1.5,true\n2,\"b,\"\"ob\",,false\r\n3,,7,True\n", V.Csv.default())), again(V.Csv.parse("id,name,score,flag\n1,ann,1.5,true\n2,\"b,\"\"ob\",,false\r\n3,,7,True\n", V.Csv.default()))))
-    IO.print(dims(V.Csv.parse("a,b\n1,2\n3,4", V.Csv.default())))
-    IO.print(dims(V.Csv.parse("a,b\n", V.Csv.default())))
-    IO.print(show(V.Csv.parse("a,b\n", V.Csv.default())))
-    IO.print(dims(V.Csv.parse("", V.Csv.default())))
-    IO.print(show(V.Csv.parse("1,2\n3,\n", V.CsvOpts{',', False{}, 100})))
-    IO.print(show(V.Csv.parse("a;b\n\"x;y\";-5\n;7\n", V.CsvOpts{';', True{}, 0})))
-    IO.print(show(V.Csv.parse("i,j,k\n-1,1e3,5000000000\n2,0.5,7\n", V.Csv.default())))
-    IO.print(show(V.Csv.parse("m\n\"line1\nline2\"\n", V.Csv.default())))
-    IO.print(rend(V.Csv.parse("m\n\"line1\nline2\"\n", V.Csv.default())))
-    IO.print(show(V.Csv.parse("a,b\n1,2\n3\n", V.Csv.default())))
-    IO.print(show(V.Csv.parse("a,a\n1,2\n", V.Csv.default())))
-    IO.print(show(V.Csv.parse("a\n\"bad\"x\n", V.Csv.default())))
-    IO.print(show(V.Csv.parse("x\n1\n2\nfoo\n", V.CsvOpts{',', True{}, 2})))
-    IO.print(show(V.Csv.parse("x\n1\n2\nfoo\n", V.CsvOpts{',', True{}, 0})))
-    IO.print(show(V.Csv.parse_with("a,b,c\n1,x,2.5\n,y,\n", V.Csv.default(), [D.TI32{}, D.TStr{}, D.TF32{}])))
-    IO.print(show(V.Csv.parse_with("a,b\n1,2\n2,x\n", V.Csv.default(), [D.TU32{}, D.TU32{}])))
-    IO.print(show(V.Csv.parse_with("a,b\n1,2\n", V.Csv.default(), [D.TU32{}])))
-    IO.print(show(V.Csv.parse_with("a,b\n1,true\n", V.Csv.default(), [D.TStr{}, D.TBool{}])))
-    IO.print(show(V.Csv.parse("a,b\n 1 , x\n2,y\n\n3,z\n", V.Csv.default())))
+    X.Tx.pr(X.Tx.parse("parse", "id,name,score,flag\n1,ann,1.5,true\n2,\"b,\"\"ob\",,false\r\n3,,7,True\n", V.Csv.default()), r => show(r))
+    X.Tx.pr(X.Tx.parse("parse", "id,name,score,flag\n1,ann,1.5,true\n2,\"b,\"\"ob\",,false\r\n3,,7,True\n", V.Csv.default()), r => rend(r))
+    round("id,name,score,flag\n1,ann,1.5,true\n2,\"b,\"\"ob\",,false\r\n3,,7,True\n")
+    X.Tx.pr(X.Tx.parse("parse", "a,b\n1,2\n3,4", V.Csv.default()), r => dims(r))
+    X.Tx.pr(X.Tx.parse("parse", "a,b\n", V.Csv.default()), r => dims(r))
+    X.Tx.pr(X.Tx.parse("parse", "a,b\n", V.Csv.default()), r => show(r))
+    X.Tx.pr(X.Tx.parse("parse", "", V.Csv.default()), r => dims(r))
+    X.Tx.pr(X.Tx.parse("parse", "1,2\n3,\n", V.CsvOpts{',', False{}, 100}), r => show(r))
+    X.Tx.pr(X.Tx.parse("parse", "a;b\n\"x;y\";-5\n;7\n", V.CsvOpts{';', True{}, 0}), r => show(r))
+    X.Tx.pr(X.Tx.parse("parse", "i,j,k\n-1,1e3,5000000000\n2,0.5,7\n", V.Csv.default()), r => show(r))
+    X.Tx.pr(X.Tx.parse("parse", "m\n\"line1\nline2\"\n", V.Csv.default()), r => show(r))
+    X.Tx.pr(X.Tx.parse("parse", "m\n\"line1\nline2\"\n", V.Csv.default()), r => rend(r))
+    X.Tx.pr(X.Tx.parse("parse", "a,b\n1,2\n3\n", V.Csv.default()), r => show(r))
+    X.Tx.pr(X.Tx.parse("parse", "a,a\n1,2\n", V.Csv.default()), r => show(r))
+    X.Tx.pr(X.Tx.parse("parse", "a\n\"bad\"x\n", V.Csv.default()), r => show(r))
+    X.Tx.pr(X.Tx.parse("parse", "x\n1\n2\nfoo\n", V.CsvOpts{',', True{}, 2}), r => show(r))
+    X.Tx.pr(X.Tx.parse("parse", "x\n1\n2\nfoo\n", V.CsvOpts{',', True{}, 0}), r => show(r))
+    X.Tx.pr(X.Tx.parse_with("parse", "a,b,c\n1,x,2.5\n,y,\n", V.Csv.default(), [D.TI32{}, D.TStr{}, D.TF32{}]), r => show(r))
+    X.Tx.pr(X.Tx.parse_with("parse", "a,b\n1,2\n2,x\n", V.Csv.default(), [D.TU32{}, D.TU32{}]), r => show(r))
+    X.Tx.pr(X.Tx.parse_with("parse", "a,b\n1,2\n", V.Csv.default(), [D.TU32{}]), r => show(r))
+    X.Tx.pr(X.Tx.parse_with("parse", "a,b\n1,true\n", V.Csv.default(), [D.TStr{}, D.TBool{}]), r => show(r))
+    X.Tx.pr(X.Tx.parse("parse", "a,b\n 1 , x\n2,y\n\n3,z\n", V.Csv.default()), r => show(r))
     IO.print(fields(V.Csv.infer("a,b,c,d,e,f\n1,-2,3.5,true,x,\n2,3,4,False,,\n", V.Csv.default())))
 #|shape: (3, 4)
 #|+-----+-------+-------+-------+

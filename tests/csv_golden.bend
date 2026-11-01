@@ -37,14 +37,12 @@ def rend(r: E.ResT(C.Frame)) -> String:
     case Done{f}:
       snd(V.Csv.render(f, Some{4}))
 
-# parse the golden text, render it back with 4 decimals, report whether it is identical
-def same(+text: String) -> String:
-  Bool.show(String.eq(text, rend(V.Csv.parse(text, V.Csv.default()))))
-
-def check(name: String, path: String) -> IO(Unit):
+# read the golden file, render it back with 4 decimals, report whether it is identical to the file's text
+def check(name: String, +path: String) -> IO(Unit):
   do IO<Unit>:
     +text : String <- read_all(path)
-    IO.print(name ++ " " ++ same(text))
+    r : E.ResT(C.Frame) <- V.Csv.read(path, V.Csv.default())
+    IO.print(name ++ " " ++ Bool.show(String.eq(text, rend(r))))
 
 def main() -> IO(Unit):
   do IO<Unit>:

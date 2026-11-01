@@ -451,27 +451,6 @@ def str_auto() -> ST.StrEnc:
 def read_csv_enc(path: String, opts: R.CsvOpts, dtypes: List<&2, D.DType>, enc: ST.StrEnc) -> IO(E.ResT(C.Frame)):
   R.Csv.read_enc(path, opts, dtypes, enc)
 
-# ---- the CSV reader engine (v0.2 W6.3, DESIGN.md 16.5 D7 and 17.4) ------------------------------
-# csv_engine_v02() is the v0.2 reader (a producer of flat byte regions, one parallel fork of typed
-# lanes, a sequential combine) and, since W8, the DEFAULT of every read_csv* and scan_csv collect
-# above; csv_engine_v01() is the v0.1 reader, kept selectable and pinned as the reference of the
-# tests and the CSV fuzz. Both answer the same frame or the same error (values, validity, F32 bits,
-# strings, dictionary codes, column order and dtypes, error texts and lines). scan_csv's plan-time
-# schema inference (a bounded prefix) is the same for both.
-def csv_engine_v01() -> R.CsvEngine:
-  R.Csv.engine_v01()
-
-def csv_engine_v02() -> R.CsvEngine:
-  R.Csv.engine_v02()
-
-# read_csv_enc by the reader engine
-def read_csv_engine(eng: R.CsvEngine, path: String, opts: R.CsvOpts, dtypes: List<&2, D.DType>, enc: ST.StrEnc) -> IO(E.ResT(C.Frame)):
-  R.Csv.read_eng(eng, path, opts, dtypes, enc)
-
-# read_csv by the v0.2 reader (',' separator, header, infer_rows 100, Auto strings)
-def read_csv_v02(path: String) -> IO(E.ResT(C.Frame)):
-  R.Csv.read_eng(R.Csv.engine_v02(), path, R.Csv.default(), Nil{}, R.Csv.enc_default())
-
 # every str column Dictionary-encoded (dict) or decoded to Raw (not dict); the values are unchanged
 def encode_strings(f: C.Frame, dict: Bool) -> C.Frame:
   C.Frame.encode(f, dict)
@@ -783,11 +762,11 @@ def schema_show(r: E.Res(List<&2, S.Field>)) -> String:
 def explain(p: P.Plan) -> String:
   P.Plan.explain(p)
 
-# the plan collect runs (DESIGN.md 15.2.8): only the certified rewrites (Head
-# merging; a Head sinks only below a Select/WithColumns the analysis certifies
-# height preserving)
+# the plan collect runs (DESIGN.md 15.2.8): adjacent Head merging (proven
+# result-preserving), then projection pushdown (a Select of the needed columns
+# over each source and scan; tested, not proven)
 def optimize(p: P.Plan) -> P.Plan:
-  P.Optimize.release(p)
+  P.Optimize.default(p)
 
 # every rewrite (filter merge, pushdown, head, projection), opt-in, outside the
 # release guarantee
@@ -810,10 +789,6 @@ def collect_show(p: P.Plan, env: P.Env) -> IO(String):
 def collect_raw(p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
   Q.Exec.run(p, env)
 
-# collect with every scan_csv read by the reader engine (csv_engine_v01 / csv_engine_v02, D7)
-def collect_engine(eng: R.CsvEngine, p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
-  Q.Lazy.collect_rd(eng, p, env)
-
 # ---- the execution engine (v0.2 T5.3, DESIGN.md 16.5 D7): OPT-IN ---------------------------------
 # engine_reference() is today's executor (Exec.run), the default of collect / collect_raw and the
 # oracle; engine_chunked() runs the same plan over owned chunk trees (src/cexec.bend: leaves of
@@ -828,9 +803,8 @@ def collect_engine(eng: R.CsvEngine, p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame
 # that feeds them is serial, so end to end the gain is bounded near 2x). engine_reference() names the
 # default executor explicitly: collect_with(engine_reference(), p, env) is DF.collect(p, env) and
 # collect_raw_with(engine_reference(), p, env) is DF.collect_raw(p, env); it is also the engine the
-# chunked one is checked against (make diff-chunked). The v0.2 reader has no public piece-size knob
-# (the piece size is internal, 240 KiB; tests reach it through src/csv.bend), and the chunked engine
-# cannot be paired with the v0.1 reader from this facade.
+# chunked one is checked against (make diff-chunked). The reader has no public piece-size knob
+# (the piece size is internal, 240 KiB; tests reach it through src/csv.bend).
 def engine_reference() -> QC.Engine:
   QC.Reference{}
 

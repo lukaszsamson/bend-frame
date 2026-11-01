@@ -6,7 +6,7 @@
 #     -> combine: malformed, ragged, per column the first bad cell, concatenation, one Dictionary
 #        merge per Str column in region order (v0.1's first-appearance codes)
 #
-# Hr.read(path, hdr, sep, schema, piece, raw) answers what Csv.read_full answers (the frame or
+# Hr.read(path, hdr, sep, schema, piece, raw) answers what the reader answered at W6.2 (the v0.1 reader, since removed) (the frame or
 # the first error in the v0.1 order), so tests compare DF.dump of both. NOT production code: it
 # is sequential, takes no row cap, no inference, no EncAuto, and its header step uses csvparse.
 #

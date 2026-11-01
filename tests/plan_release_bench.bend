@@ -5,7 +5,8 @@
 # Sort, a barrier for both passes), so the plans q1-q5 are unchanged by the release optimizer
 # AND by the previous head pass (Opt.head, still the optimize_full pass): the fallback costs
 # nothing on the benchmark. This test pins that: for each plan the explain text of
-# DF.optimize(q), of P.Opt.head(q, None{}) and of q itself are one and the same.
+# P.Optimize.release(q), of P.Opt.head(q, None{}) and of q itself are one and the same (DF.optimize adds the
+# tested projection pushdown on top since D1, DESIGN.md 14 "Pre-release"; tests/plan_* pin its plans).
 import Base
 import ./../frame.bend as DF
 import ./../src/dtype.bend as D
@@ -25,7 +26,7 @@ def same(+a: String, +b: String, +c: String) -> String:
 def one(+name: String, +q: P.Plan) -> IO(Unit):
   do IO<Unit>:
     +raw : String = DF.explain(q)
-    +rel : String = DF.explain(DF.optimize(q))
+    +rel : String = DF.explain(P.Optimize.release(q))
     +sink : String = DF.explain(P.Opt.head(q, None{}))
     IO.print("-- " ++ name ++ ": release vs head pass vs raw: " ++ same(raw, rel, sink) ++ "\n")
     IO.print(rel ++ "\n")

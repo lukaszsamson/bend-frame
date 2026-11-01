@@ -8,6 +8,10 @@
 #   explicit, EncRaw (4); header flipped, infer_rows 100 (3); explicit, EncAutoAt{0, 1} (6);
 #   infer_rows 100, EncDict (2)
 # The line is `<name>: ok <runs> | <the v0.1 outcome of infer_rows 100>`, else the first run that differs.
+# Since the v0.1 reader's removal (DESIGN.md 14 "Pre-release") the reference is the reader at 1 MiB pieces;
+# `ref <hash>` pins every reference text to the one the v0.1 reader gave (the goldens were frozen from it).
+# section_sep (a U+00A7 separator) was read by the v0.1 reader's fall back; since its removal (DESIGN.md 14
+# "Pre-release") a non-ASCII separator is an InvalidOperation, so its reference hash changed on purpose.
 import Base
 import ./../src/strs.bend as ST
 import ./../bench/w6/hx.bend as X
@@ -119,48 +123,48 @@ def main() -> IO(Unit):
   do IO<Unit>:
     args : List<String> <- IO.args()
     Tx.loop(T.Run.only(args), Tx.all())
-#|basic: ok 14 | frame| height 3| width 4
-#|no_final_nl: ok 14 | frame| height 2| width 2
-#|header_only: ok 14 | frame| height 0| width 2
-#|header_only_crlf: ok 14 | frame| height 0| width 2
-#|empty: ok 14 | frame| height 0| width 0
-#|headerless: ok 14 | frame| height 2| width 2
-#|semicolon: ok 14 | frame| height 2| width 2
-#|wide_ints: ok 14 | frame| height 2| width 3
-#|multiline_cell: ok 14 | frame| height 1| width 1
-#|ragged: ok 14 | error ParseError at line 3: expected 2 fields, got 1
-#|dup_names: ok 14 | error DuplicateColumn: a
-#|malformed: ok 14 | error ParseError at line 0: malformed csv
-#|infer_prefix: ok 14 | frame| height 3| width 1
-#|infer_straddle: ok 14 | frame| height 4| width 1
-#|trim_blank: ok 14 | frame| height 3| width 2
-#|quoted_empty_null: ok 14 | frame| height 3| width 2
-#|cr_header: ok 14 | frame| height 1| width 2
-#|cr_cr_header: ok 14 | frame| height 1| width 1
-#|crlf_blank_lead: ok 14 | frame| height 1| width 2
-#|lead_blanks_w1: ok 14 | frame| height 3| width 1
-#|multiline_header: ok 14 | frame| height 2| width 2
-#|multiline_header_ragged: ok 14 | error ParseError at line 4: expected 2 fields, got 1
-#|multiline_header_bad: ok 14 | frame| height 2| width 2
-#|quoted_empty_name: ok 14 | frame| height 1| width 2
-#|only_cr: ok 14 | frame| height 0| width 0
-#|blank_lines_only: ok 14 | frame| height 0| width 0
-#|unicode_names: ok 14 | frame| height 1| width 2
-#|section_sep: ok 14 | frame| height 2| width 2
-#|tab_sep: ok 14 | frame| height 1| width 2
-#|trailing_sep: ok 14 | frame| height 1| width 3
-#|null_column: ok 14 | frame| height 2| width 2
-#|bools_w1: ok 14 | frame| height 3| width 1
-#|unclosed_eof: ok 14 | error ParseError at line 0: malformed csv
-#|malformed_header: ok 14 | error ParseError at line 0: malformed csv
-#|unclosed_header: ok 14 | error ParseError at line 0: malformed csv
-#|bad_later: ok 14 | frame| height 2| width 2
-#|crlf_all: ok 14 | frame| height 2| width 2
-#|quoted_numbers: ok 14 | frame| height 2| width 1
-#|i32_edges: ok 14 | frame| height 2| width 1
-#|f32_values: ok 14 | frame| height 6| width 1
-#|long_header: ok 14 | frame| height 1| width 2
-#|long_lead_blanks: ok 14 | error ParseError at line 5003: expected 2 fields, got 1
-#|long_lead_blanks_nohdr: ok 14 | frame| height 5002| width 1
-#|regions: ok 14 | frame| height 3000| width 3
-#|regions_nohdr: ok 14 | frame| height 3000| width 3
+#|basic: ok 14 ref 1188261754 | frame| height 3| width 4
+#|no_final_nl: ok 14 ref 2915997943 | frame| height 2| width 2
+#|header_only: ok 14 ref 2661054461 | frame| height 0| width 2
+#|header_only_crlf: ok 14 ref 2661054461 | frame| height 0| width 2
+#|empty: ok 14 ref 1865362241 | frame| height 0| width 0
+#|headerless: ok 14 ref 2472823603 | frame| height 2| width 2
+#|semicolon: ok 14 ref 279178224 | frame| height 2| width 2
+#|wide_ints: ok 14 ref 2924286937 | frame| height 2| width 3
+#|multiline_cell: ok 14 ref 1206460001 | frame| height 1| width 1
+#|ragged: ok 14 ref 3868556046 | error ParseError at line 3: expected 2 fields, got 1
+#|dup_names: ok 14 ref 1812278192 | error DuplicateColumn: a
+#|malformed: ok 14 ref 1117766850 | error ParseError at line 0: malformed csv
+#|infer_prefix: ok 14 ref 623945056 | frame| height 3| width 1
+#|infer_straddle: ok 14 ref 866978396 | frame| height 4| width 1
+#|trim_blank: ok 14 ref 969687897 | frame| height 3| width 2
+#|quoted_empty_null: ok 14 ref 2244778070 | frame| height 3| width 2
+#|cr_header: ok 14 ref 4068699357 | frame| height 1| width 2
+#|cr_cr_header: ok 14 ref 2644989738 | frame| height 1| width 1
+#|crlf_blank_lead: ok 14 ref 1582496765 | frame| height 1| width 2
+#|lead_blanks_w1: ok 14 ref 3249495729 | frame| height 3| width 1
+#|multiline_header: ok 14 ref 2433555114 | frame| height 2| width 2
+#|multiline_header_ragged: ok 14 ref 2882726445 | error ParseError at line 4: expected 2 fields, got 1
+#|multiline_header_bad: ok 14 ref 4077925241 | frame| height 2| width 2
+#|quoted_empty_name: ok 14 ref 645132149 | frame| height 1| width 2
+#|only_cr: ok 14 ref 3433929703 | frame| height 0| width 0
+#|blank_lines_only: ok 14 ref 2272683198 | frame| height 0| width 0
+#|unicode_names: ok 14 ref 3169486564 | frame| height 1| width 2
+#|section_sep: ok 14 ref 3098671511 | error InvalidOperation: csv: separator must be a single-byte (ASCII) character
+#|tab_sep: ok 14 ref 2891820413 | frame| height 1| width 2
+#|trailing_sep: ok 14 ref 1856143424 | frame| height 1| width 3
+#|null_column: ok 14 ref 2491187015 | frame| height 2| width 2
+#|bools_w1: ok 14 ref 3116563227 | frame| height 3| width 1
+#|unclosed_eof: ok 14 ref 1117766850 | error ParseError at line 0: malformed csv
+#|malformed_header: ok 14 ref 1117766850 | error ParseError at line 0: malformed csv
+#|unclosed_header: ok 14 ref 1117766850 | error ParseError at line 0: malformed csv
+#|bad_later: ok 14 ref 1779626183 | frame| height 2| width 2
+#|crlf_all: ok 14 ref 2915997943 | frame| height 2| width 2
+#|quoted_numbers: ok 14 ref 2443037419 | frame| height 2| width 1
+#|i32_edges: ok 14 ref 1499290323 | frame| height 2| width 1
+#|f32_values: ok 14 ref 194836023 | frame| height 6| width 1
+#|long_header: ok 14 ref 4068198628 | frame| height 1| width 2
+#|long_lead_blanks: ok 14 ref 39397309 | error ParseError at line 5003: expected 2 fields, got 1
+#|long_lead_blanks_nohdr: ok 14 ref 2691099727 | frame| height 5002| width 1
+#|regions: ok 14 ref 2470243027 | frame| height 3000| width 3
+#|regions_nohdr: ok 14 ref 2918500185 | frame| height 3000| width 3

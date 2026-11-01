@@ -47,11 +47,15 @@ def main():
     import argparse
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=1500)
-    ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--seed", type=int, default=20261004, help="a seed with a golden file under diff/golden/ is checked against it too")
     ap.add_argument("--only", default="")
     ap.add_argument("--extra", choices=["yes", "no", "only"], default="yes", help="the producer / lane mutants of this file (EXTRA) in addition to mut63.py's")
     ap.add_argument("--jobs", type=int, default=8)
     a = ap.parse_args()
+    # the reference is the (mutated) reader itself at 1 MiB pieces: the golden hashes, frozen from the removed
+    # v0.1 reader, are what kills a mutant that is wrong at every piece size
+    gp = HERE / "golden" / f"seed{a.seed}.json"
+    golden = ["--golden", str(gp)] if gp.exists() else []
     work = ROOT / "build/csvfuzz/mut"
     tree = work / "tree"
     killed = survived = 0
@@ -82,7 +86,7 @@ def main():
         if b.returncode != 0 or not exe.exists():
             print(f"BUILD FAILED: {name}: {(b.stdout + b.stderr)[-200:]}")
             continue
-        r = subprocess.run([sys.executable, str(HERE / "csvfuzz.py"), "--seed", str(a.seed), "--n", str(a.n), "--no-shrink", "--jobs", str(a.jobs), "--runner", str(exe), "--out", str(work / "mut.json")], capture_output=True, text=True, cwd=ROOT)
+        r = subprocess.run([sys.executable, str(HERE / "csvfuzz.py"), "--seed", str(a.seed), "--n", str(a.n), "--no-shrink", "--jobs", str(a.jobs), "--runner", str(exe), "--out", str(work / "mut.json")] + golden, capture_output=True, text=True, cwd=ROOT)
         out = r.stdout
         line = [ln for ln in out.splitlines() if ln.startswith("FAIL:")]
         if r.returncode != 0:

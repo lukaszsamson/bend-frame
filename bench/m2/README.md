@@ -94,7 +94,8 @@ scan's consumer runs chunked, and nothing is flattened when it runs flat).
 
 **W8 (the default flip, DESIGN.md 14 "W8").** On the candidate the DEFAULT reader is now v0.2: `BF_ENGINE`
 without a reader token (unset, `reference`, `chunked`, `scan`, ...) reads every input with the v0.2 reader, so
-`v02` is the same as no token. The new token `v01` selects the v0.1 reader explicitly (`read_csv_engine(csv_engine_v01,
+`v02` is the same as no token. (Since the v0.1 reader's removal before 0.1.0 the driver ignores `v01` too: every
+config reads with the reader.) The new token `v01` selected the v0.1 reader explicitly (`read_csv_engine(csv_engine_v01,
 ..)`, and `collect_engine` / `Lazy.collect_with_rd` with `csv_engine_v01` for scans). `run.py run --engine` defaults to
 `reference` (it used to be `v01`, which now means the v0.1 reader); `make m2-g6` runs the candidate as `v01` /
 `reference` / `v02,chunked` (older G6 files carry `v01` for what was then the reference: `g6_cfg` names both by the reader

@@ -43,7 +43,7 @@ def X.go(+g: Nat, +op: String, +p: P.Plan, r: E.ResT(P.Env)) -> IO(Unit):
 # Exec.run_with.c: the checks and scan reads, then the chunked runner
 def X.prep(+g: Nat, +op: String, +p: P.Plan, env: P.Env) -> IO(Unit):
   do IO<Unit>:
-    r : E.ResT(P.Env) <- Q.Exec.prep(R.CsvV01{}, p, env)
+    r : E.ResT(P.Env) <- Q.Exec.prep(R.CsvAt{1048576}, p, env)
     X.go(g, op, p, r)
 
 # the driver's job: plan over the env {sales, products}, released (Lazy.collect_with releases before running)
@@ -95,7 +95,7 @@ def X.sgo(+g: Nat, +op: String, +p: P.Plan, r: E.ResT(P.Env & List<&1, QC.PNF>))
 # Exec.run_with.c for CsvV02: the checks, the scans read into chunk leaves (CX.prep.k), then the chunked runner
 def X.sprep(+g: Nat, +op: String, +p: P.Plan, env: P.Env) -> IO(Unit):
   do IO<Unit>:
-    r : E.ResT(P.Env & List<&1, QC.PNF>) <- QC.CX.prep.k(P.Plan.schema(p), g, R.Csv.engine_v02(), p, env)
+    r : E.ResT(P.Env & List<&1, QC.PNF>) <- QC.CX.prep.k(P.Plan.schema(p), g, R.Csv.engine_default(), p, env)
     X.sgo(g, op, p, r)
 
 def X.sb(+g: Nat, +op: String, +par: U32, +s: P.Plan, r: P.Env & P.Plan) -> IO(Unit):

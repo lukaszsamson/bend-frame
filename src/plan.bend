@@ -986,12 +986,28 @@ def Optimize.release.k(r: E.Res(List<&2, S.Field>), p: Plan) -> Plan:
     case Done{s}:
       Opt.hmerge(p, None{})
 
-# the default optimizer (DF.optimize, collect): only the proven rewrite
-# (DESIGN.md 15.2.8, 8): adjacent Head merging (Opt.hmerge). An ill-typed plan
+# the proven rewrite (DESIGN.md 15.2.8, 8), the first step of the default optimizer (Optimize.default):
+# adjacent Head merging (Opt.hmerge). An ill-typed plan
 # comes back unchanged. `release_run` (LAWS.bend 8): Exec.run_pure gives the same
 # result for Optimize.release(p) and p, for every plan p and every env.
 def Optimize.release(+p: Plan) -> Plan:
   Optimize.release.k(Plan.schema(p), p)
+
+def Optimize.default.k(r: E.Res(List<&2, S.Field>), +p: Plan) -> Plan:
+  match r:
+    case Fail{e}:
+      p
+    case Done{s}:
+      Opt.proj(Opt.hmerge(p, None{}), S.Schema.names(s), False{})
+
+# the default optimizer (DF.optimize, collect; decision D1, DESIGN.md 14 "Pre-release"): the proven rewrite
+# (Optimize.release: adjacent Head merging), then projection pushdown (Opt.proj, R5), which only inserts a
+# `Select` of the needed columns directly over a Source / ScanCsv: no expression is dropped or moved, so no
+# error is lost (the scan still reads and checks every column). R5 is TESTED (the differential, every
+# collect), not proven; `release_run` (LAWS.bend 8) covers the Head merging. An ill-typed plan comes back
+# unchanged. PDS-H sf 0.2, one thread: 339 -> 270 ms over the nine queries, no query slower.
+def Optimize.default(+p: Plan) -> Plan:
+  Optimize.default.k(Plan.schema(p), p)
 
 def Plan.optimize_full.k(r: E.Res(List<&2, S.Field>), +p: Plan) -> Plan:
   match r:

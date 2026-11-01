@@ -18,7 +18,7 @@
 #     the columns they read); the output stays flat until a chunked operator needs chunks again;
 #   * a frame of at most 2^g rows from a Source runs exactly today's flat path: nothing is converted, no
 #     fork (a chunked frame of one leaf converts in O(columns): its buffers are moved);
-#   * (W6.6) a scan read by the v0.2 reader (Exec.run_with_rd(CsvV02{_}, ..)) arrives in the representation
+#   * (W6.6) a scan read by the v0.2 reader (Exec.run_with_rd(CsvAt{_}, ..)) arrives in the representation
 #     its consumer runs in (CX.want): chunk leaves built by the reader's combine (no of_frame) when that is a
 #     row-wise operator, else the flat frame (no to_frame); the frames ride in pre as PScan entries (CX.mat).
 #
@@ -3437,18 +3437,6 @@ def CX.snd(r: CStats & E.ResT(C.Frame)) -> E.ResT(C.Frame):
 
 # ==== the selector (DESIGN.md 16.5 D7) ====
 
-def Exec.run_with.k(+g: Nat, +p: P.Plan, r: E.ResT(P.Env)) -> E.ResT(C.Frame):
-  match r:
-    case Fail{e}:
-      Fail{e}
-    case Done{env}:
-      CX.snd(CX.run(g, p, env, Nil{}))
-
-def Exec.run_with.c1(+g: Nat, +csv: R.CsvEngine, +p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
-  do IO<E.ResT(C.Frame)>:
-    r : E.ResT(P.Env) <- Q.Exec.prep(csv, p, env)
-    return Exec.run_with.k(g, p, r)
-
 # ---- W6.6: the v0.2 reader's chunk leaves handed to the runner (DESIGN.md 17.5) ----
 # Exec.prep's steps in Exec.prep's order (the plan's schema, the bindings, then every scan read in postfix
 # order, the first error wins, each frame's schema checked against the plan's with Exec.check's text), but
@@ -3639,13 +3627,9 @@ def Exec.run_with.c2(+g: Nat, +csv: R.CsvEngine, +p: P.Plan, env: P.Env) -> IO(E
     r : E.ResT(P.Env & List<&1, PNF>) <- CX.prep.k(P.Plan.schema(p), g, csv, p, env)
     return Exec.run_with.k2(g, p, r)
 
-# the scans read by csv: v0.1 into env's scan namespace (Exec.prep), v0.2 into chunk leaves (W6.6)
+# the scans read by csv straight into chunk leaves (W6.6)
 def Exec.run_with.c(+g: Nat, +csv: R.CsvEngine, +p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
-  match csv:
-    case R.CsvV01{}:
-      Exec.run_with.c1(g, R.CsvV01{}, p, env)
-    case R.CsvV02{+piece}:
-      Exec.run_with.c2(g, R.CsvV02{piece}, p, env)
+  Exec.run_with.c2(g, csv, p, env)
 
 # Exec.run by the engine: Reference is Exec.run itself (Exec.run_rd with the CSV engine csv); Chunked{g}
 # runs the same checks and scan reads (Exec.prep), then the chunked runner at grain 2^g
@@ -3661,12 +3645,12 @@ def Exec.run_with_rd(+csv: R.CsvEngine, +eng: Engine, +p: P.Plan, env: P.Env) ->
 def Exec.run_with(+eng: Engine, +p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
   Exec.run_with_rd(R.Csv.engine_default(), eng, p, env)
 
-# Lazy.collect by the engine (the release optimizer, then Exec.run_with)
+# Lazy.collect by the engine (the default optimizer, then Exec.run_with)
 def Lazy.collect_with(+eng: Engine, +p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
-  Exec.run_with(eng, P.Optimize.release(p), env)
+  Exec.run_with(eng, P.Optimize.default(p), env)
 
 def Lazy.collect_with_rd(+csv: R.CsvEngine, +eng: Engine, +p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
-  Exec.run_with_rd(csv, eng, P.Optimize.release(p), env)
+  Exec.run_with_rd(csv, eng, P.Optimize.default(p), env)
 
 # the chunked engine at the default grain (CH.Ch.grain() = 14: leaves of 16384 rows)
 def Engine.chunked() -> Engine:

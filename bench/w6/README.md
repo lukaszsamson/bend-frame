@@ -7,7 +7,7 @@ IMPLEMENTING.md "W6.1 / W6.2". W6.3 wired them into the opt-in v0.2 reader (`src
 
 | file | what |
 |---|---|
-| `gen_adv.py` | writes `tests/csvadv/*.csv` (102 adversarial files) and `cases.bend`; the expected values are never stored: the reference is the v0.1 reader at test time |
+| `gen_adv.py` | writes `tests/csvadv/*.csv` (102 adversarial files) and `cases.bend`; the expected values were never stored: the reference was the v0.1 reader at test time (since its removal, the reader at 1 MiB pieces plus `ref <hash>` goldens frozen from it, DESIGN.md 14 "Pre-release") |
 | `cases.bend` | GENERATED list of the adversarial cases (name, schema letters, header, separator) |
 | `hx.bend` | test helpers: read a file as bytes / as text (`File.read`), write files, small list utilities, the piece sizes (1 .. 1 MiB) |
 | `cmp.bend` | comparing two `DF.dump` texts without deep recursion (hash + length, first differing character), one-line outcome |

@@ -240,6 +240,12 @@ which tests/diff/r0001.bend and r0002.bend pin). There is no allowlist of known 
 
 ## W6.4: CSV reader fuzz (the v0.2 reader against the v0.1 reader)
 
+**Since the v0.1 reader's removal before 0.1.0 (DESIGN.md 14 "Pre-release")** the reference is the reader at 1 MiB
+pieces, and the oracle role of the v0.1 reader is kept by goldens: every ok line carries `ref <hash>` (the hash of the
+reference text), and `--golden diff/golden/seed<S>.json` (used by `make csv-fuzz-smoke` and `csvfuzz_mut.py`) requires
+it to equal the hash the v0.1 reader's text had (`--write-golden` wrote them, with the v0.1 reader as the reference).
+Other seeds are checked for piece-size and chunk-mode invariance only. The text below describes the harness as built.
+
 ```
 make csv-fuzz SEED=1 N=10000                 # ~2.5 min on 8 jobs; exit 1 on any failure
 cd bench && uv run python diff/run.py --csv --seed 1 --n 1000    # the same driver through run.py

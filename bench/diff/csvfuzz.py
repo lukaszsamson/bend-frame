@@ -1,4 +1,6 @@
-"""W6.4: CSV fuzz harness, the v0.2 reader against the v0.1 reader (plans/M_02.txt W6, DESIGN.md 17.6).
+"""W6.4: CSV fuzz harness of the reader (plans/M_02.txt W6, DESIGN.md 17.6; since the v0.1 reader's removal,
+DESIGN.md 14 "Pre-release": the reader at 1 MiB pieces is the reference, and --golden checks every case's
+reference text against a hash frozen from the v0.1 reader; `make csv-fuzz-smoke` does, for both of its seeds)
 
     make csv-fuzz SEED=1 N=1000              # cd bench && uv run python diff/csvfuzz.py --seed 1 --n 1000
     make csv-fuzz-smoke                      # fixed seed, small N, strict
@@ -6,8 +8,8 @@
 
 Each case (bench/diff/csvgen.py: a file plus a read spec: header flag, explicit dtypes or inference with
 infer_rows, Str storage rule, separator, row cap) is written to build/csvfuzz/seed<SEED>/ and read by the
-native runner build/csvfuzz/runner (bench/diff/csvfuzz.bend) with the v0.1 reader (Csv.read_full, the
-reference) and with the v0.2 reader (Csv.read_v02_full) at piece sizes 1, 2, 3, 7, 64, 4096 and 245760
+native runner build/csvfuzz/runner (bench/diff/csvfuzz.bend) with the reader at 1 MiB pieces (the
+reference) and with the reader (Csv.read_v02_full) at piece sizes 1, 2, 3, 7, 64, 4096 and 245760
 (the default). The comparison is EXACT: DF.dump (values, validity, F32 bits, string contents, column names,
 dtypes, order, error text and line) plus the Str storage (Raw, or Dictionary with its size and a hash of
 its codes). Cases are run in batches in parallel native processes; a batch that crashes or times out is
@@ -310,7 +312,11 @@ def main(argv=None):
     ap.add_argument("--out")
     ap.add_argument("--scratch", help="work directory (default build/csvfuzz/seed<SEED>); case files must live under the repository root")
     ap.add_argument("--strict", action="store_true", help="accepted for symmetry with make diff-smoke: any failure always exits 1")
+    ap.add_argument("--golden", help="a JSON {case id: reference hash}: every ok case's `ref <hash>` must match (status GOLDEN otherwise)")
+    ap.add_argument("--write-golden", help="write the run's {case id: reference hash} to this JSON")
     a = ap.parse_args(argv)
+    golden = json.loads(Path(a.golden).read_text()) if a.golden else None
+    hashes = {}
     pieces = [int(x) for x in a.pieces.split(",")]
     if a.runner:
         global RUNNER
@@ -363,9 +369,15 @@ def main(argv=None):
                 for t in c.tags:
                     tagc[t] += 1
                 if st == "ok":
-                    m = re.match(r"(\d+) \| (.*)$", text)
+                    m = re.match(r"(\d+)(?: ref (\d+))? \| (.*)$", text)
                     nruns += int(m.group(1)) if m else 0
-                    o = norm_outcome(m.group(2)) if m else "?"
+                    o = norm_outcome(m.group(3)) if m else "?"
+                    h = m.group(2) if m else None
+                    hashes[cid] = h
+                    if golden is not None and cid in golden and golden[cid] != h:
+                        bad = True
+                        failures.append({"id": cid, "status": "GOLDEN", "text": f"reference text hash {h}, golden {golden.get(cid)}", "case": c})
+                        continue
                     outc[o] += 1
                     for t in c.tags:
                         if t in ("ragged_short", "ragged_long", "mal_unterminated", "mal_midquote", "mal_afterclose", "mal_crafter", "bad_cell", "competing", "late", "invalid_utf8", "empty", "header_only"):
@@ -411,6 +423,8 @@ def main(argv=None):
         "runtime_s": {"run": round(t_run, 1), "shrink": round(t_shrink, 1), "total": round(time.time() - t0, 1)},
         "groups": {k: v for k, v in seen.items()},
     }
+    if a.write_golden:
+        Path(a.write_golden).write_text(json.dumps(dict(sorted(hashes.items())), indent=0) + "\n")
     out_json.write_text(json.dumps({"summary": summary, "tags": dict(tagc), "outcomes": dict(outc), "failures": records}, indent=1))
     print(json.dumps(summary, indent=1))
     print("coverage by generator tag:")
@@ -418,7 +432,7 @@ def main(argv=None):
     for t, v in sorted(tagc.items()):
         line.append(f"{t}={v}")
     print("  " + " ".join(line))
-    print("outcome of the v0.1 reader (the reference), cases:")
+    print("outcome of the reference read, cases:")
     for o, v in outc.most_common():
         print(f"  {v:6d}  {o}")
     print("error-injecting tags x outcome:")

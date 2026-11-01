@@ -2,6 +2,8 @@
 # with the v0.2 reader (Csv.read_v02_full) at several piece sizes, and compare DF.dump AND the string
 # storage of every Str column (Raw, or Dictionary with its size and a hash of its codes: DF.dump does
 # not show storage, the contract keeps v0.1's codes, 17.4.7). Test-only.
+# Since the v0.1 reader's removal (DESIGN.md 14 "Pre-release") the reference is the reader at 1 MiB pieces;
+# `ref <hash>` pins every reference text to the one the v0.1 reader gave (the goldens were frozen from it).
 import Base
 import ./../../frame.bend as DF
 import ./../../src/dtype.bend as D
@@ -101,7 +103,7 @@ def Cf.ref(c: Cf, +path: String) -> IO(String):
   match c:
     case Cf{l, +schema, +hdr, +sep, +inf, +enc, +cap}:
       do IO<String>:
-        r : E.ResT(C.Frame) <- V.Csv.read_full(path, V.CsvOpts{Chr{sep}, hdr, inf}, Sch.dts(schema), enc, 1048576, cap)
+        r : E.ResT(C.Frame) <- V.Csv.read_v02_full(path, V.CsvOpts{Chr{sep}, hdr, inf}, Sch.dts(schema), enc, 1048576, cap)
         return Sg.text(r)
 
 def Cf.cand(c: Cf, +path: String, +piece: U32) -> IO(String):
@@ -116,35 +118,43 @@ def Cf.label(c: Cf) -> String:
     case Cf{l, schema, hdr, sep, inf, enc, cap}:
       l
 
-# the pieces still to run, the first difference, runs so far
+# the pieces still to run, the first difference, runs so far, a hash of every reference text so far
 type RP is Data:
-  RP{ps: List<&2, U32>, v: String, go: Bool, n: U32}
+  RP{ps: List<&2, U32>, v: String, go: Bool, n: U32, hh: U32}
 
-def Run.next(+ps: List<&2, U32>, +p: U32, +lab: String, +v: String, +n: U32) -> RP:
-  Bool.pick(RP, String.is_empty(v), RP{ps, v, True{}, U32.inc(n)}, RP{ps, lab ++ ", piece " ++ U32.show(p) ++ ": " ++ v, False{}, n})
+# FNV-style hash of a text (the reference texts, frozen as goldens: `ref <hash>` on every ok line)
+def Sg.hash(s: String, +h: U32) -> U32:
+  match s:
+    case SNil{}:
+      h
+    case SCon{Chr{+c}, t}:
+      Sg.hash(t, Sg.mix(h, c))
+
+def Run.next(+ps: List<&2, U32>, +p: U32, +lab: String, +v: String, +n: U32, +hh: U32) -> RP:
+  Bool.pick(RP, String.is_empty(v), RP{ps, v, True{}, U32.inc(n), hh}, RP{ps, lab ++ ", piece " ++ U32.show(p) ++ ": " ++ v, False{}, n, hh})
 
 def Run.loop(f: Nat, +c: Cf, +path: String, +ref: String, st: RP) -> IO(RP):
   match f st:
     case 0n _:
       IO.pure(RP, st)
-    case _ RP{ps, v, False{}, n}:
-      IO.pure(RP, RP{ps, v, False{}, n})
-    case _ RP{Nil{}, v, True{}, n}:
-      IO.pure(RP, RP{Nil{}, v, True{}, n})
-    case 1n+p RP{+q <> t, v, True{}, +n}:
+    case _ RP{ps, v, False{}, n, hh}:
+      IO.pure(RP, RP{ps, v, False{}, n, hh})
+    case _ RP{Nil{}, v, True{}, n, hh}:
+      IO.pure(RP, RP{Nil{}, v, True{}, n, hh})
+    case 1n+p RP{+q <> t, v, True{}, +n, +hh}:
       do IO<RP>:
         +got : String <- Cf.cand(c, path, q)
-        Run.loop(p, c, path, ref, Run.next(t, q, Cf.label(c), M.Cmp.diff(ref, got), n))
+        Run.loop(p, c, path, ref, Run.next(t, q, Cf.label(c), M.Cmp.diff(ref, got), n, hh))
 
 # one configuration at the pieces ps: (still equal, runs) carried in RP
 def Run.cfg(+c: Cf, +path: String, ps: List<&2, U32>, st: RP) -> IO(RP):
   match st:
-    case RP{x, v, False{}, n}:
-      IO.pure(RP, RP{x, v, False{}, n})
-    case RP{x, v, True{}, +n}:
+    case RP{x, v, False{}, n, hh}:
+      IO.pure(RP, RP{x, v, False{}, n, hh})
+    case RP{x, v, True{}, +n, +hh}:
       do IO<RP>:
         +ref : String <- Cf.ref(c, path)
-        Run.loop(40n, c, path, ref, RP{ps, "", True{}, n})
+        Run.loop(40n, c, path, ref, RP{ps, "", True{}, n, Sg.hash(ref, hh)})
 
 type CP is Data:
   CP{c: Cf, ps: List<&2, U32>}
@@ -160,8 +170,8 @@ def Run.all(cs: List<&2, CP>, +path: String, st: RP) -> IO(RP):
 
 def Run.line(+name: String, +outcome: String, r: RP) -> String:
   match r:
-    case RP{ps, +v, go, +n}:
-      Bool.pick(String, go, name ++ ": ok " ++ U32.show(n) ++ " | " ++ outcome, name ++ ": DIFF " ++ v)
+    case RP{ps, +v, go, +n, +hh}:
+      Bool.pick(String, go, name ++ ": ok " ++ U32.show(n) ++ " ref " ++ U32.show(hh) ++ " | " ++ outcome, name ++ ": DIFF " ++ v)
 
 # Run.line, unless the reference read itself breaks the null-slot invariant (its text's P0 line is not
 # "p0 ok"): then a DIFF naming it, since two readers that agree on a dirty slot would compare equal
@@ -173,7 +183,7 @@ def Run.line.p0(+name: String, +ref: String, +outcome: String, r: RP) -> String:
 def Run.file(+name: String, +path: String, +first: Cf, cs: List<&2, CP>) -> IO(String):
   do IO<String>:
     +r0 : String <- Cf.ref(first, path)
-    r : RP <- Run.all(cs, path, RP{Nil{}, "", True{}, 0})
+    r : RP <- Run.all(cs, path, RP{Nil{}, "", True{}, 0, 2166136261})
     return Run.line.p0(name, r0, M.Cmp.outcome(r0), r)
 
 def Run.print(+s: String) -> IO(Unit):

@@ -1,4 +1,4 @@
-# PDS-H-style driver (native only; TPCH_OPT=full runs DF.collect_full instead of DF.collect):
+# PDS-H-style driver (native only; TPCH_OPT=full runs DF.collect_full, TPCH_OPT=release the Head merging alone):
 #   ~/.bend/bin/bend bench/tpch/run.bend -o build/tpch
 #   ./build/tpch [+RTS --threads N -RTS] <dir> <q1..q18|all> [repeats [outdir]]
 # <dir> holds the bench/tpch/gen.py tables. Every table is read once with DF.read_csv (each read
@@ -12,6 +12,7 @@ import ./../../src/column.bend as C
 import ./../../src/err.bend as E
 import ./../../src/csv.bend as V
 import ./queries.bend as Q
+import ./../../src/plan.bend as P
 
 type Ins is Type:
   Ins{l: C.Frame, o: C.Frame, c: C.Frame, s: C.Frame, n: C.Frame, r: C.Frame}
@@ -167,11 +168,19 @@ def collect.full(+full: Bool, +p: DF.Plan(), e: DF.Env()) -> IO(E.ResT(C.Frame))
     case False{}:
       DF.collect(p, e)
 
-# TPCH_OPT=full: DF.collect_full (the opt-in optimizer); unset or anything else: DF.collect
+def collect.rel(+rel: Bool, +v: String, +p: DF.Plan(), e: DF.Env()) -> IO(E.ResT(C.Frame)):
+  match rel:
+    case True{}:
+      DF.collect_raw(P.Optimize.release(p), e)
+    case False{}:
+      collect.full(String.eq(v, "full"), p, e)
+
+# TPCH_OPT=full: DF.collect_full (the opt-in optimizer); TPCH_OPT=release: Head merging alone, without the
+# default's projection pushdown (P.Optimize.release, decision D1's comparison); unset or anything else: DF.collect
 def collect.by(ev: Result<&1, &1, U32 & String, String>, +p: DF.Plan(), e: DF.Env()) -> IO(E.ResT(C.Frame)):
   match ev:
     case Done{+v}:
-      collect.full(String.eq(v, "full"), p, e)
+      collect.rel(String.eq(v, "release"), v, p, e)
     case Fail{x}:
       DF.collect(p, e)
 

@@ -36,7 +36,7 @@
 # in postfix order; DF.validate_bindings), then every scan is read (Exec.mat,
 # first scan error wins) into env's scan namespace, then Exec.run_pure
 # (compile, mark, loop) on the same plan.
-# Lazy.collect(p, env) = Exec.run(Optimize.release(p), env).
+# Lazy.collect(p, env) = Exec.run(Optimize.default(p), env) (Optimize.release, then projection pushdown).
 #
 # Idioms (DESIGN.md section 9): helpers above callers; match only on params;
 # pairs taken apart in a helper's parameter.
@@ -866,12 +866,11 @@ def Exec.run.k(r: E.Res(List<&2, S.Field>), +p: P.Plan, env: P.Env, +eng: R.CsvE
 # boundary) into env's scan namespace; then the physical runner (Exec.run_phys:
 # Exec.run_pure with the Sort + Head and Filter + Select steps at the root) on the plan as it is. env is
 # consumed (frames the plan does not name are dropped).
-# The scans are read by the default reader engine (R.Csv.engine_default: the v0.2 reader since W8).
+# The scans are read by the reader at its default piece size (R.Csv.engine_default).
 def Exec.run(+p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
   Exec.run.k(P.Plan.schema(p), p, env, R.Csv.engine_default())
 
-# Exec.run with the scans read by the CSV reader engine eng (D7, W6.3: R.CsvV01{} selects the v0.1
-# reader, R.CsvV02{piece} the v0.2 reader at a piece size; the result is the same frame or error,
+# Exec.run with the scans read at the piece size of eng (R.CsvAt{piece}; the result never depends on it,
 # DESIGN.md 17.4)
 def Exec.run_rd(+eng: R.CsvEngine, +p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
   Exec.run.k(P.Plan.schema(p), p, env, eng)
@@ -910,13 +909,13 @@ def Exec.prep.k(r: E.Res(List<&2, S.Field>), +p: P.Plan, env: P.Env, +eng: R.Csv
 def Exec.prep(+eng: R.CsvEngine, +p: P.Plan, env: P.Env) -> IO(E.ResT(P.Env)):
   Exec.prep.k(P.Plan.schema(p), p, env, eng)
 
-# Polars collect(): the release optimizer (Optimize.release), then run
+# Polars collect(): the default optimizer (Optimize.default: Head merging, projection pushdown), then run
 def Lazy.collect(+p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
-  Exec.run(P.Optimize.release(p), env)
+  Exec.run(P.Optimize.default(p), env)
 
 # Lazy.collect with the scans read by the CSV reader engine eng (D7, W6.3)
 def Lazy.collect_rd(+eng: R.CsvEngine, +p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
-  Exec.run_rd(eng, P.Optimize.release(p), env)
+  Exec.run_rd(eng, P.Optimize.default(p), env)
 
 # every rewrite of Plan.optimize_full (opt-in, outside the guarantee), then run
 def Lazy.collect_full(+p: P.Plan, env: P.Env) -> IO(E.ResT(C.Frame)):
