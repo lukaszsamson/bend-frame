@@ -2,14 +2,14 @@ BEND ?= $(HOME)/.bend/bin/bend
 SOURCES := $(shell find src tests -name '*.bend' -type f 2>/dev/null | LC_ALL=C sort)
 EXAMPLES := frame.bend $(wildcard examples/*.bend) $(wildcard bench/*.bend)
 
-.PHONY: ci test runner-check check proofs verdict verdict-probe bench bench-check toolchain-check clean mutation-check consumer-check diff-driver-check diff-smoke
+.PHONY: ci test runner-check check proofs verdict verdict-probe test-mutation-check bench bench-check toolchain-check clean mutation-check consumer-check diff-driver-check diff-smoke
 
 # The full gate, in CI order. Needs the pinned toolchain (TOOLCHAIN): `make toolchain-check` first.
 # Beyond the unit gates: the differential drivers' exit-status regression, a bounded strict
 # differential smoke (Raw and Dictionary strings, then the F32 reduction check), the proof mutation
 # check and the clean-consumer check (needs the work committed: it clones HEAD). Larger differential
 # runs (make diff N=..., make diff-reduce REDUCE_N=...) are the scheduled/release gate.
-ci: toolchain-check check runner-check diff-driver-check test proofs verdict mutation-check bench-check diff-smoke csv-fuzz-smoke fork-audit radix-check tpch-check consumer-check
+ci: toolchain-check check runner-check diff-driver-check test proofs verdict mutation-check test-mutation-check bench-check diff-smoke csv-fuzz-smoke fork-audit radix-check tpch-check consumer-check
 	@echo "ci: all gates passed"
 
 test:
@@ -37,6 +37,10 @@ verdict:
 
 # the cheap half of verdict: only the BendTT translation (no Lean run); it fails the way --verdict
 # did on Bend 2.0.38+ before the FZW Sigma was inlined (bendlang/bend#1984). Use after toolchain bumps.
+# the tested-only fast paths guarded by their tests: each mutation (the v0.3 review's) must fail them
+test-mutation-check:
+	scripts/test_mutation_check.sh
+
 verdict-probe:
 	@mkdir -p build
 	$(BEND) PROOF.bend -o build/PROOF.bendtt

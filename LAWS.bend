@@ -4310,3 +4310,31 @@ law ck_max:
 #    cw_of's binary counter) and CK.gatherf.X (cw_flatten, gather_contents and cw_of composed);
 #  - CK.ones1 trees are not WFChunks (1-slot leaves read for every row): ck_zipv / ck_pc hold for ANY
 #    operand trees; ck_pc_count needs PcFits (the data leaves fit the output depth).
+
+# =====================================================================================
+# 23. Selective filters (v0.3 W3): Kernel.where, the row list of a selective filter
+# =====================================================================================
+#
+# Since v0.2's PDS-H pass, a filter keeping at most 1/8 of the rows (Eval.filter.sel) gathers the kept
+# rows by the index list Kernel.where builds (Frame.take_rows) instead of compacting every column. where
+# runs the compaction's loop (section 11) with the row index in place of a[i]: out[k] = i, k += mask[i].
+# WSpec states its contract the way CSpec states compact_contents': over the rows i ..< i + f from cursor
+# k, every row whose mask word is set has its own index in the output at the cursor value of its step,
+# i.e. out[0 ..) is the ascending list of the kept rows.
+
+def WSpec(f: Nat, +i: U32, +k: U32, +d: Nat, -mask: Array<U32>, -o: Array<U32>) -> Type:
+  match f:
+    case 0n:
+      Unit
+    case 1n+p:
+      &b: U32 -> {b == rd_at(U32, mask, i) : U32} & ({U32.is_ne(b, 0) == True{} : Bool} -> {rdN(U32, d, o, k) == i : U32}) & WSpec(p, U32.inc(i), U32.add(k, b), d, mask, o)
+
+# LAW: Kernel.where writes the index of every kept row at its cursor position, in row order, whenever
+# the mask is 0/1 and the cursor stays below 2^d (CRoom, as compact_contents: the branch-free loop writes
+# slot k on a dropped row too, so the caller allocates depth_for(kept + 1) slots: Eval.filter.sel.go)
+law where_contents:
+  for +d: Nat
+  for +n: U32
+  for mask: Array<U32>
+  for room: CRoom(U32.to_nat(n), 0, 0, d, mask)
+  WSpec(U32.to_nat(n), 0, 0, d, mask, K.Kernel.where(n, d, mask))

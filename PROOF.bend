@@ -48,3 +48,4 @@ import ./PROOF_peep.bend as PPE
 import ./PROOF_chunks.bend as PCH
 import ./PROOF_filtsel.bend as PFS
 import ./PROOF_ckernels.bend as PCK
+import ./PROOF_where.bend as PW
