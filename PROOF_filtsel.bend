@@ -363,52 +363,53 @@ def pcl(s: Q.Sh, b: Q.Buf, +l: U32, +p: Nat, m: Array<U32>, +kept: U32) -> {Q.Ex
     case Q.BS{a}:
       pcl.r(s, a, l, p, m, kept)
 
-def FZW(-c: C.Column) -> Type:
-  &z: Q.Fz -> {Q.Exec.fz(c) == z : Q.Fz} & {Q.Exec.unfz(z) == c : C.Column}
+# FZW(c) = &z: Q.Fz -> {Q.Exec.fz(c) == z : Q.Fz} & {Q.Exec.unfz(z) == c : C.Column}, written inline at every use
+# (v0.3 W0.1): expanding a type-level def that returns a Sigma overflowed the BendTT translation on Bend
+# 2.0.38+ (bendlang/bend#1984).
 
-def fzw.b(+len: U32, +dep: Nat, valid: C.Valid, data: Array<U32>) -> FZW(C.CBool{len, dep, valid, data}):
+def fzw.b(+len: U32, +dep: Nat, valid: C.Valid, data: Array<U32>) -> (&z: Q.Fz -> {Q.Exec.fz(C.CBool{len, dep, valid, data}) == z : Q.Fz} & {Q.Exec.unfz(z) == C.CBool{len, dep, valid, data} : C.Column}):
   match valid:
     case C.AllValid{}:
       (Q.FzOk{len, dep, Q.SB{}, Q.BU{data}}, {==}, {==})
     case C.Mask{v}:
       (Q.FzNo{C.CBool{len, dep, C.Mask{v}, data}}, {==}, {==})
 
-def fzw.u(+len: U32, +dep: Nat, valid: C.Valid, data: Array<U32>) -> FZW(C.CU32{len, dep, valid, data}):
+def fzw.u(+len: U32, +dep: Nat, valid: C.Valid, data: Array<U32>) -> (&z: Q.Fz -> {Q.Exec.fz(C.CU32{len, dep, valid, data}) == z : Q.Fz} & {Q.Exec.unfz(z) == C.CU32{len, dep, valid, data} : C.Column}):
   match valid:
     case C.AllValid{}:
       (Q.FzOk{len, dep, Q.SU{}, Q.BU{data}}, {==}, {==})
     case C.Mask{v}:
       (Q.FzNo{C.CU32{len, dep, C.Mask{v}, data}}, {==}, {==})
 
-def fzw.i(+len: U32, +dep: Nat, valid: C.Valid, data: Array<U32>) -> FZW(C.CI32{len, dep, valid, data}):
+def fzw.i(+len: U32, +dep: Nat, valid: C.Valid, data: Array<U32>) -> (&z: Q.Fz -> {Q.Exec.fz(C.CI32{len, dep, valid, data}) == z : Q.Fz} & {Q.Exec.unfz(z) == C.CI32{len, dep, valid, data} : C.Column}):
   match valid:
     case C.AllValid{}:
       (Q.FzOk{len, dep, Q.SI{}, Q.BU{data}}, {==}, {==})
     case C.Mask{v}:
       (Q.FzNo{C.CI32{len, dep, C.Mask{v}, data}}, {==}, {==})
 
-def fzw.f(+len: U32, +dep: Nat, valid: C.Valid, data: Array<F32>) -> FZW(C.CF32{len, dep, valid, data}):
+def fzw.f(+len: U32, +dep: Nat, valid: C.Valid, data: Array<F32>) -> (&z: Q.Fz -> {Q.Exec.fz(C.CF32{len, dep, valid, data}) == z : Q.Fz} & {Q.Exec.unfz(z) == C.CF32{len, dep, valid, data} : C.Column}):
   match valid:
     case C.AllValid{}:
       (Q.FzOk{len, dep, Q.SX{}, Q.BF{data}}, {==}, {==})
     case C.Mask{v}:
       (Q.FzNo{C.CF32{len, dep, C.Mask{v}, data}}, {==}, {==})
 
-def fzw.r(+len: U32, +dep: Nat, valid: C.Valid, a: Array<String>) -> FZW(C.CStr{len, dep, valid, ST.SRaw{a}}):
+def fzw.r(+len: U32, +dep: Nat, valid: C.Valid, a: Array<String>) -> (&z: Q.Fz -> {Q.Exec.fz(C.CStr{len, dep, valid, ST.SRaw{a}}) == z : Q.Fz} & {Q.Exec.unfz(z) == C.CStr{len, dep, valid, ST.SRaw{a}} : C.Column}):
   match valid:
     case C.AllValid{}:
       (Q.FzOk{len, dep, Q.SX{}, Q.BS{a}}, {==}, {==})
     case C.Mask{v}:
       (Q.FzNo{C.CStr{len, dep, C.Mask{v}, ST.SRaw{a}}}, {==}, {==})
 
-def fzw.d(+len: U32, +dep: Nat, valid: C.Valid, codes: Array<U32>, dict: ST.Dict) -> FZW(C.CStr{len, dep, valid, ST.SDict{codes, dict}}):
+def fzw.d(+len: U32, +dep: Nat, valid: C.Valid, codes: Array<U32>, dict: ST.Dict) -> (&z: Q.Fz -> {Q.Exec.fz(C.CStr{len, dep, valid, ST.SDict{codes, dict}}) == z : Q.Fz} & {Q.Exec.unfz(z) == C.CStr{len, dep, valid, ST.SDict{codes, dict}} : C.Column}):
   match valid:
     case C.AllValid{}:
       (Q.FzOk{len, dep, Q.SD{dict}, Q.BU{codes}}, {==}, {==})
     case C.Mask{v}:
       (Q.FzNo{C.CStr{len, dep, C.Mask{v}, ST.SDict{codes, dict}}}, {==}, {==})
 
-def fzw.s(+len: U32, +dep: Nat, valid: C.Valid, data: ST.Strs) -> FZW(C.CStr{len, dep, valid, data}):
+def fzw.s(+len: U32, +dep: Nat, valid: C.Valid, data: ST.Strs) -> (&z: Q.Fz -> {Q.Exec.fz(C.CStr{len, dep, valid, data}) == z : Q.Fz} & {Q.Exec.unfz(z) == C.CStr{len, dep, valid, data} : C.Column}):
   match data:
     case ST.SRaw{a}:
       fzw.r(len, dep, valid, a)
@@ -416,7 +417,7 @@ def fzw.s(+len: U32, +dep: Nat, valid: C.Valid, data: ST.Strs) -> FZW(C.CStr{len
       fzw.d(len, dep, valid, codes, dict)
 
 # Exec.fz's split, live, and Exec.unfz puts the column back
-def fzw(c: C.Column) -> FZW(c):
+def fzw(c: C.Column) -> (&z: Q.Fz -> {Q.Exec.fz(c) == z : Q.Fz} & {Q.Exec.unfz(z) == c : C.Column}):
   match c:
     case C.CBool{+len, +dep, valid, data}:
       fzw.b(len, dep, valid, data)
@@ -683,11 +684,11 @@ def ce6(-T: Data, a: Array<T>) -> CE6(T, a):
   ce6.a(T, a, PC.clone_eq(T, a))
 
 # FZW of a column from a live copy of it
-def fzwe(-c: C.Column, c1: C.Column, e: {c1 == c : C.Column}) -> FZW(c):
-  %e : FZW(_)
+def fzwe(-c: C.Column, c1: C.Column, e: {c1 == c : C.Column}) -> (&z: Q.Fz -> {Q.Exec.fz(c) == z : Q.Fz} & {Q.Exec.unfz(z) == c : C.Column}):
+  %e : (&z: Q.Fz -> {Q.Exec.fz(_) == z : Q.Fz} & {Q.Exec.unfz(z) == _ : C.Column})
   fzw(c1)
 
-def fg3.b(-n1: String, -c1: C.Column, -n2: String, -c2: C.Column, -n3: String, -c3: C.Column, -m: Array<U32>, -acc: List<&1, C.Named>, +kept: U32, cb1: C.Column, +eb1: {cb1 == c1 : C.Column}, w1: FZW(c1), cb2: C.Column, +eb2: {cb2 == c2 : C.Column}, w2: FZW(c2), cb3: C.Column, +eb3: {cb3 == c3 : C.Column}, w3: FZW(c3), wm: CE4(U32, m))
+def fg3.b(-n1: String, -c1: C.Column, -n2: String, -c2: C.Column, -n3: String, -c3: C.Column, -m: Array<U32>, -acc: List<&1, C.Named>, +kept: U32, cb1: C.Column, +eb1: {cb1 == c1 : C.Column}, w1: (&z: Q.Fz -> {Q.Exec.fz(c1) == z : Q.Fz} & {Q.Exec.unfz(z) == c1 : C.Column}), cb2: C.Column, +eb2: {cb2 == c2 : C.Column}, w2: (&z: Q.Fz -> {Q.Exec.fz(c2) == z : Q.Fz} & {Q.Exec.unfz(z) == c2 : C.Column}), cb3: C.Column, +eb3: {cb3 == c3 : C.Column}, w3: (&z: Q.Fz -> {Q.Exec.fz(c3) == z : Q.Fz} & {Q.Exec.unfz(z) == c3 : C.Column}), wm: CE4(U32, m))
   -> {Q.Exec.fc.s3(n1, Q.Exec.fz(c1), n2, Q.Exec.fz(c2), n3, Q.Exec.fz(c3), kept, K.Kernel.depth_for(U32.add(kept, 1)), (m, acc)) == C.Cols.compact.step(n3, kept, c3, C.Cols.compact.step(n2, kept, c2, C.Cols.compact.step(n1, kept, c1, (m, acc)))) : Array<U32> & List<&1, C.Named>}:
   (z1, efz1, eun1) = w1
   (z2, efz2, eun2) = w2
@@ -716,7 +717,7 @@ def fg3(-n1: String, c1: C.Column, -n2: String, c2: C.Column, -n3: String, c3: C
   -> {Q.Exec.fc.s3(n1, Q.Exec.fz(c1), n2, Q.Exec.fz(c2), n3, Q.Exec.fz(c3), kept, K.Kernel.depth_for(U32.add(kept, 1)), (m, acc)) == C.Cols.compact.step(n3, kept, c3, C.Cols.compact.step(n2, kept, c2, C.Cols.compact.step(n1, kept, c1, (m, acc)))) : Array<U32> & List<&1, C.Named>}:
   fg3.a(n1, c1, n2, c2, n3, c3, m, acc, kept, PV.clone_w(c1), PV.clone_w(c2), PV.clone_w(c3))
 
-def fg4.b(-n1: String, -c1: C.Column, -n2: String, -c2: C.Column, -n3: String, -c3: C.Column, -n4: String, -c4: C.Column, -rest: List<&1, C.Named>, -m: Array<U32>, -acc: List<&1, C.Named>, +kept: U32, cb1: C.Column, +eb1: {cb1 == c1 : C.Column}, w1: FZW(c1), cb2: C.Column, +eb2: {cb2 == c2 : C.Column}, w2: FZW(c2), cb3: C.Column, +eb3: {cb3 == c3 : C.Column}, w3: FZW(c3), cb4: C.Column, +eb4: {cb4 == c4 : C.Column}, w4: FZW(c4), wm: CE6(U32, m), ih: @ma: Array<U32> -> @-a2: List<&1, C.Named> -> {Q.Exec.fc.go(rest, kept, K.Kernel.depth_for(U32.add(kept, 1)), (ma, a2)) == C.Cols.compact.go(rest, kept, (ma, a2)) : Array<U32> & List<&1, C.Named>})
+def fg4.b(-n1: String, -c1: C.Column, -n2: String, -c2: C.Column, -n3: String, -c3: C.Column, -n4: String, -c4: C.Column, -rest: List<&1, C.Named>, -m: Array<U32>, -acc: List<&1, C.Named>, +kept: U32, cb1: C.Column, +eb1: {cb1 == c1 : C.Column}, w1: (&z: Q.Fz -> {Q.Exec.fz(c1) == z : Q.Fz} & {Q.Exec.unfz(z) == c1 : C.Column}), cb2: C.Column, +eb2: {cb2 == c2 : C.Column}, w2: (&z: Q.Fz -> {Q.Exec.fz(c2) == z : Q.Fz} & {Q.Exec.unfz(z) == c2 : C.Column}), cb3: C.Column, +eb3: {cb3 == c3 : C.Column}, w3: (&z: Q.Fz -> {Q.Exec.fz(c3) == z : Q.Fz} & {Q.Exec.unfz(z) == c3 : C.Column}), cb4: C.Column, +eb4: {cb4 == c4 : C.Column}, w4: (&z: Q.Fz -> {Q.Exec.fz(c4) == z : Q.Fz} & {Q.Exec.unfz(z) == c4 : C.Column}), wm: CE6(U32, m), ih: @ma: Array<U32> -> @-a2: List<&1, C.Named> -> {Q.Exec.fc.go(rest, kept, K.Kernel.depth_for(U32.add(kept, 1)), (ma, a2)) == C.Cols.compact.go(rest, kept, (ma, a2)) : Array<U32> & List<&1, C.Named>})
   -> {Q.Exec.fc.go(rest, kept, K.Kernel.depth_for(U32.add(kept, 1)), Q.Exec.fc.s4(n1, Q.Exec.fz(c1), n2, Q.Exec.fz(c2), n3, Q.Exec.fz(c3), n4, Q.Exec.fz(c4), kept, K.Kernel.depth_for(U32.add(kept, 1)), (m, acc))) == C.Cols.compact.go(rest, kept, C.Cols.compact.step(n4, kept, c4, C.Cols.compact.step(n3, kept, c3, C.Cols.compact.step(n2, kept, c2, C.Cols.compact.step(n1, kept, c1, (m, acc)))))) : Array<U32> & List<&1, C.Named>}:
   (z1, efz1, eun1) = w1
   (z2, efz2, eun2) = w2

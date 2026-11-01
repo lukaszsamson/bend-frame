@@ -2,7 +2,7 @@ BEND ?= $(HOME)/.bend/bin/bend
 SOURCES := $(shell find src tests -name '*.bend' -type f 2>/dev/null | LC_ALL=C sort)
 EXAMPLES := frame.bend $(wildcard examples/*.bend) $(wildcard bench/*.bend)
 
-.PHONY: ci test runner-check check proofs verdict bench bench-check toolchain-check clean mutation-check consumer-check diff-driver-check diff-smoke
+.PHONY: ci test runner-check check proofs verdict verdict-probe bench bench-check toolchain-check clean mutation-check consumer-check diff-driver-check diff-smoke
 
 # The full gate, in CI order. Needs the pinned toolchain (TOOLCHAIN): `make toolchain-check` first.
 # Beyond the unit gates: the differential drivers' exit-status regression, a bounded strict
@@ -34,6 +34,13 @@ proofs:
 
 verdict:
 	$(BEND) PROOF.bend --verdict
+
+# the cheap half of verdict: only the BendTT translation (no Lean run); it fails the way --verdict
+# did on Bend 2.0.38+ before the FZW Sigma was inlined (bendlang/bend#1984). Use after toolchain bumps.
+verdict-probe:
+	@mkdir -p build
+	$(BEND) PROOF.bend -o build/PROOF.bendtt
+	@echo "verdict-probe: BendTT translation ok ($$(wc -c < build/PROOF.bendtt | tr -d ' ') bytes)"
 
 # Mutates the PRODUCTION functions in a temp copy and requires `bend PROOF.bend` to fail for each
 # (scripts/mutation_check.sh); the unmutated copy must pass. Complements tests/proof_negative/.

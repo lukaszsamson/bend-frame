@@ -766,6 +766,13 @@ therefore sequential inside a column and parallel ACROSS independent work:
 
 ## 8. Laws (`LAWS.bend`) and how they are proven (`PROOF*.bend`) [opus]
 
+**Independent check on Bend 2.0.39 (v0.3 W0).** `bend PROOF.bend --verdict` (and `-o PROOF.bendtt`) overflowed the
+machine stack on 2.0.38+ (bendlang/bend#1984): the BendTT translation expanded a type-level def returning a Sigma,
+`FZW(c)` in PROOF_filtsel.bend, at its 17 use sites. Writing that Sigma inline at every use (the terms are unchanged;
+`FZW` survives as a comment) was enough: `make verdict` prints ALL PROOFS CHECK on 2.0.39 in ~27 s, and
+`make verdict-probe` (the translation only, no Lean) is the quick check after a toolchain bump. No other witness family
+needed inlining.
+
 Status (v0.1 release candidate, after M5 part 4: P1 and P2 closed as scoped, P3 by the
 fallback, both string storages in the P1 chain, the in-place kernels and concatenation
 included; the v0.1 review's scan laws `hmerge_keeps_scans` / `release_keeps_scans` added
