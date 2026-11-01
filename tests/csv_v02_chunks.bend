@@ -307,4 +307,8 @@ def main() -> IO(Unit):
 #|sep_dot: ok 13
 #|sep_minus: ok 13
 #|sep_pipe: ok 13
-#|chunk frames: 229
+#|v03_late_null: ok 13
+#|v03_valid_masked_valid: ok 13
+#|v03_quoted_empty_late: ok 13
+#|v03_all_null_col: ok 13
+#|chunk frames: 273

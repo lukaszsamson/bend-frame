@@ -155,3 +155,7 @@ def main() -> IO(Unit):
 #|sep_dot: ok 23 | frame| height 60| width 2
 #|sep_minus: ok 23 | frame| height 60| width 2
 #|sep_pipe: ok 23 | frame| height 2| width 2
+#|v03_late_null: ok 23 | frame| height 400| width 5
+#|v03_valid_masked_valid: ok 23 | frame| height 300| width 2
+#|v03_quoted_empty_late: ok 23 | frame| height 260| width 2
+#|v03_all_null_col: ok 23 | frame| height 120| width 2

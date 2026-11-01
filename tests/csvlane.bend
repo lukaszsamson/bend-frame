@@ -212,3 +212,7 @@ def main() -> IO(Unit):
 #|sep_dot: frame| height 60| width 2
 #|sep_minus: frame| height 60| width 2
 #|sep_pipe: frame| height 2| width 2
+#|v03_late_null: frame| height 400| width 5
+#|v03_valid_masked_valid: frame| height 300| width 2
+#|v03_quoted_empty_late: frame| height 260| width 2
+#|v03_all_null_col: frame| height 120| width 2

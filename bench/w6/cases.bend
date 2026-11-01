@@ -107,4 +107,8 @@ def Cases.all() -> List<&2, Mf>:
    Mf{"semicolon", "US", True{}, 59},
    Mf{"sep_dot", "FS", True{}, 46},
    Mf{"sep_minus", "IS", True{}, 45},
-   Mf{"sep_pipe", "SS", True{}, 124}]
+   Mf{"sep_pipe", "SS", True{}, 124},
+   Mf{"v03_late_null", "UIFBS", True{}, 44},
+   Mf{"v03_valid_masked_valid", "US", True{}, 44},
+   Mf{"v03_quoted_empty_late", "SU", True{}, 44},
+   Mf{"v03_all_null_col", "UU", True{}, 44}]

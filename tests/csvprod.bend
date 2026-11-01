@@ -540,4 +540,8 @@ def main() -> IO(Unit):
 #|sep_dot: ok
 #|sep_minus: ok
 #|sep_pipe: ok
+#|v03_late_null: ok
+#|v03_valid_masked_valid: ok
+#|v03_quoted_empty_late: ok
+#|v03_all_null_col: ok
 #|io error 2: No such file or directory

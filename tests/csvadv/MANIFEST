@@ -100,3 +100,7 @@ semicolon US 1 59
 sep_dot FS 1 46
 sep_minus IS 1 45
 sep_pipe SS 1 124
+v03_late_null UIFBS 1 44
+v03_valid_masked_valid US 1 44
+v03_quoted_empty_late SU 1 44
+v03_all_null_col UU 1 44

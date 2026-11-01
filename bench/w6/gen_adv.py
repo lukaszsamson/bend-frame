@@ -200,6 +200,28 @@ def cases():
     add("sep_minus", "\n".join(rows) + "\n", "IS", 1, 45)
     # a bare comma is content under another separator, a quote is not
     add("sep_pipe", "a|b\n1,5|x,y\n2|\"q|r\"\n", "SS", 1, 124)
+    # v0.3 W1: the reader's validity change (a lane / column with no null builds no validity array): the first
+    # null of every column late in the file (rows 290-398 of 400), so whole regions are all-valid before
+    # the masked ones; all-valid rows, then masked rows, then all-valid again; quoted "" (an empty string)
+    # against an empty field (null) late in a str column; a column null on every row
+    rows = ["u,i,f,b,s"]
+    for k in range(400):
+        nul = {0: k in (290, 391), 1: k in (330, 398), 2: k == 375, 3: k in (301, 350), 4: k in (299, 360)}
+        vals = [str(k), str(k * 3 - 600), "%d.5" % (k - 100), "true" if k % 3 else "false", "w%d" % (k % 17)]
+        rows.append(",".join("" if nul[j] else v for j, v in enumerate(vals)))
+    add("v03_late_null", "\n".join(rows) + "\n", "UIFBS")
+    rows = ["u,s"]
+    for k in range(300):
+        masked = 100 <= k < 200 and k % 3 == 0
+        rows.append(("" if masked else str(k)) + "," + ("" if masked else "t%d" % (k % 5)))
+    add("v03_valid_masked_valid", "\n".join(rows) + "\n", "US")
+    rows = ["s,u"]
+    for k in range(260):
+        cell = '""' if k in (205, 230) else ("" if k in (240, 251) else "v%d" % (k % 7))
+        rows.append(cell + "," + str(k))
+    add("v03_quoted_empty_late", "\n".join(rows) + "\n", "SU")
+    rows = ["a,b"] + ["%d," % k for k in range(120)]
+    add("v03_all_null_col", "\n".join(rows) + "\n", "UU")
     return c
 
 

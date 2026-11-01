@@ -181,3 +181,7 @@ def main() -> IO(Unit):
 #|sep_dot: ok 60
 #|sep_minus: ok 60
 #|sep_pipe: ok 2
+#|v03_late_null: ok 400
+#|v03_valid_masked_valid: ok 300
+#|v03_quoted_empty_late: ok 260
+#|v03_all_null_col: ok 120
