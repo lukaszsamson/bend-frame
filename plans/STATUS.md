@@ -539,3 +539,8 @@ machine), `bench/mem/probe.bend` (arrays, lists, one CSV read) and the bench/tpc
 - W4 DONE: README / CHANGELOG 0.3.0 / DESIGN 8.3 / LAWS section 20 note / GATES_V02 closing notes.
 - W5 needs the user: a quiet-machine (load < 2) gate run, a git remote for one workflow run, the v0.1-reader removal date
   (proposal: v0.4), and the decisions D1 (projection pushdown default), D2 (BOM stripping), D4.
+- `make ci` at 36695b2 (2026-11-01, Bend 2.0.39): exit 0, "ci: all gates passed", 18 min 29 s (load 33-61): test 212/212,
+  proofs + verdict ALL PROOFS CHECK, mutation-check 107/107, test-mutation-check 3/3, bench-check, diff-smoke, csv-fuzz-smoke,
+  fork-audit (68 lets, 0 findings), radix-check 90, tpch-check (selftest 19/19, q1-q18 ok), consumer-check, coverage-check.
+- Fresh-seed `make diff` (N = 1000 each, --strict --chunked): seeds 20261101 Raw, 20261102 Dict, 20261103 nullslot,
+  20261104 Dict + deep: 0 failing cases, 0 oracle errors each (G2).
