@@ -57,7 +57,8 @@
 #   field's text (untrimmed, quotes removed: v0.1's `ParseError{bl, "column <name>: cannot parse
 #   \"<bt>\" as <dtype>"}`).
 # All arrays have 2^depth_for(max(n, 1)) slots (n <= slots; a part's depth is not stored: the
-# merge copies n rows).
+# merge copies n rows), except v of a part with no null: ONE slot holding 1 (Col.vtrim), read with
+# wrapping indices like the full array of ones it stands for.
 #
 # Field rules (v0.1 `Csv.ok` / `Csv.rd.w`, bit for bit; tests/csvlane*.bend check them against
 # csvparse + Csv conversions): a numeric / bool field whose content is empty after trimming is
@@ -1007,10 +1008,17 @@ def Bd.pick(has: Bool, +bad: U32, +c: U32, +w: U32, sh: SH, lines: Array<U32>) -
     case False{}:
       BL{sh, lines, 0, ""}
 
+# a region's validity when it has no null: one slot holding 1 (every reader of a part's validity reads
+# it per row with wrapping indices, so each row still reads 1), and the 2^d array is freed as the lane
+# finishes, for the next lane to reuse, instead of living until the combine (bench/tpch: 13 columns
+# x ~430 regions of lineitem, ~90 MB that was all ones)
+def Col.vtrim(+nulls: U32, v: Array<U32>) -> Array<U32>:
+  Bool.pick(Array<U32>, U32.is_zero(nulls), Array.new(U32, 0n, 1), v)
+
 def Col.w.fin2(a: Array<U32>, v: Array<U32>, +nulls: U32, +bad: U32, bl: BL) -> FC:
   match bl:
     case BL{sh, lines, +l, bt}:
-      FC{sh, lines, OW{a, v, nulls, bad, l, bt}}
+      FC{sh, lines, OW{a, Col.vtrim(nulls, v), nulls, bad, l, bt}}
 
 def Col.w.fin(+c: U32, +w: U32, lines: Array<U32>, lw: LW) -> FC:
   match lw:
@@ -1020,7 +1028,7 @@ def Col.w.fin(+c: U32, +w: U32, lines: Array<U32>, lw: LW) -> FC:
 def Col.f.fin2(a: Array<F32>, v: Array<U32>, +nulls: U32, +bad: U32, bl: BL) -> FC:
   match bl:
     case BL{sh, lines, +l, bt}:
-      FC{sh, lines, OF{a, v, nulls, bad, l, bt}}
+      FC{sh, lines, OF{a, Col.vtrim(nulls, v), nulls, bad, l, bt}}
 
 def Col.f.fin(+c: U32, +w: U32, lines: Array<U32>, lf: LF) -> FC:
   match lf:
@@ -1029,11 +1037,11 @@ def Col.f.fin(+c: U32, +w: U32, lines: Array<U32>, lf: LF) -> FC:
 
 def Col.r.fin(lines: Array<U32>, lr: LR) -> FC:
   match lr:
-    case LR{sh, a, v, nulls}:
-      FC{sh, lines, OR{a, v, nulls}}
+    case LR{sh, a, v, +nulls}:
+      FC{sh, lines, OR{a, Col.vtrim(nulls, v), nulls}}
 
 def Col.s.fin3(sh: SH, lines: Array<U32>, c: Array<U32>, v: Array<U32>, +nulls: U32, +k: U32, ents: Array<String>, fr: Array<U32>) -> FC:
-  FC{sh, lines, OS{c, v, nulls, k, ents, fr}}
+  FC{sh, lines, OS{c, Col.vtrim(nulls, v), nulls, k, ents, fr}}
 
 def Col.s.fin2(lines: Array<U32>, c: Array<U32>, v: Array<U32>, +nulls: U32, +k: U32, en: EN) -> FC:
   match en:

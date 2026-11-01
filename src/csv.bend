@@ -2741,19 +2741,28 @@ type QX is Type:
   QXD{off: U32, c: Array<U32>, v: Array<U32>, nulls: U32, dict: ST.Dict}
   QXR{off: U32, a: Array<String>, v: Array<U32>, nulls: U32}
 
-def Csv.v2.w.part(+m: U32, co: L.CO, st: QW) -> QW:
+# a part's validity into the column's: copied while the column has a null somewhere (hv), else dropped
+# (the column is AllValid: its builder holds a 1-slot array, no 2^d buffer is filled and thrown away)
+def Csv.v2.vcopy(+hv: Bool, +m: U32, +off: U32, ov: Array<U32>, v: Array<U32>) -> Array<U32>:
+  match hv:
+    case True{}:
+      K.Kernel.copy_into(~U32, m, off, ov, v)
+    case False{}:
+      ov
+
+def Csv.v2.w.part(+hv: Bool, +m: U32, co: L.CO, st: QW) -> QW:
   match co st:
     case L.OW{a, v, +nb, +bd, +bl, bt} QW{+off, oa, ov, +nulls, +bad, +obl, obt}:
       +first = Bool.and(U32.is_eq(bad, 0), U32.is_ne(bd, 0))
-      QW{U32.add(off, m), K.Kernel.copy_into(~U32, m, off, oa, a), K.Kernel.copy_into(~U32, m, off, ov, v), U32.add(nulls, nb), Csv.v2.sel(first, bd, bad), Csv.v2.sel(first, bl, obl), Bool.pick(String, first, bt, obt)}
+      QW{U32.add(off, m), K.Kernel.copy_into(~U32, m, off, oa, a), Csv.v2.vcopy(hv, m, off, ov, v), U32.add(nulls, nb), Csv.v2.sel(first, bd, bad), Csv.v2.sel(first, bl, obl), Bool.pick(String, first, bt, obt)}
     case _ other:
       other
 
-def Csv.v2.f.part(+m: U32, co: L.CO, st: QF) -> QF:
+def Csv.v2.f.part(+hv: Bool, +m: U32, co: L.CO, st: QF) -> QF:
   match co st:
     case L.OF{a, v, +nb, +bd, +bl, bt} QF{+off, oa, ov, +nulls, +bad, +obl, obt}:
       +first = Bool.and(U32.is_eq(bad, 0), U32.is_ne(bd, 0))
-      QF{U32.add(off, m), K.Kernel.copy_into(~F32, m, off, oa, a), K.Kernel.copy_into(~U32, m, off, ov, v), U32.add(nulls, nb), Csv.v2.sel(first, bd, bad), Csv.v2.sel(first, bl, obl), Bool.pick(String, first, bt, obt)}
+      QF{U32.add(off, m), K.Kernel.copy_into(~F32, m, off, oa, a), Csv.v2.vcopy(hv, m, off, ov, v), U32.add(nulls, nb), Csv.v2.sel(first, bd, bad), Csv.v2.sel(first, bl, obl), Bool.pick(String, first, bt, obt)}
     case _ other:
       other
 
@@ -2782,49 +2791,49 @@ def Csv.v2.mgo(f: Nat, +j: U32, +off: U32, +enc: ST.StrEnc, st: QG) -> QG:
 
 # a part decoded into the Raw column: its rows are its entries by local code (a null row holds the
 # empty content's entry, "", as a v0.1 Raw null slot)
-def Csv.v2.x.raw(+m: U32, +off: U32, +nulls: U32, oa: Array<String>, ov: Array<U32>, c: Array<U32>, v: Array<U32>, ents: Array<String>) -> QX:
-  QXR{U32.add(off, m), Csv.v2.gat(~String, m, off, oa, ents, c), K.Kernel.copy_into(~U32, m, off, ov, v), nulls}
+def Csv.v2.x.raw(+hv: Bool, +m: U32, +off: U32, +nulls: U32, oa: Array<String>, ov: Array<U32>, c: Array<U32>, v: Array<U32>, ents: Array<String>) -> QX:
+  QXR{U32.add(off, m), Csv.v2.gat(~String, m, off, oa, ents, c), Csv.v2.vcopy(hv, m, off, ov, v), nulls}
 
 # after the merge loop: codes remapped into the column, or (EncAuto's fall back) the rows so far
 # decoded from the dictionary and this part decoded from its entries
-def Csv.v2.x.dfin(+m: U32, +off: U32, +nulls: U32, +d: Nat, oc: Array<U32>, ov: Array<U32>, c: Array<U32>, v: Array<U32>, g: QG) -> QX:
+def Csv.v2.x.dfin(+hv: Bool, +m: U32, +off: U32, +nulls: U32, +d: Nat, oc: Array<U32>, ov: Array<U32>, c: Array<U32>, v: Array<U32>, g: QG) -> QX:
   match g:
     case QG{ents, fr, dict, map, False{}}:
-      QXD{U32.add(off, m), Csv.v2.gat(~U32, m, off, oc, map, c), K.Kernel.copy_into(~U32, m, off, ov, v), nulls, dict}
+      QXD{U32.add(off, m), Csv.v2.gat(~U32, m, off, oc, map, c), Csv.v2.vcopy(hv, m, off, ov, v), nulls, dict}
     case QG{ents, fr, dict, map, True{}}:
-      Csv.v2.x.raw(m, off, nulls, ST.Dict.decode(off, d, oc, dict), ov, c, v, ents)
+      Csv.v2.x.raw(hv, m, off, nulls, ST.Dict.decode(off, d, oc, dict), ov, c, v, ents)
 
-def Csv.v2.x.part(+m: U32, +d: Nat, +enc: ST.StrEnc, co: L.CO, st: QX) -> QX:
+def Csv.v2.x.part(+hv: Bool, +m: U32, +d: Nat, +enc: ST.StrEnc, co: L.CO, st: QX) -> QX:
   match co st:
     case L.OS{c, v, +nb, +k, ents, fr} QXD{+off, oc, ov, +nulls, dict}:
-      Csv.v2.x.dfin(m, off, U32.add(nulls, nb), d, oc, ov, c, v, Csv.v2.mgo(U32.to_nat(k), 0, off, enc, QG{ents, fr, dict, Array.new(U32, K.Kernel.depth_for(U32.max(k, 1)), 0), False{}}))
+      Csv.v2.x.dfin(hv, m, off, U32.add(nulls, nb), d, oc, ov, c, v, Csv.v2.mgo(U32.to_nat(k), 0, off, enc, QG{ents, fr, dict, Array.new(U32, K.Kernel.depth_for(U32.max(k, 1)), 0), False{}}))
     case L.OS{c, v, +nb, k, ents, fr} QXR{+off, oa, ov, +nulls}:
-      Csv.v2.x.raw(m, off, U32.add(nulls, nb), oa, ov, c, v, ents)
+      Csv.v2.x.raw(hv, m, off, U32.add(nulls, nb), oa, ov, c, v, ents)
     case L.OR{a, v, +nb} QXR{+off, oa, ov, +nulls}:
-      QXR{U32.add(off, m), K.Kernel.copy_into(~String, m, off, oa, a), K.Kernel.copy_into(~U32, m, off, ov, v), U32.add(nulls, nb)}
+      QXR{U32.add(off, m), K.Kernel.copy_into(~String, m, off, oa, a), Csv.v2.vcopy(hv, m, off, ov, v), U32.add(nulls, nb)}
     case _ other:
       other
 
-def Csv.v2.cat.w(ps: List<&1, QP>, st: QW) -> QW:
+def Csv.v2.cat.w(+hv: Bool, ps: List<&1, QP>, st: QW) -> QW:
   match ps:
     case Nil{}:
       st
     case QP{+m, co} <> t:
-      Csv.v2.cat.w(t, Csv.v2.w.part(m, co, st))
+      Csv.v2.cat.w(hv, t, Csv.v2.w.part(hv, m, co, st))
 
-def Csv.v2.cat.f(ps: List<&1, QP>, st: QF) -> QF:
+def Csv.v2.cat.f(+hv: Bool, ps: List<&1, QP>, st: QF) -> QF:
   match ps:
     case Nil{}:
       st
     case QP{+m, co} <> t:
-      Csv.v2.cat.f(t, Csv.v2.f.part(m, co, st))
+      Csv.v2.cat.f(hv, t, Csv.v2.f.part(hv, m, co, st))
 
-def Csv.v2.cat.x(ps: List<&1, QP>, +d: Nat, +enc: ST.StrEnc, st: QX) -> QX:
+def Csv.v2.cat.x(+hv: Bool, ps: List<&1, QP>, +d: Nat, +enc: ST.StrEnc, st: QX) -> QX:
   match ps:
     case Nil{}:
       st
     case QP{+m, co} <> t:
-      Csv.v2.cat.x(t, d, enc, Csv.v2.x.part(m, d, enc, co, st))
+      Csv.v2.cat.x(hv, t, d, enc, Csv.v2.x.part(hv, m, d, enc, co, st))
 
 def Csv.v2.w.fin.k(isbad: Bool, +name: String, +t: D.DType, +n: U32, +d: Nat, +nulls: U32, a: Array<U32>, v: Array<U32>, +bl: U32, +bt: String) -> E.ResT(C.Named):
   match isbad:
@@ -2866,17 +2875,48 @@ def Csv.v2.x.fin(+name: String, +n: U32, +d: Nat, st: QX) -> E.ResT(C.Named):
     case QXR{off, a, v, +nulls}:
       Done{C.Named{name, C.CStr{n, d, CB.valid(nulls, v), ST.SRaw{a}}}}
 
-# one column (2^depth_for(n) slots, AllValid without nulls) from its parts, or its first bad cell
-def Csv.v2.col.k(t: L.Ty, +name: String, +dt: D.DType, +n: U32, +d: Nat, +enc: ST.StrEnc, ps: List<&1, QP>) -> E.ResT(C.Named):
+# the parts back and their null count
+def Csv.v2.nb.k(+m: U32, co: L.CO, r: List<&1, QP> & U32) -> List<&1, QP> & U32:
+  match co:
+    case L.OW{a, v, +nb, bd, bl, bt}:
+      (t, +s) = r
+      (QP{m, L.OW{a, v, nb, bd, bl, bt}} <> t, U32.add(s, nb))
+    case L.OF{a, v, +nb, bd, bl, bt}:
+      (t, +s) = r
+      (QP{m, L.OF{a, v, nb, bd, bl, bt}} <> t, U32.add(s, nb))
+    case L.OS{c, v, +nb, k, ents, fr}:
+      (t, +s) = r
+      (QP{m, L.OS{c, v, nb, k, ents, fr}} <> t, U32.add(s, nb))
+    case L.OR{a, v, +nb}:
+      (t, +s) = r
+      (QP{m, L.OR{a, v, nb}} <> t, U32.add(s, nb))
+
+def Csv.v2.nb(ps: List<&1, QP>) -> List<&1, QP> & U32:
+  match ps:
+    case Nil{}:
+      (Nil{}, 0)
+    case QP{+m, co} <> t:
+      Csv.v2.nb.k(m, co, Csv.v2.nb(t))
+
+# one column (2^depth_for(n) slots, AllValid without nulls) from its parts, or its first bad cell; hv: some
+# part has a null (else the validity is never built: a 1-slot placeholder, dropped by CB.valid)
+def Csv.v2.col.h(+hv: Bool, t: L.Ty, +name: String, +dt: D.DType, +n: U32, +d: Nat, +dv: Nat, +enc: ST.StrEnc, ps: List<&1, QP>) -> E.ResT(C.Named):
   match t:
     case L.TyF{}:
-      Csv.v2.f.fin(name, dt, n, d, Csv.v2.cat.f(ps, QF{0, Array.new(F32, d, 0.0), Array.new(U32, d, 0), 0, 0, 0, ""}))
+      Csv.v2.f.fin(name, dt, n, d, Csv.v2.cat.f(hv, ps, QF{0, Array.new(F32, d, 0.0), Array.new(U32, dv, 0), 0, 0, 0, ""}))
     case L.TyS{}:
-      Csv.v2.x.fin(name, n, d, Csv.v2.x.zero(Bool.and(U32.is_eq(n, 0), Csv.dict_over(enc, 1, 0)), d, Csv.v2.cat.x(ps, d, enc, QXD{0, Array.new(U32, d, 0), Array.new(U32, d, 0), 0, ST.Dict.empty()})))
+      Csv.v2.x.fin(name, n, d, Csv.v2.x.zero(Bool.and(U32.is_eq(n, 0), Csv.dict_over(enc, 1, 0)), d, Csv.v2.cat.x(hv, ps, d, enc, QXD{0, Array.new(U32, d, 0), Array.new(U32, dv, 0), 0, ST.Dict.empty()})))
     case L.TyR{}:
-      Csv.v2.x.fin(name, n, d, Csv.v2.cat.x(ps, d, enc, QXR{0, Array.new(String, d, ""), Array.new(U32, d, 0), 0}))
+      Csv.v2.x.fin(name, n, d, Csv.v2.cat.x(hv, ps, d, enc, QXR{0, Array.new(String, d, ""), Array.new(U32, dv, 0), 0}))
     case _:
-      Csv.v2.w.fin(name, dt, n, d, Csv.v2.cat.w(ps, QW{0, Array.new(U32, d, 0), Array.new(U32, d, 0), 0, 0, 0, ""}))
+      Csv.v2.w.fin(name, dt, n, d, Csv.v2.cat.w(hv, ps, QW{0, Array.new(U32, d, 0), Array.new(U32, dv, 0), 0, 0, 0, ""}))
+
+def Csv.v2.col.n(t: L.Ty, +name: String, +dt: D.DType, +n: U32, +d: Nat, +enc: ST.StrEnc, r: List<&1, QP> & U32) -> E.ResT(C.Named):
+  (ps, +nulls) = r
+  Csv.v2.col.h(U32.is_ne(nulls, 0), t, name, dt, n, d, Bool.pick(Nat, U32.is_ne(nulls, 0), d, 0n), enc, ps)
+
+def Csv.v2.col.k(t: L.Ty, +name: String, +dt: D.DType, +n: U32, +d: Nat, +enc: ST.StrEnc, ps: List<&1, QP>) -> E.ResT(C.Named):
+  Csv.v2.col.n(t, name, dt, n, d, enc, Csv.v2.nb(ps))
 
 # a column to build: its dtypes, name and parts (one per region, region order)
 type QK is Type:

@@ -9,6 +9,21 @@
 - Open against 2.0.39 (drafts in `plans/issues/bend_2_0_39.md`): `bend PROOF.bend --verdict` (and `-o PROOF.bendtt`) die with "the machine stack overflowed" (2.0.36: ALL PROOFS CHECK in ~40 s), so `make verdict` / `make ci` fail at that gate; `bend FILE.bend` (run mode) uses ~10x the memory and runs 3-7x slower than 2.0.36 on the CSV tests (`tests/csvlane.bend`: 8 min, `csvprod`: 4 s -> 14 s, 0.5 GB -> 5.7 GB peak RSS). Binaries built with `-o` are unaffected.
 - Performance on 2.0.39 (native, 1 thread, interleaved with 2.0.36 binaries, loaded machine): q1-q6 compute at 1M rows and the parse are within noise of 2.0.36 (parse 625-650 ms vs 655-673 ms). The `File.read_at` floor probe is unchanged (~105-125 ms for 41 MB). Parse is ~95% of end-to-end time in every q1-q6 e2e cell (compute is 4-55 ms); the largest compute cells are `str_join_1m` (500 ms), `str_group_1m` / `str_unique_1m` (~175 ms).
 
+## Unreleased: reader peak memory (2026-11-01)
+
+- The v0.2 reader no longer builds validity it throws away. A lane that finds no null in its region hands on a one-slot
+  validity holding 1 (`Col.vtrim`, read with wrapping indices like the array of ones it replaces; the region's array is
+  freed as the lane ends), and the combine counts a column's nulls first and, with none, never allocates or fills the
+  column's 2^d validity array (`Csv.v2.nb`, `Csv.v2.vcopy`). Values, validity, dictionary codes and errors are unchanged
+  (`make csv-fuzz-smoke`: 2 x 1500 cases x 7 piece sizes, 0 differences from the v0.1 reader; `make diff-smoke` 0 failing;
+  `make test` 209/209 with TEST_TIMEOUT=3000).
+- Peak footprint of one `read_csv` (`bench/mem/probe.bend read`, 1 thread): tpch lineitem (85 MB, 1.2M rows) 469 -> 303 MB,
+  orders 91 -> 66 MB, sales_1000000 209 -> 154 MB, hc t_1000000 480 -> 448 MB; Polars 2.0.0 one thread: 185, 43, 101, 72 MB.
+  bench/tpch driver (all nine queries) 677 -> 594 MB.
+- What remains is the runtime's: freed blocks are reused only within their size class (the lanes' ~4096-slot parts can
+  never become the 2^21-slot columns), filed as bendlang/bend#1986; and a String costs 16 bytes per character (the
+  distinct-string file), bendlang/bend#1987. Repros in plans/issues/ (`allocclass.bend`, `strmem.bend`).
+
 ## Unreleased: performance on a PDS-H-style workload (2026-11-01)
 
 New workload `bench/tpch/` (README there): TPC-H-shaped tables and nine PDS-H queries (Q1, Q3, Q4, Q5, Q6, Q10,

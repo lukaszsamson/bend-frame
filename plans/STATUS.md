@@ -501,3 +501,26 @@ Gaps left open:
    re-proving PROOF_filtsel / PROOF_fused / PROOF_contents.
 5. String-key joins still build the string table on the right side whatever the sizes (`Key.build`); not hit by
    this workload.
+
+## Memory pass, 2026-11-01, Bend 2.0.39
+Measured with `/usr/bin/time -l` "peak memory footprint" (RSS under-reports here: macOS compresses pages on the shared
+machine), `bench/mem/probe.bend` (arrays, lists, one CSV read) and the bench/tpch driver.
+- Costs of the representation: a U32 / F32 array slot 4 B, packed, rounded up to 2^d slots; a cons cell ~24 B; a String
+  16 B per character. A loaded lineitem frame is ~110 MB (Polars: 99 MB with i64 / f64).
+- Fixed: the reader's throw-away validity. Every lane kept a validity array per column per region and the combine filled
+  a 2^d validity per column, all discarded by CB.valid when the column had no null. Now a null-free region hands on a
+  1-slot array of 1 and a null-free column builds none. Read peaks: lineitem 469 -> 303 MB, orders 91 -> 66, sales 1M
+  209 -> 154, hc t 1M 480 -> 448 (Polars 1t: 185, 43, 101, 72). tpch driver 677 -> 594 MB.
+- Gates: `make csv-fuzz-smoke` 0 differences (2 x 1500 x 7 pieces), `make diff-smoke` 0 failing, tpch results match
+  Polars, `make test` 209/209 (TEST_TIMEOUT=3000 for csvlane under load).
+- Filed upstream (gh, the user's request): bendlang/bend#1986 freed memory reused only within its size class (repro:
+  4096 x 2^12-word arrays freed, then one 2^24-word array: 129 MB vs 65; either order), bendlang/bend#1987 16 B per
+  character, no packed byte / string type. Repros: plans/issues/allocclass.bend, strmem.bend.
+- Gaps left:
+  1. Read peak is still parts + columns (~2.7x the final frame for lineitem): the lanes' parts (~4096 slots, 13 x ~430
+     for lineitem) are dead before the columns are complete, but their blocks cannot be reused for 2^21-slot columns
+     (#1986). Part arrays are also rounded up to 2^d (lineitem regions hold ~3400 rows in 4096 slots).
+  2. Raw string columns: 16 B per character (#1987). A library-side fix is a packed Raw storage (code points in an
+     Array<U32> plus offsets, ~4 B per character) behind ST.Strs, which touches every string operation; not started.
+  3. Every column is 2^depth_for(n) slots: up to 2x for a height just above a power of two (1.2M rows -> 2^21 slots).
+  4. The bench/tpch driver clones its inputs twice (harness, not library); queries add 20-100 MB over the reads.

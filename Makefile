@@ -215,6 +215,8 @@ w2-mutation:
 #                          queries at one thread (5 collects each, ms per collect) and check every result
 #                          against Polars (bench/tpch/run_polars.py check); not part of ci
 EXAMPLES += $(wildcard bench/tpch/*.bend)
+# bench/mem/probe.bend: peak-memory probes (arrays, lists, a CSV read), run under /usr/bin/time -l
+EXAMPLES += $(wildcard bench/mem/*.bend)
 TPCH_SF ?= 0.2
 .PHONY: tpch
 tpch:
