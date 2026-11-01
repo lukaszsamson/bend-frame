@@ -558,3 +558,7 @@ one "0.1.0 (unreleased)" entry, the milestones under "Development history"; READ
   tested, not proven; the claim says so.
 - Found and fixed on the way: a thread race in bench/diff/csvgen.py's adversarial corpus (cases could depend on timing).
 - Still needs the user: a quiet-machine timing run, a git remote for hosted CI, the hub publish of 0.1.0.
+- `make ci` on 9da17d5 (load 12-40): every gate through csv-fuzz-smoke passed (test 211/211, proofs + verdict,
+  mutation-check 107/107, test-mutation-check 3/3, bench-check, diff-smoke, csv-fuzz-smoke against the goldens);
+  fork-audit then failed on a stale allowlist entry of the removed reader (fixed in f7e87d3), and the remaining gates
+  (fork-audit 67 lets / 0 findings, radix-check 90, tpch-check, consumer-check, coverage-check) passed at dc2c6f4.
