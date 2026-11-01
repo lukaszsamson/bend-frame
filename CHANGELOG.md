@@ -1,11 +1,11 @@
 # Changelog
 
-Nothing has been released yet: **0.1.0 will be the first release**. The work before it went through three
+**0.1.0 (2026-11-01) is the first release.** The work before it went through three
 internal milestones, M_01, M_02 and M_03 (`plans/M_0*.txt`). Older notes, plans and code comments call them
 "v0.1", "v0.2" and "v0.3" (and "0.2.0" / "0.3.0"): those are milestone labels, not versions, and nothing was
 published at any of them. Their notes are kept below, under "Development history".
 
-## 0.1.0 (unreleased)
+## 0.1.0 (2026-11-01)
 
 ### What is in it
 

@@ -570,3 +570,9 @@ one "0.1.0 (unreleased)" entry, the milestones under "Development history"; READ
   fork-audit, radix-check, tpch-check, consumer-check, coverage-check. Linux x86-64 runs for the first time.
 - Release prep: README quickstart (clone), CI badge, RELEASING.md. Not done (the maintainer's call): the v0.1.0 tag,
   the GitHub release, the Bend hub publish, a quiet-machine timing run.
+
+## 0.1.0 released (2026-11-01)
+- Tagged v0.1.0 on the commit that dates CHANGELOG / README; GitHub release "bend-frame 0.1.0" with CHANGELOG's 0.1.0
+  section as notes. Gate evidence: Actions run 41340580922 at f203c60 (the last code change; the tag commit only
+  dates docs), `make ci` green on macos-15 and ubuntu-24.04. Timing numbers ship labelled PROVISIONAL (no
+  quiet-machine run). Bend hub publish pending `bend login` by the maintainer.
