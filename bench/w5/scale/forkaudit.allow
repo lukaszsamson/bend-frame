@@ -26,5 +26,4 @@ chunks_c[wfs]_rechunk_go -> chunks_c[wfs]_flatten | leaf: the `fits` arm builds 
 chunks_lst_pmap_t(_\d+)? -> chunks_cnamed_to | leaf: f(p, x) of Lst.pmap.t at an LTL leaf (the column job, the unit of work); no fork follows
 csv_csv_v2_bfork -> csv_csv_v2_kone | leaf: QKL arm builds ONE column (concatenation + dictionary merge), the unit of work of the column fork
 csv_csv_v2_cfork -> csv_csv_v2_ch_kone | leaf: QKL arm builds ONE column's chunk trees (W6.6: merge + leaf cut), the unit of work of the column fork
-csv_fj_feed -> csv_cb_feed | leaf: FJL arm feeds ONE column builder with its chunk cells, the unit of work of the column fork
 sort_sort_pm_t(_\d+)? -> fmt_fmt_d_job | leaf: f(p, x) of Sort.pm.t at a PTL leaf (one describe column's statistics); no fork follows
