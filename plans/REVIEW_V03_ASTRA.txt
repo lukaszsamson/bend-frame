@@ -1,0 +1,268 @@
+REVIEW_V03_ASTRA -- 2026-11-01
+=============================
+Reviewed HEAD 09a8535 against last reviewed 6b55792. This is a review of the
+changes since the v0.2 review, not a claim that a v0.3 release has been implemented.
+Read source changes, previous reviews, STATUS, GATES_V02, README, CHANGELOG,
+proof statements and terms, test/differential machinery and the new PDS-H harness.
+No production code changed. Evidence is in plans/review_v03_astra/.
+
+VERDICT
+-------
+The previous wrong-result blocker is fixed properly. Most requested documentation
+and regression work landed. Not ALL earlier issues are resolved: whole-runner proof
+coverage, scaling gates, portability and major API gaps remain explicitly open.
+
+I found no new dataframe wrong-result bug in this focused pass. I did find a new
+benchmark-checker bug, a regression in independent proof verification on the pinned
+toolchain, and an uncovered new kernel on the default filtering path. The code is
+substantially more credible than at the previous review, but the current candidate
+cannot honestly be described as passing its full release CI/proof gates.
+
+For an experimental macOS-arm64 release: restore a working independent-verification
+route (or explicitly choose and prominently disclose reduced assurance), correct
+the current-status claims and benchmark checker, and add targeted regression
+coverage for the new performance branches. I would not require every missing API
+or parallelization goal before releasing an experiment.
+
+1. DISPOSITION OF PREVIOUS FINDINGS
+----------------------------------
+FIXED: F32 null payload / signed zero.
+  Eval.un.fneg/fabs/fsqrt and the integer unary helpers now use masked loops that
+  write defaults beneath nulls while preserving valid values. F4's owned path
+  calls Eval.fix before exposing validity; its borrowed path writes a masked copy.
+  DF.from_columns resets null payloads from raw columns too, addressing the
+  additional raw-constructor / chunked-sum defect found during implementation.
+  The old +0/-0 and reciprocal reproductions are committed passing regressions.
+  All four V02_B1 regression programs passed in my run. This is a producer and
+  consumer fix, not a special case masking the reported example.
+
+FIXED/IMPROVED: test blind spot.
+  src/p0.bend inspects hidden null payloads and mask/boolean words, rather than
+  merely comparing visible dumps. Differential and CSV-fuzz results include it.
+  bench/diff/gen.py now deliberately constructs null-producing expressions into
+  fill_null/sign-sensitive consumers (~15% by default, or every case with nullslot).
+  The two fresh campaigns below include that coverage. This is a meaningful gain.
+
+FIXED AS DOCUMENTATION, NOT PROVEN: fused-runner coverage.
+  README/CHANGELOG/DESIGN separate preserved theorems, local new theorems and
+  unproven integration. GATES_V02 G5 is PARTIAL. Eval.runz equivalence is still
+  absent; the old typing theorem does not become a theorem about runz by sharing
+  its analysis or leaf functions. That distinction is now generally clear.
+
+FIXED AS DOCUMENTATION/TESTS: BOM and mixed-zero medians.
+  Behavior was deliberately retained and documented, not made Polars-identical.
+  tests/csv_bom.bend and tests/agg_median_zero_sign.bend pass. Calling these
+  compatibility differences "fixed" should mean the disclosure, not the behavior.
+
+FIXED: engine_reference documentation, chunk conversion penalty disclosure,
+  reader-default rollout deviation, radix boundary cases (now 90, incl. empty,
+  16383/16384/16385/32768 and duplicate stability). I inspected the expanded check;
+  I did not repeat its native 90-case run in this review.
+
+STILL OPEN: G2/G3 controlled measurements and scaling, D7 reference removal,
+  Linux/x86-64 validation, fused/chunked runner equivalence, dictionary probe
+  hypotheses, wider dtypes/temporal/windows/columnar IO. These were not secretly
+  completed. The latest work was performance engineering, not API expansion.
+
+2. NEW / CURRENT ACTIONABLE FINDINGS
+------------------------------------
+P1 -- The pinned toolchain no longer passes independent proof verification.
+  TOOLCHAIN:3 pins Bend 2.0.39. I ran make proofs: ALL PROOFS CHECK, exit 0.
+  I ran make verdict: "the machine stack overflowed (a deep recursion, or a
+  literal too large to expand)", exit 1. This reproduces the toolchain regression
+  recorded in plans/issues/bend_2_0_39.md. make ci includes verdict and therefore
+  cannot pass as configured, independently of the other checks.
+
+  README.md:196 still says --verdict confirms every theorem; :265 gives a short
+  successful-check description, and :287 says "make ci passes locally". These
+  present-tense claims are wrong for HEAD. A CHANGELOG note does not repair them.
+  Historical 2.0.36 validation remains useful evidence, but is not independent
+  verification of the current 2.0.39 proof translation/runtime combination.
+
+  Resolve by a compatible toolchain pin, an upstream fix, or a verified split of
+  the proof export/check pipeline covering ALL laws; rerun final gates. Do not
+  turn off verdict and still advertise the original assurance. If publishing
+  before resolution, prominently state the exact reduced validation instead.
+  Interpreter CSV tests reportedly became much slower/more memory hungry too;
+  raising timeouts does not fix that regression. Native performance is separately
+  reported and must not be conflated with interpreter behavior.
+
+P2 -- The new PDS-H correctness comparator mishandles infinity.
+  bench/tpch/run_polars.py:same, around lines 144-147:
+    abs(got - want) > 1e-4 * max(abs(want), 1)
+  is not a correct comparison for non-finite floats.
+  Independently reproduced using the installed Polars environment:
+    got 0.0,  want +inf  -> None (accepted; WRONG)
+    got -inf, want +inf  -> None (accepted; WRONG)
+    got +inf, want +inf  -> DIFF (rejected; WRONG)
+    got NaN,  want NaN   -> None
+  Repro: bench/.venv/bin/python plans/review_v03_astra/check_tpch_specials.py
+  Output: tpch_checker.log. Compare nulls and non-finite classes/signs explicitly,
+  then apply tolerance only to finite pairs. Add checker self-tests.
+  The generated PDS-H workload uses ordinary finite values, so this does NOT
+  establish that its reported nine query results are wrong. It is a real hole
+  in the new validation tool, not a demonstrated library arithmetic regression.
+
+P2 -- The new selective-filter kernel is outside the content proofs.
+  src/kernels.bend:Kernel.where.go/where (around :121),
+  src/column.bend:Frame.take_rows, src/eval.bend:Eval.filter.sel.go (:3960).
+  A <=1/8 selective predicate now builds row indices, gathers the frame and sends
+  an all-ones mask to the old compactor. The old Frame.filter_mask/Exec.fc laws
+  remain true, but do not establish that the NEW gathered frame contains the
+  original selected rows. The shared upstream step can be wrong while both sides
+  of Filter+Select equivalence continue to agree.
+
+  I demonstrated the boundary, not a production defect: in a temporary copy only,
+  changed Kernel.where.go's Array.set(out,k,i) to Array.set(out,k,0), making every
+  selected position point to row zero. Running the complete PROOF.bend STILL
+  printed ALL PROOFS CHECK (exit 0). See where_mutation.log. The real file was
+  not edited. No content law or mutation control for where was found.
+
+  This is a straightforward next useful proof: output prefix equals ascending
+  positions of true mask words, under 0/1-mask and popcount/capacity premises;
+  gather agrees with the original compaction; selective/nonselective branches
+  preserve results. The kept+1 scratch allocation is present and looks correct
+  (dropped rows write at cursor); include its actual caller obligation.
+  "No proven function touched" is too weak a justification for a new semantic
+  dependency. Add these obligations to the assurance matrix. G5 remains partial.
+
+P2 -- New fast-path regression coverage is thinner than its importance warrants.
+  The profiling and memory commits added the benchmark but no corresponding
+  tests/ programs for the new join side selection/direct addressing, delayed
+  group-code densification or one-slot CSV validity optimization. Existing tests
+  and random campaigns are useful but do not pin every threshold or invariant.
+  PDS-H is not in CI and its finite, non-null business-shaped data is insufficient
+  for proving these general paths safe.
+
+  Add focused cases: smaller-left/right/equal/empty joins, duplicate matches and
+  stable output order, all-null/unmatched keys, U32 extremes and direct/hash cutoff;
+  multi-key groups whose range products cross 2^22 before/after densification,
+  sparse codes, null groups and unique's shared path; filters at 0,1,power-of-two
+  kept counts and either side of h/8; mixed CSV regions with the first null late,
+  all-valid regions followed by masked regions, all dtypes and chunked reads.
+  My join/filter checks passed; this is a coverage request, not an asserted bug.
+
+CI follow-up: .github/workflows/ci.yml:70-73 still has the same archive hashes
+  as the previous 2.0.36 pin while its URL now interpolates 2.0.39. The workflow
+  claims changing TOOLCHAIN is sufficient, which is not true with version-specific
+  hardcoded hashes. Revalidate archive hashes/layout for the chosen release pin.
+  I did not download the archives or run hosted CI; this is stale configuration
+  evidence, not a newly observed remote checksum failure.
+
+3. ARE THE PROOFS REAL, REASONABLE, OR FAKE?
+------------------------------------------
+Real, useful, and incomplete. Not fake. They quantify over production definitions
+and include cell-content, validity, append/gather/compact, ownership and default
+head-merge statements, not just cardinality equalities. Some local equations
+unfold definitions almost immediately; others require substantive induction and
+array-reading lemmas. A count of 241 does not assign equal assurance to each.
+
+The B1 response is particularly good: F4 cell equivalence no longer needs the
+old clean-null-slot premise; new F32 negation cell/null/valid laws address the
+actual producer that broke it, with laws for the other unary null resets. The
+String.eq lemmas were adapted to Base's new String.order implementation, not
+left as axioms. I saw no new @unsafe escape hatch.
+
+Still not established: runz equals run, chunked execution equals flat execution,
+full floating-point numerical correctness, general group/join/sort semantics,
+CSV reader correctness, or universal dictionary probe termination assumptions.
+Nor does the default optimizer theorem cover the opt-in optimize_full rewrites.
+The optimizer still proves a deliberately small rewrite set, not a broad Polars
+optimizer. Conditional dictionary facts remain conditional.
+
+The new where mutation is a concrete reason not to infer end-to-end correctness
+from a green proof check. Equally, it does not refute the laws that do exist:
+those laws make narrower claims. The main new problem is that the independent
+checker currently fails at the export/check route; it has not refuted a theorem,
+but independent assurance is unavailable on this pin.
+
+Priority: repair independent checking, prove where/filter composition, then bridge
+runz to run (including error order and null-payload invariants), before spending
+much more effort proving unused wrapper variants just to increase the law count.
+
+4. API AND PERFORMANCE ASSESSMENT
+--------------------------------
+No new missing API caused by these changes. Existing useful subset remains:
+nullable Bool/U32/I32/F32/Str, eager/lazy selection/filter/derived columns,
+grouping/reductions, sort, inner/left/semi/anti joins, unique/concat, CSV.
+Still a major subset, not Polars or Explorer parity: no F64/I64/U64, temporal
+columns, windows/rolling/cumulative operations, Parquet/IPC, full/as-of joins,
+or streaming/out-of-core; row cap 2^23. The PDS-H adaptations encode dates as
+U32 and money as F32, so successful adapted queries do not demonstrate support
+for the original dtype/SQL contract. The benchmark README says this correctly.
+F64/I64, dates and columnar IO remain more useful next additions than many tiny
+convenience verbs. These gaps need not block an experimental Bend library.
+
+The performance changes have sensible mechanisms: smaller join build tables,
+direct codes for narrow keys, fewer densification passes, gathering selective
+rows, and dropping/replacing validity buffers when no null exists. I found no
+obvious correctness fault in their source logic and the fresh checks passed.
+String-table construction still builds on the right; changing the numeric/pair
+table side does not fix all asymmetric string joins.
+
+Reported latest figures (NOT remeasured here): nine adapted queries ~384 ->284 ms
+at sf0.2, ~1.8x Polars one-thread total; lineitem CSV read ~2.0-2.3s versus
+~0.67-0.76s; peak lineitem read footprint ~469 ->303 MB; all-query driver ~594 MB.
+They were collected under heavy load and with best-of timing aggregation, so
+remain profiling evidence, not replacement quiet-machine release gates. Float
+comparison is tolerant (1e-4 with an absolute floor), not bit-identical validation.
+
+Remaining structural issues: CSV/IO dominates end-to-end time, strings remain
+expensive, arrays round to power-of-two capacity, and group/sort/join generally
+remain serial. Latest memory figures use macOS peak footprint, older gates use
+RSS: do not directly treat the two metrics as the same. Attribution to the
+runtime does not remove library-side options (packed strings, chunk layouts,
+lifetime changes), which STATUS usefully lists. No newly demonstrated native
+performance catastrophe; the pinned interpreter regression is a real usability
+and CI concern. I did not rerun performance benchmarks under concurrent load.
+
+5. FRESH VALIDATION AND LIMITS
+-----------------------------
+On HEAD 09a8535, Bend 2.0.39:
+  make proofs                        PASS: ALL PROOFS CHECK
+  make verdict                       FAIL: machine stack overflow, exit 1
+  six post-review regression files    PASS 6/6 (four B1, BOM, zero median)
+  join/groupby/filter/csv_v02 subset   PASS 17/17
+  seed 20261101, 200 cases            PASS: Raw, joinstress, chunked at four grains
+  seed 20261102, 200 cases            PASS: Dictionary, directed nullslot, chunked
+  independent join/filter examples   PASS 102 cases in interpreter
+  PDS-H comparator adversarial check  CONFIRMED incorrect infinity decisions
+  temporary wrong-where mutation     NOT rejected by PROOF.bend
+
+Differential runs used bench/.venv/bin/python directly after uv was unable to
+write its cache in the sandbox; the campaigns themselves completed with zero
+failures, crashes or oracle errors. The second seed requested deep,nullslot;
+nullslot directs case construction, so this is not a general deep-plan campaign.
+The 102 cases cover all four joins, both input size directions, empties/nulls,
+duplicates, narrow/wide word keys, two-key joins and filter threshold/kept sizes,
+compared against simple independently computed expected rows, not another call
+to the same engine. Sources, expectations, comparison script and logs are saved.
+
+I did not repeat all 209 tests, all 104 mutation checks, full CSV-fuzz/release
+campaigns, hosted platforms, or performance measurements. Those reported historical
+results are not presented as fresh validation. See the native-check addendum below.
+
+NEXT RELEASE ACTIONS
+--------------------
+1. Restore the independent verification gate on the release pin; fix README's
+   current CI/verdict status and update the workflow's versioned archive metadata.
+2. Fix/test the PDS-H special-float comparator.
+3. Commit targeted regressions for the newly introduced fast paths; prove the new
+   where/filter content bridge or explicitly track it as unproved G5 work.
+4. Run the final candidate's CI/consumer checks on the selected pin. Keep chunked
+   opt-in, reference engines retained, platform and provisional-performance scope
+   explicit. Do not declare the original M_02 goals all completed.
+
+The earlier correctness blocker is genuinely addressed. The project is worth
+continuing and close to a useful experimental release, but independent verification
+and current-state reporting have regressed since the last clean release gate.
+
+Native-check addendum: the same 102-case boundaries.bend program compiled under
+Bend 2.0.39 and ran natively with exit 0; its complete output is byte-identical
+to the interpreter output (cmp exit 0). Thus the independently expected rows pass
+in BOTH backends. Files: boundaries.out, boundaries.native.out,
+boundaries_expected.json, check_boundaries.py, generate_boundaries.py.
+
+Workspace note: an unrelated untracked review_tmp_bugs3/ directory appeared while
+this review ran. It was not created, read or modified by this review. Only the
+REVIEW_V03_ASTRA report and plans/review_v03_astra/ artifacts were added here.

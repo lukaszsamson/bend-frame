@@ -1,0 +1,3 @@
+/Users/lukaszsamson/.bend/bin/bend PROOF.bend --verdict
+Error: the machine stack overflowed (a deep recursion, or a literal too large to expand)
+make: *** [verdict] Error 1

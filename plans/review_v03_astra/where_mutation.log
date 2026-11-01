@@ -1,0 +1,4 @@
+TEMP COPY ONLY: Kernel.where writes row index 0 for every selected position
+exit=0
+ALL PROOFS CHECK
+Use --verdict for mathematical validity.

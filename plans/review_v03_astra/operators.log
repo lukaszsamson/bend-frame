@@ -1,0 +1,18 @@
+PASS tests/coverage/verbs_sort_join.bend
+PASS tests/csv_v02_adv.bend
+PASS tests/csv_v02_chunks.bend
+PASS tests/csv_v02_infer.bend
+PASS tests/csv_v02_texts.bend
+PASS tests/exec_filter_select.bend
+PASS tests/groupby_agg.bend
+PASS tests/groupby_agg_equiv.bend
+PASS tests/groupby_borrow.bend
+PASS tests/groupby_edge.bend
+PASS tests/groupby_own.bend
+PASS tests/join_cases.bend
+PASS tests/join_inner_left.bend
+PASS tests/join_probe.bend
+PASS tests/join_str.bend
+PASS tests/regress/B04_b_self_join.bend
+PASS tests/regress/B04_g_join_right_key.bend
+PASS: 17 / 17, XFAIL: 0

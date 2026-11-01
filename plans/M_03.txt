@@ -1,0 +1,233 @@
+M_03: bend-frame v0.3, the stabilisation release (combined plan)
+2026-11-01. Merged from plans/REVIEW_V03_FABLE.txt and plans/REVIEW_V03_ASTRA.txt by
+Fable 5.1. Baseline: HEAD 09a8535, Bend 2.0.39 pinned. Context from the user: the
+independent proof check (--verdict) is broken on the pin (bendlang/bend#1984, filed);
+restoring it waits on an upstream fix and release, or on the workaround the bug-triage
+session proposed: write the Sigma type inline instead of going through the type
+function FZW(c) (untested in the repo; it avoids the overflow in the small repro).
+
+=====================================================================================
+0. Objective and gates
+=====================================================================================
+v0.3 is not a feature or a performance milestone. It is the release that makes the
+v0.2 engine honestly shippable as an experiment: every CI gate green on the pinned
+toolchain, every claim in README true for HEAD, the three new fast paths covered by
+targeted tests and (where cheap) by laws, and the two outstanding release actions
+(quiet-machine run, hosted Linux CI) done or explicitly waived.
+
+Gates:
+  G1  `make ci` exits 0 at HEAD on the pinned toolchain with no gate disabled. The
+      verdict gate is either green (W0 succeeded) or split into `make ci` (green) plus
+      `make verdict` reported separately with its status in README (W0 fallback).
+  G2  Correctness: tests, mutation-check, diff-smoke, csv-fuzz-smoke, radix-check,
+      consumer-check, coverage green; plus `make tpch-check` (sf 0.01, in ci) and two
+      fresh-seed `make diff` runs (Raw, Dict, nullslot, deep) with 0 failing.
+  G3  Claims: no sentence in README, CHANGELOG, DESIGN 8 or GATES_V02 describes a gate
+      or a proof as passing that does not pass on HEAD; the three PDS-H fast paths are
+      named in the tested-only list or covered by a law; "make ci passes locally" is
+      true on the day it is written.
+  G4  Proofs: a content law for Kernel.where and Frame.take_rows that puts selective
+      filters back on proven ground, with an in-place mutation control; the join
+      direct-id probe and the group_by direct code have laws or are listed as tested-
+      only with the auditor's mutations as fixtures; no v0.2 law weakened; no @unsafe.
+  G5  Tooling on 2.0.39: fork-audit runs both halves; the interpreter-lane CSV tests no
+      longer need a 3000 s timeout (run them native); the PDS-H comparator handles
+      nulls, NaN and signed infinities and has a self-test; COVERAGE.md is checked in ci.
+  G6  Release hygiene: a quiet-machine gate run (load < 2) of the GATES_V02 sequence
+      recorded, or an explicit waiver in README; the CI workflow's archive hashes match
+      the pin and the workflow has run once on a remote; the removal date for the v0.1
+      reader is decided.
+Out of scope: new dtypes or verbs (F64/I64 and dates are the most valuable next API
+additions and go to v0.4), chunked group_by / partitioned sort, the flat-string
+storage, projection pushdown by default (a decision item, section 5).
+
+=====================================================================================
+1. Reconciliation of the two reviews
+=====================================================================================
+Agreed by both: B1 fixed properly at the producers; the fused runner remains
+disclosed-not-proven; --verdict fails on 2.0.39 and README still presents it as
+passing; Kernel.where / take_rows is a new unproven semantic dependency on the default
+filter path, and a wrong `where` passes ALL PROOFS CHECK (both reviews mutated it
+independently); the join build-side and group_by direct-code paths are tested only;
+no wrong result found in either review's campaign (Fable ~30,000 cases, Astra ~500
+generated + 102 hand-expected cases in both backends); the interpreter-lane slowdown is
+a usability and CI concern, not a library defect; API gaps unchanged.
+
+  Topic                        Fable                       Astra                        Decision
+  ---------------------------  --------------------------  ---------------------------  --------------------------------
+  tpch comparator              not examined                infinity / NaN mishandled    Astra: fix + self-test (W2)
+  CI workflow hashes           not examined                stale 2.0.36 hashes          Astra: revalidate for the pin (W2)
+  fork-audit on 2.0.39         crashes (C FID table)       not examined                 Fable: fix or scope to source lint (W2)
+  COVERAGE.md                  stale again at HEAD         not examined                 Fable: regenerate; ci diff check (W2)
+  verdict route                pin 2.0.36 / split / wait   compatible pin / upstream /  Both + the user's triage input:
+                                                           verified split; do not       inline-Sigma workaround first, then
+                                                           advertise disabled assurance upstream; never disable silently (W0)
+  fast-path proofs             where law first, then       where/filter composition,    Same order (W3)
+                               group_by code, join probe,  then runz = run
+                               then runz = run
+  fast-path tests              covered by my campaign      add committed tests/ files   Astra: commit targeted tests (W1)
+  projection pushdown default  re-decide with the numbers  not raised                   A decision item for the user (5)
+  2.0.36 as verdict pin        possible                    possible                     Rejected: Base's String.eq changed
+                                                                                        between versions, so HEAD's PROOF_lib
+                                                                                        proofs do not check on 2.0.36; a dual
+                                                                                        pin would need two proof variants
+
+=====================================================================================
+2. W0: restore independent verification (first, because everything else reports it)
+=====================================================================================
+Facts: `bend PROOF.bend` checks (2.8 s); `bend PROOF.bend --verdict` and `-o x.bendtt`
+overflow the machine stack on 2.0.38+ (bendlang/bend#1984 has a minimal repro); per-
+file verdict runs are impossible because each PROOF_*.bend leaves the other laws open.
+The triage session's finding: the overflow comes from expanding a type-level def that
+returns a Sigma type; writing the Sigma inline avoids it in the small repro.
+
+W0.1 Apply the workaround in the repo (1 day, sonnet, fable reviews):
+  - PROOF_filtsel.bend:366 `FZW(c) = &z: Q.Fz -> {Q.Exec.fz(c) == z} & {Q.Exec.unfz(z)
+    == c}` is used at 14 sites (fzw.b/u/i/f/r/d/s, fzw, fzwe, fg3.b, fg4.b, ...).
+    Replace every `FZW(e)` in a signature by the inline Sigma with `e` substituted; keep
+    `FZW` only as a comment. Re-run `bend PROOF.bend` (must still check; the terms are
+    unchanged) and `--verdict`.
+  - If the verdict still overflows, bisect: grep PROOF*.bend for other defs returning a
+    `Type` that is a Sigma or an arrow of Sigmas (CE4, CE6, the CodeW / EncodeW /
+    DictPreW witness families in PROOF_strs, MDG / CHG in PROOF_inplace, the ZB
+    witnesses in PROOF_fused) and inline them in the same way, largest first; after
+    each, `bend PROOF.bend -o /tmp/x.bendtt` is the cheap probe (it fails the same way
+    as --verdict, so no Lean run is needed until it succeeds).
+  - Record what was inlined in DESIGN 8 and in the upstream issue (it narrows #1984).
+W0.2 If W0.1 closes it: `make verdict` back in `make ci`; README:196/:265 restored to
+  present tense with the new timing; GATES_V02 G5 note updated.
+W0.3 If W0.1 does not close it: keep `make verdict` OUT of `make ci` (so G1 can be
+  true) but keep the target; README's Laws paragraph says, in the first sentence about
+  the verdict: "last passed on Bend 2.0.36 at a956c96; on the pinned 2.0.39 the BendTT
+  translation overflows (bendlang/bend#1984); until that is fixed the proofs are checked
+  by the Bend checker only"; CHANGELOG Unreleased says the same; the release notes list
+  it under reduced assurance. Re-try after every upstream release (`make verdict` is
+  the probe). Never advertise the original assurance while the gate is off.
+W0.4 Either way: a `make verdict-probe` target that only does `-o /tmp/PROOF.bendtt`
+  (no Lean), used in W0.1's bisection and as the quick check after toolchain bumps.
+
+=====================================================================================
+3. Work packages
+=====================================================================================
+W1 Targeted tests for the fast paths (~2 days, sonnet). Commit tests/ programs (not
+   only generator campaigns) with hand-derived or Polars expectations:
+   - joins: smaller-left / smaller-right / equal / one empty / both empty; many-to-many
+     with stable left-row then right-row order; all-null and unmatched keys; u32 and
+     i32 extremes; spans at exactly 2(nl+nr)-1 (direct ids) and 2(nl+nr) (pair table);
+     string joins with the larger table on the right (the string build side is still
+     right-only: Astra); dtype-mismatch errors identical in every engine.
+   - group_by / unique: key spans 2^20-1 / 2^20 / 2n-1 / 2n / 2n+1 (direct vs rank);
+     i32 MIN / MAX; multi-key products at 2^22-1 / 2^22 / 2^22+1 (combine without
+     densify vs with); sparse codes; null groups; unique on the shared path.
+   - selective filters: kept = 0, 1, h/8, h/8+1, powers of two, h; with nulls in the
+     predicate; followed by nothing / plain select / expression select; Raw and Dict;
+     the chunked engine at two grains.
+   - the v0.2 reader validity change: regions with the first null late; all-valid
+     regions followed by masked regions; all dtypes; quoted "" vs empty; chunk-mode.
+   Astra's 102-case boundaries.bend (plans/review_v03_astra) is a ready seed: move it
+   under tests/regress/V03_* with its expectations.
+W2 Tooling on 2.0.39 (~2 days, sonnet / haiku).
+   - fork-audit: adapt bench/w5/scale/forkaudit.py:48 to 2.0.39's emitted C (find the
+     new spelling of the FID table) or, if it is gone, keep the call-task half behind
+     a version check and let the source lint be the ci gate; say which in DESIGN 16.10.
+   - PDS-H comparator (bench/tpch/run_polars.py `same`): compare null vs non-null,
+     then non-finite class and sign (NaN == NaN, +inf == +inf, -inf != +inf, finite !=
+     inf), then tolerance on finite pairs only; add a self-test with Astra's four
+     cases; `make tpch-check` (sf 0.01, generated on demand, ~1 min) joins `make ci`.
+   - Interpreter lane: build the CSV lane tests (csvlane, csvlane_lines, csvprod)
+     natively in `scripts/test.sh` (a `#! native` header, `bend -o` then run) so the
+     2.0.39 run-mode regression (#1983) stops costing 8 minutes and 6 GB; default
+     TEST_TIMEOUT back to 300 s.
+   - `make coverage` regenerates docs/COVERAGE.md; ci fails if the file differs from
+     the committed one (today it silently dirties the tree).
+   - TOOLCHAIN: drop the uv pin (its version does not affect results; `uv sync
+     --locked` already pins the Python side) or make toolchain-check warn on it.
+   - .github/workflows/ci.yml: compute and commit the 2.0.39 archive sha256 and verify
+     the archive layout the `find */bin/bend` step assumes; the comment "changing
+     TOOLCHAIN is the only edit" is false while hashes are inline, fix it or derive
+     them from a file.
+W3 Proofs for the fast paths (~4 days, fable statements, opus proofs).
+   - `where_contents`: for a 0/1 mask m with popcount k <= 2^d and n <= 2^d, the first
+     k slots of Kernel.where(n, d, m) are the ascending positions i < n with m[i] = 1,
+     and the returned count is k; the kept+1 scratch allocation obligation stated as a
+     premise discharged by Eval.filter.sel's call. Then `take_rows_compact`: Frame.
+     take_rows(f, where(m)) observes (dump) as Frame.filter_mask(f, m); then `filter_sel
+     _mask`: Eval.filter.mask's selective branch equals its non-selective branch on
+     dump, so the section 20 laws regain their meaning. One in-place mutation control
+     per law (the "cursor advances every row" and "set(out, k, 0)" mutations of the two
+     reviews must fail).
+   - `grp_direct_inj`: Grp.direct's code x - min + 1 is injective on the span and 0 is
+     reserved for null (the auditor's mutation C must fail). `join_direct_probe`: the
+     direct-id table answers t - 1 for a present key and the miss code otherwise (the
+     auditor's mutation B must fail). Both are flat-array content theorems in the
+     chain's existing style.
+   - Not in v0.3: runz = run on dump (the big one; keep it first in the v0.4 proof
+     list), chunked = flat, group/sort/join semantics.
+   - DESIGN 8.2: add the three fast paths to the tested-only list now (day 1), and move
+     them to the proven table as each law lands; mutation-check gains the three
+     controls; the assurance matrix gets rows for Kernel.where, take_rows, Grp.direct,
+     Join.word / Dd.*.
+W4 Claims and docs (~1 day, haiku, fable reviews): README:196 / :265 / Platform
+   section per W0.2 or W0.3; "231 laws" in DESIGN 8.2; the peep_f4 premise text in
+   README:201 / DESIGN:1164 / CHANGELOG:78 (B1 removed it); LAWS:3899 header; the
+   README "compact/filter" phrase for selective filters; from_columns.p0 made private
+   or documented; CHANGELOG 0.3.0 with "reduced assurance" or "verdict restored"
+   stated first; GATES_V02 post-review notes closed.
+W5 Release hygiene (~2 days, needs the user for two items).
+   - A quiet-machine run (load < 2) of `make m2-bench LABEL=v03` and the W8 sequence;
+     if no quiet window exists, README states "timing gates unevaluated, provisional
+     numbers only" (as today) and the release is labelled accordingly.
+   - A git remote and one workflow run on macos-15 and ubuntu-24.04; fix what Linux
+     breaks or label the release macOS-arm64-only (as today).
+   - Removal date for the v0.1 reader: propose "removed in v0.4 after the v0.3 quiet
+     run and the Linux run both pass with the v0.2 reader"; the reference executor
+     stays while the chunked engine is opt-in.
+   - Final: `make ci` on the committed candidate (G1), two fresh-seed `make diff` runs,
+     `scripts/consumer_check.sh`, then the hub publish decision (still the user's).
+
+Order: W0.1 and W2 in parallel on day 1 (both unblock G1); W1 and W3 next (W3's laws
+need W1's cases as their mutation evidence); W4 after W0 resolves; W5 last.
+
+=====================================================================================
+4. Proof-coverage statement v0.3 should make (the honest sentence)
+=====================================================================================
+"Proven over the production code: the buffer kernels (gather, compact, map/zip, fold,
+append, in-place reset and choose, now `where` and `take_rows`), both string storages,
+the chunk trees, the evaluator peepholes against the unfused evaluator, the null-slot
+producers, the plan-level equivalences (release optimizer = unoptimized, physical runner
+= pure runner, Filter + Select step) and the v0.1 typing of Eval.full / Eval.run.
+Tested only: the fused runner Eval.runz that filter / select / with_columns execute,
+the chunked runner, both CSV readers, the string coder and rank stage, the radix sort,
+sort / group_by / join semantics (including the v0.2 build-side and direct-code paths),
+floating-point results, Dictionary completeness, and native execution. The independent
+BendTT check [passes on the pin | last passed on 2.0.36; see bendlang/bend#1984]."
+This replaces the current Laws paragraph's opening; the three-group text stays below it.
+
+=====================================================================================
+5. Decisions for the user
+=====================================================================================
+  D1 Projection pushdown by default. optimize_full's R5 cut a further 25-45 % on five
+     of nine PDS-H queries and every generated case passes through it; the policy
+     "default = proven fragment only" keeps it opt-in. Options: keep (default), or
+     promote R5 alone to the default with its schema law and a differential gate while
+     R2-R4 stay opt-in (changes the release claim's wording from "proven result-
+     preserving" to "proven schema-preserving and differentially tested" for that pass).
+  D2 BOM stripping (v0.2 B2): keep as documented, or strip like Polars (one line in the
+     header step of both readers plus a test change).
+  D3 Whether v0.3 waits for the upstream verdict fix at all, or ships under W0.3's
+     reduced-assurance wording once W1-W5 are done. Recommendation: do W0.1 first (one
+     day); if it fails, ship under W0.3 rather than block on an upstream release date.
+  D4 The removal date for the v0.1 reader (W5 proposal: v0.4).
+
+=====================================================================================
+6. Risks
+=====================================================================================
+  - The inline-Sigma workaround may only move the overflow to the next type-level
+    witness family; the bisection in W0.1 bounds that at one day before W0.3 applies.
+  - Running CSV lane tests natively hides interpreter-lane regressions; keep one small
+    interpreter CSV test (csv_v02_chunks) in the lane.
+  - W3's `take_rows_compact` needs an observation-level equality (dump), not term
+    equality, since the two paths allocate differently; the chain has the pattern
+    (sort_head_run, collect_obs) but each such law has cost a few hundred lines.
+  - Every number in both reviews and in STATUS since 2026-10-31 was taken at load
+    10-200; G6's quiet run may move the provisional cells either way.

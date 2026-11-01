@@ -1,0 +1,4 @@
+0.0 inf -> None
+-inf inf -> None
+inf inf -> 'x row 0: bend inf polars inf'
+nan nan -> None

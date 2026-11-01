@@ -1,0 +1,197 @@
+REVIEW of the changes since v0.2 (6b55792 -> 09a8535, 12 commits) -- Fable 5.1, 2026-11-01
+========================================================================================
+Questions: are the previous issues addressed; new gaping holes; bugs; missing API; is the
+proof coverage reasonable or fake. Inputs: the 12 commits (review fixes, the B1 fix, the
+Bend 2.0.39 bump, a PDS-H-style profiling pass with four engine changes, a reader memory
+pass), STATUS / CHANGELOG / README; my own gate runs; a delegated bug hunt (~30,000 cases
+across every engine, both readers, both storages, Polars and the P0 null-slot checker) and
+a delegated proof-coverage audit (in-place mutations, verdict attempts, law classification).
+The tree was not modified except this file (two `make` targets regenerate docs/COVERAGE.md;
+restored each time, see N3).
+
+--------------------------------------------------------------------------
+0. Verdict
+--------------------------------------------------------------------------
+Previous issues: all addressed, honestly. Correctness: no wrong result found anywhere,
+including the three new fast paths. Proofs: real, not fake, but two things got worse
+since the toolchain bump: the independent kernel check (--verdict) no longer runs, and
+the three new fast paths are unproven while sitting on the default path, one of them
+having moved filter row selection off the proven compaction. `make ci` cannot pass at
+HEAD (two gates broken by Bend 2.0.39), so the README's "make ci passes locally" is now
+false. For an experimental release: fix the two docs claims and pin a way to run the
+verdict, then yes.
+
+--------------------------------------------------------------------------
+1. Were the previous issues addressed?
+--------------------------------------------------------------------------
+From REVIEW_V02_FABLE / REVIEW_V02_ASTRA, checked against the tree, not the dispositions:
+  B1 fill_null(neg(x), 0.0) = -0.0 ....... FIXED at the producers (f32 neg/abs/sqrt,
+     i32 neg/abs run one masked loop; F4 resets slots itself; from_columns resets raw
+     buffers). A second wrong answer the fix agent found (from_columns kept dirty u32
+     slots; the chunked tree sum read them) is fixed too. 10 new laws prove each
+     producer writes the default under a null. src/p0.bend checks every null slot of
+     every result in the differential, fuzz and regression runs; ~15 % of generated
+     cases are now directed null-producer -> fill_null -> sign-sensitive consumer
+     chains. The bug hunt re-tested 14 producer chains x 9 engines: all clean.
+  B2 BOM kept in the header ............... documented + pinned test (contract decision
+     left to the user).
+  B3 odd-count median sign ................ documented + pinned test; the finding was
+     narrowed honestly (holds for n >= 21, not for odd n <= 15).
+  H1 proof coverage of the fused runner ... DISCLOSED (README Laws paragraph names
+     Eval.runz as uncovered, three-group description, G5 marked PARTIAL); the gap itself
+     is deferred to v0.3. See section 4.
+  H2 wrappers / single-instance laws ...... documented ("14 laws over 53 wrappers, 4 on
+     the runner's path"; instances listed).
+  H3 "walks scale 4-6x" ................... qualified (scan-fed inputs only; one-thread
+     penalty from eager frames stated with numbers).
+  H4 reader flip before gates ............. one sentence added.
+  radix boundary untested ................. make radix-check now 90 cases incl. 2^14-1 /
+     2^14 / 2^14+1 / 2^15 and n = 0; verified by me.
+  engine_reference undocumented ........... fixed. COVERAGE.md stale ...... fixed then
+     (stale again now, N3).
+  Needs the user, unchanged: a quiet-machine gate run; a git remote (Linux never run);
+  the removal date of the v0.1 reader and reference executor.
+
+--------------------------------------------------------------------------
+2. Bugs
+--------------------------------------------------------------------------
+None found. Evidence, all at HEAD:
+  - my gate run (TEST_TIMEOUT=3000, load 10-14): check, runner-check, diff-driver-check,
+    test 209/209 (0 XFAIL), mutation-check 104/104, bench-check identical at 1k and 100k,
+    diff-smoke 0 failing (Raw, Dict, chunked at four grains, reduce), csv-fuzz-smoke
+    2 x 1,500 x 7 pieces 0 differences, radix-check 90, coverage 762/54/0, consumer-check
+    green; `bend PROOF.bend` ALL PROOFS CHECK (2.8 s)
+  - make tpch (mine): all nine PDS-H queries match Polars at sf 0.2
+  - the bug hunt: ~23,000 fresh-seed differential cases (default, dict, nullslot, deep),
+    375 join cases over every build-side size relation incl. empty sides, narrow/wide/
+    offset/negative key ranges, NaN/-0.0/inf keys, many-to-many, dtype-mismatch errors;
+    1,391 selective-filter cases on both sides of the kept <= h/8 switch, 13 predicate
+    shapes, followed by nothing / plain select / expression select; 1,040 group_by and
+    unique cases at the 2^20 and 2^22 (combine) boundaries incl. i32 MIN/MAX and all-null
+    keys; 356 native comparisons at exactly 2(nl+nr)-1 / 2(nl+nr) spans and 600k-row
+    group_bys; 162 reader-validity comparisons (no nulls / one / all / quoted "" / nulls
+    in one region only) across both readers and five collect paths. 0 wrong results,
+    P0 ok everywhere, first-appearance and left-row order held throughout.
+
+--------------------------------------------------------------------------
+3. New gaping holes (process and claims, not results)
+--------------------------------------------------------------------------
+N1 `--verdict` is dead on the pinned toolchain. `bend PROOF.bend --verdict` overflows
+   the machine stack on Bend 2.0.39 (I reproduced it: 23 s then "the machine stack
+   overflowed"; the auditor also tried ulimit -s 65520). The String.eq proofs re-proven
+   for 2.0.39 have therefore never passed the independent kernel. CHANGELOG and
+   plans/issues/bend_2_0_39.md disclose it; README:196 still says the verdict
+   "confirms it", README:265 says "about 5 s", and the Platform section says "make ci
+   passes locally". `make ci` fails at the verdict gate at HEAD. Options: pin 2.0.36 for
+   the verdict step (a second toolchain entry), split PROOF.bend so the BendTT
+   translation fits (the auditor found per-file runs leave 106-234 laws open, so the
+   split needs a new root per group), or wait for upstream. Until one of these lands,
+   the README must say the verdict last passed on 2.0.36 at a956c96.
+N2 `make fork-audit` crashes on 2.0.39 (bench/w5/scale/forkaudit.py:48 expects a
+   `FID_T` table in the emitted C that 2.0.39 no longer prints). The static source
+   lint half still runs (68 parallel lets, 0 findings); the call-task half does not.
+   Second broken ci gate; undisclosed. STATUS's last "make ci green" (a956c96) predates
+   the bump; the two later passes say "not run: make ci".
+N3 Hygiene: docs/COVERAGE.md is stale at HEAD again (the perf and memory commits added
+   defs without regenerating; `make coverage` passes but dirties the tree); TOOLCHAIN
+   pins uv 0.12.23 while the machine has 0.13.6, so toolchain-check fails locally (not a
+   repo bug, but a pin on a tool whose version is irrelevant to results).
+N4 Interpreter lane on 2.0.39: `bend FILE.bend` run mode is 3-7x slower and uses ~10x
+   the memory (tests/csvlane.bend 8 min, 5-6 GB). The test runner's default limit went
+   120 s -> 900 s and STATUS runs it with TEST_TIMEOUT=3000 under load. Not a library
+   defect, but the suite is now fragile on a loaded machine and the CI workflow (never
+   run) would time out on a small runner.
+N5 Projection pushdown stays opt-in: the PDS-H pass measured `collect_full` cutting a
+   further 25-45 % on five of nine queries, and all three new fast paths plus every
+   generated case run through `optimize_full` without a failure. Keeping R5 out of the
+   default is the proof policy, not a bug; worth re-deciding with those numbers.
+
+--------------------------------------------------------------------------
+4. Proof coverage: reasonable or fake?
+--------------------------------------------------------------------------
+Reasonable, not fake, and now described honestly in the docs; three facts bound it.
+  What is real: 241 laws, 241 proofs, no @unsafe / axiom / open law; `bend PROOF.bend`
+  checks; all quantify over production functions. Roughly 80 are cell-level content
+  theorems over the buffer kernels and both string storages, ~45 are fused-vs-unfused
+  or chunked-vs-flat equivalences, ~17 are runner-level equivalences (release_run,
+  run_phys = run_pure, collect_obs, filter_select_run), ~36 typing inductions, ~62
+  definitional. The B1 laws are genuine producer theorems through an inductive zipb
+  cell lemma. The optimizer glue flagged in v0.1/v0.2 is now closed except Plan.schema /
+  Exec.validate agreement and the IO read itself; release_run is no longer vacuous on
+  scan plans (scans live in an unnamed env field with keeps_scans laws).
+  Fact 1: the semantics of the default operators are unproven. Nothing states what
+  filter, select or with_columns compute (the fused runner Eval.runz, disclosed), nor
+  sort, group_by or join (never had laws). The runner-level theorems compare one
+  production path with another and would hold if every operator were wrong. The
+  auditor's in-place mutations prove the point: a join direct-id probe off by one, a
+  group_by direct code that merges the minimum value with the null group, and a
+  Kernel.where cursor that advances on every row all pass ALL PROOFS CHECK (the tests
+  and the differential catch them; the proofs do not).
+  Fact 2: the newest fast paths bypass what was proven. For selective filters (kept <=
+  h/8) Eval.filter.mask now gathers the kept rows through the unproven Kernel.where /
+  Frame.take_rows and hands the proven compaction an all-ones mask, so the proven
+  compaction only copies. The section 20 laws still check because Eval.filter.mask sits
+  on both sides of each equation. STATUS's "no proven function touched" is true of the
+  law statements and misleading about the path; README's "proven to move the right
+  cells (... compact/filter ...)" no longer describes selective filters; LAWS:3899's
+  header is stale. Join build-side selection with direct ids (Join.side / Join.word /
+  Dd.*) and group_by direct coding to max(2^20, 2n) with one densify (Grp.direct,
+  Grp.combine) are new default-path code with no law, as the code they replaced had
+  none.
+  Fact 3: the mutation score measures depth, not breadth. All 104 scripted mutations
+  sit inside proven functions, so 104/104 says the proofs constrain those functions, not
+  that they cover the engine; two of the auditor's catches inside Eval.un.iabs were
+  caught only because the proof term restates the code word for word (re-adapting the
+  proof term without touching the law made a wrong abs pass). The verdict (N1) would
+  normally be the independent check on exactly this kind of term; it is not running.
+  Minor stale text: DESIGN 8.2 says "231 laws"; README:201 / DESIGN:1164 / CHANGELOG:78
+  still say peep_f4_cell carries the zero-payload premise that B1 removed (understates).
+  Judgement: the honest summary is "the buffer kernels, string storage, chunk trees and
+  the optimizer's plan-level equivalences are proven; every operator's semantics, the
+  fused runner, the readers, the coder, the radix sort and the three PDS-H fast paths
+  are tested only". The docs now say almost exactly that. Calling the library "verified"
+  would be fake; the docs do not.
+
+--------------------------------------------------------------------------
+5. Missing API
+--------------------------------------------------------------------------
+Nothing new was added or removed (one internal helper, from_columns.p0, became a
+facade def; it should be private or documented). The user-facing gaps are unchanged and
+are the ones a real ETL script hits: F64/I64, dates, window functions, Polars' `/`
+semantics, no projection pushdown by default (N5), no BOM stripping (B2, a decision).
+The PDS-H pass needed none of them to express nine queries, which is a fair sign the
+v0.1 minimum holds for aggregate/join workloads; it did need `when` sums and `is_in`,
+which exist.
+
+--------------------------------------------------------------------------
+6. Performance since v0.2 (not re-measured by me beyond the tpch run)
+--------------------------------------------------------------------------
+The PDS-H pass is a good piece of work: profiled with `sample`, four targeted changes,
+nine queries 384 -> 284 ms at sf 0.2 one thread, Polars 162 ms (1.8x; q18 faster than
+Polars, q6 5x slower). The reader memory pass took lineitem's read peak 469 -> 303 MB.
+Two upstream issues filed with repros (size-class reuse, 16 B per character). My tpch
+run under load: reads 2.6 s lineitem, queries 13-154 ms, all matching Polars. The known
+limits stand: the CSV read is 85-95 % of end-to-end time, F32 sums do not reassociate,
+sort/group/join do not scale with threads, the default executor does not scale.
+
+--------------------------------------------------------------------------
+7. Before an experimental release
+--------------------------------------------------------------------------
+  1. Decide the verdict: pin 2.0.36 for `make verdict` (and say so), or split PROOF.bend
+     per group with its own root so the translation fits, or drop the gate and the
+     README sentence. Fix README:196/:265 and the "make ci passes locally" line now.
+  2. Fix fork-audit for 2.0.39's C output (or restrict the gate to the source lint).
+  3. Regenerate docs/COVERAGE.md; fix the stale "231 laws" and the peep_f4 premise text;
+     update LAWS:3899's header and the README "compact/filter" phrase for the selective
+     path; make from_columns.p0 private.
+  4. Add the three PDS-H fast paths to the "tested only" list in DESIGN 8.2 explicitly
+     (Kernel.where / take_rows, Join.side / Join.word, Grp.direct / combine), with the
+     auditor's three mutations as proof_negative-style evidence that tests, not proofs,
+     guard them.
+  5. Then the standing items: a quiet-machine gate run, a remote for Linux CI, the
+     removal date for the duplicate reader and executor.
+For v0.3 proofs, in order of value: a law for Kernel.where (cursor = prefix popcount,
+kept rows in order) so selective filters are back on proven ground; runz = run on dump;
+the group_by direct-code injectivity (code = x - min + 1, null = 0) and the join
+direct-id probe, which are small content theorems over flat arrays in the style the
+chain already has.

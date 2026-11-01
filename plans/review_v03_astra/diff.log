@@ -1,0 +1,30 @@
+{
+ "main": "09a8535 src-sha1 8081e829ab",
+ "seed": 20261101,
+ "n": 200,
+ "backend": "interp",
+ "features": [
+  "joinstress"
+ ],
+ "chunked": true,
+ "dict": false,
+ "failing_cases": 0,
+ "by_class": {},
+ "oracle_uncertain": 0,
+ "oracle_errors": 0,
+ "inadmissible_for_T2.1": 0,
+ "invalid_cases": 0,
+ "runtime_s": {
+  "gen": 0.0,
+  "bend": 6.8,
+  "oracle+bend": 6.8
+ },
+ "backends": {
+  "interp": {
+   "runs": 1,
+   "wall": 6.8,
+   "crashes": 0
+  }
+ }
+}
+total 7.3s; failures: /Users/lukaszsamson/claude_fun/bend-frame/build/diff/seed20261101/failures.json

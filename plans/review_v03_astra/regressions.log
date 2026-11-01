@@ -1,0 +1,7 @@
+PASS tests/agg_median_zero_sign.bend
+PASS tests/csv_bom.bend
+PASS tests/regress/V02_B1_astra_null_zero.bend
+PASS tests/regress/V02_B1_astra_null_zero_reciprocal.bend
+PASS tests/regress/V02_B1_null_slot.bend
+PASS tests/regress/V02_B1_raw_constructor.bend
+PASS: 6 / 6, XFAIL: 0
