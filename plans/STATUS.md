@@ -562,3 +562,11 @@ one "0.1.0 (unreleased)" entry, the milestones under "Development history"; READ
   mutation-check 107/107, test-mutation-check 3/3, bench-check, diff-smoke, csv-fuzz-smoke against the goldens);
   fork-audit then failed on a stale allowlist entry of the removed reader (fixed in f7e87d3), and the remaining gates
   (fork-audit 67 lets / 0 findings, radix-check 90, tpch-check, consumer-check, coverage-check) passed at dc2c6f4.
+
+## Public repository (2026-11-01)
+- https://github.com/lukaszsamson/bend-frame (public; branch `main`, renamed from `master`). First Actions run
+  41337693027 at ec2ef58: `make ci` "all gates passed" on macos-15 (28 min) and ubuntu-24.04 (33 min): test 211/211,
+  proofs + verdict, mutation-check 107/107, test-mutation-check 3/3, both csv-fuzz-smoke seeds against the goldens,
+  fork-audit, radix-check, tpch-check, consumer-check, coverage-check. Linux x86-64 runs for the first time.
+- Release prep: README quickstart (clone), CI badge, RELEASING.md. Not done (the maintainer's call): the v0.1.0 tag,
+  the GitHub release, the Bend hub publish, a quiet-machine timing run.

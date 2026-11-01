@@ -1,13 +1,9 @@
 # CI: `make ci` on macOS (arm64) and Linux (x86_64), with every tool pinned in TOOLCHAIN.
-# STATUS: THIS WORKFLOW HAS NEVER RUN (the repository has no remote), so none of it is known to work.
-# macOS arm64 (done by hand, locally) is the only platform the project has been built and tested on;
-# Linux x86-64 has never been run, and the archive URLs, sha256 values and layout assumed below are
-# untested. There is no flake.nix in this repository.
+# First run 2026-11-01 (run 41337693027): every gate green on both runners. There is no flake.nix.
 # Pins are read from TOOLCHAIN by the first step: a toolchain bump edits TOOLCHAIN only (the version AND the
 # BEND_SHA256_* archive hashes; nothing in this file).
 # Bend comes from the release archive for the runner's platform (sha256 from TOOLCHAIN; the 2.0.39 hashes and the
-# archive layout bend/{bin/bend,bend2,guide} were checked against the GitHub release on 2026-11-01, but no
-# workflow run has exercised this file yet); Lean from elan; uv from astral's versioned
+# archive layout bend/{bin/bend,bend2,guide} were checked against the GitHub release on 2026-11-01); Lean from elan; uv from astral's versioned
 # installer; Polars and numpy from bench/uv.lock (`uv sync --locked` fails on drift).
 name: ci
 

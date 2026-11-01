@@ -42,6 +42,10 @@ Apache-2.0 (`LICENSE`, `NOTICE`). `src/csvparse.bend` is a fork of the MIT-licen
 
 ### Changes since M_03 (2026-11-01)
 
+- **Public repository and hosted CI.** https://github.com/lukaszsamson/bend-frame; the CI workflow ran for the
+  first time and `make ci` passed every gate on macos-15 (arm64) and ubuntu-24.04 (x86-64): the first build and
+  test on Linux x86-64. `RELEASING.md` is the release checklist.
+
 - **One CSV reader.** M_01's sequential streaming reader is removed (~870 lines of `src/csv.bend`); the flat reader
   that has been the default since M_02 is the only one. Removed from the facade: `csv_engine_v01`,
   `csv_engine_v02`, `read_csv_engine`, `read_csv_v02`, `collect_engine` (use `read_csv_enc` / `collect`). Before the
