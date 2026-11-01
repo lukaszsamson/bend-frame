@@ -1,3 +1,4 @@
+#! native  (built with `bend -o`: the interpreter lane is 3-7x slower since Bend 2.0.37, bendlang/bend#1983)
 # W6.1: the CSV piece producer (src/csvprod.bend) against the v0.1 parser (src/csvparse.bend).
 #
 # Every adversarial file of tests/csvadv (bench/w6/gen_adv.py: quoted newlines in every record,

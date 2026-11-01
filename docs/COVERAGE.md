@@ -274,22 +274,22 @@ reach these", not as line coverage. Reported, not gated.
 | `src/cexec.bend` | 459 | 6 | 451 | 453 | 6 |
 | `src/chunks.bend` | 219 | 33 | 190 | 200 | 19 |
 | `src/ckernels.bend` | 206 | 48 | 7 | 147 | 59 |
-| `src/column.bend` | 160 | 29 | 158 | 158 | 2 |
-| `src/csv.bend` | 478 | 18 | 469 | 477 | 1 |
-| `src/csvlane.bend` | 152 | 1 | 152 | 152 | 0 |
+| `src/column.bend` | 165 | 29 | 163 | 163 | 2 |
+| `src/csv.bend` | 483 | 18 | 474 | 482 | 1 |
+| `src/csvlane.bend` | 153 | 1 | 153 | 153 | 0 |
 | `src/csvparse.bend` | 20 | 1 | 19 | 19 | 1 |
 | `src/csvprod.bend` | 33 | 2 | 33 | 33 | 0 |
 | `src/dtype.bend` | 40 | 24 | 24 | 36 | 4 |
 | `src/dump.bend` | 39 | 3 | 39 | 39 | 0 |
 | `src/err.bend` | 3 | 3 | 3 | 3 | 0 |
-| `src/eval.bend` | 488 | 26 | 481 | 486 | 2 |
+| `src/eval.bend` | 493 | 26 | 486 | 491 | 2 |
 | `src/exec.bend` | 99 | 11 | 99 | 99 | 0 |
 | `src/expr.bend` | 45 | 9 | 45 | 45 | 0 |
 | `src/fmt.bend` | 119 | 3 | 119 | 119 | 0 |
-| `src/groupby.bend` | 197 | 1 | 197 | 197 | 0 |
+| `src/groupby.bend` | 202 | 1 | 202 | 202 | 0 |
 | `src/hcode.bend` | 51 | 8 | 32 | 51 | 0 |
-| `src/join.bend` | 132 | 5 | 128 | 132 | 0 |
-| `src/kernels.bend` | 83 | 45 | 75 | 83 | 0 |
+| `src/join.bend` | 155 | 5 | 151 | 155 | 0 |
+| `src/kernels.bend` | 85 | 45 | 77 | 85 | 0 |
 | `src/p0.bend` | 28 | 1 | 0 | 25 | 3 |
 | `src/plan.bend` | 123 | 11 | 122 | 122 | 1 |
 | `src/radix.bend` | 25 | 0 | 25 | 25 | 0 |
@@ -298,9 +298,9 @@ reach these", not as line coverage. Reported, not gated.
 | `src/sort.bend` | 84 | 3 | 82 | 82 | 2 |
 | `src/strs.bend` | 92 | 10 | 90 | 90 | 2 |
 | `src/table.bend` | 72 | 1 | 72 | 72 | 0 |
-| **total** | **3778** | **484** | **3439** | **3675** | **103** |
+| **total** | **3824** | **484** | **3485** | **3721** | **103** |
 
-97.3 % of the 3778 defs are reachable from the tests (91.0 % through the facade alone).
+97.3 % of the 3824 defs are reachable from the tests (91.1 % through the facade alone).
 
 Unreached defs:
 

@@ -1,8 +1,16 @@
 # Pinned toolchain for bend-frame. Shell-sourceable (KEY=value, no spaces).
 # `make toolchain-check` fails when an installed tool differs; .github/workflows/ci.yml installs these.
 BEND_VERSION=2.0.39
+# sha256 of the Bend release archives (bend-$BEND_VERSION-<target>.tar.gz), read by .github/workflows/ci.yml;
+# computed 2026-11-01 from the GitHub release; layout bend/{bin/bend,bend2,guide}; the darwin-arm64 binary is
+# byte-identical to the locally installed 2.0.39
+BEND_SHA256_DARWIN_ARM64=d4aaef68de545727429ce83b9e88ff3273bf068df599e3542e446755b5f3d83a
+BEND_SHA256_DARWIN_X64=a512cfd1d29ec24c640126a6a640e597b4ea1abe0aefbda7cc57efd85ab56e22
+BEND_SHA256_LINUX_X64=6cf462fd8f70b094a4950ebb709a9c4ffd8f1d1189d9cedf1fd63cd5d041c7ab
+BEND_SHA256_LINUX_ARM64=71b43e1bb9313dd14ac2b0553b854e41c39d65ecaa47040796ebff4a46f54a97
 LEAN_VERSION=4.34.0
 POLARS_VERSION=2.0.0
 NUMPY_VERSION=2.5.3
+# UV_VERSION is informational: toolchain-check warns on drift and does not fail (bench/uv.lock pins the Python side)
 UV_VERSION=0.12.23
 PYTHON_VERSION=3.14.3

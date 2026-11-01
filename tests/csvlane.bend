@@ -1,3 +1,4 @@
+#! native  (built with `bend -o`: the interpreter lane is 3-7x slower since Bend 2.0.37, bendlang/bend#1983)
 # W6.2: the CSV lane (src/csvlane.bend) behind the producer (src/csvprod.bend), against the v0.1
 # reader (Csv.read_full: csvparse + the Csv conversions), at the DF.dump level: names, dtypes,
 # every value, validity, F32 bit patterns, string contents (UTF-8 decoding included), dictionary

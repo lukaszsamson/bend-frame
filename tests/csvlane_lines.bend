@@ -1,3 +1,4 @@
+#! native  (built with `bend -o`: the interpreter lane is 3-7x slower since Bend 2.0.37, bendlang/bend#1983)
 # W6.2: the `lines` array of a lane (the physical line of every kept row, DESIGN 15.6.2: "1-based
 # physical line of the record's first line", every LF counting, also inside quotes and blank lines)
 # against the reference parser's record lines (csvparse `CsvRec.line` of the records after the header,

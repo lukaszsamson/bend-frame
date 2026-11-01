@@ -3,9 +3,11 @@
 # macOS arm64 (done by hand, locally) is the only platform the project has been built and tested on;
 # Linux x86-64 has never been run, and the archive URLs, sha256 values and layout assumed below are
 # untested. There is no flake.nix in this repository.
-# Pins are read from TOOLCHAIN by the first step, so changing a version there is the only edit.
-# Bend comes from the release archive for the runner's platform (sha256 pinned in the Bend step below,
-# never exercised by a run); Lean from elan; uv from astral's versioned
+# Pins are read from TOOLCHAIN by the first step: a toolchain bump edits TOOLCHAIN only (the version AND the
+# BEND_SHA256_* archive hashes; nothing in this file).
+# Bend comes from the release archive for the runner's platform (sha256 from TOOLCHAIN; the 2.0.39 hashes and the
+# archive layout bend/{bin/bend,bend2,guide} were checked against the GitHub release on 2026-11-01, but no
+# workflow run has exercised this file yet); Lean from elan; uv from astral's versioned
 # installer; Polars and numpy from bench/uv.lock (`uv sync --locked` fails on drift).
 name: ci
 
@@ -37,7 +39,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -E '^[A-Z_]+=[^ ]+$' TOOLCHAIN >> "$GITHUB_ENV"
+          grep -E '^[A-Z0-9_]+=[^ ]+$' TOOLCHAIN >> "$GITHUB_ENV"
           cat TOOLCHAIN
 
       - name: Cache elan (Lean toolchains)
@@ -67,10 +69,10 @@ jobs:
         run: |
           set -euo pipefail
           case "$(uname -s)-$(uname -m)" in
-            Darwin-arm64)  target=darwin-arm64; sha=2876687ceb0aba836abc98b3f62c8fc9fb612d124ae2af6814d5ec937760878d ;;
-            Darwin-x86_64) target=darwin-x64;   sha=925bb306c60260e1cdde56c2b8e4ba0e1eb4cbc88a76372cc0bb389a172dccdf ;;
-            Linux-x86_64)  target=linux-x64;    sha=02089dc0eed0fd5fd6d73c74cc9cffcb2c6638dd3b02ae83f7b8cc57fbe381ba ;;
-            Linux-aarch64) target=linux-arm64;  sha=a14a311e39bad45f9669d4eab39d156b578c945f13a2b7bae20d9c23567a4664 ;;
+            Darwin-arm64)  target=darwin-arm64; sha=$BEND_SHA256_DARWIN_ARM64 ;;
+            Darwin-x86_64) target=darwin-x64;   sha=$BEND_SHA256_DARWIN_X64 ;;
+            Linux-x86_64)  target=linux-x64;    sha=$BEND_SHA256_LINUX_X64 ;;
+            Linux-aarch64) target=linux-arm64;  sha=$BEND_SHA256_LINUX_ARM64 ;;
             *) echo "no pinned Bend archive for $(uname -s)-$(uname -m)" >&2; exit 1 ;;
           esac
           archive="$RUNNER_TEMP/bend-$BEND_VERSION-$target.tar.gz"
@@ -81,9 +83,8 @@ jobs:
           else
             echo "$sha  $archive" | shasum -a 256 -c -
           fi
-          # the archive is ASSUMED to hold bin/bend beside bend2/ and guide/, at its root or under one
-          # top-level directory (never checked against a real run): copy the
-          # directory that holds bin/bend to where install.sh puts bend
+          # the 2.0.39 archives hold bend/bin/bend beside bend/bend2 and bend/guide (checked 2026-11-01):
+          # copy the directory that holds bin/bend to where install.sh puts bend
           x="$RUNNER_TEMP/bend-x"; rm -rf "$x"; mkdir -p "$x" "$HOME/.bend"
           tar -xzf "$archive" -C "$x"
           bin=$(find "$x" -path '*/bin/bend' -type f | head -1)
@@ -98,7 +99,7 @@ jobs:
           set -euo pipefail
           curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
           export PATH="$HOME/.local/bin:$PATH"
-          test "$(uv --version | awk '{print $2}')" = "$UV_VERSION"
+          uv --version   # UV_VERSION is informational (TOOLCHAIN); bench/uv.lock pins the Python side
           uv python install "$PYTHON_VERSION"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           echo "UV_PYTHON=$PYTHON_VERSION" >> "$GITHUB_ENV"

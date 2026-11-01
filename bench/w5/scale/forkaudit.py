@@ -45,15 +45,25 @@ import sys
 def load(path):
     src = open(path).read()
     fids = {int(m.group(2)): m.group(1) for m in re.finditer(r"#define (FID_\w+) (\d+)\n", src)}
-    tab = re.search(r"CONSTV u8 FID_T\[\]\[3\] = \{(.*?)\};", src, re.S).group(1)
-    rows = re.findall(r"\{ (\d+), (\d+), (\d+) \}", tab)
-    nofk = {fids[i]: (int(fl) & 2) >> 1 for i, (ar, rw, fl) in enumerate(rows) if i in fids}
+    # the task table: Bend 2.0.36 emitted `CONSTV u8 FID_T[][3] = {{ar, resw, flags}, ..}` (fork-free = flags bit 1);
+    # 2.0.38+ emits `typedef struct { u8 ar, resw, bangs, nofk; } Fid; CONSTV Fid FID_T[] = {..}` (fork-free = nofk)
+    m = re.search(r"CONSTV Fid FID_T\[\] = \{(.*?)\};", src, re.S)
+    if m:
+        rows = re.findall(r"\{ (\d+), (\d+), (\d+), (\d+) \}", m.group(1))
+        nofk = {fids[i]: int(nf) for i, (ar, rw, bg, nf) in enumerate(rows) if i in fids}
+    else:
+        m = re.search(r"CONSTV u8 FID_T\[\]\[3\] = \{(.*?)\};", src, re.S)
+        if not m:
+            sys.exit("forkaudit: no FID_T task table in %s (unknown Bend C layout: update load())" % path)
+        rows = re.findall(r"\{ (\d+), (\d+), (\d+) \}", m.group(1))
+        nofk = {fids[i]: (int(fl) & 2) >> 1 for i, (ar, rw, fl) in enumerate(rows) if i in fids}
     parts = re.split(r"\n  WL_CASE\((FID_\w+)\)\n", src)
     bodies = {parts[i]: parts[i + 1] for i in range(1, len(parts), 2)}
     return fids, nofk, bodies
 
 
-SEG = re.compile(r"_[KCJ]\d+$")
+# 2.0.36 spelled segments _K12 / _J12 / _C12; 2.0.38+ spells them _k12 / _j12 / _c12
+SEG = re.compile(r"_[KCJkcj]\d+$")
 
 
 def base(name):
@@ -72,8 +82,9 @@ def forking_defs(fids, bodies):
     out = set()
     names = set(fids.values())
     for n in names:
-        m = re.match(r"(.*)_J(\d+)$", n)
-        if m and (m.group(1) + "_K" + m.group(2)) in names:
+        m = re.match(r"(.*)_([Jj])(\d+)$", n)
+        k = "_K" if m and m.group(2) == "J" else "_k"
+        if m and (m.group(1) + k + m.group(3)) in names:
             out.add(m.group(1))
     return out
 
@@ -88,13 +99,13 @@ def sites(path, only_forking):
         b = base(name)
         if only_forking and b not in fk:
             continue
-        if re.search(r"_J\d+$", name):
+        if re.search(r"_[Jj]\d+$", name):
             continue  # the join continuation: runs after the fork, in place
         for m in re.finditer(r"return term_tsk\((FID_\w+),", body):
             callee = m.group(1)
             if not nofk.get(callee, 0):
                 continue  # a forking callee is entered directly (WL_JMP); the guard is fid_nofk(callee)
-            if re.match(re.escape(b) + r"_J\d+$", callee):
+            if re.match(re.escape(b) + r"_[Jj]\d+$", callee):
                 continue  # this def's own join task
             found.append((name, callee))
     return found, fk

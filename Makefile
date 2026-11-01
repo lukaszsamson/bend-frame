@@ -9,7 +9,7 @@ EXAMPLES := frame.bend $(wildcard examples/*.bend) $(wildcard bench/*.bend)
 # differential smoke (Raw and Dictionary strings, then the F32 reduction check), the proof mutation
 # check and the clean-consumer check (needs the work committed: it clones HEAD). Larger differential
 # runs (make diff N=..., make diff-reduce REDUCE_N=...) are the scheduled/release gate.
-ci: toolchain-check check runner-check diff-driver-check test proofs verdict mutation-check bench-check diff-smoke csv-fuzz-smoke fork-audit radix-check consumer-check
+ci: toolchain-check check runner-check diff-driver-check test proofs verdict mutation-check bench-check diff-smoke csv-fuzz-smoke fork-audit radix-check tpch-check consumer-check
 	@echo "ci: all gates passed"
 
 test:
@@ -61,7 +61,8 @@ toolchain-check:
 	chk() { if [ "$$2" = "$$3" ]; then echo "ok     $$1 $$2"; else echo "DRIFT  $$1: installed '$$2', TOOLCHAIN '$$3'"; fail=1; fi; }; \
 	chk bend "$$($(BEND) version 2>/dev/null | awk '{print $$2}')" "$$BEND_VERSION"; \
 	chk lean "$$(lean --version 2>/dev/null | sed -n 's/^Lean (version \([^,]*\),.*/\1/p')" "$$LEAN_VERSION"; \
-	chk uv "$$(uv --version 2>/dev/null | awk '{print $$2}')" "$$UV_VERSION"; \
+	chkw() { if [ "$$2" = "$$3" ]; then echo "ok     $$1 $$2"; else echo "warn   $$1: installed '$$2', TOOLCHAIN '$$3' (not a gate: uv sync --locked pins the Python side)"; fi; }; \
+	chkw uv "$$(uv --version 2>/dev/null | awk '{print $$2}')" "$$UV_VERSION"; \
 	set -- $$(cd bench && uv run --quiet python -c 'import sys, polars, numpy; print(polars.__version__, numpy.__version__, "%d.%d.%d" % sys.version_info[:3])' 2>/dev/null); \
 	chk polars "$${1:-}" "$$POLARS_VERSION"; chk numpy "$${2:-}" "$$NUMPY_VERSION"; chk python "$${3:-}" "$$PYTHON_VERSION"; \
 	if [ "$$fail" -ne 0 ]; then echo "toolchain-check: FAILED (install the TOOLCHAIN versions)"; exit 1; fi; \
@@ -143,7 +144,13 @@ diff-chunked:
 coverage:
 	python3 scripts/coverage_matrix.py
 
-ci: coverage
+# ci's form: regenerate, then fail if the committed docs/COVERAGE.md is stale (v0.3 W2: it used to dirty the
+# tree silently); commit the regenerated file to fix
+coverage-check: coverage
+	@git diff --quiet HEAD -- docs/COVERAGE.md || { git --no-pager diff --stat HEAD -- docs/COVERAGE.md; echo "coverage-check: docs/COVERAGE.md is stale: commit the regenerated file"; exit 1; }
+	@echo "coverage-check: docs/COVERAGE.md up to date"
+
+ci: coverage-check
 
 # ---- W0 measurement harness (bench/m2/README.md, plans/M_02.txt W0, G2-G6) ---------------------
 # make m2-baseline            materialise commit 3612482 into build/m2/baseline-src (git archive) and build its
@@ -232,6 +239,17 @@ tpch:
 	@mkdir -p build/tpch_out
 	./build/tpch +RTS --threads 1 -RTS bench/data/tpch/sf$(TPCH_SF) all 5 build/tpch_out
 	uv run --project bench python bench/tpch/run_polars.py check bench/data/tpch/sf$(TPCH_SF) build/tpch_out
+
+# make tpch-check: the comparator's self-test, then the nine queries at sf 0.01 (tables generated on demand),
+# one collect each, every result checked against Polars; in make ci (v0.3 W2)
+.PHONY: tpch-check
+tpch-check:
+	uv run --project bench python bench/tpch/run_polars.py selftest
+	@test -f bench/data/tpch/sf0.01/lineitem.csv || uv run --project bench python bench/tpch/gen.py 0.01
+	$(BEND) bench/tpch/run.bend -o build/tpch
+	@mkdir -p build/tpch_check
+	./build/tpch +RTS --threads 1 -RTS bench/data/tpch/sf0.01 all 1 build/tpch_check > /dev/null
+	uv run --project bench python bench/tpch/run_polars.py check bench/data/tpch/sf0.01 build/tpch_check
 
 # ---- W6.4: CSV fuzz harness, the v0.2 reader against the v0.1 reader (bench/diff/csvfuzz.py) ------
 # make csv-fuzz SEED=1 N=10000 [CSV_FUZZ_ARGS="--jobs 8 --shrink-secs 300"]

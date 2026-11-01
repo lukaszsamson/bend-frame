@@ -7,6 +7,10 @@
 #        TEST_JOBS=8 scripts/test.sh     run files in parallel (default 1); output stays in file order
 #        TEST_DIR=dir TEST_TIMEOUT=s      another test tree / per-file limit (scripts/test_runner_check.sh)
 #
+# Native tests: a file with a line `#! native` is built with `bend FILE -o BIN` and the binary is run (the build
+# counts against the same time limit; binaries go to build/test_native/). Used for the CSV lane tests, which the interpreter runs 3-7x slower and with
+# ~10x the memory since Bend 2.0.37 (bendlang/bend#1983); one small interpreter CSV test (csv_v02_chunks) stays.
+#
 # Expected failures: a test with a line `#! xfail <ID>` (e.g. `#! xfail B01`) pins a known defect.
 #  - it must FAIL its check: reported as `XFAIL <file> (<ID>)` and not counted as a failure;
 #  - if it passes, it is reported as `XPASS <file> (<ID>)` and counted as a failure, so the marker
@@ -34,13 +38,13 @@
 #    FAIL (empty expectation), since they would accept a program that prints nothing.
 #  - stdin is /dev/null, so a stray read cannot hang the run (gates has no stdin
 #    handling; this is added).
-#  - 120 s per file (the spec value; gates uses 5 s per program on its cluster).
+#  - 300 s per file by default (TEST_TIMEOUT; the spec value is 120 s; gates uses 5 s per program on its cluster).
 set -uo pipefail
 
 cd "$(dirname "$0")/.." || exit 1
 
 BEND_BIN="${BEND:-$HOME/.bend/bin/bend}"
-LIMIT="${TEST_TIMEOUT:-900}"
+LIMIT="${TEST_TIMEOUT:-300}"
 TEST_DIR="${TEST_DIR:-tests}"
 JOBS="${TEST_JOBS:-1}"
 case "$JOBS" in
@@ -69,13 +73,32 @@ limited() {
 # xfail_id FILE: the ID of the file's `#! xfail <ID>` line, or nothing
 xfail_id() { perl -ne 'if (/^#! xfail\s+(\S+)/) { print $1; last }' "$1"; }
 
+# is_native FILE: the file asks to run as a native binary
+is_native() { grep -q '^#! native' "$1"; }
+
+# run_test FILE OUT: the test's merged output; status as limited's (142 = timeout). A native test is built to
+# OUT.bin first; a failed build is reported with the compiler's output.
+run_test() {
+  local f=$1 out=$2
+  if is_native "$f"; then
+    # bend picks the output kind by extension, and mktemp's directory has a dot in it: build under build/
+    local bin
+    bin="build/test_native/$(printf '%s' "$f" | tr '/.' '__')"
+    mkdir -p build/test_native
+    limited "$LIMIT" "$BEND_BIN" "$f" -o "$bin" </dev/null > "$out.build" 2>&1 || { cat "$out.build"; return 3; }
+    limited "$LIMIT" "./$bin" </dev/null 2>&1
+  else
+    limited "$LIMIT" "$BEND_BIN" "$f" </dev/null 2>&1
+  fi
+}
+
 # check_one FILE OUT: runs one test. Its report goes to stdout; its verdict (PASS, FAIL, XFAIL or
 # XPASS) goes to OUT.status. Temporary files use the OUT prefix, so parallel workers do not collide.
 check_one() {
   local f=$1 out=$2 id run rc exp act errexp=0 ok=0 suffix="" body="" status
   id=$(xfail_id "$f")
   if ! grep -q '^#|' "$f"; then
-    run=$(limited "$LIMIT" "$BEND_BIN" "$f" </dev/null 2>&1)
+    run=$(run_test "$f" "$out")
     rc=$?
     if [ "$rc" -eq 0 ]; then
       ok=1
@@ -89,7 +112,7 @@ check_one() {
     case "$exp" in
       "SOME PROOFS FAIL"*|"Error:"*) errexp=1 ;;
     esac
-    run=$(limited "$LIMIT" "$BEND_BIN" "$f" </dev/null 2>&1)
+    run=$(run_test "$f" "$out")
     rc=$?
     if [ "$rc" -eq 142 ]; then
       run="$run"$'\n'"timeout"
@@ -157,7 +180,7 @@ fi
 
 # Run them (JOBS at a time). Each worker writes its report to $tmp/r<i>.log and its verdict to
 # $tmp/r<i>.status; the report below reads them back in file order.
-export -f norm xfail_id limited check_one
+export -f norm xfail_id limited is_native run_test check_one
 export BEND_BIN LIMIT tmp
 xargs -0 -n 2 -P "$JOBS" bash -c 'check_one "$1" "$tmp/r$0" > "$tmp/r$0.log"' < "$list" || true
 

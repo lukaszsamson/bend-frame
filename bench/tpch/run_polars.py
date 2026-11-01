@@ -133,6 +133,24 @@ def _timed(f) -> float:
     return (time.perf_counter() - t0) * 1000
 
 
+def fbad(x: pl.Series, y: pl.Series) -> pl.Series:
+    """per row: do two float columns differ? null vs non-null differs; NaN equals NaN; an infinity
+    equals only the same-signed infinity; NaN or an infinity never equals a finite value; finite
+    pairs use a relative tolerance of 1e-4 (absolute below 1.0)"""
+    x, y = x.cast(pl.Float64), y.cast(pl.Float64)
+    xn, yn = x.is_null(), y.is_null()
+    xnan, ynan = x.is_nan().fill_null(False), y.is_nan().fill_null(False)
+    xinf, yinf = x.is_infinite().fill_null(False), y.is_infinite().fill_null(False)
+    finite = ~(xn | yn | xnan | ynan | xinf | yinf)
+    close = ((x - y).abs() <= 1e-4 * y.abs().clip(lower_bound=1.0)).fill_null(False)
+    special_same = (xnan & ynan) | (xinf & yinf & (x == y).fill_null(False))
+    return (
+        pl.when(xn | yn).then(xn != yn)
+        .when(finite).then(~close)
+        .otherwise(~special_same)
+    ).alias("bad")
+
+
 def same(a: pl.DataFrame, b: pl.DataFrame) -> str | None:
     if a.columns != b.columns:
         return f"columns {a.columns} != {b.columns}"
@@ -141,14 +159,36 @@ def same(a: pl.DataFrame, b: pl.DataFrame) -> str | None:
     for col in a.columns:
         x, y = a[col], b[col]
         if x.dtype.is_float() or y.dtype.is_float():
-            x, y = x.cast(pl.Float64), y.cast(pl.Float64)
-            bad = ((x - y).abs() > 1e-4 * y.abs().clip(lower_bound=1.0)).fill_null(x.is_null() != y.is_null())
+            bad = pl.select(fbad(x, y)).to_series()
         else:
             bad = (x.cast(pl.String) != y.cast(pl.String)).fill_null(x.is_null() != y.is_null())
         if bad.any():
             i = bad.arg_max()
             return f"{col} row {i}: bend {x[i]} polars {y[i]}"
     return None
+
+
+def selftest() -> int:
+    """the comparator's own cases (v0.3 review: Astra's four plus nulls and tolerance)"""
+    inf, nan = float("inf"), float("nan")
+    cases = [  # (bend, polars, expected equal)
+        (0.0, inf, False), (-inf, inf, False), (inf, inf, True), (-inf, -inf, True), (nan, nan, True),
+        (nan, 1.0, False), (1.0, nan, False), (inf, nan, False), (None, None, True), (None, 1.0, False),
+        (1.0, None, False), (None, nan, False), (1.0, 1.00001, True), (1.0, 1.01, False),
+        (1e6, 1e6 + 50, True), (1e6, 1e6 + 500, False), (0.0, -0.0, True), (0.0, 0.00005, True),
+    ]
+    fails = 0
+    for got, want, eq in cases:
+        r = same(pl.DataFrame({"x": [got]}, schema={"x": pl.Float64}), pl.DataFrame({"x": [want]}, schema={"x": pl.Float64}))
+        if (r is None) != eq:
+            print(f"selftest FAIL: bend {got!r} polars {want!r}: expected {'equal' if eq else 'different'}, got {r!r}")
+            fails += 1
+    r = same(pl.DataFrame({"s": ["a", None]}), pl.DataFrame({"s": ["a", "b"]}))
+    if r is None:
+        print("selftest FAIL: string null vs value compared equal")
+        fails += 1
+    print(f"selftest: {len(cases) + 1 - fails} / {len(cases) + 1} ok")
+    return fails
 
 
 def check(d: Path, out: Path) -> int:
@@ -168,6 +208,8 @@ def check(d: Path, out: Path) -> int:
 
 
 if __name__ == "__main__":
+    if sys.argv[1] == "selftest":
+        sys.exit(selftest())
     mode, d = sys.argv[1], Path(sys.argv[2])
     if mode == "time":
         time_all(d, int(sys.argv[3]) if len(sys.argv) > 3 else 5)
